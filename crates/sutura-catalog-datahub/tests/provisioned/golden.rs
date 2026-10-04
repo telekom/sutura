@@ -15,9 +15,10 @@
 //! about a restricted or shared-calendar metric sourced from `DataHub` - such a metric is not carried,
 //! and a `NOT_CARRIED` row cannot name it (its `bites` would fail, the golden states none).
 //!
-//! A row's subject is never provisioned, so if the reader learns to carry it (nullability, a
-//! compound key) nothing reads that back - the row stays until someone removes it, and then the
-//! cell says whether it is still needed.
+//! Provisioning is decided from the golden, not from `NOT_CARRIED` ([`writable`]), so a stray row's
+//! subject is still read back and refused. The limit: a subject the wire mapping cannot write (the
+//! compound key, and the metric reaching through it) is never provisioned, so if the reader learns
+//! to carry it nothing reads that back.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ use sutura_domain::catalog::{
     AnchorValue, Column, Definitions, Description, InconsistentDefinitions, JoinKey, Metric, Model, ViaChain,
 };
 use sutura_domain::identity::Secret;
-use sutura_domain::model::{JoinType, SourceName, TableName};
+use sutura_domain::model::{JoinType, RelationshipName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 
 use super::tests::{INDEX_LAG_BUDGET, agent, endpoint, pat, send};
@@ -214,10 +215,42 @@ fn sutura_content(metric: &Metric) -> SuturaContent {
     )
 }
 
-/// Provisions the carried catalog onto the tier, in the measured wire shapes (`wire_pages.rs`'s
+/// What the wire mapping can write, decided from the golden alone and not from [`NOT_CARRIED`]:
+/// every model, every relationship with one plain key (a `semanticModel` side here is one
+/// column), and every metric whose dimensions reach only those. So a stray row's subject is
+/// still provisioned and read back, and the final comparison refuses the row.
+fn writable(golden: &Definitions) -> Definitions {
+    let models = golden.models().values().cloned().collect();
+    let relationships = golden
+        .relationships()
+        .values()
+        .filter(|relationship| {
+            matches!(
+                relationship.keys().iter().collect::<Vec<_>>().as_slice(),
+                [JoinKey::Equal { .. }]
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let names: Vec<RelationshipName> = relationships.iter().map(|relationship| relationship.name().clone()).collect();
+    let metrics = golden
+        .metrics()
+        .values()
+        .filter(|metric| {
+            metric
+                .dimensions()
+                .values()
+                .all(|dimension| dimension.via().is_none_or(|hops| hops.iter().all(|hop| names.contains(hop))))
+        })
+        .cloned()
+        .collect();
+    Definitions::assemble(models, relationships, metrics).expect("what the wire can write holds together")
+}
+
+/// Provisions [`writable`]'s catalog onto the tier, in the measured wire shapes (`wire_pages.rs`'s
 /// `dataset_bodies`/`relationship_bodies` and `write_property`'s property definition), only the
 /// values changed to this cell's platform, property and entities.
-fn provision(agent: &ureq::Agent, endpoint: &str, carried: &Definitions) {
+fn provision(agent: &ureq::Agent, endpoint: &str, catalog: &Definitions) {
     // 1. This cell's own structured property, under `PROPERTY`.
     let definition = serde_json::json!([{
         "urn": format!("urn:li:structuredProperty:{PROPERTY}"),
@@ -239,7 +272,7 @@ fn provision(agent: &ureq::Agent, endpoint: &str, carried: &Definitions) {
 
     // 2. All datasets in ONE POST, a full `schemaMetadata` the pinned tier's validator accepts.
     let datasets = serde_json::json!(
-        carried
+        catalog
             .models()
             .values()
             .map(|model| {
@@ -279,12 +312,12 @@ fn provision(agent: &ureq::Agent, endpoint: &str, carried: &Definitions) {
     );
     assert_eq!(status, 200, "the platform accepts the golden catalog's datasets: {body}");
 
-    // 3. All carried relationships (the compound `usage_subscription` is NOT carried) in ONE POST.
+    // 3. All writable relationships (one plain key each) in ONE POST.
     let relationships =
-        serde_json::json!(carried.relationships().values().map(|relationship| {
+        serde_json::json!(catalog.relationships().values().map(|relationship| {
         let keys: Vec<_> = relationship.keys().iter().collect();
         let [JoinKey::Equal { origin, target }] = keys.as_slice() else {
-            panic!("a carried relationship has one plain key");
+            panic!("a writable relationship has one plain key");
         };
         serde_json::json!({
             "urn": format!("urn:li:semanticModel:(urn:li:dataPlatform:{PLATFORM},PROD,{})", relationship.name().as_str()),
@@ -312,8 +345,8 @@ fn provision(agent: &ureq::Agent, endpoint: &str, carried: &Definitions) {
     );
     assert_eq!(status, 200, "the platform accepts the golden catalog's relationships: {body}");
 
-    // 4. All carried metrics in ONE POST, each under this cell's property.
-    let metrics = serde_json::json!(carried.metrics().values().map(|metric| {
+    // 4. All writable metrics in ONE POST, each under this cell's property.
+    let metrics = serde_json::json!(catalog.metrics().values().map(|metric| {
         let content = sutura_content(metric);
         serde_json::json!({
             "urn": format!("urn:li:metric:(urn:li:dataPlatform:{PLATFORM},{},{})", metric.model().as_str(), metric.name().as_str()),
@@ -390,7 +423,7 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
     };
     let golden = golden();
     let expected = carried(golden.definitions(), &NOT_CARRIED).expect("the carried golden still holds together");
-    provision(&agent(false), &endpoint, &expected);
+    provision(&agent(false), &endpoint, &writable(golden.definitions()));
 
     let reader = HttpAspectReader::new(
         Endpoint::parse(&format!("http://{endpoint}")).expect("the loopback endpoint parses"),
@@ -439,14 +472,6 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
             "the knowledge a live DataHub served back is the golden's"
         );
     }
-    // A row the read-back does not need is refused: without it the expectation must differ
-    // from what came back (or not hold together), else it silently shrinks the round trip.
-    for row in NOT_CARRIED {
-        let others: Vec<NotCarried> = NOT_CARRIED.into_iter().filter(|other| *other != row).collect();
-        let needed = match row {
-            NotCarried::Knowledge => read.knowledge() != golden.knowledge(),
-            _ => carried(golden.definitions(), &others).map_or(true, |without| &without != read.definitions()),
-        };
-        assert!(needed, "`{row:?}` exempts nothing the read-back drops - delete the row");
-    }
+    // No per-row "is it needed" pass: a row whose rewrite changes nothing exempts nothing the
+    // golden states, which `every_not_carried_row_still_names_something_the_golden_states` refuses.
 }
