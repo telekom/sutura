@@ -1,195 +1,124 @@
-//! The exemption that lets an added test with no base result pass, and the refusal that holds it.
+//! The named exemptions from the refusal of an added test with no base result.
 //!
-//! An added test that produced no base result - "not run at base" in the base report - used
-//! to be a line PRINTED beside whichever verdict the rest of the run earned, so a feature-gated
-//! test that could never run at the reconstructed base sat beside a green pass and read as evidence
-//! it was not. It is a REFUSAL now: [`refusals`] returns a sentence for every added test the base
-//! run did not account for, unless that test is exempted by name on the list at
-//! `devco/causality-no-base-exemptions`.
+//! An added test the base run produced no result for (`not run at base`) is red on neither tree,
+//! so `base::report` refuses it unless [`PATH`] names it with a reason. The file is parsed ONCE,
+//! by [`Exemptions::read`] at the top of `causality::run`, so a malformed or stale entry is refused
+//! on every arm and not only on a run that reaches the base run.
 //!
-//! The list is one test-fn name per line with a `# reason` required on each, so an entry is a CLAIM
-//! a reviewer can read the point of, not a checkbox. Three shapes fail CLOSED rather than silently:
-//! an entry with no reason is malformed, an entry naming no added test is stale, and an added test
-//! with no base result and no entry is unmeasured. The last two refuse even when the rest of the
-//! run is green, because a file full of dead exempt-thoughts rots exactly the way
-//! `devco/max-lines-ignore` describes for its parasite allowance.
+//! STALE means the name matches no `fn` in the working tree. It is judged against the tree, not
+//! against one diff's added tests: an entry another change committed refuses a later diff only
+//! when that diff's tree lost the fn. Limits: the key is the bare fn name, so one entry exempts
+//! every scoped test of that name in any package, and any `fn` of that name keeps it fresh, test
+//! or not; and an entry whose test DOES produce a base result exempts nothing and is not refused.
 
-use crate::causality::place::AddedTest;
+use std::path::Path;
 
-/// The refusal sentences an exemption file earns against a run, empty when it is consistent.
-///
-/// `no_base` is the scope's tests the base run produced no result for, or `None` when they cannot
-/// be identified safely (no per-test evidence, or a summary per-test output cannot reconcile) - a
-/// refusal can only ever cite names it can see, so the `None` case contributes nothing to the
-/// unmeasured arm while the malformed and stale arms still refuse.
-pub(crate) fn refusals(encoded: &str, scoped: &[AddedTest], no_base: Option<&[&AddedTest]>) -> Vec<String> {
-    let mut out = Vec::new();
-    for line in encoded.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((name, reason)) = line.split_once('#') else {
-            out.push(format!("  exemption `{line}` has no reason - write `{line} # <reason>`"));
-            continue;
-        };
-        let (name, reason) = (name.trim(), reason.trim());
-        if name.is_empty() || reason.is_empty() {
-            out.push(format!("  exemption `{line}` has no reason - write `{line} # <reason>`"));
-            continue;
-        }
-        if !scoped.iter().any(|test| test.name() == name) {
-            out.push(format!(
-                "  exemption `{name}` names no test this diff added - remove the stale line"
-            ));
-        }
-    }
-    if let Some(unreported) = no_base {
-        for test in unreported {
-            if !exempts(encoded, test.name()) {
-                out.push(format!(
-                    "  {} in {} produced no base result; either make it run at base or exempt it in \
-                     devco/causality-no-base-exemptions as `{} # <why>`",
-                    test.name(),
-                    test.file(),
-                    test.name()
-                ));
-            }
-        }
-    }
-    out
+use super::worktree;
+
+/// The list's path from the repository root.
+pub(crate) const PATH: &str = "devco/causality-no-base-exemptions";
+
+/// The names [`PATH`] exempts, each with a reason and each a `fn` the tree still declares.
+#[derive(Debug, Default)]
+pub(crate) struct Exemptions(Vec<String>);
+
+/// Why [`PATH`] is refused instead of read.
+#[derive(Debug)]
+pub(crate) enum ExemptionsError {
+    /// The file exists and could not be read. Only an absent file means "nothing exempted".
+    Unread(std::io::Error),
+    /// An entry with no `# reason`.
+    NoReason(String),
+    /// An entry naming no `fn` in the tree.
+    Stale(String),
 }
 
-/// Is `name` on the list, with a reason? A reason-less or comment-only line never exempts.
-fn exempts(encoded: &str, name: &str) -> bool {
-    encoded.lines().any(|line| match line.trim().split_once('#') {
-        Some((bare, reason)) => !reason.trim().is_empty() && bare.trim() == name,
-        None => false,
-    })
+impl std::fmt::Display for ExemptionsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unread(e) => write!(f, "{PATH} could not be read: {e}"),
+            Self::NoReason(name) => write!(f, "{PATH}: `{name}` has no reason - write `{name} # <reason>`"),
+            Self::Stale(name) => write!(f, "{PATH}: `{name}` names no fn in the tree - remove the stale line"),
+        }
+    }
+}
+
+impl Exemptions {
+    /// [`PATH`] under `root`, empty when absent.
+    pub(crate) fn read(root: &Path) -> Result<Self, ExemptionsError> {
+        match std::fs::read_to_string(root.join(PATH)) {
+            Ok(text) => Self::parse(&text, |name| worktree::declares_fn(root, name)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(ExemptionsError::Unread(e)),
+        }
+    }
+
+    /// One `<name> # <reason>` per line; blank and `#` lines are skipped. `declared` answers
+    /// whether the tree still has a `fn` of that name.
+    pub(crate) fn parse(text: &str, declared: impl Fn(&str) -> bool) -> Result<Self, ExemptionsError> {
+        let mut names = Vec::new();
+        for line in text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            let (name, reason) = line.split_once('#').unwrap_or((line, ""));
+            let name = name.trim().to_owned();
+            if reason.trim().is_empty() {
+                return Err(ExemptionsError::NoReason(name));
+            }
+            if !declared(&name) {
+                return Err(ExemptionsError::Stale(name));
+            }
+            names.push(name);
+        }
+        Ok(Self(names))
+    }
+
+    pub(crate) fn exempts(&self, name: &str) -> bool {
+        self.0.iter().any(|one| one == name)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::refusals;
-    use crate::Verdict;
-    use crate::causality::base::{BaseOutcome, report_base_scoped};
-    use crate::causality::fixtures::{named, scoped};
-    use crate::causality::provenance::Moved;
-    use crate::causality::reverted::Reverted;
+    use super::{Exemptions, ExemptionsError, PATH};
 
-    /// A scope whose one added test `ran` on base, protected by a `RedByAssertion` outcome that
-    /// normally PASSES - so a refusal from an exemption file stands out from the run's own verdict.
-    fn passed_otherwise(encoded: &str) -> Verdict {
-        let scope = scoped("pa", "pa/src/lib.rs", &["ran"]);
-        let outcome = BaseOutcome::RedByAssertion {
-            failed: vec![String::from("pa tests::ran")],
-        };
-        let output = "     Summary [   0.1s] 1 test run: 1 passed, 0 skipped\n";
-        report_base_scoped(
-            &outcome,
-            output,
-            false,
-            &named(1),
-            &Moved::Nothing,
-            &Reverted::Behaviour,
-            &scope,
-            encoded,
-        )
+    #[test]
+    fn an_entry_with_a_reason_naming_a_declared_fn_exempts_it() {
+        let parsed = Exemptions::parse("# header\n\nskipped_a # only built with rdbms\n", |_| true).unwrap();
+        assert!(parsed.exempts("skipped_a"));
+        assert!(!parsed.exempts("ran"));
     }
 
     #[test]
-    fn an_added_test_with_no_base_result_and_no_exemption_is_refused_by_name() {
-        // The defect this module exists for: `skipped_a` was added, the base run never produced a
-        // result for it, and nothing exempts it - so even though the run is otherwise
-        // red-on-base/green-on-head, the gate FAILS and names exactly which test to act on.
-        let scope = scoped("pa", "pa/src/lib.rs", &["ran", "skipped_a"]);
-        let outcome = BaseOutcome::RedByAssertion {
-            failed: vec![String::from("pa tests::ran")],
-        };
-        let output = concat!(
-            "        PASS [   0.021s] (1/1) pa tests::ran\n",
-            "     Summary [   0.4s] 1 test run: 1 passed, 1 skipped\n",
-        );
-        let verdict = report_base_scoped(
-            &outcome,
-            output,
-            false,
-            &named(2),
-            &Moved::Nothing,
-            &Reverted::Behaviour,
-            &scope,
-            "",
-        );
-        assert_eq!(verdict, Verdict::Fail);
-        let refused = refusals("", &scope, Some(&[&scope[1]]));
-        assert!(
-            refused
-                .iter()
-                .any(|line| line.contains("skipped_a in pa/src/lib.rs") && line.contains("no base result")),
-            "names the test: {refused:?}"
-        );
-        assert!(
-            refused.iter().any(|line| line.contains("causality-no-base-exemptions")),
-            "says how to exempt: {refused:?}"
-        );
+    fn an_entry_without_a_reason_is_refused_with_its_bare_name() {
+        for text in ["ran\n", "ran #   \n"] {
+            let refused = Exemptions::parse(text, |_| true).unwrap_err();
+            assert!(
+                matches!(refused, ExemptionsError::NoReason(ref name) if name == "ran"),
+                "{text:?}: {refused:?}"
+            );
+            assert!(refused.to_string().contains("write `ran # <reason>`"), "{refused}");
+        }
     }
 
     #[test]
-    fn an_exempted_test_with_a_reason_passes() {
-        // Same run as above, but the no-base test is on the list with a reason - the point of the
-        // exemption. The gate returns the pass it would have before this module existed.
-        let scope = scoped("pa", "pa/src/lib.rs", &["ran", "skipped_a"]);
-        let outcome = BaseOutcome::RedByAssertion {
-            failed: vec![String::from("pa tests::ran")],
-        };
-        let output = concat!(
-            "        PASS [   0.021s] (1/1) pa tests::ran\n",
-            "     Summary [   0.4s] 1 test run: 1 passed, 1 skipped\n",
-        );
-        let encoded = "# feature-gated behind rdbms in the reconstructed base\nskipped_a # only built with the rdbms feature\n";
-        let verdict = report_base_scoped(
-            &outcome,
-            output,
-            false,
-            &named(2),
-            &Moved::Nothing,
-            &Reverted::Behaviour,
-            &scope,
-            encoded,
-        );
-        assert_eq!(verdict, Verdict::Pass);
+    fn an_entry_naming_no_fn_in_the_tree_is_stale() {
+        let refused = Exemptions::parse("gone # the test was deleted\n", |name| name != "gone").unwrap_err();
         assert!(
-            refusals(encoded, &scope, Some(&[&scope[1]])).is_empty(),
-            "consistent list refuses nothing"
-        );
-    }
-
-    #[test]
-    fn an_exemption_line_without_a_reason_is_refused() {
-        // A name with no `# reason` is a claim with nothing to review, so it refuses even though
-        // nothing here is unmeasured and the run itself would pass. It is refused by name.
-        let refused = refusals("ran\n", &scoped("pa", "pa/src/lib.rs", &["ran"]), None);
-        assert!(
-            refused
-                .iter()
-                .any(|line| line.contains("`ran`") && line.contains("no reason")),
+            matches!(refused, ExemptionsError::Stale(ref name) if name == "gone"),
             "{refused:?}"
         );
-        assert_eq!(passed_otherwise("ran\n"), Verdict::Fail);
     }
 
     #[test]
-    fn a_stale_exemption_is_refused() {
-        // An entry naming a test the diff does not add exempts nothing and is itself refused, so
-        // the file cannot fill with dead lines that look like coverage.
-        let scope = scoped("pa", "pa/src/lib.rs", &["ran"]);
-        let refused = refusals("gone_forever # the test was deleted\n", &scope, None);
-        assert!(
-            refused
-                .iter()
-                .any(|line| line.contains("`gone_forever`") && line.contains("stale")),
-            "{refused:?}"
-        );
-        assert_eq!(passed_otherwise("gone_forever # the test was deleted\n"), Verdict::Fail);
+    fn an_unreadable_list_is_refused_and_an_absent_one_exempts_nothing() {
+        let dir = std::env::temp_dir().join(format!("sutura-no-base-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        assert!(!Exemptions::read(&dir).unwrap().exempts("ran"));
+        std::fs::create_dir_all(dir.join(PATH)).unwrap();
+        assert!(matches!(Exemptions::read(&dir), Err(ExemptionsError::Unread(_))));
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
