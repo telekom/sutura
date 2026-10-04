@@ -370,7 +370,7 @@ fn provision(agent: &ureq::Agent, endpoint: &str, catalog: &Definitions) {
 }
 
 /// `HttpAspectReader` reads the whole tier, and the sibling cells write to it concurrently, so this
-/// keeps the entities this cell wrote: datasets on [`PLATFORM`], relationships it named. Metrics
+/// keeps the entities this cell wrote: datasets on [`PLATFORM`], relationships it wrote. Metrics
 /// need no filter - only `PROPERTY` certifies one for this reader, and an uncertified metric is
 /// skipped by the load. That holds on a fresh tier (CI); on a reused local tier metrics an earlier
 /// run wrote under `PROPERTY` stay certified and are read back, so a provisioning change can fail
@@ -423,7 +423,8 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
     };
     let golden = golden();
     let expected = carried(golden.definitions(), &NOT_CARRIED).expect("the carried golden still holds together");
-    provision(&agent(false), &endpoint, &writable(golden.definitions()));
+    let written = writable(golden.definitions());
+    provision(&agent(false), &endpoint, &written);
 
     let reader = HttpAspectReader::new(
         Endpoint::parse(&format!("http://{endpoint}")).expect("the loopback endpoint parses"),
@@ -443,16 +444,26 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
         sources,
         Ours {
             reader,
-            relationships: expected.relationships().keys().map(ToString::to_string).collect(),
+            // What this cell wrote, not what it expects back, so a stray row's relationship is read back.
+            relationships: written.relationships().keys().map(ToString::to_string).collect(),
         },
     );
     // The paged surface is search-backed and lags a synchronous write (~2 s measured), so the read
-    // is retried until it matches or `INDEX_LAG_BUDGET` runs out; the assertion after the loop
-    // reports a mismatch.
+    // is retried until everything this cell wrote is read back or `INDEX_LAG_BUDGET` runs out. Not
+    // until it matches: a lagged view missing a stray row's subject would match, and pass.
+    let holds_all_written = |pinned: &PinnedDefinitions| {
+        let read = pinned.definitions();
+        written.models().keys().all(|name| read.models().contains_key(name))
+            && written
+                .relationships()
+                .keys()
+                .all(|name| read.relationships().contains_key(name))
+            && written.metrics().keys().all(|name| read.metrics().contains_key(name))
+    };
     let deadline = Instant::now() + INDEX_LAG_BUDGET;
     let read = loop {
         let read = catalog.load();
-        if read.as_ref().is_ok_and(|pinned| pinned.definitions() == &expected) || Instant::now() >= deadline {
+        if read.as_ref().is_ok_and(holds_all_written) || Instant::now() >= deadline {
             break read;
         }
         std::thread::sleep(Duration::from_millis(250));
