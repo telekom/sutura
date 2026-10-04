@@ -366,6 +366,10 @@ mod bigquery;
 #[cfg(all(feature = "agent", feature = "bigquery"))]
 mod agent_identity;
 
+// The delegation exchange behind the served HTTP surface and the real leg-1 gate (#1230).
+#[cfg(feature = "bigquery")]
+mod delegation_served;
+
 #[test]
 #[cfg(feature = "bigquery")]
 fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_kinds_own_boot_check() {
