@@ -1,6 +1,6 @@
 //! The exemption that lets an added test with no base result pass, and the refusal that holds it.
 //!
-//! An added test that produced no base result - "not run at base" in [`super::base::report`] - used
+//! An added test that produced no base result - "not run at base" in the base report - used
 //! to be a line PRINTED beside whichever verdict the rest of the run earned, so a feature-gated
 //! test that could never run at the reconstructed base sat beside a green pass and read as evidence
 //! it was not. It is a REFUSAL now: [`refusals`] returns a sentence for every added test the base
