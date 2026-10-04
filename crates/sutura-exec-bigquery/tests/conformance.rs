@@ -23,11 +23,9 @@
 //! `Value` that `ResultBatches::to_rows` decodes an Arrow batch back into, agree with what the
 //! corpus says an answer to that plan looks like. **What it does NOT prove:** that a real
 //! `GoogleSQL` endpoint, asked the rendered statement, returns those rows - nothing here executes
-//! SQL. **And nothing in this repository makes that claim any more:** the leg that did was
-//! `tests/corpus.rs` over the `wire`+`fixtures` features, and it was deleted with the HTTP
-//! transport. The hosted `BigQuery` venue that is left - `just bigquery-declared-principal` - asks a
-//! real dataset `SELECT SESSION_USER()` and runs no corpus case, so *the rendered statement is
-//! accepted by a real endpoint* is unmeasured on this tree rather than measured elsewhere.
+//! SQL. **That claim is made elsewhere:** the golden matrix's `bigquery` row in
+//! `crates/sutura-app/tests/golden/data_systems.rs` runs the example corpus against a real dataset
+//! in the `bigquery-conformance` CI job. This pack's own corpus still executes nowhere.
 //!
 //! **Why not `Fixture::Absent` when nothing is configured**, which is the shape every other
 //! networked binding here reaches for: `sutura_conformance::venue::refuse_a_declared_absence` fires

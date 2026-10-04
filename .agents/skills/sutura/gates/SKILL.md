@@ -1762,8 +1762,9 @@ unavailable offline.
 | a per-system macro cell | every system's row leaves, the offline ones too - the name is bare |
 
 **What it does not hold:** whether the changed lines run only for that system, and whether the job
-selects the cell - review holds both. The job is advisory and skips forks, so nothing that gates a
-merge measures a live cell. A cell whose subject is test code that runs offline is not a live cell.
+selects the cell - review holds both. The job skips forks, and `ci-aggregate` requires it only on a
+same-repository pull request or merge group that selects its category, so elsewhere nothing that
+gates a merge measures a live cell. A cell whose subject is test code that runs offline is not a live cell.
 
 ## The Claim-Cell trailer
 

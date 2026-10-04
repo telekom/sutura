@@ -47,11 +47,13 @@ driver owns the HTTP transport and its own authentication, so this crate ships n
 reads no credential file - the previous HTTP `wire` transport and its STS/credential machinery
 were removed when ADBC became this adapter's only mode.
 
-So nothing here may be cited as a round-tripped invariant. `sutura serve` links this adapter and
-dispatches `kind: bigquery` behind its default-off `bigquery` feature, but the ADBC driver path is
-not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
-the `wire`-era acceptance/corpus/differential legs went away with the transport. A default build
-links none of this.
+`sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
+feature. The golden matrix's `bigquery` row runs the example corpus through this transport
+against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
+and one run's corpus cell timed out undiagnosed (37152629712), so how it behaves under load is
+unproven. That job gates a merge through `ci-aggregate` on a same-repository pull request or
+merge group that selects the `data_source_bigquery` category; a fork gets no credential, so there the cells
+skip under their named exemption. A default build links none of this.
 
 # Identity
 
@@ -258,8 +260,9 @@ that parsed.
 `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
 methods are spread over files is one whose surface nobody can read in one place.
 
-Returns how many data rows the fixture carried, so a caller can assert the load moved what the
-file holds rather than trusting a green.
+Returns how many data rows the importer parsed out of the fixture. **The limit:** that is the
+parse's count and not the dataset's - nothing reads the table back - so a caller comparing it
+with the file measures the importer; what shows the rows landed is a query over them.
 
 ```rust
 pub const fn new(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, transport: T) -> Self

@@ -40,6 +40,9 @@
 #[cfg(test)]
 #[path = "affected/aggregate_shell.rs"]
 mod aggregate_shell;
+#[cfg(test)]
+#[path = "affected/bigquery_conformance_aggregate.rs"]
+mod bigquery_conformance_aggregate;
 #[path = "affected/claim_mutation.rs"]
 mod claim_mutation;
 #[cfg(test)]
