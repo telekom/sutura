@@ -394,6 +394,7 @@ pub(crate) enum Exempt {
     Unavailable,
     /// It takes the port's default `declared_key`, so it counts no declared join key at all.
     KeyProbe,
+    DryRun,
 }
 
 /// One named exemption: which [`DataSystemUnderTest::NAME`], from what, the `just` task that runs
@@ -439,6 +440,12 @@ const EXEMPTIONS: &[Exemption] = &[
         because: "`BigQueryWarehouse` takes the port's default `declared_key`, so a declared join key on a \
                   dataset is unchecked; the cell asserts that default still answers, so this reddens the \
                   day a probe is implemented",
+    },
+    Exemption {
+        system: "bigquery",
+        from: Exempt::DryRun,
+        runs_in: None,
+        because: "ADBC NoDryRun: dry_run -> NotAsked, never reaches dataset",
     },
     Exemption {
         system: "oracle",

@@ -354,6 +354,7 @@ bigquery-provision *args:
 bigquery-conformance *args:
     #!/usr/bin/env bash
     set -euo pipefail
+    : "${SUTURA_BQ_DATASET:?environment variable SUTURA_BQ_DATASET must be set}"
     echo "bigquery-conformance: scope sutura-app - the golden matrix's bigquery cells, against SUTURA_BQ_DATASET."
     echo "bigquery-conformance: this is NOT a gate. Run \`just test\` for the workspace suite."
     cargo nextest run -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/)' {{ args }}

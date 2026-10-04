@@ -100,6 +100,10 @@ filter = "binary_id(xtask::bin/xtask) & test(=causality::gas_tests::a_claim_cell
 slow-timeout = { period = "60s", terminate-after = 10 }
 
 [[profile.default.overrides]]
-# Live BigQuery corpus cells query real resources and need more time
-filter = "package(sutura-app) + test(/bigquery/)"
-slow-timeout = { period = "60s", terminate-after = 20 }
+# Live BigQuery corpus cells query real resources. The first observed green run (37156913407)
+# measured the corpus cell at 77.856s over 45 questions - 1.7s each, and each question already
+# carries a 30s deadline. Run 37152629712 timed out at the 300s ceiling with no output: an
+# unexplained outlier, ~4x the measured 78s. `&` so this matches only the 23 live bigquery cells
+# and not every sutura-app test. Two 60s periods = 120s, margin over the measured 90s.
+filter = "package(sutura-app) & test(/bigquery/)"
+slow-timeout = { period = "60s", terminate-after = 2 }

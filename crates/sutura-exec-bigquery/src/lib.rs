@@ -42,8 +42,8 @@
 //! `sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
 //! feature. The golden matrix's `bigquery` row runs the example corpus through this transport
 //! against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
-//! with no observed run when this was written, so until one is green nothing here may be cited as a
-//! round-tripped invariant - and no gate reaches a dataset at all. A default build links none of this.
+//! with one observed green run (run 37156913407), and no gate reaches a dataset at all. Run 37152629712 timed
+//! out with no output, so this adapter's behavior under load is unproven. A default build links none of this.
 //!
 //! # Identity
 //!
@@ -497,6 +497,9 @@ where
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
+        // The row count returned is from the importer's parse of the CSV, not from BigQuery.
+        // This assertion measures the importer's fidelity to the CSV line count, not whether the
+        // load landed in the dataset - the corpus cells below verify that by running queries.
         Ok(fixture.rows())
     }
 
