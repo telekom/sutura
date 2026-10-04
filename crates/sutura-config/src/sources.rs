@@ -316,6 +316,10 @@ pub enum InvalidSourceRegistry {
         key: &'static str,
         path: PathBuf,
     },
+    /// A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load,
+    /// before the startup log prints the resolved settings, and never quoted back.
+    #[error("`sources.{alias}.{key}` carries an `@` - credentials in the URL are refused")]
+    CredentialsInUrl { alias: SourceName, key: &'static str },
     /// The `posture:` word is not one of the two.
     #[error("`sources.{alias}.posture` does not say how this source establishes identity")]
     Posture {

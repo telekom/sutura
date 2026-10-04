@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-http-client/src/endpoint.rs b/crates/sutura-http-client/src/endpoint.rs
 --- a/crates/sutura-http-client/src/endpoint.rs
 +++ b/crates/sutura-http-client/src/endpoint.rs
-@@ -95,7 +95,7 @@ impl Endpoint {
-         if !root_only {
-             return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
+@@ -138,7 +138,7 @@ impl Endpoint {
+                 given: ShownEndpoint::of(raw),
+             });
          }
 -        if scheme == "http" {
 +        if scheme == "http" || authority.host().trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().is_ok() {

@@ -327,3 +327,26 @@ fn a_relative_client_secret_file_is_refused_at_load() {
         "{cause}"
     );
 }
+
+/// Diagnostics and logs show endpoint URLs without userinfo: the startup log prints the resolved
+/// settings before the exchange parses its token endpoint, so an `@` there is refused at load.
+#[test]
+fn a_delegation_token_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
+    for endpoint in [
+        "https://svc:s3cret@idp.example.com/token",
+        "https://svc/x:s3cret@idp.example.com/token",
+    ] {
+        let declared = DELEGATION.replace("https://idp.example.com/token", endpoint);
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+            source_overlay("impersonation-at-source", &declared)
+        ));
+        let error = Settings::load(&sources).expect_err("a userinfo token endpoint is refused");
+        let rendered = format!(
+            "{error} {error:?} {}",
+            core::error::Error::source(error.reason()).map_or_default(ToString::to_string)
+        );
+        assert!(rendered.contains("token_endpoint` carries an `@`"), "{rendered}");
+        assert!(!rendered.contains("s3cret"), "{rendered}");
+    }
+}
