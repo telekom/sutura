@@ -105,6 +105,7 @@ mod fixtures;
 pub(crate) mod isolation;
 mod membership;
 mod names;
+mod no_base;
 mod place;
 mod plan;
 mod provenance;
@@ -263,6 +264,10 @@ fn prove(
         eprintln!("xtask test-causality: could not create a worktree: {e}");
         return Verdict::Fail;
     }
+    // THE NO-BASE EXEMPTION LIST, read from the working tree because it is a claim THIS diff
+    // makes about its own added tests; absent means "nothing exempted". [`base::report`] holds an
+    // added test with no base result to this list and refuses it unless it is exempted by name.
+    let exemptions = std::fs::read_to_string(root.join("devco/causality-no-base-exemptions")).unwrap_or_default();
 
     let verdict = reconstruct_and_run(
         &wt,
@@ -277,6 +282,7 @@ fn prove(
             moved: &moved,
             reverted,
         },
+        &exemptions,
     );
     remove_worktree(root, &wt);
     verdict
@@ -322,6 +328,7 @@ fn reconstruct_and_run(
     target: &Path,
     scoped: &Scoped,
     scope: &Scope<'_>,
+    exemptions: &str,
 ) -> Verdict {
     if let Err(e) = apply(wt, base, first) {
         eprintln!("xtask test-causality: {e}");
@@ -360,6 +367,7 @@ fn reconstruct_and_run(
             scope.moved,
             scope.reverted.attempt(true),
             scoped.tests(),
+            exemptions,
         );
     }
 
@@ -383,6 +391,7 @@ fn reconstruct_and_run(
         scope.moved,
         scope.reverted.attempt(false),
         scoped.tests(),
+        exemptions,
     )
 }
 

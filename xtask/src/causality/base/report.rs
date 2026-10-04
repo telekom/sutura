@@ -6,6 +6,7 @@
 
 use crate::Verdict;
 use crate::causality::coverage::Coverage;
+use crate::causality::no_base::refusals;
 use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
 use crate::causality::reverted::{self, Reverted};
@@ -21,7 +22,7 @@ pub(crate) fn report_base(
     moved: &Moved,
     reverted: &Reverted,
 ) -> Verdict {
-    report_base_scoped(outcome, output, retried, coverage, moved, reverted, &[])
+    report_base_scoped(outcome, output, retried, coverage, moved, reverted, &[], "")
 }
 
 /// Turn a base run into the gate's verdict.
@@ -48,8 +49,12 @@ pub(crate) fn report_base_scoped(
     moved: &Moved,
     reverted: &Reverted,
     scoped: &[AddedTest],
+    exemptions: &str,
 ) -> Verdict {
     let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output, scoped, moved);
+    if let Some(verdict) = check_no_base_refusal(outcome, coverage, output, scoped, exemptions) {
+        return verdict;
+    }
     // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
     // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
     // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
@@ -57,6 +62,10 @@ pub(crate) fn report_base_scoped(
     // itself is still uncovered, which is true of every printed line here and is why `remedies`
     // keeps its wording in pure functions.
     reverted::verdict::emit_contradiction(outcome, reverted, &mut reverted::verdict::to_stdout);
+    evaluate_verdict(outcome, output, retried, moved, &measured)
+}
+
+fn evaluate_verdict(outcome: &BaseOutcome, output: &str, retried: bool, moved: &Moved, measured: &str) -> Verdict {
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -123,7 +132,7 @@ pub(crate) fn report_base_scoped(
         // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
         // words that explain it are one thing to keep true rather than two.
         BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => {
-            reverted::verdict::explain(excused, &measured, &mut reverted::verdict::to_stdout)
+            reverted::verdict::explain(excused, measured, &mut reverted::verdict::to_stdout)
         }
         BaseOutcome::RedByAssertion { ref failed } => {
             println!("  base: red by assertion, as required");
@@ -134,7 +143,7 @@ pub(crate) fn report_base_scoped(
             println!("xtask test-causality: ok - red on base, green on head ({measured})");
             Verdict::Pass
         }
-        BaseOutcome::RedWithGreenSibling { ref red, ref green } => sibling_verdict(red, green, &measured),
+        BaseOutcome::RedWithGreenSibling { ref red, ref green } => sibling_verdict(red, green, measured),
         BaseOutcome::RedOutsideTheDiff { ref failed } => {
             eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
             for one in failed {
@@ -243,6 +252,56 @@ pub(crate) fn report_base_scoped(
         }
     }
 }
+/// Check for no-base refusal: if any added tests have no base result and are not exempted,
+/// return `Some(Verdict::Fail)`. Otherwise return `None` to continue with other verdict logic.
+fn check_no_base_refusal(
+    outcome: &BaseOutcome,
+    coverage: &Coverage,
+    output: &str,
+    scoped: &[AddedTest],
+    exemptions: &str,
+) -> Option<Verdict> {
+    let no_base_tests = no_base(outcome, coverage, output, scoped);
+    let refused = refusals(exemptions, scoped, no_base_tests.as_deref());
+    if !refused.is_empty() {
+        eprintln!("xtask test-causality: FAILED - added tests produced no base result and are not exempted");
+        for line in &refused {
+            eprintln!("{line}");
+        }
+        eprintln!();
+        eprintln!("An added test with no base result is red on neither tree, so it proves nothing.");
+        eprintln!("Make it actually run at base, or exempt it by name in devco/causality-no-base-exemptions");
+        eprintln!("as `<name> # <reason>`. A reason-less or stale exemption line is refused too.");
+        return Some(Verdict::Fail);
+    }
+    None
+}
+/// The scope's tests the base run produced no result for, or `None` when they cannot be named
+/// safely. This is the REFUSAL predicate: a test this returns names is one the run now fails on
+/// unless [`crate::causality::no_base::refusals`] exempts it, and a `None` means the shortfall
+/// cannot be attributed to specific names, so there is nothing to refuse.
+fn no_base<'a>(outcome: &BaseOutcome, coverage: &Coverage, output: &str, scoped: &'a [AddedTest]) -> Option<Vec<&'a AddedTest>> {
+    if !reported_per_test(outcome) {
+        return None;
+    }
+    let ran = tests_run(output)?;
+    if ran >= coverage.scoped_count() {
+        return None;
+    }
+    let reported: Vec<String> = results(output)
+        .into_iter()
+        .filter(|one| super::is_scoped(one, scoped))
+        .collect();
+    if reported.len() != ran {
+        return None;
+    }
+    Some(
+        scoped
+            .iter()
+            .filter(|test| !reported.iter().any(|one| super::is_scoped(one, std::slice::from_ref(test))))
+            .collect(),
+    )
+}
 
 /// The verdict for a red run whose SIBLING added test passed on base.
 ///
@@ -313,34 +372,26 @@ fn state_the_gap(
         "{measured}\n  named {named} into the scope filter; the base run's own summary shows only \
          {ran} of them actually ran - the rest produced no base result (not proven)"
     );
-    let reported: Vec<String> = results(output)
-        .into_iter()
-        .filter(|one| super::is_scoped(one, scoped))
-        .collect();
-    if reported.len() != ran {
+    let Some(unreported) = no_base(outcome, coverage, output, scoped) else {
         stated.push_str("\n  per-test output does not account for the summary; skipped names cannot be identified safely");
         return stated;
-    }
-    for test in scoped {
-        if !reported.iter().any(|one| super::is_scoped(one, std::slice::from_ref(test))) {
-            stated.push_str("\n  not run at base: ");
-            stated.push_str(test.name());
-            stated.push_str(" in ");
-            stated.push_str(test.file());
-            stated.push_str(" (");
-            if let Some(gate) = test.gate() {
-                stated.push_str("declared under ");
-                stated.push_str(gate);
-                stated.push_str("; this build condition may exclude it, so the missing result cannot prove red or green");
-            } else if moved.names().iter().any(|name| name.as_str() == test.name()) {
-                stated.push_str(
-                    "base has this name, but no result matched its filter key; a cfg gate or module move may explain it",
-                );
-            } else {
-                stated.push_str("no matching base result; this test may be new, cfg-gated, or under another module path");
-            }
-            stated.push(')');
+    };
+    for test in unreported {
+        stated.push_str("\n  not run at base: ");
+        stated.push_str(test.name());
+        stated.push_str(" in ");
+        stated.push_str(test.file());
+        stated.push_str(" (");
+        if let Some(gate) = test.gate() {
+            stated.push_str("declared under ");
+            stated.push_str(gate);
+            stated.push_str("; this build condition may exclude it, so the missing result cannot prove red or green");
+        } else if moved.names().iter().any(|name| name.as_str() == test.name()) {
+            stated.push_str("base has this name, but no result matched its filter key; a cfg gate or module move may explain it");
+        } else {
+            stated.push_str("no matching base result; this test may be new, cfg-gated, or under another module path");
         }
+        stated.push(')');
     }
     stated
 }
