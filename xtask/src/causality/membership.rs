@@ -65,7 +65,8 @@ use std::path::Path;
 use super::plan::Separable;
 use super::provenance::Commit;
 
-/// What this branch ADDED to the workspace, asked of git once and answered per attempt.
+/// What this branch ADDED to the workspace and what it DELETED, asked of git once and answered per
+/// attempt.
 ///
 /// A type rather than two free functions because the git half and the decision half are one
 /// question - *is this manifest's package new here* - and the answer is needed twice, for two
@@ -73,6 +74,11 @@ use super::provenance::Commit;
 pub(super) struct Membership {
     /// Every changed build input the base commit does not have.
     added: Vec<String>,
+    /// Every path this branch DELETED. The diff's file list is built from the post-image, so a
+    /// deleted file is in neither attempt's list on its own - and a reconstruction that leaves it
+    /// deleted while restoring the `mod` line that declares it does not compile (E0583, measured
+    /// on a deleted `sutura-config` module). Every attempt puts it back.
+    deleted: Vec<String>,
 }
 
 impl Membership {
@@ -90,6 +96,7 @@ impl Membership {
                 .filter(|path| !super::worktree::base_has(root, base, path))
                 .cloned()
                 .collect(),
+            deleted: super::worktree::deleted(root, base),
         }
     }
 
@@ -101,7 +108,7 @@ impl Membership {
     /// the new manifest is deleted, the root manifest and the lockfile are checked out.
     pub(super) fn reverting(&self, reverting: &[String], inputs: &[String], at_head: &[String]) -> Vec<String> {
         let mut out: Vec<String> = reverting.to_vec();
-        for path in withdrawn(&self.added, inputs, at_head) {
+        for path in self.deleted.iter().cloned().chain(withdrawn(&self.added, inputs, at_head)) {
             if !out.contains(&path) {
                 out.push(path);
             }
@@ -263,12 +270,31 @@ mod tests {
             ]),
             edited: Vec::new(),
         };
-        let [first, retry] = Membership { added: Vec::new() }.attempts(&separable);
+        let [first, retry] = Membership {
+            added: Vec::new(),
+            deleted: Vec::new(),
+        }
+        .attempts(&separable);
 
         assert_eq!(first, separable.revert);
         assert_eq!(
             retry,
             paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-sql/Cargo.toml", "fuzz/Cargo.lock"])
+        );
+    }
+
+    /// A file the branch deleted is put back by every attempt, once, after the diff's own files.
+    #[test]
+    fn a_deleted_file_is_restored_by_every_attempt() {
+        let membership = Membership {
+            added: Vec::new(),
+            deleted: paths(&["crates/x/src/gone.rs"]),
+        };
+        let reverting = paths(&["crates/x/src/lib.rs", "crates/x/src/gone.rs"]);
+        assert_eq!(membership.reverting(&reverting, &[], &[]), reverting);
+        assert_eq!(
+            membership.reverting(&paths(&["crates/x/src/lib.rs"]), &[], &[]),
+            paths(&["crates/x/src/lib.rs", "crates/x/src/gone.rs"])
         );
     }
 

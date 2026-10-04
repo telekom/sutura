@@ -169,6 +169,14 @@ pub(super) fn touched(root: &Path, base: &Commit) -> Vec<String> {
         })
 }
 
+/// Every path the base has and the working tree deleted, one per line, as git printed it.
+pub(super) fn deleted(root: &Path, base: &Commit) -> Vec<String> {
+    git(root)
+        .args(["diff", "--name-only", "--diff-filter=D", base.as_str(), "--"])
+        .output()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).lines().map(String::from).collect())
+}
+
 /// Lines matching any of `needles` in `base`, under `paths`.
 ///
 /// The pathspec is what keeps this narrow: the question is whether a test the diff NAMES was
