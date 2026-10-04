@@ -52,9 +52,9 @@
 //! log: the TABLE names are committed fixture names plus a token, and only the dataset and project
 //! are resources.
 //!
-//! The first element carries the explicit `STRUCT<...>` type and the rest are bare tuples that
-//! coerce to it, which is what pins the column types - an array of bare tuples would let `GoogleSQL`
-//! infer them, and inferring `INT64` for a column whose fixture happens to hold no decimal is how a
+//! The first element carries the explicit `STRUCT<...>` type and the rest are untyped
+//! `STRUCT(...)` values that coerce to it, which is what pins the column types - an array of bare
+//! tuples would let `GoogleSQL` infer them, and inferring `INT64` for a column whose fixture happens to hold no decimal is how a
 //! type drifts between the two sides of a differential.
 
 use sutura_domain::model::{ColumnName, InvalidIdentifier, TableName};
@@ -287,9 +287,12 @@ impl Fixture {
             EXPIRATION_HOURS,
             declared.join(", ")
         );
+        // `STRUCT` before every later element, because a one-column bare tuple `(x)` is a parenthesised
+        // scalar rather than a struct: measured, the endpoint refused a one-column fixture's array as
+        // having no common supertype for its elements.
         for (index, tuple) in self.tuples.iter().enumerate() {
             if index > 0 {
-                out.push_str(", ");
+                out.push_str(", STRUCT");
             }
             out.push_str(tuple);
         }
@@ -477,6 +480,17 @@ mod tests {
         assert!(sql.contains("(DATE '2026-02-01', 1002, 'active', 5000, TRUE, 3.5)"), "{sql}");
         assert!(sql.ends_with("])"), "{sql}");
         assert_eq!(fixture.rows(), 2);
+    }
+
+    #[test]
+    fn a_one_column_fixture_renders_every_later_row_as_a_struct() {
+        let fixture = read_fixture("month\n2026-01-01\n2026-02-01\n").expect("a valid header");
+        let table = sutura_domain::model::TableName::parse("dim_calendar").expect("a table name parses");
+        let sql = fixture.create_statement(&table);
+        assert!(
+            sql.ends_with("STRUCT<`month` DATE>(DATE '2026-01-01'), STRUCT(DATE '2026-02-01')])"),
+            "{sql}"
+        );
     }
 
     #[test]
