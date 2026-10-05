@@ -43,9 +43,11 @@
 //! here - stated with its limit in [`AdbcBigQuery`]'s own documentation.
 
 mod ceiling;
+mod driver_message;
 mod identity;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
+pub use driver_message::DriverMessage;
 pub use identity::Impersonation;
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
@@ -134,10 +136,10 @@ pub const MOST_RESULT_BYTES: usize = 256 * 1024 * 1024;
 pub enum AdbcError {
     /// The driver `.so` could not be loaded.
     #[error("could not load the BigQuery ADBC driver: {0}")]
-    Load(#[source] CoreError),
+    Load(DriverMessage),
     /// An ADBC call (connect, prepare, execute) failed.
     #[error("ADBC call failed: {0}")]
-    Adbc(#[source] CoreError),
+    Adbc(DriverMessage),
     /// A result batch could not be read from the stream.
     #[error("could not read a result batch: {0}")]
     Batch(#[source] arrow_schema::ArrowError),
@@ -269,18 +271,19 @@ where
         OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
         OptionValue::Int(max_bytes_billed.as_int()),
     )
-    .map_err(AdbcError::Adbc)?;
+    .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     if let JobDeadline::Port(deadline) = request.deadline() {
         let left = deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?;
         stmt.set_option(
             OptionStatement::Other(JOB_TIMEOUT_OPTION.to_owned()),
             OptionValue::Int(whole_millis(left)),
         )
-        .map_err(AdbcError::Adbc)?;
+        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     }
-    stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
+    stmt.set_sql_query(request.statement())
+        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     if let Some(batch) = bound {
-        stmt.bind(batch).map_err(AdbcError::Adbc)?;
+        stmt.bind(batch).map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     }
     Ok(())
 }
@@ -300,9 +303,10 @@ fn whole_millis(left: Duration) -> i64 {
 /// neither caller decides it.
 fn load(at: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
     if let Some(path) = at.mounted() {
-        return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default()).map_err(AdbcError::Load);
+        return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default())
+            .map_err(|e| AdbcError::Load(DriverMessage::of(&e)));
     }
-    sutura_adbc::linked_driver().map_err(AdbcError::Load)
+    sutura_adbc::linked_driver().map_err(|e| AdbcError::Load(DriverMessage::of(&e)))
 }
 
 /// A driver handle, a prepared statement, and the loopback source they may still fetch from.
@@ -435,7 +439,11 @@ impl AdbcBigQuery {
             OptionDatabase::Other("bigquery.project_id".into()),
             OptionValue::String(String::from(PROBE_PROJECT)),
         )];
-        drop(driver.new_database_with_opts(opts).map_err(AdbcError::Adbc)?);
+        drop(
+            driver
+                .new_database_with_opts(opts)
+                .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?,
+        );
         Ok(())
     }
 
@@ -469,9 +477,9 @@ impl AdbcBigQuery {
         ];
         let db = driver
             .new_database_with_opts(opts.into_iter().chain(authentication.options))
-            .map_err(AdbcError::Adbc)?;
-        let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
-        let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
+            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+        let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+        let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
         Ok((driver, stmt, authentication.source))
     }
@@ -513,7 +521,7 @@ fn execute_to_completion<S>(stmt: &mut S) -> Result<ResultBatches, AdbcError>
 where
     S: Statement,
 {
-    let reader = stmt.execute().map_err(AdbcError::Adbc)?;
+    let reader = stmt.execute().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     let announced = reader.schema();
     let mut accumulating = Accumulating::announcing(
         announced,
@@ -540,10 +548,10 @@ where
 /// disconnect is a real variant of `mpsc::RecvError`/`RecvTimeoutError` and this workspace answers
 /// every variant of something rather than assuming one away.
 fn worker_vanished() -> AdbcError {
-    AdbcError::Adbc(CoreError::with_message_and_status(
+    AdbcError::Adbc(DriverMessage::of(&CoreError::with_message_and_status(
         "the ADBC worker thread ended without answering",
         adbc_core::error::Status::Internal,
-    ))
+    )))
 }
 
 /// Runs `stmt` to completion, refusing to outlive `deadline` as measured from `now`.
@@ -748,7 +756,9 @@ impl JobTransport for AdbcBigQuery {
             clippy::disallowed_methods,
             reason = "the default-off `fixtures` loader's two statements: `CREATE OR REPLACE TABLE`, rendered from a committed CSV's cells, and `drop_table`'s `DROP TABLE IF EXISTS`, rendered from a parsed `TableName`"
         )]
-        statement.execute_update().map_err(AdbcError::Adbc)?;
+        statement
+            .execute_update()
+            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         Ok(())
     }
 }

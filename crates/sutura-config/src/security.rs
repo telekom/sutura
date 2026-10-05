@@ -26,7 +26,6 @@
 use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
 
-use crate::identity_cache::CredentialCacheSettings;
 use crate::inbound::InboundIdentity;
 
 /// A pre-shared secret a caller presents to reach the service.
@@ -354,10 +353,6 @@ pub struct SecuritySettings {
     inbound: Option<InboundIdentity>,
     identity: Option<DeploymentIdentity>,
     metrics_token: Option<AccessToken>,
-    /// `security.credential_cache` - `docs/adr/0031`. Never an `Option`: the group is infallible
-    /// once parsed and off is a value of it, the same shape `ToolsSettings` uses for a capability
-    /// nobody turned on.
-    credential_cache: CredentialCacheSettings,
     outbound: Option<OutboundAnchors>,
     /// `security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911` - see
     /// [`OutboundIdentity`]. Independent of `outbound` in this struct's shape, though never
@@ -390,7 +385,6 @@ impl SecuritySettings {
         inbound: Option<InboundIdentity>,
         identity: Option<DeploymentIdentity>,
         metrics_token: Option<AccessToken>,
-        credential_cache: CredentialCacheSettings,
         outbound: Option<OutboundAnchors>,
         outbound_identity: Option<OutboundIdentity>,
         audience_mapping: crate::audience::AudienceMapping,
@@ -401,7 +395,6 @@ impl SecuritySettings {
             inbound,
             identity,
             metrics_token,
-            credential_cache,
             outbound,
             outbound_identity,
             audience_mapping,
@@ -413,13 +406,6 @@ impl SecuritySettings {
     #[must_use]
     pub const fn audience_mapping(&self) -> &crate::audience::AudienceMapping {
         &self.audience_mapping
-    }
-
-    /// The exchanged-credential cache's own settings - `docs/adr/0031`.
-    #[inline]
-    #[must_use]
-    pub const fn credential_cache(&self) -> CredentialCacheSettings {
-        self.credential_cache
     }
 
     /// The deployment-wide trust anchors a fixed-host outbound client verifies against, if declared.
@@ -534,7 +520,6 @@ impl SecuritySettings {
 
 #[cfg(test)]
 mod tests {
-    use crate::identity_cache::CredentialCacheSettings;
     use crate::inbound::{IssuerUrl, KeySetFile, PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm};
 
     use super::{
@@ -617,7 +602,6 @@ mod tests {
             None,
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
-            CredentialCacheSettings::default(),
             None,
             None,
             crate::audience::AudienceMapping::default(),
@@ -690,7 +674,6 @@ mod tests {
             None,
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
-            CredentialCacheSettings::default(),
             None,
             None,
             crate::audience::AudienceMapping::default(),
@@ -711,7 +694,6 @@ mod tests {
             Some(direct()),
             None,
             None,
-            CredentialCacheSettings::default(),
             None,
             None,
             crate::audience::AudienceMapping::default(),
@@ -922,7 +904,6 @@ mod tests {
             None,
             None,
             None,
-            CredentialCacheSettings::default(),
             Some(OutboundAnchors::System),
             Some(
                 crate::security::outbound::parse_outbound_identity(

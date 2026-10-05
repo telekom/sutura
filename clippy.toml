@@ -29,11 +29,13 @@ enum-variant-name-threshold = 2 # default 3
 # entry that reads as enforcement and does nothing is worse than no entry. Each of these was
 # confirmed by writing the banned call and watching clippy reject it.
 #
-# **Do not read the silence as permanent.** clippy 0.1.99 warns - "does not refer to a reachable
-# function", with an `allow-invalid = true` opt-out - measured on that version against a deliberate
-# nonsense path. The clippy the single pinned nightly ships did not, so writing the call remains
-# the only check that holds today. When the pin moves past that, the warning becomes the mechanism
-# and this paragraph is where that gets recorded.
+# **The pinned clippy (0.1.100) now warns** - "does not refer to a reachable function", with an
+# `allow-invalid = true` opt-out - and the warning is NOT the mechanism yet, for two measured
+# reasons. `-D warnings` does not deny a config warning, so `just lint` exits 0 over one. And a path
+# resolves only in a crate whose dependency graph reaches it: the four `getrandom` rows below warn
+# in every crate that does not depend on `getrandom` (`sutura-dev`, `xtask`, `sutura-tls`, ..),
+# which is noise that would hide a mistyped row. `allow-invalid` is not set, because it would
+# silence that mistyped row too. So writing the call remains the check that holds.
 disallowed-methods = [
   # The obvious way to parse a catalog-authored SQL fragment, and it PANICS. `Parser::new` over an
   # empty token list hits an `expect` in the parser, which is what `""`, whitespace-only and

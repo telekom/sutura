@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-adbc/src/lib.rs b/crates/sutura-adbc/src/lib.rs
+index 56d57aa01..84bc52643 100644
+--- a/crates/sutura-adbc/src/lib.rs
++++ b/crates/sutura-adbc/src/lib.rs
+@@ -108,10 +108,7 @@ pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
+     }
+     #[cfg(not(adbc_duckdb_driver_linked))]
+     {
+-        Err(CoreError::with_message_and_status(
+-            "this build linked no DuckDB ADBC driver",
+-            adbc_core::error::Status::NotFound,
+-        ))
++        linked_postgres_driver()
+     }
+ }
+ 

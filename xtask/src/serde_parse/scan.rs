@@ -485,12 +485,20 @@ enum Lexeme {
     },
 }
 
+/// What [`emit_text`] writes for a string literal that opens and closes on one line.
+#[derive(Clone, Copy)]
+enum OneLineStrings {
+    /// Keep its content, because `try_from = "String"` is one and the value is the point.
+    Keep,
+    /// Blank it like any other string, for a reader asking only what is code.
+    Blank,
+}
+
 /// The lines built so far, plus the string literal currently open.
 ///
 /// The open literal is held rather than written through, because whether it is code depends on
 /// something only its END reveals: a one-line string keeps its content and a multi-line one does
 /// not. See [`emit_text`].
-#[derive(Default)]
 struct Sink {
     lines: Vec<String>,
     current: String,
@@ -499,6 +507,10 @@ struct Sink {
     held_at: usize,
     /// Every finished literal, for [`string_literals`]. [`code_lines`] never reads it.
     literals: Vec<Literal>,
+    /// What [`emit_text`] writes for a one-line string.
+    one_line: OneLineStrings,
+    /// Per line, whether it opens in code rather than inside a string or a block comment.
+    starts: Vec<bool>,
 }
 
 impl Sink {
@@ -537,7 +549,19 @@ impl Sink {
 ///
 /// Newlines are always preserved, so a reported line number is the one a reader will open.
 pub(crate) fn code_lines(text: &str) -> Vec<String> {
-    lex(text).finish()
+    lex(text, OneLineStrings::Keep).finish()
+}
+
+/// [`code_lines`], with a one-line string's content blanked too: for a reader that asks only what
+/// is code, such as one naming the `fn` a line declares, where `"call fn foo"` is not one.
+pub(crate) fn code_lines_blanking_all_strings(text: &str) -> Vec<String> {
+    lex(text, OneLineStrings::Blank).finish()
+}
+
+/// Per line of `text`, whether it opens in code - outside every string and block comment - over
+/// the same walk, so a `//` or empty line inside a multi-line string is told from a real comment.
+pub(crate) fn starts_in_code(text: &str) -> Vec<bool> {
+    lex(text, OneLineStrings::Keep).starts
 }
 
 /// One string literal, carrying the value the compiler would give it.
@@ -556,16 +580,27 @@ pub(crate) struct Literal {
 /// to keep true, and this file's own doc says which direction its shortcuts fail in. So a comment
 /// that quotes a message is not a literal here, exactly as it is not code there.
 pub(crate) fn string_literals(text: &str) -> Vec<Literal> {
-    lex(text).literals
+    lex(text, OneLineStrings::Keep).literals
 }
 
-/// The one walk both consumers share.
-fn lex(text: &str) -> Sink {
-    let mut sink = Sink::default();
+/// The one walk every consumer shares.
+fn lex(text: &str, one_line: OneLineStrings) -> Sink {
+    let mut sink = Sink {
+        lines: Vec::new(),
+        current: String::new(),
+        held: None,
+        held_at: 0,
+        literals: Vec::new(),
+        one_line,
+        starts: vec![true],
+    };
     let mut state = Lexeme::Code;
     let mut characters = text.chars();
     while let Some(character) = characters.next() {
         state = step(state, character, &mut characters, &mut sink);
+        if character == '\n' {
+            sink.starts.push(matches!(state, Lexeme::Code));
+        }
     }
     sink
 }
@@ -697,10 +732,15 @@ fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
     // `r"a\"` swallow its own closing quote. Latent rather than live - the tree holds raw strings
     // with a backslash but none with `\"` - and latent is not a reason to leave it.
     if !raw && character == '\\' {
-        if let Some(escaped) = characters.next()
-            && let Some(ref mut held) = sink.held
-        {
-            held.push(escaped);
+        if let Some(escaped) = characters.next() {
+            // A continuation's newline is consumed here, never by `lex`'s loop, so its line start
+            // is recorded here: inside the string.
+            if escaped == '\n' {
+                sink.starts.push(false);
+            }
+            if let Some(ref mut held) = sink.held {
+                held.push(escaped);
+            }
         }
         return Lexeme::Text { hashes, raw };
     }
@@ -715,8 +755,8 @@ fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
     Lexeme::Code
 }
 
-/// Write a finished string literal back out: kept if it was one line, blanked if it spanned
-/// several. Its newlines are kept either way, so no line number moves.
+/// Write a finished string literal back out: kept if it was one line and the sink keeps one-line
+/// strings, blanked otherwise. Its newlines are kept either way, so no line number moves.
 fn emit_text(held: &str, sink: &mut Sink, raw: bool) {
     let body = held.strip_suffix('"').unwrap_or(held);
     // Recorded BEFORE the blanking decision below, which is `code_lines`'s question and not a
@@ -726,7 +766,7 @@ fn emit_text(held: &str, sink: &mut Sink, raw: bool) {
         line: sink.held_at.saturating_add(1),
         body: if raw { String::from(body) } else { continued(body) },
     });
-    if !body.contains('\n') {
+    if !body.contains('\n') && matches!(sink.one_line, OneLineStrings::Keep) {
         sink.current.push('"');
         sink.current.push_str(body);
         sink.current.push('"');
@@ -777,192 +817,4 @@ fn char_literal_width(characters: &core::str::Chars<'_>) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        Shape, code_lines, constructor_name, derives, fallible_constructors, matching_angle, serde_arg, shape_of, string_literals,
-    };
-
-    #[test]
-    fn a_trait_impl_is_not_an_inherent_impl() {
-        // `impl TryFrom<String> for Digest` declares `try_from`, which returns `Result<Self` -
-        // and reading it as the type's own constructor would make every correctly-routed newtype
-        // a violation, which is the shape of a gate people learn to disable.
-        let code = code_lines(
-            "impl TryFrom<String> for Digest {\n    fn try_from(raw: String) -> Result<Self, Bad> {\n        Self::parse(raw)\n    }\n}\n",
-        );
-        assert!(fallible_constructors(&code).is_empty());
-    }
-
-    #[test]
-    fn a_wrapped_constructor_signature_is_still_read() {
-        let code = code_lines(
-            "impl Digest {\n    pub fn parse(\n        raw: &str,\n    ) -> Result<Self, Bad> {\n        todo!()\n    }\n}\n",
-        );
-        assert_eq!(fallible_constructors(&code).get("Digest").map(String::as_str), Some("parse"));
-    }
-
-    #[test]
-    fn a_generic_impl_names_the_type_after_its_parameters() {
-        let code =
-            code_lines("impl<T> Holder<T> {\n    pub fn parse(raw: T) -> Result<Self, Bad> {\n        todo!()\n    }\n}\n");
-        assert!(fallible_constructors(&code).contains_key("Holder"));
-    }
-
-    #[test]
-    fn a_constructor_in_a_later_impl_block_is_not_attributed_to_an_earlier_type() {
-        let code = code_lines(
-            "impl Anchor {\n    pub const fn new(v: u8) -> Self {\n        Self { v }\n    }\n}\n\nimpl Digest {\n    pub fn parse(raw: &str) -> Result<Self, Bad> {\n        todo!()\n    }\n}\n",
-        );
-        let found = fallible_constructors(&code);
-        assert!(!found.contains_key("Anchor"), "{found:?}");
-        assert!(found.contains_key("Digest"), "{found:?}");
-    }
-
-    #[test]
-    fn a_method_taking_self_is_not_a_constructor() {
-        assert!(constructor_name("    pub fn narrowed(&self, to: u8) -> Result<Self, Bad> ").is_none());
-    }
-
-    #[test]
-    fn a_result_of_another_type_is_not_this_ones_constructor() {
-        assert!(constructor_name("    pub fn digest_of(x: &X) -> Result<Digest, Bad> ").is_none());
-    }
-
-    #[test]
-    fn derive_is_required_before_a_trait_name_counts() {
-        assert!(derives("#[derive(Debug, serde::Deserialize)]", "Deserialize"));
-        assert!(!derives("#[serde(with = \"Deserialize\")]", "Deserialize"));
-        // The suffix comparison earns its keep here: a substring test would read `Deserialize`
-        // as a `Serialize` derive and make every deserializing type look symmetric.
-        assert!(!derives("#[derive(serde::Deserialize)]", "Serialize"));
-    }
-
-    #[test]
-    fn a_serde_argument_is_read_by_name() {
-        let attrs = "#[serde(try_from = \"TermRepr\", into = \"TermRepr\")]";
-        assert_eq!(serde_arg(attrs, "try_from").as_deref(), Some("TermRepr"));
-        assert_eq!(serde_arg(attrs, "into").as_deref(), Some("TermRepr"));
-        assert!(serde_arg(attrs, "from").is_none());
-    }
-
-    #[test]
-    fn a_shape_is_read_off_the_declaration() {
-        let one = code_lines("pub struct Digest(String);\n");
-        assert_eq!(shape_of(&one, 0), Shape::Newtype(String::from("String")));
-        let two = code_lines("pub struct Pair(A, B);\n");
-        assert_eq!(shape_of(&two, 0), Shape::Other);
-        let unit = code_lines("pub struct Marker;\n");
-        assert_eq!(shape_of(&unit, 0), Shape::Other);
-        let named = code_lines("pub struct Range {\n    start: Date,\n    end: Date,\n}\n");
-        assert_eq!(
-            shape_of(&named, 0),
-            Shape::Named(vec![String::from("start"), String::from("end")])
-        );
-    }
-
-    #[test]
-    fn a_generic_field_type_does_not_split_a_newtype_into_two_fields() {
-        let code = code_lines("pub struct Held(BTreeMap<String, Note>);\n");
-        assert_eq!(shape_of(&code, 0), Shape::Newtype(String::from("BTreeMap<String, Note>")));
-    }
-
-    #[test]
-    fn a_body_opened_on_a_later_line_is_still_read() {
-        let code = code_lines("pub struct Wrapper<T>\nwhere\n    T: Clone,\n{\n    inner: T,\n}\n");
-        assert_eq!(shape_of(&code, 0), Shape::Named(vec![String::from("inner")]));
-    }
-
-    #[test]
-    fn a_literal_broken_across_lines_is_one_sentence_again() {
-        // What `code_lines` BLANKS, this keeps - the same walk, the other question. A `\` at end of
-        // line eats the newline and the next line's indentation, so a phrase spanning the break is
-        // contiguous; without that rule "with the feature" is "with the" and "feature".
-        let text = "fn f() {\n    Err(format!(\n        \"build the binary \\\n         with the feature that provides it\"\n    ))\n}\n";
-        let found = string_literals(text);
-        assert_eq!(found.len(), 1, "one literal");
-        let one = found.first().expect("one literal");
-        assert_eq!(one.body, "build the binary with the feature that provides it");
-        // The line a reader opens is the one the quote OPENS on, not the one it closes on.
-        assert_eq!(one.line, 3);
-        // And `code_lines` is unchanged by any of it: a multi-line literal is still blanked there.
-        assert!(!code_lines(text).join("\n").contains("with the feature"));
-    }
-
-    #[test]
-    fn a_comment_holds_no_literal_and_a_raw_string_keeps_its_backslashes() {
-        // The comment half is what makes this usable as a gate input: prose DESCRIBING a message is
-        // not a message. Measured rather than assumed, because sharing `code_lines`'s walk instead
-        // of scanning text is the whole reason this reader lives here.
-        assert!(string_literals("// a comment saying \"quoted\" things\n").is_empty());
-        // In a raw string a backslash is a character, so the continuation rule must not touch it.
-        let raw = string_literals("let p = r\"a\\\nb\";\n");
-        assert_eq!(raw.first().expect("one literal").body, "a\\\nb");
-    }
-
-    #[test]
-    fn a_single_line_string_keeps_its_content_because_the_attribute_needs_it() {
-        let lines = code_lines("#[serde(try_from = \"String\")]\n");
-        assert_eq!(lines.first().map(String::as_str), Some("#[serde(try_from = \"String\")]"));
-    }
-
-    #[test]
-    fn blanking_a_string_does_not_move_a_line_number() {
-        let text = "fn a() {}\nconst X: &str = r#\"\none\ntwo\n\"#;\npub struct Late(String);\n";
-        let lines = code_lines(text);
-        assert_eq!(
-            lines.iter().position(|line| line.contains("struct Late")),
-            Some(5),
-            "{lines:?}"
-        );
-    }
-
-    #[test]
-    fn a_quote_inside_a_char_literal_opens_no_string() {
-        let text = "fn a() { let q = '\"'; }\npub struct After(String);\n";
-        let lines = code_lines(text);
-        assert!(
-            lines.iter().any(|line| line.contains("struct After")),
-            "the char literal swallowed the file: {lines:?}"
-        );
-    }
-
-    #[test]
-    fn a_lifetime_is_not_a_char_literal() {
-        let text = "impl<'a> Digest<'a> {}\npub struct After(String);\n";
-        let lines = code_lines(text);
-        assert!(lines.iter().any(|line| line.contains("struct After")), "{lines:?}");
-    }
-
-    #[test]
-    fn an_arrow_inside_a_generic_list_is_not_its_closing_bracket() {
-        // `impl<F: for<'a> Fn(&'a str) -> u8> Holder<F>` closed the parameter list at the arrow,
-        // four characters early, so the type after it was unreadable. `crate::newtype_leaks`
-        // found it; the guard lives here because both gates read an `impl` header this way.
-        let bound = "<F: for<'a> Fn(&'a str) -> u8> Holder<F>";
-        let at = matching_angle(bound).expect("the parameter list closes");
-        // Asserted by what FOLLOWS rather than by an offset, so the test says the property
-        // instead of a number: everything past the bracket is the type being implemented for.
-        assert_eq!(bound.get(at..), Some("> Holder<F>"), "closed early at {at}");
-        assert_eq!(matching_angle("<T> Holder<T>"), Some(2));
-    }
-
-    #[test]
-    fn a_generic_impl_with_a_function_bound_still_names_its_type() {
-        let code = code_lines(
-            "impl<F: for<'a> Fn(&'a str) -> u8> Holder<F> {\n    pub fn parse(raw: F) -> Result<Self, Bad> {\n        todo!()\n    }\n}\n",
-        );
-        assert!(
-            fallible_constructors(&code).contains_key("Holder"),
-            "{:?}",
-            fallible_constructors(&code)
-        );
-    }
-
-    #[test]
-    fn a_block_comment_hides_a_declaration_and_keeps_the_lines() {
-        let text = "/*\npub struct Hidden(String);\n*/\npub struct Real(String);\n";
-        let lines = code_lines(text);
-        assert!(!lines.iter().any(|line| line.contains("struct Hidden")), "{lines:?}");
-        assert_eq!(lines.iter().position(|line| line.contains("struct Real")), Some(3));
-    }
-}
+mod tests;

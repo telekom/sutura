@@ -159,7 +159,8 @@ jobs:
       # here only when those move; every other push substitutes it and publishes nothing new.
       # `checks.adbc-driver-postgresql` is the same case for the second self-built driver (#1028):
       # its four triples are keyed on the `arrow-adbc-src` input and `nix/`, and `ci` built them
-      # from source on every run while they were unpublished.
+      # from source on every run while they were unpublished. `checks.adbc-driver-duckdb` is the
+      # third: four cross-built nixpkgs DuckDBs, keyed on the nixpkgs input and `nix/`.
       - name: Realise and publish the dependency and tool closures
         run: |
           set -eu
@@ -171,7 +172,8 @@ jobs:
             .#checks.x86_64-linux.postgres-tier \
             .#checks.x86_64-linux.clickhouse-tier \
             .#checks.x86_64-linux.adbc-driver-bigquery \
-            .#checks.x86_64-linux.adbc-driver-postgresql
+            .#checks.x86_64-linux.adbc-driver-postgresql \
+            .#checks.x86_64-linux.adbc-driver-duckdb
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's

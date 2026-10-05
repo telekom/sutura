@@ -642,7 +642,7 @@ jobs:
             set -eu
             nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt \
               .#checks.x86_64-linux.helm-chart .#checks.x86_64-linux.adbc-driver-bigquery \
-              .#checks.x86_64-linux.adbc-driver-postgresql
+              .#checks.x86_64-linux.adbc-driver-postgresql .#checks.x86_64-linux.adbc-driver-duckdb
 
       # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
       # every file, so gating it on the `rust` classification would let a docs or workflow file
@@ -672,7 +672,7 @@ jobs:
       # question and a different venue.
       - name: ADBC driver
         if: ${{ !cancelled() && github.event_name != 'push' }}
-        run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql -L
+        run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql .#checks.x86_64-linux.adbc-driver-duckdb -L
 
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has

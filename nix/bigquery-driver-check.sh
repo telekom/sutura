@@ -134,22 +134,24 @@ REASONS
             exit 1
         fi
     done <<'LOGS'
-ok|running 1 test\nlinked-postgres-driver-ran-libpq\ntest tests::cell ... ok\n\ntest result: ok. 1 passed; 0 failed
-no|running 1 test\ntest tests::cell ... ok\n\ntest result: ok. 1 passed; 0 failed
+ok|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
 no|running 0 tests\n\ntest result: ok. 0 passed; 0 failed
-no|running 1 test\nlinked-postgres-driver-ran-libpq\ntest tests::cell ... FAILED\n\ntest result: FAILED. 0 passed; 1 failed
+no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed
 LOGS
     echo "bigquery-driver-check: linked-driver matcher ok - only a log whose cell passed by its linked"
     echo "  arm passes."
 }
 
-# Did the linked-drivers test log come from the cell's LINKED arm, passing? Prints `ok` or `no`.
-# The marker is printed by that arm only (`crates/sutura-adbc/tests/linked.rs`), and the result line
-# says the one selected cell passed - neither implies the other.
+# Did the linked-drivers test log come from both cells' LINKED arms, passing? Prints `ok` or `no`.
+# Each marker is printed by its cell's linked arm only (`crates/sutura-adbc/tests/linked.rs`), and
+# the result line says the two selected cells passed - neither implies the other.
 linked_verdict() {
     local log="$1"
     if printf '%s\n' "$log" | grep -qx 'linked-postgres-driver-ran-libpq' \
-        && printf '%s\n' "$log" | grep -q '^test result: ok\. 1 passed'; then
+        && printf '%s\n' "$log" | grep -qx 'linked-duckdb-driver-ran-select-1' \
+        && printf '%s\n' "$log" | grep -q '^test result: ok\. 2 passed'; then
         printf 'ok'
     else
         printf 'no'
@@ -295,7 +297,7 @@ echo "  c-archive exists; neither artefact reads a path."
 
 # THE SECOND LINKED DRIVER'S libpq, RUN, in a TEST build (`github.com/telekom/sutura#913`): `doctor`
 # above only initialises it, so this static musl binary is where its libpq executes beside the
-# BigQuery driver. A test build, so a release-profile run of this script skips it. The derivation
+# BigQuery driver - and where the third, DuckDB, answers `SELECT 1`, which no shipped code calls. A test build, so a release-profile run of this script skips it. The derivation
 # fails if the cell fails; `linked_verdict` decides that the LINKED arm is what passed. What that
 # cell does not reach is in its own doc comment.
 if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
@@ -305,8 +307,8 @@ if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
         sed 's/^/    /' "$linked/linked.log" >&2
         exit 1
     fi
-    echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq beside the linked BigQuery"
-    echo "  driver in one static x86_64-musl test binary."
+    echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq and the linked DuckDB one"
+    echo "  answered a query beside the linked BigQuery driver in one static x86_64-musl test binary."
     # And signed in with Kerberos through it, against the derivation's own KDC tier. The derivation
     # requires the marker too; reading it here as well means a derivation that stopped asking is
     # still red.

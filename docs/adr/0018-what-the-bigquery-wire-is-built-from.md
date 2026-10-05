@@ -52,6 +52,11 @@ single package is in `nix/shipped.nix`, as `--package ${binary.package}` - a var
 of shipped binaries, not a literal `--package sutura-cli` in `flake.nix`. `flake.nix`'s own
 `ciArtifacts` builds `--workspace --all-features`, and the release derivations are in `nix/shipped.nix`.
 
+**Corrected: the release row's "no musl `libduckdb`" premise is false now.** [0009](0009-the-plan-from-one-source-to-many.md)'s
+fifth amendment records that nixpkgs `duckdb` cross-builds for both musl triples; the Seventeenth amendment
+below records the consequence - every musl release link now carries the merged DuckDB static archive as
+an ADBC driver, and no data system ships with it.
+
 **Corrected: the `anyhow` row attributes the claim to the wrong source.** `AGENTS.md` contains no
 occurrence of the word "anyhow"; the claim lives in `docs/architecture.md` and is enforced by
 `cargo xtask check-boundaries`, which fails a dynamic-error crate in a library - the gate the row
@@ -1699,7 +1704,25 @@ sign-in and its refused negative control - run only in `nix/shipped.nix`'s x86_6
 there. OAuth stays unsupported: the static libpq is built without libcurl, and a token sutura holds
 is a further change through libpq's `PQsetAuthDataHook`.
 
-## Seventeenth amendment, 2026-10-05: the PostgreSQL connector is its own crate, so a catalog reader can share it
+## Seventeenth amendment, 2026-10-05: the merged DuckDB archive reaches every musl release link, carrying no data system with it
+
+**What moved.** The "-- The release" row above still reasons from "nixpkgs has no musl `libduckdb`".
+0009's fifth amendment records that premise as false: nixpkgs' `duckdb` cross-builds for both musl
+triples. This change uses it: `nix/duckdb-adbc.nix` merges nixpkgs' duckdb static archives into one
+`libduckdb_adbc.a`, and `nix/shipped.nix`'s `adbcArchiveFor` hands it to every `-linux-musl` release
+link as an ADBC driver - a third static C archive beside the BigQuery Go one and the PostgreSQL one, in
+every musl release. The GNU triples and the darwin host receive none. **This delivery is unmeasured** - the
+configuration is in place but no shipped artefact has been observed to carry the archive.
+
+**What does NOT move.** No data system ships with it: `sutura-exec-duckdb` stays a dev-dependency,
+nothing shipped calls the linked DuckDB driver yet, and the archive is a carry-only cost until a follow-up
+wires a DuckDB source onto it. Carry-only deadlines stay the stated limit of
+[0029](0029-where-a-deadline-lives.md).
+
+**The 2026-10-02 owner decision** (feat/duckdb-adbc-linked-driver): the mounted `.so` opens through the
+explicit `duckdb_adbc_init` entrypoint, no wrapper; carry-only deadlines remain the stated limit per ADR 0029.
+
+## Eighteenth amendment, 2026-10-05: the PostgreSQL connector is its own crate, so a catalog reader can share it
 
 **What moved.** Stage 3 of `telekom/sutura#913` puts the `rdbms` catalog's live reader on the same
 driver, and a catalog adapter may not reach `sutura-sql`, which `sutura-exec-postgres` renders
