@@ -11,11 +11,20 @@
 //! three whitespace-separated words, or a first word that is not a Rust identifier - declares
 //! nothing and is skipped.
 //!
-//! **LIMITS.** The gate does not check that the changed lines run only for that
-//! system, nor that the job selects the cell. The name is a bare test name, so every system's row
-//! of a per-system macro cell leaves the measurement, the offline ones too. The live job skips
-//! forks, and `ci-aggregate` requires it only on a same-repository pull request or merge group
-//! that selects its category, so elsewhere nothing that gates a merge measures a live cell. And the trailer
+//! THIRD CHECK, AT HEAD (`github.com/telekom/sutura#1274`): every declared cell is run once here with
+//! its output captured, and the trailer is refused unless that output carries the matrix's own
+//! `exempt: <system> from Unavailable` line - so a cell whose run never reaches that system's
+//! exemption cannot leave the scope.
+//!
+//! **LIMITS.** The witness run is the checkout as it stands, not the reconstructed HEAD worktree,
+//! so an uncommitted edit is what it reads. Its I/O half, `head_output`, is reached by no hermetic
+//! cell: that it captures the line rests on one run over #1264's range, where the first two of its
+//! nine trailers were witnessed and the third was refused. The line proves the cell reached that system's
+//! exemption, not that the changed lines run only for that system, nor that the job selects the
+//! cell. The name is a bare test name, so every system's row
+//! of a per-system macro cell leaves the measurement, the offline ones too. The live job skips a
+//! fork or a Dependabot pull request, and `ci-aggregate` requires it only on any other
+//! same-repository pull request or a merge group that selects its category, so elsewhere nothing that gates a merge measures a live cell. And the trailer
 //! is read from base..HEAD only, so it exempts nothing once its commit has landed.
 
 use std::collections::BTreeSet;
@@ -79,6 +88,13 @@ pub(super) enum LiveError {
         /// The test function both trailers named.
         cell: String,
     },
+    /// The HEAD run of the cell printed no `exempt: <system> from Unavailable` line.
+    NotWitnessed {
+        /// The added test function the trailer named.
+        cell: String,
+        /// The data system whose exemption the run never reached.
+        system: String,
+    },
 }
 
 impl std::fmt::Display for LiveError {
@@ -99,6 +115,12 @@ impl std::fmt::Display for LiveError {
                 f,
                 "`{cell}` is declared by both `Live-Cell:` and `Claim-Cell:` - a claim cell is \
                  proved by its killing mutation, so it may not also leave the scope"
+            ),
+            Self::NotWitnessed { cell, system } => write!(
+                f,
+                "`Live-Cell: {cell}` names {system}, and its run here printed no `exempt: {system} \
+                 from Unavailable` line - only a cell that reaches that system's exemption may \
+                 leave the scope"
             ),
         }
     }
@@ -166,7 +188,7 @@ impl Live {
     pub(super) fn read(root: &std::path::Path, log: &str) -> Option<Self> {
         let exemptions = std::fs::read_to_string(root.join(EXEMPTIONS)).unwrap_or_default();
         let ci = std::fs::read_to_string(root.join(CI)).unwrap_or_default();
-        match Self::parse(log, &exemptions, &ci) {
+        match Self::parse(log, &exemptions, &ci).and_then(|live| live.witnessed(|cell| head_output(root, cell))) {
             Err(e) => {
                 eprintln!("xtask test-causality: FAILED - {e}");
                 None
@@ -182,6 +204,21 @@ impl Live {
                 Some(live)
             }
         }
+    }
+
+    /// Refuse the first declared cell whose output, as `output_of` reports it, carries no
+    /// `exempt: <system> from Unavailable` line for the system its trailer names.
+    pub(super) fn witnessed(self, output_of: impl Fn(&str) -> String) -> Result<Self, LiveError> {
+        for cell in &self.0 {
+            let line = format!("exempt: {} from Unavailable", cell.system);
+            if !output_of(&cell.name).lines().any(|one| one.trim_start().starts_with(&line)) {
+                return Err(LiveError::NotWitnessed {
+                    cell: cell.name.clone(),
+                    system: cell.system.clone(),
+                });
+            }
+        }
+        Ok(self)
     }
 
     /// Remove every live cell from a runnable scope, so its cell leaves the offline scope the way
@@ -252,6 +289,34 @@ impl Live {
             other @ Coverage::Unknown { .. } => other,
         }
     }
+}
+
+/// Every line the matrix cells named `cell` print when run here, captured, or empty when the run
+/// cannot start - which [`Live::witnessed`] refuses, the closed direction.
+fn head_output(root: &std::path::Path, cell: &str) -> String {
+    let filter = format!("test(/(^|::){cell}$/)");
+    std::process::Command::new("cargo")
+        .current_dir(root)
+        .env_remove("NEXTEST_PROFILE")
+        .args([
+            "nextest",
+            "run",
+            "-p",
+            "sutura-app",
+            "--all-features",
+            "--no-capture",
+            "--no-fail-fast",
+            "-E",
+        ])
+        .arg(&filter)
+        .output()
+        .map_or_default(|out| {
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
 }
 
 #[cfg(test)]
@@ -537,6 +602,58 @@ mod tests {
             Live::parse(&validate, EXEMPTED, CI_FIXTURE),
             Err(LiveError::NoJob { job, .. }) if job == "validate"
         ));
+    }
+
+    /// `github.com/telekom/sutura#1274`: a trailer whose cell's run shows no exemption for its own
+    /// system is refused, and one whose run shows it is kept.
+    #[test]
+    fn a_live_cell_whose_run_shows_no_exemption_is_refused() {
+        let declared = || {
+            Live::parse(
+                &commit("h", "Live-Cell: t bigquery bigquery-conformance\n"),
+                EXEMPTED,
+                CI_FIXTURE,
+            )
+        };
+        let refused = |output: &'static str| -> Result<Live, LiveError> { declared()?.witnessed(|_| String::from(output)) };
+        let not_witnessed = Err(LiveError::NotWitnessed {
+            cell: String::from("t"),
+            system: String::from("bigquery"),
+        });
+        assert_eq!(refused("test t ... ok\n"), not_witnessed);
+        assert_eq!(refused("exempt: postgres from Unavailable - no tier\n"), not_witnessed);
+        assert_eq!(
+            refused("exempt: bigquery from Unavailable - no dataset offline\n"),
+            declared()
+        );
+    }
+
+    /// Every declared cell is witnessed for its OWN system: a second trailer does not ride on the
+    /// first one's line, and another system's line is not this one's.
+    #[test]
+    fn every_live_cell_is_witnessed_for_its_own_system() {
+        const BIGQUERY: &str = "exempt: bigquery from Unavailable - no dataset offline\n";
+        const SNOWFLAKE: &str = "exempt: snowflake from Unavailable - no account offline\n";
+        let exempted = concat!(
+            "system: \"bigquery\",\nfrom: Exempt::Unavailable,\nruns_in: Some(\"bigquery-conformance\"),\n",
+            "system: \"snowflake\",\nfrom: Exempt::Unavailable,\nruns_in: Some(\"bigquery-conformance\"),\n",
+        );
+        let log = commit(
+            "h",
+            "Live-Cell: a bigquery bigquery-conformance\nLive-Cell: b snowflake bigquery-conformance\n",
+        );
+        let run = |b: &'static str| {
+            Live::parse(&log, exempted, CI_FIXTURE)
+                .expect("both trailers are exempted")
+                .witnessed(|cell| String::from(if cell == "a" { BIGQUERY } else { b }))
+        };
+        let b_refused = Err(LiveError::NotWitnessed {
+            cell: String::from("b"),
+            system: String::from("snowflake"),
+        });
+        assert_eq!(run(""), b_refused);
+        assert_eq!(run(BIGQUERY), b_refused);
+        assert_eq!(run(SNOWFLAKE), Live::parse(&log, exempted, CI_FIXTURE));
     }
 
     /// A malformed trailer declares nothing, and an absent exemptions file refuses a well-formed one.

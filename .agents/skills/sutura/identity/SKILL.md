@@ -164,9 +164,9 @@ EXCHANGED (RFC 8693), with an `ImpersonateAsAccount` second hop and a private cr
 transport; after that every `StsExchange` in the tree was a test fake and no composition root could
 reach the broker, so `docs/adr/0018`'s eighth amendment deleted all 2,571 lines of it. **Nothing
 caches a credential, and the one exchange a served build runs** is #1208's delegation port (next
-paragraph), only for a source that declares it. `security.credential_cache` is still
-parsed and still refuses a zero capacity or window - and **is read by nothing**, which is a settings
-surface with no mechanism behind it rather than a cache that is merely off.
+paragraph), only for a source that declares it. `security.credential_cache` is deleted
+(`github.com/telekom/sutura#1259`): a config that still writes it is refused as an unknown key, so no
+settings surface reads as a cache that is merely off.
 
 **The delegation exchange (#1208) is a port inside that broker, not a second broker.**
 `delegation::DelegationExchange` is called by `DeclaredPrincipalBroker` for a source declared with

@@ -219,3 +219,17 @@ deadline.
 token revoked before its `exp` - revocation is not observable from the assertion
 alone, and is bounded only by the token's own remaining life, as the record's
 *What this does NOT close* section already states.
+
+## Fourth amendment, 2026-10-04: `security.credential_cache` is deleted
+
+The second amendment left `security.credential_cache` parsed and read by nothing, and called
+removing it a config-schema change this record did not make. It is made now
+(`github.com/telekom/sutura#1259`): `sutura-config`'s `identity_cache` module, the
+`CredentialCacheSettings` group and its startup refusal of a zero capacity or window are gone. A
+config that still writes the key is refused at startup like any other unknown key, because
+`security` denies unknown fields - `a_credential_cache_block_is_refused_as_an_unknown_key` holds it.
+This is a hard break for a deployment that wrote the block; it gets a refusal instead of a cache
+that never existed.
+
+**What stays.** The key argument in the second amendment's last paragraph: a cache, if one is ever
+built, keys on the whole `PrincipalChain` and never a bare `Subject`.

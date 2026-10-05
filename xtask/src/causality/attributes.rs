@@ -363,6 +363,7 @@ pub(super) fn decides_a_run_unevaluably(opening: &str) -> bool {
 pub(crate) fn cells(text: &str, code: &str) -> Cells {
     let lines: Vec<&str> = text.lines().collect();
     let blanked: Vec<&str> = code.lines().collect();
+    let declared = super::scoped::Code::of(text);
     let mut found = Cells::default();
     for index in 0..lines.len() {
         let written = lines.get(index).map_or_default(|line| line.trim());
@@ -472,10 +473,7 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
         if ignored {
             // From the item down, not the item line alone: `item_below` stops at a `/* .. */`
             // line, which is not the `fn` it sits above.
-            match lines
-                .get(at..)
-                .and_then(|below| below.iter().find_map(|line| super::scoped::function_name(line.trim())))
-            {
+            match (at..lines.len()).find_map(|below| super::scoped::function_name(&declared, below)) {
                 Some(name) => found.ignored.push(String::from(name.as_str())),
                 None => found.unresolved.push(format!(
                     "no function name under the `#[ignore]` at line {}",

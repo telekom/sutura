@@ -13,6 +13,7 @@
 
 use std::path::Path;
 
+use super::scoped::Code;
 use super::worktree;
 
 /// The list's path from the repository root.
@@ -47,7 +48,7 @@ impl Exemptions {
     /// [`PATH`] under `root`, empty when absent.
     pub(crate) fn read(root: &Path) -> Result<Self, ExemptionsError> {
         match std::fs::read_to_string(root.join(PATH)) {
-            Ok(text) => Self::parse(&text, |name| worktree::declares_fn(root, name)),
+            Ok(text) => Self::parse(&text, |name| declares_fn(root, name)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(ExemptionsError::Unread(e)),
         }
@@ -78,6 +79,18 @@ impl Exemptions {
     pub(crate) fn exempts(&self, name: &str) -> bool {
         self.0.iter().any(|one| one == name)
     }
+}
+
+/// Does a tracked `.rs` file under `root` declare `fn <name>` in its CODE?
+///
+/// `git grep` only narrows the files to read and [`Code`] decides, so a comment or a string still
+/// spelling `fn <name>` does not keep a deleted test's entry fresh (`github.com/telekom/sutura#1270`).
+/// An unreadable file reads as no: the closed direction.
+fn declares_fn(root: &Path, name: &str) -> bool {
+    worktree::naming(root, name).iter().any(|path| {
+        std::fs::read_to_string(root.join(path))
+            .is_ok_and(|text| Code::of(&text).functions().any(|declared| declared.as_str() == name))
+    })
 }
 
 #[cfg(test)]
@@ -120,5 +133,33 @@ mod tests {
         std::fs::create_dir_all(dir.join(PATH)).unwrap();
         assert!(matches!(Exemptions::read(&dir), Err(ExemptionsError::Unread(_))));
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_comment_or_a_string_spelling_the_fn_does_not_keep_an_entry_fresh() {
+        // `github.com/telekom/sutura#1270`: `git grep "fn gone"` matched the comment and the string.
+        let dir = std::env::temp_dir().join(format!("sutura-no-base-code-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(dir.join("devco")).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "// fn gone was deleted\nconst NOTE: &str = \"fn gone\";\nfn kept() {}\n",
+        )
+        .unwrap();
+        for args in [&["init", "-q"][..], &["add", "lib.rs"]] {
+            let mut git = std::process::Command::new("git");
+            crate::repo::strip_git_env(&mut git);
+            assert!(git.current_dir(&dir).args(args).status().unwrap().success(), "git {args:?}");
+        }
+        std::fs::write(dir.join(PATH), "gone # deleted\n").unwrap();
+        let gone = Exemptions::read(&dir);
+        std::fs::write(dir.join(PATH), "kept # still declared\n").unwrap();
+        let kept = Exemptions::read(&dir);
+        drop(std::fs::remove_dir_all(&dir));
+        assert!(
+            matches!(gone, Err(ExemptionsError::Stale(ref name)) if name == "gone"),
+            "{gone:?}"
+        );
+        assert!(kept.is_ok_and(|list| list.exempts("kept")));
     }
 }
