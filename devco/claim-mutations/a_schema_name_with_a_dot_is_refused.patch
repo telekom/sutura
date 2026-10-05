@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-exec-postgres/src/adbc/conninfo.rs b/crates/sutura-exec-postgres/src/adbc/conninfo.rs
+diff --git a/crates/sutura-adbc-postgres/src/conninfo.rs b/crates/sutura-adbc-postgres/src/conninfo.rs
 index 147f004..b5727ff 100644
---- a/crates/sutura-exec-postgres/src/adbc/conninfo.rs
-+++ b/crates/sutura-exec-postgres/src/adbc/conninfo.rs
+--- a/crates/sutura-adbc-postgres/src/conninfo.rs
++++ b/crates/sutura-adbc-postgres/src/conninfo.rs
 @@ -311,7 +311,2 @@ impl Conninfo {
      ) -> Result<Self, UnusableChannel> {
 -        if schema.is_empty() || !schema.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {

@@ -62,6 +62,17 @@ runs `shared_client`'s own forbidden set (`sutura-exec-*`, `sutura-catalog-*`, `
 `sutura-config`, `sutura-http`, `sutura-mcp`) against `sutura-bounded-read` too, widening the
 single `-> sutura-config` row above to the whole class.
 
+**`sutura-adbc-postgres` is the first shared CONNECTOR rather than a shared read: the libpq
+connection string and its TLS posture (`Conninfo`, `Channel`), the driver load and the one open
+(`PostgresDriver`)** - what `sutura-exec-postgres` currently dials a PostgreSQL source through, and what
+`sutura-catalog-rdbms`'s live reader will dial through in stage 3 of `telekom/sutura#913` (decided 10-02, `docs/adr/0018`'s
+eighteenth amendment). It cannot live in the exec adapter, because a catalog adapter may not reach
+`sutura-sql` and the exec adapter renders through it. `sutura-adbc` stays the generic loader. Two
+rows hold it, not the sentence: `FORBIDDEN_EDGES` `sutura-adbc-postgres -> sutura-sql`
+(`Edges::Every`), and the same `shared_client` row that sutura-http-client, sutura-bounded-read, sutura-adbc, and sutura-adbc-postgres carry. **The precedent it
+sets:** a connector two adapter classes share is an unprefixed `sutura-adbc-<system>` crate with
+both rows; the adapter keeps the port implementation and the dialect.
+
 Rules that are not visible from a manifest:
 
 - **`sutura-domain`'s dependency list is an allowlist walked over the whole resolve graph**, so a

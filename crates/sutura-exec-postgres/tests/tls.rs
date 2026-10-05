@@ -2,7 +2,7 @@
 //! The VERIFYING half of the source channel, against the tier's real server.
 //!
 //! **This is the cell issue 125 could not write before the fact: a chain is actually verified.**
-//! `src/adbc/conninfo.rs` proves the string libpq is told; nothing there connects, so nothing there
+//! `sutura-adbc-postgres`'s `src/conninfo.rs` proves the string libpq is told; nothing there connects, so nothing there
 //! shows a handshake failing. These cells do, through the real driver's libpq. The negatives are the ones that matter: a server whose chain is signed by an
 //! issuer the declared anchors do not name is REFUSED, and the tier's mutual-only role refuses a
 //! client that presents no certificate.

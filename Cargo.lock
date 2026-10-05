@@ -4218,6 +4218,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-adbc-postgres"
+version = "0.6.1"
+dependencies = [
+ "adbc_core",
+ "adbc_driver_manager",
+ "arrow-schema 59.2.0",
+ "rcgen",
+ "sutura-adbc",
+ "sutura-domain",
+ "sutura-tls",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sutura-app"
 version = "0.6.1"
 dependencies = [
@@ -4540,6 +4554,7 @@ dependencies = [
  "divan",
  "rcgen",
  "sutura-adbc",
+ "sutura-adbc-postgres",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",

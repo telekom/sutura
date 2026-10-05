@@ -1721,3 +1721,23 @@ wires a DuckDB source onto it. Carry-only deadlines stay the stated limit of
 
 **The 2026-10-02 owner decision** (feat/duckdb-adbc-linked-driver): the mounted `.so` opens through the
 explicit `duckdb_adbc_init` entrypoint, no wrapper; carry-only deadlines remain the stated limit per ADR 0029.
+
+## Eighteenth amendment, 2026-10-05: the PostgreSQL connector is its own crate, so a catalog reader can share it
+
+**What moved.** Stage 3 of `telekom/sutura#913` puts the `rdbms` catalog's live reader on the same
+driver, and a catalog adapter may not reach `sutura-sql`, which `sutura-exec-postgres` renders
+through. The owner's 2026-10-02 decision is a new unprefixed crate, `sutura-adbc-postgres`, that
+both consume: `Conninfo` and `Channel` (the connection string, its TLS posture and every refusal
+the fifteenth and sixteenth amendments list), `ConnectionTarget`, `PostgresDriver` with its
+`MOUNTED_DRIVER` and `NoDriver`, `AdbcError`, and `PostgresDriver::connect`, the one open.
+`sutura-exec-postgres` re-exports each under its old `adbc::` path, so nothing it answers changes.
+`sutura-adbc` stays the generic loader that owns the one `unsafe` site.
+
+**What holds it.** `FORBIDDEN_EDGES` refuses `sutura-adbc-postgres -> sutura-sql` over every edge
+kind, and `check-boundaries`' shared-crate rows hold its normal tree off every adapter, the
+application, settings and the transports. The crate-map skill records it as the shared-connector
+precedent.
+
+**Limits.** `AdbcError` moved whole, so the connector's error still carries the variants only the
+exec adapter's statement path produces. The catalog reader still answers over `tokio-postgres` until
+the stage-3 cutover lands; that change, not this one, takes `tokio-postgres` out of the workspace.

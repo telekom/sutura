@@ -16,15 +16,13 @@ sutura-domain = { workspace = true }
 # NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this adapter
 # never compiles anything.
 sutura-sql = { workspace = true }
-# The declared bundle and client-identity read, shared with `sutura-exec-bigquery` and the HTTP
-# adapters, so a `Conninfo` refuses an unreadable or malformed file with the same refusal they do -
-# before a driver loads rather than at libpq's first connect.
-sutura-tls = { workspace = true }
+# The connection string, its TLS posture and the driver load (`Conninfo`, `PostgresDriver`), shared
+# with a metadata reader that may not reach `sutura-sql`.
+sutura-adbc-postgres = { workspace = true }
 thiserror = { workspace = true }
 # The one transport (`src/adbc.rs`, `telekom/sutura#913`). `sutura-adbc` is the shared crate that
-# owns the workspace's one `unsafe` ADBC site, so this adapter adds none; the driver manager loads
-# the self-built `libadbc_driver_postgresql` (`nix/postgres-adbc.nix`) - linked into a musl release,
-# mounted elsewhere - and the two Arrow crates name what it hands back.
+# owns the workspace's one `unsafe` ADBC site, so this adapter adds none; the connector loads the
+# driver, and the two Arrow crates name what it hands back.
 adbc_core = { version = "0.24" }
 adbc_driver_manager = { version = "0.24" }
 arrow-array = { version = "59" }
@@ -43,6 +41,8 @@ sutura-adbc = { workspace = true }
 [dev-dependencies]
 sutura-conformance = { workspace = true }
 sutura-dev = { workspace = true }
+# `tests/tls.rs` names the anchors and the client identity a `Channel` carries.
+sutura-tls = { workspace = true }
 # The benchmark harness for `benches/row_materialisation.rs` - `github.com/telekom/sutura#915`.
 # Dev-only and reaches no consumer, for the same reason every other entry in this table does not.
 divan = { workspace = true }
@@ -65,7 +65,7 @@ rcgen = { workspace = true }
 # Every compiling gate here passes `--all-features`, and `deny.toml` sets `all-features = true`, so
 # this is still compiled, linted and tested on every run.
 [features]
-fixtures = ["sutura-domain/fixtures"]
+fixtures = ["sutura-domain/fixtures", "sutura-adbc-postgres/fixtures"]
 
 [[test]]
 name = "conformance"

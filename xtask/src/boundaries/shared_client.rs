@@ -39,6 +39,52 @@ pub(crate) const BOUNDED_READ: &str = "sutura-bounded-read";
 /// consumer changes.
 pub(crate) const ADBC: &str = "sutura-adbc";
 
+/// `sutura-adbc-postgres` gets the same row a fourth time: the PostgreSQL connector both the exec
+/// adapter and a metadata reader dial through joins no `adapters::CLASSES` prefix, so nothing but
+/// a row naming it catches a normal edge from it back into an adapter - which, from a crate a
+/// catalog adapter depends on, would also be that catalog adapter's edge.
+pub(crate) const POSTGRES_ADBC: &str = "sutura-adbc-postgres";
+
+/// A walk of one watched crate's normal tree.
+type Walk = fn(&serde_json::Value) -> Result<Report, String>;
+
+/// One watched crate, as `check-boundaries` runs it.
+pub(crate) struct Row {
+    pub(crate) watched: &'static str,
+    /// The crate as the failure line names it.
+    pub(crate) what: &'static str,
+    pub(crate) check: Walk,
+    pub(crate) explain: fn(),
+}
+
+/// Every crate this rule watches, in the order `check-boundaries` reports them.
+pub(crate) const ROWS: [Row; 4] = [
+    Row {
+        watched: SHARED_CLIENT,
+        what: "the shared HTTP client",
+        check,
+        explain,
+    },
+    Row {
+        watched: BOUNDED_READ,
+        what: "the shared bounded-read crate",
+        check: check_bounded_read,
+        explain: explain_bounded_read,
+    },
+    Row {
+        watched: ADBC,
+        what: "the shared ADBC crate",
+        check: check_adbc,
+        explain: explain_adbc,
+    },
+    Row {
+        watched: POSTGRES_ADBC,
+        what: "the shared PostgreSQL ADBC connector",
+        check: check_postgres_adbc,
+        explain: explain_postgres_adbc,
+    },
+];
+
 /// Prefixes that join the forbidden class - the same two `super::adapters::CLASSES` names as
 /// "data systems" and "metadata providers". Kept as its own copy for the reason
 /// `application::ADAPTER_PREFIX` is: two rules asking different questions each keep the
@@ -98,6 +144,11 @@ pub(crate) fn check_adbc(meta: &serde_json::Value) -> Result<Report, String> {
     check_named(meta, ADBC)
 }
 
+/// The same check as [`check`], over [`POSTGRES_ADBC`]'s normal-dependency tree instead.
+pub(crate) fn check_postgres_adbc(meta: &serde_json::Value) -> Result<Report, String> {
+    check_named(meta, POSTGRES_ADBC)
+}
+
 /// The argument, printed once, the same shape every sibling half in this gate prints.
 pub(crate) fn explain() {
     eprintln!("  Why: this crate exists so two catalog HTTP readers of the SAME adapter class share");
@@ -127,9 +178,19 @@ pub(crate) fn explain_adbc() {
     eprintln!("  `sutura-domain`, the same answer `sutura-tls`'s own header gives.");
 }
 
+/// The same argument as [`explain`], for [`POSTGRES_ADBC`]'s own reason to exist.
+pub(crate) fn explain_postgres_adbc() {
+    eprintln!("  Why: this crate exists so the PostgreSQL exec adapter and a metadata reader dial a");
+    eprintln!("  source through one connection string and one refusal set without becoming each");
+    eprintln!("  other's library - it joins no `adapters::CLASSES` prefix, so nothing else in this");
+    eprintln!("  gate can see an edge FROM it.");
+    eprintln!("  Do:  a type both a consumer and this crate genuinely need belongs in `sutura-domain`,");
+    eprintln!("  the same answer `sutura-tls`'s own header gives.");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{check, check_adbc, check_bounded_read, explain, explain_adbc, explain_bounded_read};
+    use super::{POSTGRES_ADBC, ROWS, check, check_adbc, check_bounded_read, explain, explain_adbc, explain_bounded_read};
 
     fn meta(edges: &str) -> serde_json::Value {
         serde_json::from_str(&format!(
@@ -345,5 +406,37 @@ mod tests {
     #[test]
     fn explain_does_not_panic() {
         explain();
+    }
+
+    /// Through the row `check-boundaries` runs, so a row dropped from [`ROWS`] or pointed at
+    /// another crate reddens here rather than passing silently.
+    #[test]
+    fn the_postgres_adbc_row_refuses_a_normal_edge_onto_an_adapter_or_the_application() {
+        let meta: serde_json::Value = serde_json::from_str(
+            r#"{
+                "packages": [
+                    {"id": "pg", "name": "sutura-adbc-postgres"},
+                    {"id": "domain", "name": "sutura-domain"},
+                    {"id": "exec", "name": "sutura-exec-postgres"},
+                    {"id": "catalog", "name": "sutura-catalog-rdbms"},
+                    {"id": "app", "name": "sutura-app"}
+                ],
+                "resolve": {"nodes": [
+                    {"id": "pg", "deps": [{"pkg": "domain"}, {"pkg": "exec"}, {"pkg": "catalog"}, {"pkg": "app"}]},
+                    {"id": "domain", "deps": []},
+                    {"id": "exec", "deps": []},
+                    {"id": "catalog", "deps": []},
+                    {"id": "app", "deps": []}
+                ]}
+            }"#,
+        )
+        .expect("fixture parses");
+        let row = ROWS
+            .iter()
+            .find(|row| row.watched == POSTGRES_ADBC)
+            .expect("check-boundaries watches the PostgreSQL connector");
+        let report = (row.check)(&meta).expect("walk succeeds");
+        assert_eq!(report.problems.len(), 3, "{:?}", report.problems);
+        assert_eq!(report.tree_size, 4, "{:?}", report.problems);
     }
 }

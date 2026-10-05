@@ -55,7 +55,7 @@ use sutura_domain::model::SourceName;
 
 use sutura_tls::{Anchors, Identity, LoadError};
 
-use crate::connection::ConnectionTarget;
+use crate::target::ConnectionTarget;
 
 /// How one libpq keyword is kept from widening the channel or changing who signs in.
 #[cfg(test)]
@@ -625,7 +625,7 @@ mod tests {
     };
     use sutura_tls::{Anchors as TlsAnchors, Identity as TlsIdentity, LoadError};
 
-    use crate::connection::ConnectionTarget;
+    use crate::target::ConnectionTarget;
 
     /// Every channel's shared prefix: the declared target, then the keys the environment may not fill.
     const PINNED: &str = "host='db.example' port='5432' dbname='sales' user='reader' hostaddr='' \

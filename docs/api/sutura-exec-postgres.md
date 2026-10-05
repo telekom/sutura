@@ -124,101 +124,6 @@ links (both musl triples) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names.
   Kerberos yet. OAuth and per-caller sign-in are not supported: `Conninfo`
   refuses SSPI and OAuth on either driver, and the linked libpq is built without libcurl.
 
-### `enum AdbcError`
-
-```rust
-pub enum AdbcError
-```
-
-Why this transport could not answer.
-
-#### Variants
-
-- `Load`
-- `Adbc`
-- `Batch`
-- `TimedOut` - The stream failed once the statement's timeout had run out - the server cancelling it, read by the clock where the stream carries no SQLSTATE (`session::timed_out`).
-- `Unannounced`
-- `Parameters`
-- `Unreadable`
-- `DeadlineSpent` - Spent once the connection was open - refused locally, as `PostgresError::DeadlineSpent`.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
-### `struct PostgresDriver`
-
-```rust
-pub struct PostgresDriver
-```
-
-Where the PostgreSQL driver comes from: this artefact's own link, or a mounted `.so`.
-
-Not `sutura_adbc::DriverLocation`, whose linked route is the `BigQuery` archive; a mounted path is
-parsed by it, so an empty or relative one is refused exactly as for every ADBC adapter.
-
-#### Methods
-
-```rust
-pub fn from_host() -> Result<Self, NoDriver>
-```
-
-The driver this process opens: the one this artefact links, else the one
-`MOUNTED_DRIVER` names.
-
-# Errors
-
-`NoDriver` where neither is there, or the named path is not one.
-
-```rust
-pub fn linked_in() -> Option<Self>
-```
-
-The driver this artefact links, or `None` where it links none.
-
-```rust
-pub fn parse(named: &str) -> Result<Self, UnusableDriverPath>
-```
-
-Parses a mounted driver's path.
-
-# Errors
-
-`UnusableDriverPath` for an empty or relative path. Whether a driver is there is the
-load's question, asked by the first call.
-
-```rust
-pub fn probe(&self) -> Result<(), AdbcError>
-```
-
-Loads and initialises the driver, opening no database - what `sutura doctor` asks.
-
-# Errors
-
-`AdbcError::Load`, from either route.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
-
-### `enum NoDriver`
-
-```rust
-pub enum NoDriver
-```
-
-Why this process has no PostgreSQL driver to open.
-
-#### Variants
-
-- `Unset`
-- `Unusable`
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
 ### `struct AdbcPostgres`
 
 ```rust
@@ -314,67 +219,34 @@ Runs `sql`, every statement in it, on this connection.
 
 `AdbcError::Adbc` where the server refused it.
 
-### `use Channel`
+### `use AdbcError`
 
-How the channel to the source is secured, as the composition root resolved the declaration.
+### `use Channel`
 
 ### `use Conninfo`
 
-The connection string for one source. Only `Conninfo::new` and `Conninfo::kerberos` make
-one, and its `Debug` is the `Secret`'s, so the password it carries is never printed.
-
 ### `use GssEncryption`
-
-Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
 
 ### `use InvalidKerberosService`
 
-A declared Kerberos service name that is not one.
-
 ### `use Kerberos`
-
-A Kerberos sign-in through GSSAPI, as the declaration names it.
 
 ### `use KerberosService`
 
-The service half of the server's principal, `<service>/<host>` - libpq's `krbsrvname`.
+### `use MOUNTED_DRIVER`
+
+### `use NoDriver`
+
+### `use PostgresDriver`
 
 ### `use UnusableChannel`
 
-A declared connection the ADBC transport cannot hold to, refused before anything dials.
-
 ### `use UnusableDriverPath`
-
-### `constant MOUNTED_DRIVER`
-
-The variable a host that links no driver names a mounted one with.
-
-**Not a settings key**: which driver file a host carries is a property of the host rather than of
-the semantic deployment, and a release artefact that links one never reads it - the order
-`bigquery_driver` in `sutura-cli` gives for the other ADBC adapter, for its reason: a mounted
-path must not be able to displace the driver a published artefact carries.
 
 ## Module `connection`
 
 What a composition root reads out of one PostgreSQL declaration before a `Conninfo` is built:
 the address it dials and the password, read once at boot.
-
-### `enum ConnectionTarget`
-
-```rust
-pub enum ConnectionTarget<'a>
-```
-
-The address a PostgreSQL source is dialled through.
-
-#### Variants
-
-- `Host` - A TCP host name or address.
-- `UnixSocket` - A unix socket directory.
-
-#### Implements
-
-`Clone`, `Copy`
 
 ### `struct PasswordFileUnreadable`
 
@@ -404,6 +276,8 @@ claimed" list).
 # Errors
 
 `PasswordFileUnreadable` when `password_file` cannot be read.
+
+### `use ConnectionTarget`
 
 ## Module `fixture`
 

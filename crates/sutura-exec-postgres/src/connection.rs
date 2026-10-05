@@ -5,14 +5,7 @@ use std::path::Path;
 
 use sutura_domain::identity::Secret;
 
-/// The address a PostgreSQL source is dialled through.
-#[derive(Clone, Copy)]
-pub enum ConnectionTarget<'a> {
-    /// A TCP host name or address.
-    Host(&'a str),
-    /// A unix socket directory.
-    UnixSocket(&'a Path),
-}
+pub use sutura_adbc_postgres::ConnectionTarget;
 
 /// The declared password file could not be read.
 #[derive(Debug, thiserror::Error)]

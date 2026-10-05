@@ -39,6 +39,12 @@ pub(crate) const APPLICATION: &str = "sutura-app";
 /// it means rather than a name that also moves a sibling rule.
 const ADAPTER_PREFIX: &str = "sutura-exec-";
 
+/// Shared connector crates forbidden by name, not by prefix. `sutura-adbc-postgres` is the shared
+/// connector for PostgreSQL; forbidding it by name rather than prefix keeps the rule precise as
+/// more connectors arrive under the same unprefixed convention. Limit: `sutura-adbc`, the generic
+/// loader, is not listed - it opens no data system itself, so an edge onto it is not refused.
+const ADAPTER_NAMES: &[&str] = &["sutura-adbc-postgres"];
+
 /// What the check found.
 pub(crate) struct Report {
     /// How many crates were in `sutura-app`'s normal tree - printed on success, so a walk that
@@ -49,12 +55,12 @@ pub(crate) struct Report {
     pub(crate) problems: Vec<String>,
 }
 
-/// Walks `sutura-app`'s normal-dependency tree and refuses any `sutura-exec-*` name in it.
+/// Walks `sutura-app`'s normal-dependency tree and refuses any `sutura-exec-*` name or forbidden adapter name in it.
 pub(crate) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     let tree = transitive_names(meta, APPLICATION, Edges::Normal)?;
     let problems = tree
         .iter()
-        .filter(|name| name.starts_with(ADAPTER_PREFIX))
+        .filter(|name| name.starts_with(ADAPTER_PREFIX) || ADAPTER_NAMES.contains(&name.as_str()))
         .map(|name| format!("{APPLICATION} -> {name}: a normal dependency from the application onto a data-system adapter"))
         .collect();
     Ok(Report {
@@ -85,12 +91,16 @@ mod tests {
                 "packages": [
                     {{"id": "app", "name": "sutura-app"}},
                     {{"id": "exec", "name": "sutura-exec-datafusion"}},
-                    {{"id": "domain", "name": "sutura-domain"}}
+                    {{"id": "domain", "name": "sutura-domain"}},
+                    {{"id": "adbc", "name": "sutura-adbc"}},
+                    {{"id": "adbc-postgres", "name": "sutura-adbc-postgres"}}
                 ],
                 "resolve": {{"nodes": [
                     {{"id": "app", "deps": [{{"pkg": "domain"}}{edges}]}},
                     {{"id": "exec", "deps": []}},
-                    {{"id": "domain", "deps": []}}
+                    {{"id": "domain", "deps": []}},
+                    {{"id": "adbc", "deps": []}},
+                    {{"id": "adbc-postgres", "deps": []}}
                 ]}}
             }}"#
         ))
@@ -109,6 +119,13 @@ mod tests {
         let report = check(&meta(r#", {"pkg": "exec"}"#)).expect("walk succeeds");
         assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
         assert!(report.problems[0].contains("sutura-exec-datafusion"), "{:?}", report.problems);
+    }
+
+    #[test]
+    fn a_normal_edge_onto_adbc_postgres_is_a_violation() {
+        let report = check(&meta(r#", {"pkg": "adbc-postgres"}"#)).expect("walk succeeds");
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        assert!(report.problems[0].contains("sutura-adbc-postgres"), "{:?}", report.problems);
     }
 
     #[test]

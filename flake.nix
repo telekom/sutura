@@ -623,7 +623,7 @@
           } ''
             libpq=$(sed -n '/^static const internalPQconninfoOption PQconninfoOptions\[\] = {/,/^};/p' \
               ${pkgs.libpq.src}/src/interfaces/libpq/fe-connect.c | grep -oE '^[[:space:]]*\{"[a-z_]+",' | tr -d ' \t{",')
-            table=$(sed -n '/^const KEYWORDS/,/^];/p' ${./crates/sutura-exec-postgres/src/adbc/conninfo.rs} \
+            table=$(sed -n '/^const KEYWORDS/,/^];/p' ${./crates/sutura-adbc-postgres/src/conninfo.rs} \
               | grep -oE '(^|\()[[:space:]]*"[a-z_]+",' | tr -d ' \t(",')
             test "$(printf '%s\n' "$libpq" | wc -l)" -gt 40 \
               || { echo "read no PQconninfoOptions table from libpq ${pkgs.libpq.version}" >&2; exit 1; }
