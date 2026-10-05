@@ -90,10 +90,14 @@ As `linked_driver`.
 ## `fn mounted_duckdb_driver`
 
 ```rust
-pub fn mounted_duckdb_driver(path: &std::path::Path) -> Result<adbc_driver_manager::ManagedDriver, adbc_core::error::Error>
+pub fn mounted_duckdb_driver(named: &str) -> Result<adbc_driver_manager::ManagedDriver, adbc_core::error::Error>
 ```
 
-The `DuckDB` library a deployment mounted at `path`, opened as an ADBC driver.
+The `DuckDB` library a deployment mounted at `named`, opened as an ADBC driver.
+
+**The path is parsed, never handed to the loader on trust.** `DriverLocation::parse` refuses an
+empty or relative path before `dlopen` sees it - `telekom/sutura#929`'s sixth finding - so a
+relative path is a refusal, not a library that depends on this process's working directory.
 
 **The entrypoint is passed, never derived.** Given none, the driver manager derives
 `AdbcDuckdbInit` from `libduckdb.so` and falls back to `AdbcDriverInit`, and `DuckDB` defines
@@ -102,7 +106,8 @@ too.
 
 # Errors
 
-`CoreError` where the library does not load or its initialisation refused.
+`CoreError` where the named path is unusable (empty or relative), where the library does not
+load, or where its initialisation refused.
 
 ## `use parameter_batch`
 
