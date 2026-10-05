@@ -41,7 +41,8 @@ const ADAPTER_PREFIX: &str = "sutura-exec-";
 
 /// Shared connector crates forbidden by name, not by prefix. `sutura-adbc-postgres` is the shared
 /// connector for PostgreSQL; forbidding it by name rather than prefix keeps the rule precise as
-/// more connectors arrive under the same unprefixed convention.
+/// more connectors arrive under the same unprefixed convention. Limit: `sutura-adbc`, the generic
+/// loader, is not listed - it opens no data system itself, so an edge onto it is not refused.
 const ADAPTER_NAMES: &[&str] = &["sutura-adbc-postgres"];
 
 /// What the check found.
