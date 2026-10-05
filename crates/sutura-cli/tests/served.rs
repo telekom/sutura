@@ -143,6 +143,14 @@ mod agent;
 #[path = "served/bigquery.rs"]
 mod bigquery;
 
+// The delegation exchange in a spawned deployment that opened the ADBC driver (`#1271`); its own
+// header says what it observes and what it does not.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+#[path = "served/delegation_adbc.rs"]
+mod delegation_adbc;
+
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "bigquery")]

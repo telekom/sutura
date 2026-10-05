@@ -183,7 +183,7 @@ The two rows are that split and not a duplication.
 | `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - | - |
 | The RFC 8693 request document a broker sent, while one existed | - the broker and its fake exchange this row was written for were deleted with the old `wire` transport (`docs/adr/0018`, eighth amendment), and that cell stays a record of a withdrawn claim. The tree sends one again since #1208 - the delegation exchange behind the new `wire` feature - and the row below is where that request is pinned | - | - | - | - | - | - |
-| The document leg 1 verified was the `subject_token` the exchanging broker offered | - | **yes** - since #1258 the served root composes the delegation exchange into `DeclaredPrincipalBroker` for a source declaring `workload_identity.delegation`, and `a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back` sends two callers' mock-issuer tokens through the real gate and router and reads each one as the `subject_token` a loopback IdP received. In process, not the spawned binary, which cannot boot a `bigquery` source without an ADBC driver; what a real IdP and pool do with the token is the token-exchange row below. Without a delegation the verified document goes behind a loopback `url` credential source instead, asserted in `adbc/subject/tests.rs` | - | - | - | - | - |
+| The document leg 1 verified was the `subject_token` the exchanging broker offered | - | **yes** - since #1258 the served root composes the delegation exchange into `DeclaredPrincipalBroker` for a source declaring `workload_identity.delegation`, and `a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back` sends two callers' mock-issuer tokens through the real gate and router and reads each one as the `subject_token` a loopback IdP received. In process; on the spawned binary over the ADBC driver, `a_spawned_deployment_exchanges_the_declared_callers_own_token_and_no_one_elses` reads one declared caller's token as the only `subject_token` and an undeclared caller's as none, where `just e2e-datahub-adbc` runs, since no nix check carries the driver; what a real IdP and pool do with the token is the token-exchange row below. Without a delegation the verified document goes behind a loopback `url` credential source instead, asserted in `adbc/subject/tests.rs` | - | - | - | - | - |
 | A subject the shipped broker holds nothing for reaches no authorization server and no data system | - | **yes** - `DeclaredPrincipalBroker` refuses a caller its source does not name before anything is built or sent; the exchanging broker this row was written for is deleted and the refusal outlived it | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | redundant | - | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - | - |
@@ -326,11 +326,14 @@ subscriber - cannot see it, and two of that crate's own tests stand in `tower_ht
 say so. A suite reading the process's own streams sees every thread. It is also why the wait is a
 blocking read with a budget rather than a sweep: the record is not ordered against the response.
 
-**What the composed binary cannot host, and why the tests above stay at the router:** the key-set
-windows cannot be shortened from a settings file, so the rotation and rate-limit bounds would mean a
-test sleeping for the shipped minute; and the exchange half needs a `bigquery` source, which the
-spawned binary cannot boot without an ADBC driver - so the delegation exchange is held at the router
-too, in `crates/sutura-cli/src/serve/tests/delegation_served.rs`. Those two are the honest reason
+**What the composed binary cannot host in its default venue, and why the tests above stay at the
+router:** the key-set windows cannot be shortened from a settings file, so the rotation and
+rate-limit bounds would mean a test sleeping for the shipped minute; and the exchange half needs a
+`bigquery` source, which the spawned binary boots only where an ADBC driver is mounted - so the
+delegation exchange is held at the router too, in
+`crates/sutura-cli/src/serve/tests/delegation_served.rs`. On the binary it is held only by the two
+`#[ignore]`d cells in `crates/sutura-cli/tests/served/delegation_adbc.rs` that the
+`e2e-datahub-adbc` CI job runs. Those two limits are the honest reason
 `credential_unavailable_is_reachable_end_to_end` and
 `two_subjects_drive_two_different_exchanged_credentials` are router tests rather than binary ones.
 **The sentence this replaced said the root refuses to boot an `impersonation-at-source` source, and

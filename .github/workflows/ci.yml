@@ -1801,6 +1801,7 @@ jobs:
   # The real DataHub tier supplies the certified metric and the ADBC driver executes it against
   # fixture tables this run created in BigQuery. The Keycloak tier verifies the caller; the source
   # deliberately uses the acknowledged shared CI identity. The dataset group serializes writes.
+  # The same app runs the two `delegation_adbc` cells, which need only the driver this job mounts.
   # Forks, Dependabot and merge groups cannot receive the bq-test credential; the aggregate below
   # requires this leg for every selected same-repository pull request and push.
   e2e-datahub-adbc:

@@ -260,6 +260,38 @@ pub(crate) fn files_source(name: &str, data: &Path) -> String {
     )
 }
 
+/// The one subject a delegating `bigquery` source declares, beside the account it executes as.
+#[cfg(feature = "bigquery")]
+pub(crate) const DELEGATED: (&str, &str) = ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com");
+
+/// A `bigquery` source that declares the delegation exchange of a `direct` deployment: an
+/// `impersonation-at-source` posture with a `workload_identity:` block naming the pool, [`DELEGATED`]
+/// as its one subject, and the four-key `delegation:` block whose exchange only `direct` can run.
+#[cfg(feature = "bigquery")]
+pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client_secret_file: &Path) -> String {
+    let (subject, account) = DELEGATED;
+    format!(
+        "  {name}:\n    \
+           kind: \"bigquery\"\n    \
+           billing_project: \"acme-analytics\"\n    \
+           dataset: \"warehouse\"\n    \
+           credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
+           max_bytes_billed: 1073741824\n    \
+           posture: \"impersonation-at-source\"\n    \
+           workload_identity:\n      \
+           audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
+           scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
+           impersonate:\n        \
+           \"{subject}\": \"{account}\"\n      \
+           delegation:\n        \
+           token_endpoint: \"{token_endpoint}\"\n        \
+           client_id: \"sutura\"\n        \
+           client_secret_file: \"{}\"\n        \
+           audience: \"pool-client-id\"\n",
+        client_secret_file.display(),
+    )
+}
+
 /// Every deployment in this file, above the three things that vary: the server group, the security
 /// group and the sources.
 ///
@@ -603,13 +635,31 @@ pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
 }
 
 /// Restore only the explicitly supplied ADBC driver path after the harness scrubs ambient settings.
-#[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
 pub(crate) fn start_configured_with_driver(case: &str, settings: &str, driver: Option<&str>) -> Served {
+    start_configured_with_environment(case, settings, driver, &[], &[])
+}
+
+/// The same, with every inherited variable whose name starts with one of `dropped` removed and
+/// each of `extra` set - for a case that decides what the child may reach beyond the loopback.
+#[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
+pub(crate) fn start_configured_with_environment(
+    case: &str,
+    settings: &str,
+    driver: Option<&str>,
+    extra: &[(&str, &str)],
+    dropped: &[&str],
+) -> Served {
     let config_dir = written(case, settings);
     let mut command = command(&config_dir, Environment::Development);
     if let Some(driver) = driver {
         command.env("SUTURA_BIGQUERY_ADBC_DRIVER", driver);
     }
+    for (key, _) in std::env::vars_os() {
+        if dropped.iter().any(|prefix| key.to_string_lossy().starts_with(prefix)) {
+            command.env_remove(key);
+        }
+    }
+    command.envs(extra.iter().copied());
     let mut child = command.spawn().expect("the composed binary starts");
     let stdout = child.stdout.take().expect("standard output was piped");
     let stderr = child.stderr.take().expect("standard error was piped");
