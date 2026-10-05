@@ -41,9 +41,17 @@ mod deadline {
 
     const SERVICE: &str = "postgres";
 
-    /// The `pg_sleep` a 300ms-budget cell is stopped inside: long enough that its 5s/8s elapsed
-    /// bound sits under it and far past the setup delay load adds before the statement is sent.
+    /// The `pg_sleep` a 300ms-budget cell is stopped inside, under the 15s connect-time ceiling.
     const SLOW_SECS: u64 = 10;
+
+    /// What a stopped `pg_sleep` cell may take, in every venue. Under `SLOW_SECS`, so a deadline
+    /// firing 9s late still fails it; as wide as that allows, so only connect plus setup past 8s
+    /// reads as a red. One number for both venues: a stopped run takes ~300ms either way.
+    const STOPPED_WITHIN: Duration = Duration::from_secs(8);
+
+    /// The per-statement cells' budget: under the 15s ceiling, not a round number a display format
+    /// could coincide with, and wide enough that connect plus setup does not spend it first.
+    const BUDGET_MS: i64 = 12_345;
 
     /// The tier's connection string into `schema`, or `None` (and a `NOT RUN` line) without a tier.
     fn conninfo(case: &str, schema: &str) -> Option<Conninfo> {
@@ -215,11 +223,8 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
-        // CI's own margin, or a wider one on a shared machine - see `sutura_dev::tolerance`. Both
-        // stay well under the `pg_sleep` and the 15s connect-time ceiling.
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(5), Duration::from_secs(8));
         assert!(
-            elapsed < ceiling,
+            elapsed < STOPPED_WITHIN,
             "stopped at ~300ms plus setup, not run to completion ({SLOW_SECS}s) or to the 15s ceiling: {elapsed:?}"
         );
     }
@@ -299,9 +304,8 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error:?}"
         );
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(5), Duration::from_secs(8));
         assert!(
-            elapsed < ceiling,
+            elapsed < STOPPED_WITHIN,
             "stopped at ~300ms plus setup, not run to completion ({SLOW_SECS}s) or to the 15s ceiling: {elapsed:?}"
         );
     }
@@ -315,11 +319,10 @@ mod deadline {
         let Some((warehouse, _schema)) = open("rawshowtimeout") else {
             return;
         };
-        // Comfortably inside the default 15s ceiling, and not a round number a Postgres display
-        // format could coincide with - the same value the certified sibling cell uses.
+        let opened = Instant::now();
         let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+            opened,
+            Budget::parse(Duration::from_millis(BUDGET_MS.unsigned_abs())).expect("BUDGET_MS is a budget"),
         );
 
         let outcome = warehouse
@@ -330,6 +333,7 @@ mod deadline {
             )
             .expect("this adapter accepts a raw statement")
             .expect("well inside every timeout, this call must answer");
+        let spent_ms = i64::try_from(opened.elapsed().as_millis()).expect("a test's milliseconds fit an i64");
         let seen_ms = match outcome.rows().first().and_then(|row| row.first()) {
             Some(Value::Integer(ms)) => *ms,
             other => panic!("expected exactly one integer cell, got {other:?}"),
@@ -338,14 +342,18 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // Never above the budget: `SET LOCAL` cannot see a LARGER one than the deadline was opened
         // with, the same exact arithmetic the certified sibling cell checks.
         assert!(
-            seen_ms <= 4321,
+            seen_ms <= BUDGET_MS,
             "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
         );
-        // No lower window: load only shrinks what is left at send time, and the exact value is
-        // `tests::deadline_statement_timeout`'s hermetic claim in `src/tests.rs`.
+        // The lower bound with no clock in it: what is left at send is the budget less what was
+        // spent before it (at most `spent_ms`), truncated by at most 1ms - true at any load.
+        assert!(
+            seen_ms + spent_ms + 1 >= BUDGET_MS,
+            "the per-statement value must be what was left of the budget: saw {seen_ms}ms after {spent_ms}ms spent"
+        );
         assert!(seen_ms > 0, "zero reads as no timeout at all: saw {seen_ms}ms");
     }
 
@@ -383,16 +391,17 @@ mod deadline {
             bindings,
             range,
         );
-        // Comfortably inside the default 15s ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` unset by
-        // this test), and not a round number a Postgres display format could coincide with.
+        // `SUTURA_DEV_STATEMENT_TIMEOUT_MS` is unset by this test, so the ceiling is the 15s default.
+        let opened = Instant::now();
         let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+            opened,
+            Budget::parse(Duration::from_millis(BUDGET_MS.unsigned_abs())).expect("BUDGET_MS is a budget"),
         );
 
         let rows = warehouse
             .execute(Executable::Query(&plan), &corpus::presented(), deadline)
             .expect("well inside every timeout, this call must answer");
+        let spent_ms = i64::try_from(opened.elapsed().as_millis()).expect("a test's milliseconds fit an i64");
         // `[bucket, measure]` per row - no keys on this plan - so the `timeout_ms` aggregate is the
         // SECOND cell, not the first: that one is the `day` bucket every case in this corpus
         // projects ahead of its measure (`mean_by_day`'s own expected rows show the same order).
@@ -405,15 +414,19 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // Never above the budget: `SET LOCAL` cannot see a LARGER one than the deadline was opened
         // with, which is exact arithmetic and not a margin - true at any load, so it needs no
         // venue to pick a number for it.
         assert!(
-            seen_ms <= 4321,
+            seen_ms <= BUDGET_MS,
             "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
         );
-        // No lower window: load only shrinks what is left at send time, and the exact value is
-        // `tests::deadline_statement_timeout`'s hermetic claim in `src/tests.rs`.
+        // The lower bound with no clock in it: what is left at send is the budget less what was
+        // spent before it (at most `spent_ms`), truncated by at most 1ms - true at any load.
+        assert!(
+            seen_ms + spent_ms + 1 >= BUDGET_MS,
+            "the per-statement value must be what was left of the budget: saw {seen_ms}ms after {spent_ms}ms spent"
+        );
         assert!(seen_ms > 0, "zero reads as no timeout at all: saw {seen_ms}ms");
     }
 
@@ -474,10 +487,10 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a PREPARE stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
-        // Both stay far short of the ~15s ceiling a `PREPARE` left blocked on the lock runs to.
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(5), Duration::from_secs(8));
+        // The work's own bound, in every venue: a `PREPARE` left blocked on the lock runs to the
+        // ~15s ceiling, so 12s still fails that and only connect plus setup past 12s reads as a red.
         assert!(
-            elapsed < ceiling,
+            elapsed < Duration::from_secs(12),
             "stopped at ~300ms plus setup, not left blocked on the lock: {elapsed:?}"
         );
     }
