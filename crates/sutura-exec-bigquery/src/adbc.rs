@@ -43,9 +43,11 @@
 //! here - stated with its limit in [`AdbcBigQuery`]'s own documentation.
 
 mod ceiling;
+mod driver_message;
 mod identity;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
+pub use driver_message::DriverMessage;
 pub use identity::Impersonation;
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
@@ -129,31 +131,6 @@ pub const MOST_RESULT_ROWS: usize = 1_000_000;
 /// `tests::the_transports_byte_ceiling_is_a_quarter_of_the_provisional_working_set` is the cell.
 pub const MOST_RESULT_BYTES: usize = 256 * 1024 * 1024;
 
-/// A driver message with every console job link cut out, so no rendered error says where a job ran.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DriverMessage(String);
-impl DriverMessage {
-    pub(crate) fn of(error: &CoreError) -> Self {
-        Self(unlinked(&error.to_string()))
-    }
-}
-impl std::fmt::Display for DriverMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-fn unlinked(message: &str) -> String {
-    const LINK: &str = "https://console.cloud.google.com/";
-    let mut out = String::with_capacity(message.len());
-    let mut rest = message;
-    while let Some((before, after)) = rest.split_once(LINK) {
-        out.push_str(before);
-        out.push_str("[a job link]");
-        rest = after.trim_start_matches(|c: char| !c.is_whitespace() && c != ')');
-    }
-    out.push_str(rest);
-    out
-}
 /// Why the ADBC transport could not answer.
 #[derive(Debug, thiserror::Error)]
 pub enum AdbcError {
@@ -802,34 +779,3 @@ pub(crate) fn a_declared_account() -> sutura_domain::identity::PrincipalName {
 mod batch_cells;
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod driver_message {
-    use super::*;
-
-    #[test]
-    fn a_console_link_never_reaches_a_rendered_driver_error() {
-        let e = CoreError::with_message_and_status(
-            "division by zero (Query: https://console.cloud.google.com/bigquery?j=bq:a:b&page=q) - ok",
-            adbc_core::error::Status::Unknown,
-        );
-        let err = AdbcError::Adbc(DriverMessage::of(&e));
-        let rendered = err.to_string();
-        assert!(!rendered.contains("console.cloud.google.com"));
-        assert!(rendered.contains("division by zero (Query: [a job link]) - ok"));
-        let mut source = std::error::Error::source(&err);
-        while let Some(s) = source {
-            assert!(!s.to_string().contains("console.cloud.google.com"));
-            source = s.source();
-        }
-    }
-
-    #[test]
-    fn two_links_are_cut_and_a_plain_message_is_kept() {
-        assert_eq!(
-            unlinked("a https://console.cloud.google.com/x b (https://console.cloud.google.com/y)"),
-            "a [a job link] b ([a job link])"
-        );
-        assert_eq!(unlinked("plain"), "plain");
-    }
-}

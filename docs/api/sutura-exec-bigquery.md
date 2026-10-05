@@ -472,18 +472,6 @@ locals of `AdbcBigQuery::connect`, built from one request's own options; the end
 owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
 here - stated with its limit in `AdbcBigQuery`'s own documentation.
 
-### `struct DriverMessage`
-
-```rust
-pub struct DriverMessage
-```
-
-A driver message with every console job link cut out, so no rendered error says where a job ran.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
-
 ### `enum AdbcError`
 
 ```rust
@@ -649,6 +637,17 @@ bounds the scan without bounding the bill. And it is per JOB, so N questions cos
 ### `use UnusableCeiling`
 
 Why a configured bytes-billed ceiling is not one this transport will send.
+
+### `use DriverMessage`
+
+A driver message with every console job link cut out, so no rendered error says where a job ran.
+
+The pinned driver appends `(Query: <link>)` to the message of any error after the job was
+created (`go/record_reader.go`'s `runQuery`), and the link names the project, location and job.
+
+**The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
+gate - a private tuple field in a child module, so a `DriverMessage(..)` in `super` is `E0423`.
+Only `driver_message.rs` itself can skip `of`.
 
 ### `use Impersonation`
 
