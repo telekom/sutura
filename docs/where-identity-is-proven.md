@@ -379,7 +379,7 @@ about the vocabulary rather than to this row.
 
 ### What only this venue can answer
 
-1. **That a chain is actually VERIFIED.** `crates/sutura-exec-postgres/src/adbc/conninfo.rs`
+1. **That a chain is actually VERIFIED.** `crates/sutura-adbc-postgres/src/conninfo.rs`
    proves the string libpq is told for each declared channel, and nothing there connects - so
    nothing there shows a handshake failing.
    `a_source_chain_from_the_declared_anchor_is_verified_and_answers` and

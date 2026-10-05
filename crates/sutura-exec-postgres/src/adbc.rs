@@ -51,19 +51,15 @@
 //!   Kerberos yet. OAuth and per-caller sign-in are not supported: [`Conninfo`](crate::adbc::Conninfo)
 //!   refuses SSPI and OAuth on either driver, and the linked libpq is built without libcurl.
 
-mod conninfo;
 mod numeric;
 mod session;
 
-use std::path::PathBuf;
-
-use adbc_core::error::Error as CoreError;
-use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
-use adbc_core::{Database as _, Driver as _};
-use adbc_driver_manager::{ManagedConnection, ManagedDriver};
-pub use conninfo::{Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, UnusableChannel};
-pub use sutura_adbc::UnusableDriverPath;
-use sutura_adbc::{DriverLocation, parameter_batch};
+use adbc_driver_manager::ManagedConnection;
+use sutura_adbc::parameter_batch;
+pub use sutura_adbc_postgres::{
+    AdbcError, Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, MOUNTED_DRIVER, NoDriver,
+    PostgresDriver, UnusableChannel, UnusableDriverPath,
+};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
@@ -71,131 +67,12 @@ use sutura_domain::raw::RawStatement;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{
-    AnchorRows, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, UnannouncedBatch, Warehouse,
-};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GeneratedQuery};
 
 use crate::PostgresError;
 use crate::deadline::refuse_if_spent;
-
-/// Why this transport could not answer.
-#[derive(Debug, thiserror::Error)]
-pub enum AdbcError {
-    #[error("could not load the PostgreSQL ADBC driver")]
-    Load(#[source] CoreError),
-    #[error("an ADBC call to the PostgreSQL driver failed")]
-    Adbc(#[source] CoreError),
-    #[error("could not read a result batch")]
-    Batch(#[source] arrow_schema::ArrowError),
-    /// The stream failed once the statement's timeout had run out - the server cancelling it,
-    /// read by the clock where the stream carries no SQLSTATE (`session::timed_out`).
-    #[error("the source stopped the statement at its timeout")]
-    TimedOut(#[source] arrow_schema::ArrowError),
-    #[error("the ADBC result stream did not match its announced schema")]
-    Unannounced(#[source] UnannouncedBatch),
-    #[error("the plan's values could not be assembled for binding")]
-    Parameters(#[source] arrow_schema::ArrowError),
-    #[error("a result cell could not be read")]
-    Unreadable(#[source] sutura_domain::warehouse::UnreadableCell),
-    /// Spent once the connection was open - refused locally, as [`PostgresError::DeadlineSpent`].
-    #[error("the deadline was already spent by the time the connection was open")]
-    DeadlineSpent,
-}
-
-/// Where the PostgreSQL driver comes from: this artefact's own link, or a mounted `.so`.
-///
-/// Not `sutura_adbc::DriverLocation`, whose linked route is the `BigQuery` archive; a mounted path is
-/// parsed by it, so an empty or relative one is refused exactly as for every ADBC adapter.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PostgresDriver(Route);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Route {
-    Linked,
-    Mounted(PathBuf),
-}
-
-/// The variable a host that links no driver names a mounted one with.
-///
-/// **Not a settings key**: which driver file a host carries is a property of the host rather than of
-/// the semantic deployment, and a release artefact that links one never reads it - the order
-/// `bigquery_driver` in `sutura-cli` gives for the other ADBC adapter, for its reason: a mounted
-/// path must not be able to displace the driver a published artefact carries.
-pub const MOUNTED_DRIVER: &str = "SUTURA_POSTGRES_ADBC_DRIVER";
-
-/// Why this process has no PostgreSQL driver to open.
-#[derive(Debug, thiserror::Error)]
-pub enum NoDriver {
-    #[error(
-        "this build links no PostgreSQL ADBC driver and `{mounted}` is not set. A published \
-         musl artefact carries its own; any other build points that variable at an absolute \
-         libadbc_driver_postgresql shared library",
-        mounted = MOUNTED_DRIVER
-    )]
-    Unset,
-    #[error("`{mounted}` does not name a driver this process can open", mounted = MOUNTED_DRIVER)]
-    Unusable(#[source] UnusableDriverPath),
-}
-
-impl PostgresDriver {
-    /// The driver this process opens: the one this artefact links, else the one
-    /// [`MOUNTED_DRIVER`] names.
-    ///
-    /// # Errors
-    ///
-    /// [`NoDriver`] where neither is there, or the named path is not one.
-    pub fn from_host() -> Result<Self, NoDriver> {
-        if let Some(linked) = Self::linked_in() {
-            return Ok(linked);
-        }
-        let named = std::env::var(MOUNTED_DRIVER).map_err(|_absent| NoDriver::Unset)?;
-        Self::parse(&named).map_err(NoDriver::Unusable)
-    }
-
-    /// The driver this artefact links, or `None` where it links none.
-    #[must_use]
-    pub fn linked_in() -> Option<Self> {
-        sutura_adbc::LINKS_POSTGRES_DRIVER.then_some(Self(Route::Linked))
-    }
-
-    /// Parses a mounted driver's path.
-    ///
-    /// # Errors
-    ///
-    /// [`UnusableDriverPath`] for an empty or relative path. Whether a driver is there is the
-    /// load's question, asked by the first call.
-    pub fn parse(named: &str) -> Result<Self, UnusableDriverPath> {
-        DriverLocation::parse(named).map(|_| Self(Route::Mounted(PathBuf::from(named))))
-    }
-
-    /// Loads and initialises the driver, opening no database - what `sutura doctor` asks.
-    ///
-    /// # Errors
-    ///
-    /// [`AdbcError::Load`], from either route.
-    pub fn probe(&self) -> Result<(), AdbcError> {
-        self.load().map(drop)
-    }
-
-    fn load(&self) -> Result<ManagedDriver, AdbcError> {
-        match self.0 {
-            Route::Linked => sutura_adbc::linked_postgres_driver(),
-            Route::Mounted(ref path) => ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default()),
-        }
-        .map_err(AdbcError::Load)
-    }
-}
-
-impl core::fmt::Display for PostgresDriver {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.0 {
-            Route::Linked => f.write_str("linked into this binary"),
-            Route::Mounted(ref path) => write!(f, "mounted at {}", path.display()),
-        }
-    }
-}
 
 /// A PostgreSQL source reached through its ADBC driver, behind the [`Warehouse`] port.
 #[derive(Debug)]
@@ -232,7 +109,7 @@ impl AdbcPostgres {
     }
 
     fn connection(&self) -> Result<ManagedConnection, AdbcError> {
-        open_connection(&self.driver, &self.conninfo)
+        self.driver.connect(&self.conninfo)
     }
 
     /// Connects, and runs `step` on the connection.
@@ -308,21 +185,6 @@ impl AdbcPostgres {
     }
 }
 
-/// Loads `driver` and opens one connection over `conninfo`. It keeps its database and driver alive
-/// itself.
-fn open_connection(driver: &PostgresDriver, conninfo: &Conninfo) -> Result<ManagedConnection, AdbcError> {
-    let mut driver = driver.load()?;
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the libpq connection string is the driver's credential, and handing it to the driver is its purpose"
-    )]
-    let uri = OptionValue::String(conninfo.secret().expose_secret().to_owned());
-    let database = driver
-        .new_database_with_opts([(OptionDatabase::Uri, uri)])
-        .map_err(AdbcError::Adbc)?;
-    database.new_connection().map_err(AdbcError::Adbc)
-}
-
 /// A plain second connection to the fixture tier, for what no port method may do.
 ///
 /// It creates a view, or holds a lock inside a transaction it leaves open until it is dropped. It
@@ -339,7 +201,7 @@ impl FixtureAdmin {
     ///
     /// The driver's load or connect.
     pub fn open(driver: &PostgresDriver, conninfo: &Conninfo) -> Result<Self, AdbcError> {
-        open_connection(driver, conninfo).map(Self)
+        driver.connect(conninfo).map(Self)
     }
 
     /// Runs `sql`, every statement in it, on this connection.

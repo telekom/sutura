@@ -61,9 +61,11 @@ members = [
   # against a real Oracle is what it exists to prove, not a servable source.
   "crates/sutura-exec-oracle",
   "crates/sutura-adbc",
+  # The PostgreSQL ADBC connector, held off `sutura-sql` so a catalog reader can share it.
+  "crates/sutura-adbc-postgres",
   # The one place any outbound TLS adapter reads a declared bundle or the host store: no
   # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
-  # folds in. `sutura-exec-postgres` depends on it today; the `BigQuery` wire's own reader
+  # folds in. `sutura-adbc-postgres` reads the PostgreSQL channel through it; the `BigQuery` wire's own reader
   # (`github.com/telekom/sutura#125`'s second PR) is the second; `sutura-exec-clickhouse` is the
   # third - none may depend on any other (`xtask/src/boundaries/adapters.rs`'s "data systems"
   # class), so the read that all three need moved here rather than into any one of them.
@@ -150,6 +152,7 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 # differential suite: the crate's own `lib.rs` header carries what remains unreached.
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 sutura-adbc = { path = "crates/sutura-adbc" }
+sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
 sutura-tls = { path = "crates/sutura-tls" }
 sutura-http-client = { path = "crates/sutura-http-client" }
 sutura-bounded-read = { path = "crates/sutura-bounded-read" }

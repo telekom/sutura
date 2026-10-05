@@ -21,7 +21,7 @@ use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{ParamValue, ResultBatches, UnannouncedBatch, Value};
 
 use super::session::answer;
-use super::{AdbcError, AdbcPostgres, Channel, Conninfo, PostgresDriver, Route};
+use super::{AdbcError, AdbcPostgres, Channel, Conninfo, PostgresDriver};
 
 /// What reached the fake driver, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -478,34 +478,6 @@ fn the_result_byte_budget_is_the_bigquery_transports_quarter_gibibyte() {
     // stream past a quarter gibibyte is too costly to build in a cell, and `Accumulating`'s own
     // refusal is held in the domain. The row ceiling is held by the cell above instead.
     assert_eq!(super::session::MOST_RESULT_BYTES.get(), 256 * 1024 * 1024);
-}
-
-#[test]
-fn a_relative_driver_path_is_refused_before_anything_loads_it() {
-    let refused = PostgresDriver::parse("lib/libadbc_driver_postgresql.so").expect_err("a relative path is refused");
-    assert!(matches!(refused, super::UnusableDriverPath::Relative { .. }), "{refused:?}");
-}
-
-#[test]
-fn the_linked_route_is_offered_exactly_where_the_linked_driver_initialises() {
-    // A source build offers none and has none; a linked build offers the one it can open.
-    let offered = PostgresDriver::linked_in();
-    assert_eq!(
-        offered.is_some(),
-        sutura_adbc::linked_postgres_driver().is_ok(),
-        "{offered:?}"
-    );
-    if let Some(linked) = offered {
-        linked.probe().expect("the driver this build links initialises");
-    }
-}
-
-#[test]
-fn each_route_reads_as_the_sentence_doctor_prints_and_the_driver_check_matches() {
-    // `nix/bigquery-driver-check.sh` passes a musl artefact only on `linked into this binary`.
-    assert_eq!(PostgresDriver(Route::Linked).to_string(), "linked into this binary");
-    let mounted = PostgresDriver::parse("/opt/lib/libadbc_driver_postgresql.so").expect("an absolute path parses");
-    assert_eq!(mounted.to_string(), "mounted at /opt/lib/libadbc_driver_postgresql.so");
 }
 
 #[test]
