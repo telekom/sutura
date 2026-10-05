@@ -2487,6 +2487,13 @@ capacity-priced reservation the bytes a job scans are not what it costs, and thi
 bounds the scan without bounding the bill. And it is per JOB, so N questions cost N times it.</p>
 <h3 id="use-unusableceiling"><code>use UnusableCeiling</code><a class="headerlink" href="#use-unusableceiling" title="Permanent link">&para;</a></h3>
 <p>Why a configured bytes-billed ceiling is not one this transport will send.</p>
+<h3 id="use-drivermessage"><code>use DriverMessage</code><a class="headerlink" href="#use-drivermessage" title="Permanent link">&para;</a></h3>
+<p>A driver message with every console job link cut out, so no rendered error says where a job ran.</p>
+<p>The pinned driver appends <code>(Query: &lt;link&gt;)</code> to the message of any error after the job was
+created (<code>go/record_reader.go</code>'s <code>runQuery</code>), and the link names the project, location and job.</p>
+<p><strong>The limit:</strong> this seal is rustc's ordinary privacy, not this repo's <code>check-newtype-leaks</code>
+gate - a private tuple field in a child module, so a <code>DriverMessage(..)</code> in <code>super</code> is <code>E0423</code>.
+Only <code>driver_message.rs</code> itself can skip <code>of</code>.</p>
 <h3 id="use-impersonation"><code>use Impersonation</code><a class="headerlink" href="#use-impersonation" title="Permanent link">&para;</a></h3>
 <p>Whether this source impersonates at all, and against which pool when it does.</p>
 <p><strong>A two-variant type rather than an <code>Option&lt;WorkloadPool&gt;</code>, because the absence is a
