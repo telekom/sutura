@@ -1216,6 +1216,9 @@
             # The gate shells out to nextest, its falsifier test runs the pinned jscpd, and the claim
             # arm starts the kill worktree's own Postgres tier.
             export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
+            # The driver `checks.nextest` names: a tier with none fails every Postgres claim cell in
+            # its setup, before the cell's own assertion - measured on #1286's first CI run.
+            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
