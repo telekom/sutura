@@ -17,6 +17,8 @@
 //! names it; asking about it here would just be a second, redundant name for the same test.
 //! **A blank or `//` comment line is not an edit either**, on the added side as on the removed one
 //! (`github.com/telekom/sutura#1279`), so correcting a comment inside a test does not make it a pin.
+//! The lexer decides it, not the text: a line opening inside a multi-line string is string content
+//! and counts, whatever it spells ([`Code::is_comment_or_blank`]).
 //!
 //! **THE SPAN IS THE WHOLE ITEM, ATTRIBUTE THROUGH CLOSING BRACE - not only the body.** The issue
 //! that opened this file asks about "a hunk whose enclosing item is a `#[test]` fn", not about the
@@ -63,7 +65,7 @@
 use crate::causality::attributes::{attached, declares_a_test, item_below};
 use crate::causality::diff::RemovedLine;
 use crate::causality::names::Ident;
-use crate::causality::regions::{AddedLine, PostImage, TestScope, carries_no_behaviour, item_end};
+use crate::causality::regions::{AddedLine, PostImage, TestScope, item_end};
 use crate::causality::scoped::{Code, function_name, is_ignored};
 
 pub(super) mod callsite;
@@ -114,10 +116,9 @@ pub(super) fn touched_in(lines: &[&str], added: &[AddedLine]) -> Vec<Touched> {
         let last = item_end(lines, index);
         // A comment or blank line is not an edit of the test (`github.com/telekom/sutura#1279`),
         // the same as on the removed side, which [`removed_in`] filters.
-        if !added
-            .iter()
-            .any(|one| !is_comment_or_blank(&one.text) && (declared_at..=last.saturating_add(1)).contains(&one.number))
-        {
+        if !added.iter().any(|one| {
+            !code.is_comment_or_blank(one.number, &one.text) && (declared_at..=last.saturating_add(1)).contains(&one.number)
+        }) {
             continue;
         }
         out.push(if is_ignored(lines, fn_index) {
@@ -127,16 +128,6 @@ pub(super) fn touched_in(lines: &[&str], added: &[AddedLine]) -> Vec<Touched> {
         });
     }
     out
-}
-
-/// Blank or a `//` comment: the one kind of added line that is not an edit of the item it sits in.
-///
-/// Narrower than [`carries_no_behaviour`], which the removed side reads: an added `#[should_panic]`
-/// inside an existing test changes what it proves, so here an attribute still counts. A `/* .. */`
-/// line is not recognised and counts, the direction that asks for proof.
-fn is_comment_or_blank(line: &str) -> bool {
-    let trimmed = line.trim();
-    trimmed.is_empty() || trimmed.starts_with("//")
 }
 
 /// Does `path`'s post-image touch a pre-existing test with any of `added`?
@@ -190,9 +181,10 @@ pub(super) fn deletion_in(
     };
     let base_lines: Vec<&str> = base_text.lines().collect();
     let mut deleted: Vec<Ident> = removed_in(&base_lines, file_removed).iter().map(Deleted::name).collect();
+    let base_code = Code::of(&base_text);
     let removed_behaviour: Vec<AddedLine> = file_removed
         .iter()
-        .filter(|line| !carries_no_behaviour(&line.text))
+        .filter(|line| !base_code.carries_no_behaviour(line.before, &line.text))
         .map(|line| AddedLine::new(line.before, &line.text))
         .collect();
     let base_scope = crate::causality::regions::scope(before, base);
@@ -247,8 +239,9 @@ impl Deleted {
 /// all - `super::plan` reads the post-image only today, so this walks the pre-image its caller
 /// reads instead, asking each pre-existing `#[test]`'s span whether a removed line carrying
 /// behaviour fell inside it. Blank/comment/attribute removals are filtered by
-/// [`carries_no_behaviour`] (the converse: what is left is behaviour), so a deletion of a comment
-/// or a blank line names nothing. `RemovedLine.before` is the PRE-image's own line number
+/// [`Code::carries_no_behaviour`] (the converse: what is left is behaviour), so a deletion of a
+/// comment or a blank line names nothing - decided by the lexer, so a `//` or empty line inside a
+/// multi-line string is string content and does count. `RemovedLine.before` is the PRE-image's own line number
 /// ([`RemovedLine`]'s doc carries why no other image may name it), which is what lets this ask
 /// exactly the question a pure deletion answers.
 pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<Deleted> {
@@ -273,10 +266,9 @@ pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<De
             continue;
         };
         let last = item_end(base_lines, index);
-        if !removed
-            .iter()
-            .any(|one| !carries_no_behaviour(&one.text) && (declared_at..=last.saturating_add(1)).contains(&one.before))
-        {
+        if !removed.iter().any(|one| {
+            !code.carries_no_behaviour(one.before, &one.text) && (declared_at..=last.saturating_add(1)).contains(&one.before)
+        }) {
             continue;
         }
         out.push(if is_ignored(base_lines, fn_index) {
@@ -337,7 +329,7 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
         let span = number..=last.saturating_add(1);
         if added
             .iter()
-            .any(|one| !is_comment_or_blank(&one.text) && span.contains(&one.number))
+            .any(|one| !code.is_comment_or_blank(one.number, &one.text) && span.contains(&one.number))
         {
             for test in calling_tests(lines, &code, &helper) {
                 if !out.contains(&test) {

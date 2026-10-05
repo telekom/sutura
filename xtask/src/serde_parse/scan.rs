@@ -509,6 +509,8 @@ struct Sink {
     literals: Vec<Literal>,
     /// What [`emit_text`] writes for a one-line string.
     one_line: OneLineStrings,
+    /// Per line, whether it opens in code rather than inside a string or a block comment.
+    starts: Vec<bool>,
 }
 
 impl Sink {
@@ -556,6 +558,12 @@ pub(crate) fn code_lines_blanking_all_strings(text: &str) -> Vec<String> {
     lex(text, OneLineStrings::Blank).finish()
 }
 
+/// Per line of `text`, whether it opens in code - outside every string and block comment - over
+/// the same walk, so a `//` or empty line inside a multi-line string is told from a real comment.
+pub(crate) fn starts_in_code(text: &str) -> Vec<bool> {
+    lex(text, OneLineStrings::Keep).starts
+}
+
 /// One string literal, carrying the value the compiler would give it.
 pub(crate) struct Literal {
     /// 1-based line the opening quote sits on, so a verdict names the line a reader opens.
@@ -584,11 +592,15 @@ fn lex(text: &str, one_line: OneLineStrings) -> Sink {
         held_at: 0,
         literals: Vec::new(),
         one_line,
+        starts: vec![true],
     };
     let mut state = Lexeme::Code;
     let mut characters = text.chars();
     while let Some(character) = characters.next() {
         state = step(state, character, &mut characters, &mut sink);
+        if character == '\n' {
+            sink.starts.push(matches!(state, Lexeme::Code));
+        }
     }
     sink
 }

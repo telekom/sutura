@@ -272,6 +272,8 @@ fn provable_packages(test_files: &[String], read: &PostImage<'_>) -> Option<BTre
 }
 
 #[cfg(test)]
+mod comment_tests;
+#[cfg(test)]
 mod tests {
     use super::{DeletedFrom, Plan, Separable, partition, plan_with_base};
     use crate::causality::coverage::{Attributed, Coverage};
