@@ -43,7 +43,9 @@ use core::ffi::{c_int, c_void};
 // the linker found. Each name is driver-specific - the Go archive exports `AdbcDriverBigqueryInit`
 // beside the generic one, and the PostgreSQL archive is built to define no generic ADBC name at all
 // (`nix/postgres-adbc.nix`), and the `DuckDB` archive's build refuses one that does
-// (`nix/duckdb-adbc.nix`) - so no two drivers in one artefact share a symbol, measured with `nm`.
+// (`nix/duckdb-adbc.nix`) - so no two drivers in one artefact share a driver-init symbol. The
+// refusal greps only the generic ADBC names (`grep -E ' [A-Z] Adbc'`); other un-namespaced C globals
+// are unmeasured, and the once-seen no-overlap was x86_64-musl, not aarch64-musl.
 // And this is a raw `extern` declaration, so
 // a build that compiled it against a target whose `c_int` differs from the archive's would be
 // undefined behaviour - both are produced for the same triple by the same flake, which is the

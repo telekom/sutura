@@ -41,7 +41,6 @@ pub use location::{DriverLocation, UnusableDriverPath};
 use adbc_core::error::Error as CoreError;
 use adbc_core::options::AdbcVersion;
 use adbc_driver_manager::ManagedDriver;
-use std::path::Path;
 
 /// The `BigQuery` driver this artefact's own link carries, or an error where it carries none.
 ///
@@ -115,7 +114,11 @@ pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
     }
 }
 
-/// The `DuckDB` library a deployment mounted at `path`, opened as an ADBC driver.
+/// The `DuckDB` library a deployment mounted at `named`, opened as an ADBC driver.
+///
+/// **The path is parsed, never handed to the loader on trust.** [`DriverLocation::parse`] refuses an
+/// empty or relative path before `dlopen` sees it - `telekom/sutura#929`'s sixth finding - so a
+/// relative path is a refusal, not a library that depends on this process's working directory.
 ///
 /// **The entrypoint is passed, never derived.** Given none, the driver manager derives
 /// `AdbcDuckdbInit` from `libduckdb.so` and falls back to `AdbcDriverInit`, and `DuckDB` defines
@@ -124,7 +127,16 @@ pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
 ///
 /// # Errors
 ///
-/// [`CoreError`] where the library does not load or its initialisation refused.
-pub fn mounted_duckdb_driver(path: &Path) -> Result<ManagedDriver, CoreError> {
+/// [`CoreError`] where the named path is unusable (empty or relative), where the library does not
+/// load, or where its initialisation refused.
+pub fn mounted_duckdb_driver(named: &str) -> Result<ManagedDriver, CoreError> {
+    let at = DriverLocation::parse(named)
+        .map_err(|cause| CoreError::with_message_and_status(cause.to_string(), adbc_core::error::Status::InvalidArguments))?;
+    let Some(path) = at.mounted() else {
+        return Err(CoreError::with_message_and_status(
+            "a parsed driver path is mounted or linked; the linked route is linked_duckdb_driver",
+            adbc_core::error::Status::Internal,
+        ));
+    };
     ManagedDriver::load_dynamic_from_filename(path, Some(b"duckdb_adbc_init"), AdbcVersion::default())
 }

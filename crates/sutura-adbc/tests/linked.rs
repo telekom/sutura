@@ -89,8 +89,45 @@ mod tests {
         };
         assert_eq!(derived.status, Status::Internal, "{derived:?}");
         assert!(derived.message.contains("AdbcDriverInit"), "{derived:?}");
-        let mut duckdb = sutura_adbc::mounted_duckdb_driver(&library).expect("the mounted DuckDB initialises");
+        let mut duckdb = sutura_adbc::mounted_duckdb_driver(&library.to_string_lossy()).expect("the mounted DuckDB initialises");
         answers_select_one(&mut duckdb);
+    }
+
+    /// A relative mounted `DuckDB` path is refused before the loader, never resolved against the
+    /// process's working directory - `telekom/sutura#929`'s sixth finding, enforced where
+    /// `mounted_duckdb_driver` takes the path over.
+    #[test]
+    fn a_relative_mounted_duckdb_path_is_refused_rather_than_resolved() {
+        let dir = std::env::var_os("DUCKDB_LIB_DIR").expect("the dev shell and every nix check set DUCKDB_LIB_DIR");
+        let absolute = std::path::PathBuf::from(&dir).join(format!(
+            "{}duckdb{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        ));
+        // A `..`-relative spelling of the REAL library, so `dlopen` would reach it: the parse, not
+        // the absence of a file, must be what refuses it.
+        let relative = path_relative_to(&absolute);
+        let Err(refused) = sutura_adbc::mounted_duckdb_driver(&relative) else {
+            panic!("a relative driver path must be refused, never opened against this process's cwd");
+        };
+        assert_eq!(refused.status, Status::InvalidArguments, "{refused:?}");
+    }
+
+    /// `absolute` written relative to the process's working directory, climbing `..`, so the loader
+    /// would resolve it back to the same file.
+    fn path_relative_to(absolute: &std::path::Path) -> String {
+        let abs = absolute.components().collect::<Vec<_>>();
+        let cwd_path = std::env::current_dir().expect("a working directory");
+        let cwd = cwd_path.components().collect::<Vec<_>>();
+        let shared = abs.iter().zip(cwd.iter()).take_while(|(a, b)| a == b).count();
+        let mut out = std::path::PathBuf::new();
+        for _ in shared..cwd.len() {
+            out.push("..");
+        }
+        for part in &abs[shared..] {
+            out.push(part.as_os_str());
+        }
+        out.to_string_lossy().into_owned()
     }
 
     /// `SELECT 1` on an in-memory database answers one `INTEGER` row holding 1.

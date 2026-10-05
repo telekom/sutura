@@ -894,4 +894,4 @@ here is a measurement on a production-scale corpus, which is the first amendment
 cross-builds for both musl triples, and `nix/duckdb-adbc.nix` links a `-static` probe against its
 merged archive, which the musl artifacts now receive as an ADBC driver. The rest of that entry
 stands: `sutura-exec-duckdb` is still a dev-dependency, and shipping a data source still changes the
-cross-build matrix - this one did.
+cross-build matrix - and this change moved it without shipping one.
