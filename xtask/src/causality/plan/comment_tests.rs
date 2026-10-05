@@ -47,3 +47,13 @@ fn removing_a_slash_line_inside_a_string_in_a_test_is_a_deleted_test() {
     let base = tree(&[("crates/x/src/a.rs", base_image)]);
     assert!(matches!(plan_with_base(&files, &read, &base), Plan::DeletedTests(_)));
 }
+
+#[test]
+fn a_comment_added_inside_a_called_helper_names_no_caller() {
+    // `github.com/telekom/sutura#1279`, the helper half: a `//` line in a helper's code is not an
+    // edit of the test that calls it, the same as one in the test itself.
+    let file = "fn helper() -> u8 {\n    // why it is one\n    1\n}\n#[test]\nfn t() {\n    assert_eq!(helper(), 1);\n}\n";
+    let lines: Vec<&str> = file.lines().collect();
+    let added = added_from(2, &["    // why it is one"]);
+    assert_eq!(edited_helper_caller(&lines, &added, &TestScope::WholeFile), Vec::new());
+}
