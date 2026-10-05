@@ -249,83 +249,14 @@ mod tests {
         format!("{prefix}{}{suffix}{VALID}", "a".repeat(padding_len))
     }
 
-    /// `Open` via a symlink swap in the read window: the variant this adapter maps `ReadError::Open`
-    /// to, asserted by `matches!` rather than the rendered `ELOOP` text `tests/bounds.rs` checks.
-    ///
-    /// **The limit, stated next to the claim:** the window is sampled per attempt and an attempt
-    /// whose swap fires after `b.yaml`'s open is a plain successful load - which is why there are
-    /// attempts at all. A lead document (`a.yaml`, sorted first) pads the walk's real disk I/O to
-    /// milliseconds so the 20ms-delayed swap reliably lands before the target's own open.
-    #[cfg(unix)]
-    #[test]
-    fn a_descriptor_swapped_in_the_read_window_is_refused_as_open() {
-        const MAX_ATTEMPTS: usize = 25;
-        let root = scratch("open-window-symlink");
-        std::fs::write(root.join("a.yaml"), padded_lead(12 << 20)).expect("the lead descriptor is writable");
-        let outside = scratch("open-window-symlink-target");
-        std::fs::write(outside.join("outside.yaml"), VALID).expect("an outside descriptor is writable");
-        let link = root.join(".swap-object");
-        std::os::unix::fs::symlink(outside.join("outside.yaml"), &link).expect("the prepared symlink is creatable");
-        let catalog = OkfCatalog::new(
-            SourceName::parse("test").expect("a test name is a name"),
-            root.clone(),
-            DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        );
-        let document = root.join("b.yaml");
-        let saved = root.join(".swap-saved");
-        std::fs::write(&document, VALID).expect("a descriptor is writable");
-        std::fs::write(&saved, VALID).expect("a descriptor is writable");
-        for _ in 0..MAX_ATTEMPTS {
-            let armed = std::sync::atomic::AtomicBool::new(false);
-            let done = std::sync::atomic::AtomicBool::new(false);
-            let outcome: Attempt = std::cell::RefCell::new(None);
-            std::thread::scope(|scope| {
-                scope.spawn(|| {
-                    armed.store(true, std::sync::atomic::Ordering::Release);
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    drop(std::fs::rename(&link, &document));
-                    while !done.load(std::sync::atomic::Ordering::Acquire) {
-                        std::thread::sleep(std::time::Duration::from_millis(5));
-                    }
-                    drop(std::fs::rename(&document, &link));
-                    drop(std::fs::rename(&saved, &document));
-                    drop(std::fs::write(
-                        &saved,
-                        std::fs::read(&document).expect("the restored descriptor reads"),
-                    ));
-                });
-                while !armed.load(std::sync::atomic::Ordering::Acquire) {
-                    std::thread::yield_now();
-                }
-                *outcome.borrow_mut() = Some(catalog.load());
-                done.store(true, std::sync::atomic::Ordering::Release);
-            });
-            let attempted = outcome.into_inner().expect("the scoped thread recorded the load's outcome");
-            if let Err(err) = attempted {
-                assert!(
-                    matches!(err, OkfCatalogError::Open { .. }),
-                    "refused, but not by the open refusal: {err:?}"
-                );
-                drop(std::fs::remove_dir_all(&root));
-                drop(std::fs::remove_dir_all(&outside));
-                return;
-            }
-        }
-        drop(std::fs::remove_dir_all(&root));
-        drop(std::fs::remove_dir_all(&outside));
-        panic!(
-            "in {MAX_ATTEMPTS} attempts, a descriptor swapped in the read window was never refused \
-             as Open - the open followed the swap, or the swap never landed in a window"
-        );
-    }
-
     /// `NotARegularFile`: a FIFO swapped into a descriptor's path in the walk→read window opens
     /// under `O_NONBLOCK` (so the open returns rather than blocks) and is then refused by the
     /// handle's regular-file check - `OkfCatalogError::NotARegularFile`, the variant the message
     /// test in `tests/bounds.rs` checks as "not a regular file" text.
     ///
-    /// **The limit, stated next to the claim:** same sampled window as the `Open` cell above; a
-    /// lead document (`a.yaml`) widens it to milliseconds for the same reason.
+    /// **The limit, stated next to the claim:** the window is sampled per attempt, and an attempt
+    /// whose swap fires after `b.yaml`'s open is a plain successful load - which is why there are
+    /// attempts at all. A lead document (`a.yaml`, sorted first) widens it to milliseconds.
     #[cfg(unix)]
     #[test]
     fn a_descriptor_swapped_for_a_fifo_in_the_read_window_is_refused_as_not_a_regular_file() {

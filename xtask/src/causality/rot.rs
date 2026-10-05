@@ -55,9 +55,8 @@ use std::path::{Path, PathBuf};
 use crate::Verdict;
 use crate::causality::claim::{self, Claim};
 use crate::causality::place::{self, AddedTest};
-use crate::causality::scoped::{Scoped, function_name};
+use crate::causality::scoped::{Code, Scoped};
 use crate::repo;
-use crate::serde_parse::scan::code_lines;
 
 /// Every `.patch` file committed at `dir`, sorted by name.
 ///
@@ -182,11 +181,9 @@ enum Located {
     /// Exactly one file declares it, placed on the module tree a nextest filter can reach.
     One(AddedTest),
     /// No file's CODE declares a fn by this name any more - `#929`'s own shape: the cell's test
-    /// was deleted and nothing but a merge conflict noticed. A comment, a doc comment or a
-    /// multi-line string naming it does not count. Two things still do, because the scan reads the
-    /// word after `fn` on each code line and not test attributes: a non-test `fn` of the same name,
-    /// and a ONE-LINE string such as `"the fn <old name> was renamed"` - `code_lines` keeps a
-    /// single-line string's content.
+    /// was deleted and nothing but a merge conflict noticed. A comment, a doc comment or a string
+    /// naming it does not count. A non-test `fn` of the same name still does, because the scan
+    /// reads the word after `fn` on each code line and not test attributes.
     Gone,
     /// More than one file declares a test fn by this name. Refused rather than guessed at: a
     /// wrong guess here would ask `claim::run` to mutate and kill the WRONG file's assertion.
@@ -212,8 +209,7 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
     census
         .inspect(&[], scope, |rel, bytes| {
             // CODE only: a comment still naming a renamed cell's old `fn` must not keep its patch alive.
-            for line in code_lines(&String::from_utf8_lossy(bytes)) {
-                let Some(ident) = function_name(&line) else { continue };
+            for ident in Code::of(&String::from_utf8_lossy(bytes)).functions() {
                 let Some(bucket) = found.get_mut(ident.as_str()) else {
                     continue;
                 };

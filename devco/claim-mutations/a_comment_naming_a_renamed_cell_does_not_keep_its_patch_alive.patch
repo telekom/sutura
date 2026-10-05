@@ -1,24 +1,12 @@
 diff --git a/xtask/src/causality/rot.rs b/xtask/src/causality/rot.rs
-index 1c5919527..cf49b6300 100644
 --- a/xtask/src/causality/rot.rs
 +++ b/xtask/src/causality/rot.rs
-@@ -57,7 +57,6 @@ use crate::causality::claim::{self, Claim};
- use crate::causality::place::{self, AddedTest};
- use crate::causality::scoped::{Scoped, function_name};
- use crate::repo;
--use crate::serde_parse::scan::code_lines;
- 
- /// Every `.patch` file committed at `dir`, sorted by name.
- ///
-@@ -209,9 +208,8 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
-     let scope: repo::Scope = outside_vendor;
+@@ -209,7 +209,7 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
      census
          .inspect(&[], scope, |rel, bytes| {
--            // CODE only: a comment still naming a renamed cell's old `fn` must not keep its patch alive.
--            for line in code_lines(&String::from_utf8_lossy(bytes)) {
--                let Some(ident) = function_name(&line) else { continue };
-+            for line in String::from_utf8_lossy(bytes).lines() {
-+                let Some(ident) = function_name(line) else { continue };
+             // CODE only: a comment still naming a renamed cell's old `fn` must not keep its patch alive.
+-            for ident in Code::of(&String::from_utf8_lossy(bytes)).functions() {
++            for ident in Code::of(&String::from_utf8_lossy(bytes).replace("//", "")).functions() {
                  let Some(bucket) = found.get_mut(ident.as_str()) else {
                      continue;
                  };

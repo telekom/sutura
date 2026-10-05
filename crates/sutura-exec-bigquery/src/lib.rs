@@ -43,9 +43,10 @@
 //! feature. The golden matrix's `bigquery` row runs the example corpus through this transport
 //! against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
 //! and one run's corpus cell timed out undiagnosed (37152629712), so how it behaves under load is
-//! unproven. That job gates a merge through `ci-aggregate` on a same-repository pull request or
-//! merge group that selects the `data_source_bigquery` category; a fork gets no credential, so there the cells
-//! skip under their named exemption. A default build links none of this.
+//! unproven. That job gates a merge through `ci-aggregate` on a same-repository pull request that
+//! Dependabot did not open, or a merge group, that selects the `data_source_bigquery` category; a
+//! fork or a Dependabot pull request gets no credential, so there the cells skip under their named
+//! exemption. A default build links none of this.
 //!
 //! # Identity
 //!

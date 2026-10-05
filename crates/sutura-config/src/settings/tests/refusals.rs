@@ -18,11 +18,18 @@ fn an_invalid_tls_termination_word_is_a_settings_error() {
 }
 
 #[test]
-fn a_zero_credential_cache_capacity_is_a_settings_error() {
+fn a_credential_cache_block_is_refused_as_an_unknown_key() {
+    // `github.com/telekom/sutura#1259`: `security.credential_cache` configured a cache nothing
+    // builds, so the key is gone. A config that still writes it is refused like any other unknown
+    // key rather than read as a control that is in place.
     let sources = Sources::defaults(Environment::Development)
-        .with_overlay(dev_overlay("security:\n  credential_cache:\n    capacity: 0\n"));
-    let error = Settings::load(&sources).expect_err("a zero credential cache capacity is refused");
-    assert!(matches!(error.reason(), SettingsError::CredentialCache { .. }), "{error:?}");
+        .with_overlay(dev_overlay("security:\n  credential_cache:\n    enabled: true\n"));
+    let error = Settings::load(&sources).expect_err("a credential cache block is not a setting");
+    let rendered = format!("{error:?}");
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("credential_cache"),
+        "the refusal names the key: {rendered}"
+    );
 }
 
 #[test]

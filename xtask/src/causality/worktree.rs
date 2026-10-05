@@ -8,7 +8,7 @@
 //! way this module spawns one.
 //!
 //! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`search`],
-//! [`head_branch`], [`head_commit`], [`branch_metadata`], [`at_base`] and [`declares_fn`] - are here for that
+//! [`head_branch`], [`head_commit`], [`branch_metadata`], [`at_base`] and [`naming`] - are here for that
 //! second reason and no other. Each returns raw output and decides nothing; `super::provenance`, `super::stack` and
 //! `super::features` parse them, so every classification they feed is testable without a
 //! repository.
@@ -133,16 +133,21 @@ pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> String {
         .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Does a tracked `.rs` file in the working tree contain `fn <name>` as whole words?
+/// Every tracked `.rs` file in the working tree that contains `word` as a whole word.
 ///
-/// A git failure reads as no, which `super::no_base` refuses as stale: the closed direction.
-pub(super) fn declares_fn(root: &Path, name: &str) -> bool {
+/// A git failure reads as none, which `super::no_base` refuses as stale: the closed direction.
+pub(super) fn naming(root: &Path, word: &str) -> Vec<String> {
     git(root)
-        .args(["grep", "-q", "-w", "-F", "-e", &format!("fn {name}"), "--", "*.rs"])
-        .stdout(std::process::Stdio::null())
+        .args(["grep", "-l", "-z", "-w", "-F", "-e", word, "--", "*.rs"])
         .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+        .output()
+        .map_or_default(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .map(String::from)
+                .collect()
+        })
 }
 
 /// Every path the diff touched, one per line - **deletions included**.
@@ -162,6 +167,17 @@ pub(super) fn touched(root: &Path, base: &Commit) -> Vec<String> {
                 .map(String::from)
                 .collect()
         })
+}
+
+/// Every path the base has and the working tree deleted or moved, one per line, as git printed it.
+///
+/// `--no-renames`, because a moved file is otherwise reported as `R` and never as `D`, so the old
+/// path - the one a restored `mod` line names - would not be listed.
+pub(super) fn deleted(root: &Path, base: &Commit) -> Vec<String> {
+    git(root)
+        .args(["diff", "--name-only", "--no-renames", "--diff-filter=D", base.as_str(), "--"])
+        .output()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).lines().map(String::from).collect())
 }
 
 /// Lines matching any of `needles` in `base`, under `paths`.
@@ -310,7 +326,39 @@ pub(super) fn apply(wt: &Path, base: &Commit, state: &BaseState<'_>) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseState, Commit, apply};
+    use super::{BaseState, Commit, apply, deleted};
+
+    #[test]
+    fn a_moved_file_is_listed_by_its_old_path() {
+        let dir = std::env::temp_dir().join(format!("sutura-causality-moved-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(dir.join("src")).expect("a scratch tree");
+        std::fs::write(dir.join("src/a.rs"), "pub fn one() -> u8 {\n    1\n}\n").expect("a module");
+        let git = |args: &[&str]| {
+            let mut command = std::process::Command::new("git");
+            crate::repo::strip_git_env(&mut command);
+            let out = command.current_dir(&dir).args(args).output().expect("git runs");
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["add", "-A"]);
+        git(&[
+            "-c",
+            "user.email=user@example.com",
+            "-c",
+            "user.name=test",
+            "commit",
+            "-q",
+            "-m",
+            "base",
+        ]);
+        let base = Commit::parse(&git(&["rev-parse", "HEAD"])).expect("an object name");
+        git(&["mv", "src/a.rs", "src/b.rs"]);
+        let listed = deleted(&dir, &base);
+        drop(std::fs::remove_dir_all(&dir));
+        assert_eq!(listed, vec![String::from("src/a.rs")]);
+    }
 
     #[test]
     fn removing_a_file_the_worktree_never_had_is_not_a_failure() {

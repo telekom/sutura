@@ -272,6 +272,8 @@ fn provable_packages(test_files: &[String], read: &PostImage<'_>) -> Option<BTre
 }
 
 #[cfg(test)]
+mod comment_tests;
+#[cfg(test)]
 mod tests {
     use super::{DeletedFrom, Plan, Separable, partition, plan_with_base};
     use crate::causality::coverage::{Attributed, Coverage};
@@ -403,6 +405,16 @@ mod tests {
         let read = tree(&[("crates/x/src/a.rs", post_image)]);
         let base = tree(&[("crates/x/src/a.rs", base_image)]);
         assert_eq!(plan_with_base(&files, &read, &base), Plan::NotRequired);
+    }
+
+    #[test]
+    fn a_comment_only_edit_inside_a_test_is_not_a_changed_test() {
+        // `github.com/telekom/sutura#1279`: an ADDED comment line made the test a pin that needed a
+        // `Claim-Cell:`, while the removed twin above stayed `Plan::NotRequired`.
+        let post_image = "#[test]\nfn t() {\n    // a corrected comment\n    assert!(true);\n}\n";
+        let files = vec![changed("crates/x/src/a.rs", 3, &["    // a corrected comment"])];
+        let read = tree(&[("crates/x/src/a.rs", post_image)]);
+        assert_eq!(plan_with_base(&files, &read, &read), Plan::NotRequired);
     }
 
     #[test]

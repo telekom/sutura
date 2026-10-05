@@ -223,11 +223,6 @@ pub enum SettingsError {
         #[source]
         cause: UnknownTlsTermination,
     },
-    #[error("`security.credential_cache` is not usable")]
-    CredentialCache {
-        #[source]
-        cause: crate::identity_cache::InvalidCredentialCacheSettings,
-    },
     /// A `security.outbound` block exists and is not usable.
     #[error("`security.outbound` is not usable")]
     Outbound {
