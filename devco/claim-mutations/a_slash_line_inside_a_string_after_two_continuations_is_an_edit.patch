@@ -1,0 +1,24 @@
+diff --git a/xtask/src/serde_parse/scan.rs b/xtask/src/serde_parse/scan.rs
+--- a/xtask/src/serde_parse/scan.rs
++++ b/xtask/src/serde_parse/scan.rs
+@@ -735,9 +735,6 @@ fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
+         if let Some(escaped) = characters.next() {
+             // A continuation's newline is consumed here, never by `lex`'s loop, so its line start
+             // is recorded here: inside the string.
+-            if escaped == '\n' {
+-                sink.starts.push(false);
+-            }
+             if let Some(ref mut held) = sink.held {
+                 held.push(escaped);
+             }
+diff --git a/xtask/src/causality/scoped.rs b/xtask/src/causality/scoped.rs
+--- a/xtask/src/causality/scoped.rs
++++ b/xtask/src/causality/scoped.rs
+@@ -415,7 +415,6 @@ impl Code {
+     /// Fails closed when the two walks disagree on the line count: no line then opens in code, so
+     /// no added or removed line is skipped as a comment.
+     pub(super) fn from_parts(lines: Vec<String>, starts: Vec<bool>) -> Self {
+-        let starts = if starts.len() == lines.len() { starts } else { Vec::new() };
+         Self { lines, starts }
+     }
+ 

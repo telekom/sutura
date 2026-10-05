@@ -732,10 +732,15 @@ fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
     // `r"a\"` swallow its own closing quote. Latent rather than live - the tree holds raw strings
     // with a backslash but none with `\"` - and latent is not a reason to leave it.
     if !raw && character == '\\' {
-        if let Some(escaped) = characters.next()
-            && let Some(ref mut held) = sink.held
-        {
-            held.push(escaped);
+        if let Some(escaped) = characters.next() {
+            // A continuation's newline is consumed here, never by `lex`'s loop, so its line start
+            // is recorded here: inside the string.
+            if escaped == '\n' {
+                sink.starts.push(false);
+            }
+            if let Some(ref mut held) = sink.held {
+                held.push(escaped);
+            }
         }
         return Lexeme::Text { hashes, raw };
     }

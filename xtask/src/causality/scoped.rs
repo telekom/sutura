@@ -409,10 +409,14 @@ pub(super) struct Code {
 
 impl Code {
     pub(super) fn of(text: &str) -> Self {
-        Self {
-            lines: code_lines_blanking_all_strings(text),
-            starts: starts_in_code(text),
-        }
+        Self::from_parts(code_lines_blanking_all_strings(text), starts_in_code(text))
+    }
+
+    /// Fails closed when the two walks disagree on the line count: no line then opens in code, so
+    /// no added or removed line is skipped as a comment.
+    pub(super) fn from_parts(lines: Vec<String>, starts: Vec<bool>) -> Self {
+        let starts = if starts.len() == lines.len() { starts } else { Vec::new() };
+        Self { lines, starts }
     }
 
     /// The 0-based lines `first..=last`, joined: a search over them reads no comment or string.

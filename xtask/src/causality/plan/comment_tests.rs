@@ -57,3 +57,25 @@ fn a_comment_added_inside_a_called_helper_names_no_caller() {
     let added = added_from(2, &["    // why it is one"]);
     assert_eq!(edited_helper_caller(&lines, &added, &TestScope::WholeFile), Vec::new());
 }
+
+#[test]
+fn a_slash_line_inside_a_string_after_two_continuations_is_an_edit() {
+    let post_image = concat!(
+        "fn msg() -> &'static str {\n",
+        "    \"a \\\n",
+        "     b \\\n",
+        "     c\"\n",
+        "}\n",
+        "#[test]\n",
+        "fn t() {\n",
+        "    let src = \"\n",
+        "x\n",
+        "// a fixture line\n",
+        "\";\n",
+        "    assert!(!src.is_empty());\n",
+        "}\n",
+    );
+    let files = vec![changed("crates/x/src/a.rs", 10, &["// a fixture line"])];
+    let read = tree(&[("crates/x/src/a.rs", post_image)]);
+    assert_ne!(plan_with_base(&files, &read, &read), Plan::NotRequired);
+}

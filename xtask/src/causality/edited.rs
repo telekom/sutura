@@ -943,4 +943,20 @@ mod tests {
         let got = plan_with_base(&files, &read, &read);
         assert!(!matches!(got, Plan::NotRequired), "fn-pointer reach: {got:?}");
     }
+
+    #[test]
+    fn a_continued_strings_lines_open_inside_it() {
+        let starts = crate::serde_parse::scan::starts_in_code("let s = \"a \\\nb\";\n// c\n");
+        assert_eq!(starts, [true, false, true, true]);
+    }
+
+    #[test]
+    fn line_starts_that_disagree_with_the_line_count_skip_nothing() {
+        let code = crate::causality::scoped::Code::from_parts(vec![String::from("// a"), String::from("b")], vec![true]);
+        assert!(
+            !code.is_comment_or_blank(1, "// a"),
+            "a short start list must not read a line as a comment"
+        );
+        assert!(!code.carries_no_behaviour(1, "// a"));
+    }
 }
