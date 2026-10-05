@@ -1108,9 +1108,10 @@
         };
 
         # The golden matrix's `bigquery` row, live, as two apps the `bigquery-conformance` CI job runs
-        # in order: `bigquery-provision` loads the example corpus into the dataset `SUTURA_BQ_DATASET`
-        # names, ONCE, and `bigquery-conformance` runs every `bigquery` cell of `sutura-app`'s golden
-        # and differential targets against it through the ADBC driver, under one shared CI identity.
+        # in order: `bigquery-provision` loads the example corpus and the two-fact tables into the
+        # dataset `SUTURA_BQ_DATASET` names, ONCE, and `bigquery-conformance` runs every `bigquery`
+        # cell of `sutura-app`'s golden and differential targets, and the two-fact differential,
+        # against it through the ADBC driver, under one shared CI identity.
         # Two apps so a failed load stops the job before any cell reads. The cells themselves refuse
         # a missing project, driver or credential by name; the dataset check here is what stops an
         # unset one from skipping every cell green.
@@ -1135,7 +1136,7 @@
             export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/)' "$@"
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/) | test(/leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused/)' "$@"
           '');
         };
 

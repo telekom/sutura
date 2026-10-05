@@ -108,8 +108,17 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 # 78.3s; every other cell under 22s, and each question carries its own 30s deadline. Two 60s periods
 # = 120s, 1.5x the slowest measured. Limit: run 37152629712's corpus cell hit the 300s default with
 # no output, about 4x the measurement and not diagnosed - this ceiling surfaces that sooner, it does
-# not explain it. `&`, not `+` (a union), so it matches only these 23 cells and not every sutura-app
-# test (the ignored provisioning cell gets it too, at 10-15s); everywhere but the `bigquery-conformance`
-# job they skip in milliseconds.
+# not explain it. `&`, not `+` (a union), so it matches only the cells named `bigquery` and not every
+# sutura-app test (the ignored provisioning cell gets it too, at 10-15s); everywhere but the
+# `bigquery-conformance` job they skip in milliseconds. The job's one other cell, the two-fact
+# differential, has its own override below, because offline it executes real legs.
 filter = "package(sutura-app) & test(/bigquery/)"
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+# The two-fact differential, the `bigquery-conformance` job's one live cell not named `bigquery`.
+# Measured: 15.4s live (run 37267669815), with `bigquery` available; 3.6s in
+# `just validate`, where it executes the `DuckDB`, `DataFusion` and tier legs and skips `BigQuery`.
+# 120s is about 8x the live measurement. Limit: that is one live run and one offline run.
+filter = "package(sutura-app) & test(=tests::leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused)"
 slow-timeout = { period = "60s", terminate-after = 2 }

@@ -341,24 +341,25 @@ e2e-datahub-adbc *args:
     cargo nextest run -p sutura-cli --all-features --run-ignored only \
       -E 'test(served_datahub_metric_executes_through_adbc_bigquery) | test(/^delegation_adbc::/)' {{ args }}
 
-# Load the example corpus into the dataset `SUTURA_BQ_DATASET` names, ONCE, before
+# Load the example corpus and the two-fact tables into the dataset `SUTURA_BQ_DATASET` names, ONCE, before
 # `just bigquery-conformance`; the `bigquery-conformance` CI job runs both through their Nix apps.
 bigquery-provision *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "bigquery-provision: scope sutura-app - one cell that loads five tables into SUTURA_BQ_DATASET."
+    echo "bigquery-provision: scope sutura-app - one cell that loads the example corpus and the two-fact tables into SUTURA_BQ_DATASET."
     echo "bigquery-provision: this is NOT a gate. Run \`just test\` for the workspace suite."
     cargo nextest run -p sutura-app --all-features --run-ignored only \
       -E 'test(=data_systems::the_bigquery_dataset_holds_the_example_corpus)' {{ args }}
 
-# Run every `bigquery` cell of the golden matrix against the dataset `just bigquery-provision` loaded.
+# Run every `bigquery` cell of the golden matrix, and the two-fact differential, against the dataset
+# `just bigquery-provision` loaded.
 bigquery-conformance *args:
     #!/usr/bin/env bash
     set -euo pipefail
     : "${SUTURA_BQ_DATASET:?environment variable SUTURA_BQ_DATASET must be set}"
-    echo "bigquery-conformance: scope sutura-app - the golden matrix's bigquery cells, against SUTURA_BQ_DATASET."
+    echo "bigquery-conformance: scope sutura-app - the golden matrix's bigquery cells and the two-fact differential, against SUTURA_BQ_DATASET."
     echo "bigquery-conformance: this is NOT a gate. Run \`just test\` for the workspace suite."
-    cargo nextest run -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/)' {{ args }}
+    cargo nextest run -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/) | test(/leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused/)' {{ args }}
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:

@@ -1865,9 +1865,10 @@ jobs:
         run: rm -f "$RUNNER_TEMP/bq-key.json"
 
   # The golden matrix's `bigquery` row against a real dataset: `nix run .#bigquery-provision`
-  # loads the example corpus into the dataset once, then `nix run .#bigquery-conformance` runs every
-  # `bigquery` cell of `sutura-app`'s golden and differential targets under the one shared CI
-  # identity - no impersonation claim.
+  # loads the example corpus and the two-fact tables into the dataset once, then
+  # `nix run .#bigquery-conformance` runs every `bigquery` cell of `sutura-app`'s golden and
+  # differential targets, and the two-fact differential, under the one shared CI identity - no
+  # impersonation claim.
   # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
   # bq-test credential, and there the row skips under its named exemption as everywhere else.
   # Run-or-fail through `ci-aggregate` on a same-repository pull request and in the merge queue when
