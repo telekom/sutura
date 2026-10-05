@@ -17,7 +17,9 @@
 //! cannot leave the scope.
 //!
 //! **LIMITS.** The witness run is the checkout as it stands, not the reconstructed HEAD worktree,
-//! so an uncommitted edit is what it reads. The line proves the cell reached that system's
+//! so an uncommitted edit is what it reads. Its I/O half, `head_output`, is reached by no hermetic
+//! cell: that it captures the line rests on one run over #1264's range, where the first two of its
+//! nine trailers were witnessed and the third was refused. The line proves the cell reached that system's
 //! exemption, not that the changed lines run only for that system, nor that the job selects the
 //! cell. The name is a bare test name, so every system's row
 //! of a per-system macro cell leaves the measurement, the offline ones too. The live job skips a
@@ -624,6 +626,34 @@ mod tests {
             refused("exempt: bigquery from Unavailable - no dataset offline\n"),
             declared()
         );
+    }
+
+    /// Every declared cell is witnessed for its OWN system: a second trailer does not ride on the
+    /// first one's line, and another system's line is not this one's.
+    #[test]
+    fn every_live_cell_is_witnessed_for_its_own_system() {
+        const BIGQUERY: &str = "exempt: bigquery from Unavailable - no dataset offline\n";
+        const SNOWFLAKE: &str = "exempt: snowflake from Unavailable - no account offline\n";
+        let exempted = concat!(
+            "system: \"bigquery\",\nfrom: Exempt::Unavailable,\nruns_in: Some(\"bigquery-conformance\"),\n",
+            "system: \"snowflake\",\nfrom: Exempt::Unavailable,\nruns_in: Some(\"bigquery-conformance\"),\n",
+        );
+        let log = commit(
+            "h",
+            "Live-Cell: a bigquery bigquery-conformance\nLive-Cell: b snowflake bigquery-conformance\n",
+        );
+        let run = |b: &'static str| {
+            Live::parse(&log, exempted, CI_FIXTURE)
+                .expect("both trailers are exempted")
+                .witnessed(|cell| String::from(if cell == "a" { BIGQUERY } else { b }))
+        };
+        let b_refused = Err(LiveError::NotWitnessed {
+            cell: String::from("b"),
+            system: String::from("snowflake"),
+        });
+        assert_eq!(run(""), b_refused);
+        assert_eq!(run(BIGQUERY), b_refused);
+        assert_eq!(run(SNOWFLAKE), Live::parse(&log, exempted, CI_FIXTURE));
     }
 
     /// A malformed trailer declares nothing, and an absent exemptions file refuses a well-formed one.
