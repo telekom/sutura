@@ -412,8 +412,9 @@ fn reaches(body: &str, name: &str) -> bool {
 /// `github.com/telekom/sutura#1270`: `let Err(disagreement) = ..` named an unrelated test as a
 /// caller of a helper called `disagreement`. Limit: a line-text scanner cannot tell every pattern
 /// position - a closure parameter, a `for` pattern, an or-pattern, a guarded arm, a pattern
-/// wrapped over lines and any later use of the binding outside a string are still read as reach,
-/// the direction that asks for proof rather than passing without it.
+/// wrapped over lines, any later use of the binding outside a string, and a field or a method of
+/// the same name (`S { name: 2 }`, `s.name`) are still read as reach, the direction that asks for
+/// proof rather than passing without it.
 fn binds(body: &str, at: usize, after: usize) -> bool {
     let line_start = body
         .get(..at)
