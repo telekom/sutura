@@ -399,8 +399,9 @@ pub(super) fn is_ignored(lines: &[&str], index: usize) -> bool {
 ///
 /// Lexing one line at a time read the interior of a multi-line `/* .. */` or string literal as code,
 /// so a fixture's `fn run()` or a doc comment's `fn in` named a helper that does not exist
-/// (`github.com/telekom/sutura#1270`). [`Code::of`] is the only constructor, so no caller can hand
-/// [`function_name`] a line lexed without the lines above it.
+/// (`github.com/telekom/sutura#1270`). The fields are private and [`Code::of`] holds the only
+/// `Code` literal, so outside this module no caller can hand [`function_name`] a line lexed without
+/// the lines above it.
 pub(super) struct Code {
     lines: Vec<String>,
     /// Per line, whether it opens in code: [`starts_in_code`].
@@ -408,13 +409,12 @@ pub(super) struct Code {
 }
 
 impl Code {
+    /// Fails closed when the two walks disagree on the line count, as they do over a string still
+    /// open at the end of the text: no line then opens in code, so no added or removed line is
+    /// skipped as a comment.
     pub(super) fn of(text: &str) -> Self {
-        Self::from_parts(code_lines_blanking_all_strings(text), starts_in_code(text))
-    }
-
-    /// Fails closed when the two walks disagree on the line count: no line then opens in code, so
-    /// no added or removed line is skipped as a comment.
-    pub(super) fn from_parts(lines: Vec<String>, starts: Vec<bool>) -> Self {
+        let lines = code_lines_blanking_all_strings(text);
+        let starts = starts_in_code(text);
         let starts = if starts.len() == lines.len() { starts } else { Vec::new() };
         Self { lines, starts }
     }

@@ -79,3 +79,11 @@ fn a_slash_line_inside_a_string_after_two_continuations_is_an_edit() {
     let read = tree(&[("crates/x/src/a.rs", post_image)]);
     assert_ne!(plan_with_base(&files, &read, &read), Plan::NotRequired);
 }
+
+#[test]
+fn a_comment_in_a_file_with_a_continued_string_is_still_skipped() {
+    let post_image = "fn msg() -> &'static str {\n    \"a \\\n     b\"\n}\n#[test]\nfn t() {\n    // a corrected comment\n    assert!(!msg().is_empty());\n}\n";
+    let files = vec![changed("crates/x/src/a.rs", 7, &["    // a corrected comment"])];
+    let read = tree(&[("crates/x/src/a.rs", post_image)]);
+    assert_eq!(plan_with_base(&files, &read, &read), Plan::NotRequired);
+}

@@ -952,7 +952,8 @@ mod tests {
 
     #[test]
     fn line_starts_that_disagree_with_the_line_count_skip_nothing() {
-        let code = crate::causality::scoped::Code::from_parts(vec![String::from("// a"), String::from("b")], vec![true]);
+        // The open string's newline reaches the start list but never the line list.
+        let code = crate::causality::scoped::Code::of("// a\n\"b\nc");
         assert!(
             !code.is_comment_or_blank(1, "// a"),
             "a short start list must not read a line as a comment"
