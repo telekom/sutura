@@ -129,15 +129,40 @@ pub const MOST_RESULT_ROWS: usize = 1_000_000;
 /// `tests::the_transports_byte_ceiling_is_a_quarter_of_the_provisional_working_set` is the cell.
 pub const MOST_RESULT_BYTES: usize = 256 * 1024 * 1024;
 
+/// A driver message with every console job link cut out, so no rendered error says where a job ran.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriverMessage(String);
+impl DriverMessage {
+    pub(crate) fn of(error: &CoreError) -> Self {
+        Self(unlinked(&error.to_string()))
+    }
+}
+impl std::fmt::Display for DriverMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+fn unlinked(message: &str) -> String {
+    const LINK: &str = "https://console.cloud.google.com/";
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some((before, after)) = rest.split_once(LINK) {
+        out.push_str(before);
+        out.push_str("[a job link]");
+        rest = after.trim_start_matches(|c: char| !c.is_whitespace() && c != ')');
+    }
+    out.push_str(rest);
+    out
+}
 /// Why the ADBC transport could not answer.
 #[derive(Debug, thiserror::Error)]
 pub enum AdbcError {
     /// The driver `.so` could not be loaded.
     #[error("could not load the BigQuery ADBC driver: {0}")]
-    Load(#[source] CoreError),
+    Load(DriverMessage),
     /// An ADBC call (connect, prepare, execute) failed.
     #[error("ADBC call failed: {0}")]
-    Adbc(#[source] CoreError),
+    Adbc(DriverMessage),
     /// A result batch could not be read from the stream.
     #[error("could not read a result batch: {0}")]
     Batch(#[source] arrow_schema::ArrowError),
@@ -269,18 +294,19 @@ where
         OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
         OptionValue::Int(max_bytes_billed.as_int()),
     )
-    .map_err(AdbcError::Adbc)?;
+    .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     if let JobDeadline::Port(deadline) = request.deadline() {
         let left = deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?;
         stmt.set_option(
             OptionStatement::Other(JOB_TIMEOUT_OPTION.to_owned()),
             OptionValue::Int(whole_millis(left)),
         )
-        .map_err(AdbcError::Adbc)?;
+        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     }
-    stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
+    stmt.set_sql_query(request.statement())
+        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     if let Some(batch) = bound {
-        stmt.bind(batch).map_err(AdbcError::Adbc)?;
+        stmt.bind(batch).map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     }
     Ok(())
 }
@@ -300,9 +326,10 @@ fn whole_millis(left: Duration) -> i64 {
 /// neither caller decides it.
 fn load(at: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
     if let Some(path) = at.mounted() {
-        return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default()).map_err(AdbcError::Load);
+        return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default())
+            .map_err(|e| AdbcError::Load(DriverMessage::of(&e)));
     }
-    sutura_adbc::linked_driver().map_err(AdbcError::Load)
+    sutura_adbc::linked_driver().map_err(|e| AdbcError::Load(DriverMessage::of(&e)))
 }
 
 /// A driver handle, a prepared statement, and the loopback source they may still fetch from.
@@ -435,7 +462,11 @@ impl AdbcBigQuery {
             OptionDatabase::Other("bigquery.project_id".into()),
             OptionValue::String(String::from(PROBE_PROJECT)),
         )];
-        drop(driver.new_database_with_opts(opts).map_err(AdbcError::Adbc)?);
+        drop(
+            driver
+                .new_database_with_opts(opts)
+                .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?,
+        );
         Ok(())
     }
 
@@ -469,9 +500,9 @@ impl AdbcBigQuery {
         ];
         let db = driver
             .new_database_with_opts(opts.into_iter().chain(authentication.options))
-            .map_err(AdbcError::Adbc)?;
-        let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
-        let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
+            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+        let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+        let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
         Ok((driver, stmt, authentication.source))
     }
@@ -513,7 +544,7 @@ fn execute_to_completion<S>(stmt: &mut S) -> Result<ResultBatches, AdbcError>
 where
     S: Statement,
 {
-    let reader = stmt.execute().map_err(AdbcError::Adbc)?;
+    let reader = stmt.execute().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     let announced = reader.schema();
     let mut accumulating = Accumulating::announcing(
         announced,
@@ -540,10 +571,10 @@ where
 /// disconnect is a real variant of `mpsc::RecvError`/`RecvTimeoutError` and this workspace answers
 /// every variant of something rather than assuming one away.
 fn worker_vanished() -> AdbcError {
-    AdbcError::Adbc(CoreError::with_message_and_status(
+    AdbcError::Adbc(DriverMessage::of(&CoreError::with_message_and_status(
         "the ADBC worker thread ended without answering",
         adbc_core::error::Status::Internal,
-    ))
+    )))
 }
 
 /// Runs `stmt` to completion, refusing to outlive `deadline` as measured from `now`.
@@ -748,7 +779,9 @@ impl JobTransport for AdbcBigQuery {
             clippy::disallowed_methods,
             reason = "the default-off `fixtures` loader's two statements: `CREATE OR REPLACE TABLE`, rendered from a committed CSV's cells, and `drop_table`'s `DROP TABLE IF EXISTS`, rendered from a parsed `TableName`"
         )]
-        statement.execute_update().map_err(AdbcError::Adbc)?;
+        statement
+            .execute_update()
+            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         Ok(())
     }
 }
@@ -769,3 +802,34 @@ pub(crate) fn a_declared_account() -> sutura_domain::identity::PrincipalName {
 mod batch_cells;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod driver_message {
+    use super::*;
+
+    #[test]
+    fn a_console_link_never_reaches_a_rendered_driver_error() {
+        let e = CoreError::with_message_and_status(
+            "division by zero (Query: https://console.cloud.google.com/bigquery?j=bq:a:b&page=q) - ok",
+            adbc_core::error::Status::Unknown,
+        );
+        let err = AdbcError::Adbc(DriverMessage::of(&e));
+        let rendered = err.to_string();
+        assert!(!rendered.contains("console.cloud.google.com"));
+        assert!(rendered.contains("division by zero (Query: [a job link]) - ok"));
+        let mut source = std::error::Error::source(&err);
+        while let Some(s) = source {
+            assert!(!s.to_string().contains("console.cloud.google.com"));
+            source = s.source();
+        }
+    }
+
+    #[test]
+    fn two_links_are_cut_and_a_plain_message_is_kept() {
+        assert_eq!(
+            unlinked("a https://console.cloud.google.com/x b (https://console.cloud.google.com/y)"),
+            "a [a job link] b ([a job link])"
+        );
+        assert_eq!(unlinked("plain"), "plain");
+    }
+}
