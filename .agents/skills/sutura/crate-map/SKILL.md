@@ -64,12 +64,12 @@ single `-> sutura-config` row above to the whole class.
 
 **`sutura-adbc-postgres` is the first shared CONNECTOR rather than a shared read: the libpq
 connection string and its TLS posture (`Conninfo`, `Channel`), the driver load and the one open
-(`PostgresDriver`)** - what `sutura-exec-postgres` and `sutura-catalog-rdbms`'s live reader both dial
-a PostgreSQL source through, so the two share one refusal set (decided 10-02, `docs/adr/0018`'s
+(`PostgresDriver`)** - what `sutura-exec-postgres` currently dials a PostgreSQL source through, and what
+`sutura-catalog-rdbms`'s live reader will dial through in the S2 catalog cutover (decided 10-02, `docs/adr/0018`'s
 seventeenth amendment). It cannot live in the exec adapter, because a catalog adapter may not reach
 `sutura-sql` and the exec adapter renders through it. `sutura-adbc` stays the generic loader. Two
 rows hold it, not the sentence: `FORBIDDEN_EDGES` `sutura-adbc-postgres -> sutura-sql`
-(`Edges::Every`), and the same `shared_client` row the three crates above carry. **The precedent it
+(`Edges::Every`), and the same `shared_client` row that sutura-http-client, sutura-bounded-read, sutura-adbc, and sutura-adbc-postgres carry. **The precedent it
 sets:** a connector two adapter classes share is an unprefixed `sutura-adbc-<system>` crate with
 both rows; the adapter keeps the port implementation and the dialect.
 
