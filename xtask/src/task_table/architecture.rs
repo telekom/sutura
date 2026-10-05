@@ -10,23 +10,20 @@ use crate::{
     orphan_modules, refusals, serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
 };
 
-/// `dependency_direction`'s own rule: `tokio` added to `sutura-domain` in its manifest and both
-/// locks, so `cargo metadata --locked` still resolves and the domain now reaches a runtime.
+/// `dependency_direction`'s own rule, and only it: `tokio` as a `sutura-domain` DEV-dependency, in
+/// its manifest and the root lock. The root walk follows dev edges, so the domain now reaches a
+/// runtime; `fuzz/`'s resolve takes no dev edge of a path dependency, so the satellite half stays
+/// `ok` and cannot carry the `Fail` for a neutralised root half.
 const CHECK_BOUNDARIES_PAIRED: Paired = Paired {
     inputs: &["."],
     violation: &[
         Edit {
             path: "crates/sutura-domain/Cargo.toml",
-            find: "\nsha2 = { workspace = true }\n",
-            replace: "\nsha2 = { workspace = true }\ntokio = { workspace = true }\n",
+            find: "\narrow-buffer = { workspace = true }\n",
+            replace: "\narrow-buffer = { workspace = true }\ntokio = { workspace = true }\n",
         },
         Edit {
             path: "Cargo.lock",
-            find: DOMAIN_LOCK_TAIL,
-            replace: DOMAIN_LOCK_TAIL_TOKIO,
-        },
-        Edit {
-            path: "fuzz/Cargo.lock",
             find: DOMAIN_LOCK_TAIL,
             replace: DOMAIN_LOCK_TAIL_TOKIO,
         },
