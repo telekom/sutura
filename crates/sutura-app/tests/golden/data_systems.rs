@@ -566,8 +566,11 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
             .unwrap_or_else(|e| panic!("{table} did not load:\n{}", chain(&e)));
         let text = std::fs::read_to_string(&csv).unwrap_or_else(|e| panic!("could not read {}: {e}", csv.display()));
         let rows = text.lines().skip(1).filter(|line| !line.is_empty()).count();
-        assert_eq!(loaded, rows, "{table} loaded {loaded} rows where its CSV holds {rows}");
-        eprintln!("provisioned {table}: {loaded} rows");
+        assert_eq!(
+            loaded, rows,
+            "{table}: the importer parsed {loaded} rows where its CSV holds {rows}"
+        );
+        eprintln!("provisioned {table}: the importer parsed {loaded} rows");
     }
     if let Err(error) = warehouse.session_user(&crate::adapters::presented()) {
         let said = chain(&error);
@@ -579,6 +582,19 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         );
         panic!("the CI identity loaded the corpus and could not read through the driver:\n{said}");
     }
+}
+
+/// **The `bigquery` open refuses a table the dataset does not hold**, offline: the check runs before
+/// the venue is read, so with it gone this panics at the venue instead and the expected text fails.
+#[test]
+#[should_panic(expected = "is not a table the bigquery dataset holds")]
+fn a_bigquery_open_over_a_table_the_dataset_lacks_is_refused() {
+    type BigQuery = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
+    let table = sutura_domain::model::TableName::parse("not_in_the_dataset").expect("a table name parses");
+    drop(<BigQuery as DataSystemUnderTest>::open_on(
+        crate::adapters::source(),
+        vec![(table, data_root().join("not_in_the_dataset.csv"))],
+    ));
 }
 
 /// One cell of the data-system axis.

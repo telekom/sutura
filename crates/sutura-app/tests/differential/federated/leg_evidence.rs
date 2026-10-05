@@ -76,9 +76,9 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
             stated_in: "crates/sutura-exec-oracle/src/lib.rs",
         },
     ),
-    // The canned pack, because it is what every gate runs. The live leg is
-    // `federated/two_fact.rs`'s, on the dataset the `bigquery-conformance` job provisions, and
-    // runs in that job alone.
+    // The canned pack, because it is what every gate runs. A `bigquery` leg also executes live:
+    // `federated/two_fact.rs`'s, on the dataset the `bigquery-conformance` job provisions, in that
+    // job alone, under its one shared CI identity, with both sources on that one dataset.
     (
         "bigquery",
         LegEvidence::Executed {

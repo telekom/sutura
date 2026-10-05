@@ -34,7 +34,7 @@
 //! `CREATE OR REPLACE TABLE` then `INSERT` would be two jobs per table, and the table would exist
 //! empty between them - a state a concurrent corpus run could read. `CREATE OR REPLACE TABLE ... AS
 //! SELECT ... FROM UNNEST([STRUCT ...])` is one job, atomic in the way `CREATE OR REPLACE` is, and
-//! it is idempotent against the last run. Four tables, four jobs, and the DDL costs nothing: the
+//! it is idempotent against the last run. One job per table, and the DDL costs nothing: the
 //! bytes billed for a `CREATE TABLE AS SELECT` over a literal array are the bytes it scans, which is
 //! none.
 //!
