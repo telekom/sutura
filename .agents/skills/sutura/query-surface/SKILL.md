@@ -107,7 +107,10 @@ the shape a published binary sends, and its conformance binding executes a leg a
 provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
 rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is bound the same way
 Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
-a provisioned tier or a live dataset. All three declarations, and what each one's evidence is, live
+a provisioned tier or a live dataset - and a BigQuery leg also executes live, in the two-fact
+differential (`crates/sutura-app/tests/differential/federated/two_fact.rs`), in the
+`bigquery-conformance` CI job alone, under one shared CI identity and with both sources on one
+dataset. All three declarations, and what each one's evidence is, live
 in `crates/sutura-app/tests/differential/federated/leg_evidence.rs` as a typed `LegEvidence` rather
 than a bare name; (3) **two genuinely different POSTURES on one federated answer are answered and
 disclosed per leg since `docs/adr/0040`, and a deployment can hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is

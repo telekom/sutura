@@ -413,26 +413,34 @@ mod tests {
     /// own, and must answer what two engines answer - or, declaring no leg execution, be refused by
     /// name before anything runs. The engine's own entry is compared against itself, a determinism
     /// check; an entry with no venue here (`BigQuery`, Oracle, or a tier that is not up) is skipped
-    /// under its named exemption, so `ClickHouse`'s refusal is asserted only where its tier is up.
-    /// Where `BigQuery`'s venue IS up its open refuses this derived corpus, which is why the
-    /// `bigquery-conformance` job does not select this cell.
+    /// under its named exemption through `adapters::runs_here`, so `ClickHouse`'s refusal is asserted
+    /// only where its tier is up. An entry `runs_here` admits and the walk did not ask is a finding,
+    /// and the entries compared are printed, so the `bigquery-conformance` job's log names `bigquery`.
     /// One cell over the registry rather than one per entry, and one assertion in it:
-    /// `federated::two_fact::disagreement` says what each entry did, and the two engines it compares
+    /// `federated::two_fact::compared` says what each entry did, and the two engines it compares
     /// against are held to hand-worked figures by that file's own cell. **The first finding stops the
     /// walk**, in registry order, so a later entry is not even asked whether it is available - which
     /// is what lets this cell's claim mutation kill it on `DuckDB` in a venue with no tier up, where
     /// asking `Postgres` would refuse the run instead.
     #[test]
     fn leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused() {
+        use crate::federated::two_fact::{TwoFact, compared};
         let mut found: Option<String> = None;
+        let mut asked: Vec<&str> = Vec::new();
         macro_rules! two_fact {
             ($name:ident, $adapter:ty) => {
-                if found.is_none() {
-                    found = crate::federated::two_fact::disagreement::<$adapter>();
+                if found.is_none() && crate::adapters::runs_here::<$adapter>() {
+                    let name = <$adapter as crate::adapters::DataSystemUnderTest>::NAME;
+                    match compared::<$adapter>() {
+                        TwoFact::Held => asked.push(name),
+                        TwoFact::Broke(finding) => found = Some(finding),
+                        TwoFact::NotAsked => found = Some(format!("{name} runs here and the two-fact walk did not ask it")),
+                    }
                 }
             };
         }
         crate::adapters::registered!(data_systems: two_fact);
+        eprintln!("two-fact: compared {asked:?}");
         assert!(found.is_none(), "{}", found.unwrap_or_default());
     }
 

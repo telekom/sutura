@@ -13,7 +13,9 @@ use sutura_domain::warehouse::{PreFlight, RowSet};
 use sutura_semantic::{Compiled, compile};
 
 use crate::adapters::exemptions::{Exempt, excused};
-use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, data_root, load, open, questions, read_question, runs_here, stem};
+use crate::adapters::{
+    BIGQUERY_TABLES, DataSystemUnderTest, ReferenceCatalog, data_root, load, open, questions, read_question, runs_here, stem,
+};
 
 use crate::shared::{chain, question, settings, stable};
 
@@ -500,9 +502,10 @@ fn rows_in_fixture(key: &DeclaredKey<'_>) -> u64 {
     text.lines().skip(1).filter(|line| !line.is_empty()).count() as u64
 }
 
-/// **The `bigquery-conformance` job's first step**: replace one table per example CSV in the
-/// dataset `SUTURA_BQ_DATASET` names, then prove the identity can READ through the driver. Every
-/// `bigquery` cell after it reads those tables and none writes - the registration says why.
+/// **The `bigquery-conformance` job's first step**: replace every table `BIGQUERY_TABLES` names -
+/// one per example CSV, then the two-fact ratio's two - in the dataset `SUTURA_BQ_DATASET` names,
+/// then prove the identity can READ through the driver. Every `bigquery` cell after it reads those
+/// tables and none writes - the registration says why.
 ///
 /// `#[ignore]`d because it needs a real dataset, the driver and a credential, and it PANICS on a
 /// missing one rather than skipping: a provisioning step that skipped would leave every cell after
@@ -516,7 +519,7 @@ fn rows_in_fixture(key: &DeclaredKey<'_>) -> u64 {
 /// **The read probe names the one grant a load does not need.** A `CREATE OR REPLACE TABLE` is a
 /// job; reading an answer back as Arrow opens a Storage Read API session, which needs
 /// `bigquery.readsessions.create` - `roles/bigquery.readSessionUser`. An identity holding every
-/// other grant loads all five tables and then fails every cell after this one, so the probe refuses
+/// other grant loads every table and then fails every cell after this one, so the probe refuses
 /// HERE, naming the role, instead of leaving each cell to report the same driver message.
 #[test]
 #[ignore = "needs the dataset the bigquery-conformance job provisions, the ADBC driver and a credential"]
@@ -527,22 +530,47 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         "SUTURA_BQ_DATASET is unset, so there is no dataset to provision"
     );
     let warehouse = crate::adapters::bigquery_warehouse(crate::adapters::source());
-    let mut csvs: Vec<std::path::PathBuf> = std::fs::read_dir(data_root())
+    let mut committed: Vec<String> = std::fs::read_dir(data_root())
         .expect("the example data directory reads")
         .map(|entry| entry.expect("a directory entry is readable").path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "csv"))
+        .map(|csv| stem(&csv))
         .collect();
-    csvs.sort();
-    assert!(!csvs.is_empty(), "no CSV under {}", data_root().display());
-    for csv in csvs {
-        let table = sutura_domain::model::TableName::parse(stem(&csv)).expect("an example CSV is named after its table");
+    committed.sort_unstable();
+    let mut listed: Vec<&str> = BIGQUERY_TABLES
+        .iter()
+        .filter(|(_, added)| added.is_none())
+        .map(|&(table, _)| table)
+        .collect();
+    listed.sort_unstable();
+    assert_eq!(
+        committed,
+        listed,
+        "`BIGQUERY_TABLES` must name every example CSV under {}, or a cell opens a table the dataset lacks",
+        data_root().display()
+    );
+    let added = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("bigquery-two-fact-{}", std::process::id()));
+    std::fs::create_dir_all(&added).unwrap_or_else(|e| panic!("could not create {}: {e}", added.display()));
+    for (name, rows) in BIGQUERY_TABLES {
+        let csv = rows.map_or_else(
+            || data_root().join(format!("{name}.csv")),
+            |rows| {
+                let csv = added.join(format!("{name}.csv"));
+                std::fs::write(&csv, rows).unwrap_or_else(|e| panic!("could not write {}: {e}", csv.display()));
+                csv
+            },
+        );
+        let table = sutura_domain::model::TableName::parse(name).expect("a dataset table is named");
         let loaded = warehouse
             .load_fixture(&table, &csv)
             .unwrap_or_else(|e| panic!("{table} did not load:\n{}", chain(&e)));
         let text = std::fs::read_to_string(&csv).unwrap_or_else(|e| panic!("could not read {}: {e}", csv.display()));
         let rows = text.lines().skip(1).filter(|line| !line.is_empty()).count();
-        assert_eq!(loaded, rows, "{table} loaded {loaded} rows where its CSV holds {rows}");
-        eprintln!("provisioned {table}: {loaded} rows");
+        assert_eq!(
+            loaded, rows,
+            "{table}: the importer parsed {loaded} rows where its CSV holds {rows}"
+        );
+        eprintln!("provisioned {table}: the importer parsed {loaded} rows");
     }
     if let Err(error) = warehouse.session_user(&crate::adapters::presented()) {
         let said = chain(&error);
@@ -554,6 +582,19 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         );
         panic!("the CI identity loaded the corpus and could not read through the driver:\n{said}");
     }
+}
+
+/// **The `bigquery` open refuses a table the dataset does not hold**, offline: the check runs before
+/// the venue is read, so with it gone this panics at the venue instead and the expected text fails.
+#[test]
+#[should_panic(expected = "is not a table the bigquery dataset holds")]
+fn a_bigquery_open_over_a_table_the_dataset_lacks_is_refused() {
+    type BigQuery = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
+    let table = sutura_domain::model::TableName::parse("not_in_the_dataset").expect("a table name parses");
+    drop(<BigQuery as DataSystemUnderTest>::open_on(
+        crate::adapters::source(),
+        vec![(table, data_root().join("not_in_the_dataset.csv"))],
+    ));
 }
 
 /// One cell of the data-system axis.

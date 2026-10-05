@@ -501,13 +501,41 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
     }
 }
 
-/// `BigQuery`: cloud-only, so its venue is the dataset the `bigquery-conformance` CI job loads the
-/// example corpus into - one table per committed CSV, under the CSV's own name - before this axis
-/// runs. Every cell READS those tables and none writes, so an open over any other table is refused
-/// rather than loaded: it would replace a table other cells are reading, and one dataset has no
-/// per-open schema to give it. **Its limit:** the two-fact differential's derived corpus never runs
-/// here, so this adapter's LEG evidence is still the canned pack. It executes as the job's one CI
-/// identity under the matrix's `shared-service-user` posture, so it says nothing about impersonation.
+/// The two-fact ratio's calendar, a table the example corpus lacks. Here rather than in
+/// `federated::corpus`, which adds it for every other data system, because the `bigquery`
+/// provisioning cell sits in the golden target and loads it too - one copy of the rows for both.
+pub(crate) const DIM_CALENDAR: &str =
+    "month\n2026-01-01\n2026-02-01\n2026-03-01\n2026-04-01\n2026-05-01\n2026-06-01\n2026-07-01\n2026-08-01\n";
+
+/// The two-fact ratio's second fact, for [`DIM_CALENDAR`]'s reason.
+pub(crate) const FCT_TICKET_MONTHLY: &str = "month,customer_key,tickets\n2026-04-01,5,50\n2026-05-01,2,4\n2026-05-01,5,3\n\
+     2026-05-01,42,5\n2026-06-01,1,2\n2026-06-01,2,3\n2026-06-01,11,1\n2026-06-01,20,6\n2026-07-01,2,100\n";
+
+/// One table the `bigquery` dataset holds, and what the provisioning cell loads into it: `None` for an
+/// example-corpus table, which loads its committed CSV, and the rows of a two-fact table the corpus
+/// lacks.
+pub(crate) type DatasetTable = (&'static str, Option<&'static str>);
+
+/// Every table the `bigquery` dataset holds. The derived corpus's APPENDED rows are not here: the
+/// dataset holds one `fct_subscription_monthly`, the committed one every other cell reads.
+pub(crate) const BIGQUERY_TABLES: [DatasetTable; 7] = [
+    ("dim_customer", None),
+    ("dim_product", None),
+    ("dim_region", None),
+    ("fct_subscription_monthly", None),
+    ("fct_usage_daily", None),
+    ("dim_calendar", Some(DIM_CALENDAR)),
+    ("fct_ticket_monthly", Some(FCT_TICKET_MONTHLY)),
+];
+
+/// `BigQuery`: cloud-only, so its venue is the dataset the `bigquery-conformance` CI job loads
+/// [`BIGQUERY_TABLES`] into before this axis runs. Every cell READS those tables and none writes, so
+/// an open over any other table is refused rather than loaded: it would replace a table other cells
+/// are reading, and one dataset has no per-open schema to give it. **Its limit:** a table is matched
+/// by NAME, so a derived corpus's edit to an example table is not what runs here - the two-fact
+/// differential's appended `fct_subscription_monthly` rows fall outside its question's range, which
+/// is what lets that cell compare. It executes as the job's one CI identity under the matrix's
+/// `shared-service-user` posture, so it says nothing about impersonation.
 impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
     const NAME: &'static str = "bigquery";
 
@@ -516,12 +544,11 @@ impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
     }
 
     fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
-        for (table, csv) in &tables {
-            assert_eq!(
-                *csv,
-                data_root().join(format!("{table}.csv")),
-                "{table} is not an example-corpus table, and the bigquery dataset holds only those: \
-                 loading it would replace a table the other cells are reading"
+        for (table, _) in &tables {
+            assert!(
+                BIGQUERY_TABLES.iter().any(|&(held, _)| held == table.as_str()),
+                "{table} is not a table the bigquery dataset holds, and loading it would replace a table \
+                 the other cells are reading"
             );
         }
         bigquery_warehouse(name)

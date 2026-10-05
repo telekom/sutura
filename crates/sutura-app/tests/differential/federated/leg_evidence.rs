@@ -76,10 +76,9 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
             stated_in: "crates/sutura-exec-oracle/src/lib.rs",
         },
     ),
-    // **Still the canned pack, though `bigquery` now has a live venue**: the
-    // `bigquery-conformance` job runs whole plans against a real dataset, and the two-fact
-    // differential's derived corpus - the one cell here that would execute a leg on it - is not
-    // loaded there, because one shared dataset holds the example corpus alone.
+    // The canned pack, because it is what every gate runs. A `bigquery` leg also executes live:
+    // `federated/two_fact.rs`'s, on the dataset the `bigquery-conformance` job provisions, in that
+    // job alone, under its one shared CI identity, with both sources on that one dataset.
     (
         "bigquery",
         LegEvidence::Executed {
