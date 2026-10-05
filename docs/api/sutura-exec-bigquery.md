@@ -472,6 +472,18 @@ locals of `AdbcBigQuery::connect`, built from one request's own options; the end
 owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
 here - stated with its limit in `AdbcBigQuery`'s own documentation.
 
+### `struct DriverMessage`
+
+```rust
+pub struct DriverMessage
+```
+
+A driver message with every console job link cut out, so no rendered error says where a job ran.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
 ### `enum AdbcError`
 
 ```rust
