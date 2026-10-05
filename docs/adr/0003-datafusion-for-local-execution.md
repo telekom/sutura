@@ -187,3 +187,13 @@ DataFusion engine is not one of these - it generates no SQL at all and executes 
 built from the plan. What remains true is the original claim's purpose: without a real SQL engine
 somewhere in the loop, the rendering half of the compiler would be vouched for by parsing alone.
 There are now several engines in that loop.
+
+## Second amendment, 2026-10-02: a musl artifact has a `libduckdb` to link against now
+
+The last Consequence keeps DuckDB a development dependency, "not to be linked into an artifact that
+has no musl `libduckdb` to link against". That premise is false now: `nix/duckdb-adbc.nix`
+cross-builds nixpkgs' own `duckdb` for both musl triples, merges its static archives into one and
+links a `-static` probe against it inside the build, and `nix/shipped.nix` hands that archive to
+every musl link as an ADBC driver. The decision stands: DataFusion links no C library and needs no
+feature, and the `duckdb` crate is still a development dependency. Limit: no shipped code calls the
+DuckDB driver yet, so the archive reaches the musl link and nothing there runs it.

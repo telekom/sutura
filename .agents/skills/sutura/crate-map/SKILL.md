@@ -104,9 +104,11 @@ Rules that are not visible from a manifest:
 
 ## Why a driver is a dev-dependency
 
-`sutura-cli` never links DuckDB - DataFusion is the one data-system adapter it links
+`sutura-cli` never links the `duckdb` crate - DataFusion is the one data-system adapter it links
 unconditionally, every other behind a default-off feature - and **that is what keeps the musl
-artifacts building**: nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path from
+artifacts building**: the `duckdb` crate links the shared `libduckdb`, which a static musl binary
+cannot load (the musl link gets DuckDB's merged static archive as an ADBC driver instead,
+`nix/duckdb-adbc.nix`). `nix/duckdb.nix` is the single path from
 nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike so a pin cannot differ
 between the shell and CI.
 
