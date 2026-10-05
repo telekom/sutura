@@ -2051,6 +2051,27 @@ archive <code>nix/postgres-adbc.nix</code> builds.</p>
 are separate symbols, so no build can hand one out under the other's name.</p>
 <h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
 <p>As <code>linked_driver</code>.</p>
+<h2 id="fn-linked_duckdb_driver"><code>fn linked_duckdb_driver</code><a class="headerlink" href="#fn-linked_duckdb_driver" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">linked_duckdb_driver</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">adbc_driver_manager</span><span class="p">::</span><span class="n">ManagedDriver</span><span class="p">,</span><span class="w"> </span><span class="n">adbc_core</span><span class="p">::</span><span class="n">error</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The <code>DuckDB</code> driver this artefact's own link carries - <code>linked_driver</code>'s contract, for the
+archive <code>nix/duckdb-adbc.nix</code> builds.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p>As <code>linked_driver</code>.</p>
+<h2 id="fn-mounted_duckdb_driver"><code>fn mounted_duckdb_driver</code><a class="headerlink" href="#fn-mounted_duckdb_driver" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mounted_duckdb_driver</span><span class="p">(</span><span class="n">named</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">adbc_driver_manager</span><span class="p">::</span><span class="n">ManagedDriver</span><span class="p">,</span><span class="w"> </span><span class="n">adbc_core</span><span class="p">::</span><span class="n">error</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The <code>DuckDB</code> library a deployment mounted at <code>named</code>, opened as an ADBC driver.</p>
+<p><strong>The path is parsed, never handed to the loader on trust.</strong> <code>DriverLocation::parse</code> refuses an
+empty or relative path before <code>dlopen</code> sees it - <code>telekom/sutura#929</code>'s sixth finding - so a
+relative path is a refusal, not a library that depends on this process's working directory.</p>
+<p><strong>The entrypoint is passed, never derived.</strong> Given none, the driver manager derives
+<code>AdbcDuckdbInit</code> from <code>libduckdb.so</code> and falls back to <code>AdbcDriverInit</code>, and <code>DuckDB</code> defines
+neither: <code>duckdb_adbc_init</code> is its one C-linkage ADBC name, the symbol the linked route declares
+too.</p>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
+<p><code>CoreError</code> where the named path is unusable (empty or relative), where the library does not
+load, or where its initialisation refused.</p>
 <h2 id="use-parameter_batch"><code>use parameter_batch</code><a class="headerlink" href="#use-parameter_batch" title="Permanent link">&para;</a></h2>
 <p>One question's values, as the batch this driver binds from - or <code>None</code> where there are none.</p>
 <p><strong><code>None</code> rather than an empty batch, and the driver decides that too:</strong> <code>newRecordReader</code> takes
@@ -2058,7 +2079,7 @@ the <code>runPlainQuery</code> path when nothing is bound, and an empty-schema b
 instead take the parameter path and set <code>query.Parameters</code> to an empty slice. The two are not the
 same request. Every boot-path call - <code>verify_anchor</code>, the identity read, a fixture load - carries
 no values and must take the plain path.</p>
-<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
 <p><code>ArrowError</code> where Arrow refuses the batch. Unreachable as written - the schema and
 the columns are built from one walk of one slice, so their lengths and types agree by
 construction - and answered for rather than unwrapped, because <code>unwrap_used</code> is denied and a
