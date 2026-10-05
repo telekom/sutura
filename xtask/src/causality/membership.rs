@@ -74,8 +74,8 @@ use super::provenance::Commit;
 pub(super) struct Membership {
     /// Every changed build input the base commit does not have.
     added: Vec<String>,
-    /// Every path this branch DELETED. The diff's file list is built from the post-image, so a
-    /// deleted file is in neither attempt's list on its own - and a reconstruction that leaves it
+    /// Every path this branch DELETED or moved away. The diff's file list is built from the
+    /// post-image, so such a file is in neither attempt's list on its own - and a reconstruction that leaves it
     /// deleted while restoring the `mod` line that declares it does not compile (E0583, measured
     /// on a deleted `sutura-config` module). Every attempt puts it back.
     deleted: Vec<String>,
