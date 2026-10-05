@@ -4,8 +4,18 @@
 //! The seam is the venue rather than the tree: every row here answers *what will run, and
 //! where*, reading `.github/**`, `flake.nix` and `devenv.nix` instead of the crates.
 
-use crate::registry::{Falsifier, Kind, Reads, Task};
+use crate::registry::{Edit, Falsifier, Kind, Paired, Reads, Task};
 use crate::{action_shell, changes, devenv_linter, devenv_shell, hook_coverage, hooks, pr_title, venues, workflows};
+
+/// `page_problems`' own rule: a verdict cell `verdict` cannot read.
+const CHECK_VENUES_PAIRED: Paired = Paired {
+    inputs: &["."],
+    violation: &[Edit {
+        path: "docs/where-identity-is-proven.md",
+        find: "**yes** (a type with no `Deserialize`)",
+        replace: "Nobody has yet observed a real run of this.",
+    }],
+};
 
 pub(crate) const TASKS: &[Task] = &[
     Task {
@@ -15,7 +25,7 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-venues",
         description: "every identity claim's venue states its limit, and the acceptance job holds it",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier::paired(&CHECK_VENUES_PAIRED),
         run: venues::run,
     },
     Task {
@@ -82,6 +92,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("nix/run-gate.sh"),
+            paired: None,
         },
         run: workflows::run,
     },
@@ -116,6 +127,7 @@ pub(crate) const TASKS: &[Task] = &[
                 "default_install_hook_types: [pre-commit, pre-push]\ndefault_stages: [pre-commit]\nrepos:\n  - repo: local\n    hooks:\n      - id: secret-sweep\n        entry: bash nix/run-gate.sh secrets\n        stages: [pre-push]\n      - id: cargo-deny\n        entry: bash nix/run-gate.sh supply-chain\n        stages: [pre-push]\n",
             )],
             in_scope: Some(hooks::CONFIG),
+            paired: None,
         },
         run: hooks::run,
     },
@@ -137,6 +149,7 @@ pub(crate) const TASKS: &[Task] = &[
                 "{ pkgs, ... }:\nlet\n  linted = name: bashOptions: text:\n    pkgs.writeShellApplication { name = \"sutura-${name}\"; inherit bashOptions text; extraShellCheckFlags = [ \"-x\" ]; };\n  runs = name: body: \"${linted name [ \"errexit\" ] body}/bin/sutura-${name}\";\nin\n{\n  scripts.good.exec = runs \"good\" \"echo good\";\n  scripts.bad.exec = \"echo unchecked\";\n}\n",
             )],
             in_scope: Some("devenv.nix"),
+            paired: None,
         },
         run: devenv_shell::run,
     },

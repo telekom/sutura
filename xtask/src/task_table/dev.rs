@@ -115,6 +115,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("fuzz/dictionaries/sample.dict"),
+            paired: None,
         },
         run: fuzz::run,
     },
@@ -129,6 +130,7 @@ pub(crate) const TASKS: &[Task] = &[
         falsifier: Falsifier {
             seeds: &[(ROTTED_CLAIM_MUTATION_SEED, "not a git diff at all\n")],
             in_scope: Some(ROTTED_CLAIM_MUTATION_SEED),
+            paired: None,
         },
         run: causality::rot::check_apply,
     },
