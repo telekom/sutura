@@ -64,7 +64,8 @@ Those three plus secure-by-design are the definition of *correct* in review here
   lists it with a reason; that key is the bare fn name, and when the per-test lines do not match
   nextest's summary no test can be named, so none is refused.
 - **Cite a `just` task, never a raw command line** - `check-guidance` fails a citation of a task
-  that does not exist, or a cited `cargo` line missing `--all-features`.
+  that does not exist, or a cited `cargo` line missing `--all-features`. Limit: a `just` citation
+  is read only where it opens a backtick span.
 - **Invariants are held by a type, a lint, a hook or a gate - never by recall.** Changing one is an
   architecture decision; a rule that loses its mechanism gets deleted, not demoted to advice. A
   change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and

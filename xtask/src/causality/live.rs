@@ -13,8 +13,8 @@
 //!
 //! THIRD CHECK, AT HEAD (`github.com/telekom/sutura#1274`): every declared cell is run once here with
 //! its output captured, and the trailer is refused unless that output carries the matrix's own
-//! `exempt: <system> from Unavailable` line - so a cell that names no system, or one that runs here,
-//! cannot leave the scope.
+//! `exempt: <system> from Unavailable` line - so a cell whose run never reaches that system's
+//! exemption cannot leave the scope.
 //!
 //! **LIMITS.** The witness run is the checkout as it stands, not the reconstructed HEAD worktree,
 //! so an uncommitted edit is what it reads. Its I/O half, `head_output`, is reached by no hermetic

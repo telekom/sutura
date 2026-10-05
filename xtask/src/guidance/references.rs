@@ -1,5 +1,7 @@
 //! `cargo xtask <name>` mentioned anywhere, and `just <name>` in a backtick span, must be a task
-//! that exists (`github.com/telekom/sutura#1277`). A `just` citation outside backticks is not read.
+//! that exists (`github.com/telekom/sutura#1277`). Limit: a `just` citation that does not OPEN a
+//! backtick span is not read - outside backticks, or after an assignment such as
+//! `` `NEXTEST_PROFILE=nofailfast just test` ``.
 //!
 //! Its own module for `citations`' reason: `max-lines` caps a file at 1000 and cannot exempt
 //! anything under `xtask/`. It reads every file it is handed - [`in_scope`](super::in_scope) is the
