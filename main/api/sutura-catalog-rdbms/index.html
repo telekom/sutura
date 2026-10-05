@@ -2404,13 +2404,15 @@ then quoted</strong> - Oracle folds an unquoted name to upper case when the obje
 name is not. The environment and an <code>equals</code> value are bound as <code>:1</code>/<code>:2</code>, never interpolated.</p>
 <h1 id="the-limits-next-to-the-claims">The limits, next to the claims<a class="headerlink" href="#the-limits-next-to-the-claims" title="Permanent link">&para;</a></h1>
 <ul>
-<li><strong>No passing live Oracle run is cited.</strong> No venue that runs <code>just validate</code> reaches an
-  Oracle server (<code>compose.services.yaml</code>'s <code>oracle</code> row says why). The live cells in
-  <code>tests/oracle_provisioned.rs</code> exist and the <code>oracle-tier</code> CI job runs them. No run of them is
-  cited here yet. The unit cells prove the constructor refusals, the rendered statement, the flag
-  decode, and a golden of the dictionary assembled from positional values handed to the
-  decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
-  transaction and the driver's own type conversion stay unexercised.</li>
+<li><strong>One live Oracle run is cited, and no <code>just validate</code> venue reaches a server.</strong>
+  <code>compose.services.yaml</code>'s <code>oracle</code> row says why. The <code>oracle-tier</code> CI job ran both cells in
+  <code>tests/oracle_provisioned.rs</code> green on 2026-10-02 at <code>53055e9a4</code>, the head of the pull request
+  that landed them as #1232 (run 36997951066, job 110814411138, beside the adapter's acceptance
+  cell: <code>3 tests run: 3 passed</code>): a read binds models to the declared source alias, and an
+  absent documentation schema is refused by the server. Outside that job the unit cells prove
+  the constructor refusals, the rendered statement, the flag decode, and a golden of the
+  dictionary assembled from positional values handed to the decoder - never a read, because the
+  driver cannot build a row outside a session.</li>
 <li><strong>Read-only by statement, not by driver flag.</strong> The pinned driver has no read-only option;
   the reader issues <code>SET TRANSACTION READ ONLY</code> before its one <code>SELECT</code> and rolls back after it.
   That it makes the transaction read-only is unobserved against a server.</li>
