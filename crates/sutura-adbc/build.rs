@@ -32,8 +32,8 @@
 //! `AdbcDriverPostgresqlInit`, `duckdb_adbc_init`), so no name is shared between the archives -
 //! `nix/postgres-adbc.nix` says how the PostgreSQL one stopped defining the ADBC C API, and
 //! `nix/duckdb-adbc.nix` refuses a `DuckDB` archive that defines one. The PostgreSQL directory also
-//! holds that archive's static link set (libpq and OpenSSL), linked here in dependency order; the
-//! `DuckDB` archive is already self-contained. Both are C++, so the C++ runtime comes after them
+//! holds that archive's static link set (libpq, MIT krb5's GSSAPI and OpenSSL), linked here in
+//! dependency order with the C++ runtime after it; the `DuckDB` archive is already self-contained,
 //! and each directory is the whole contract.
 
 fn main() {
@@ -82,7 +82,19 @@ const ARCHIVE_NAME: &str = "adbc_driver_bigquery";
 const POSTGRES_ARCHIVE_DIR: &str = "SUTURA_ADBC_POSTGRES_ARCHIVE_DIR";
 
 /// The PostgreSQL archive, then what it needs, in the order a single-pass linker resolves them.
-const POSTGRES_ARCHIVES: &[&str] = &["adbc_driver_postgresql", "pq", "pgcommon", "pgport", "ssl", "crypto"];
+const POSTGRES_ARCHIVES: &[&str] = &[
+    "adbc_driver_postgresql",
+    "pq",
+    "pgcommon",
+    "pgport",
+    "gssapi_krb5",
+    "krb5",
+    "k5crypto",
+    "com_err",
+    "krb5support",
+    "ssl",
+    "crypto",
+];
 
 /// The directory holding the `DuckDB` archive (`nix/duckdb-adbc.nix`).
 const DUCKDB_ARCHIVE_DIR: &str = "SUTURA_ADBC_DUCKDB_ARCHIVE_DIR";

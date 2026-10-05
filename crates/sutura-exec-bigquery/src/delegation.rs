@@ -22,9 +22,10 @@
 //!   obtain a pool-audience token for any subject whose inbound token they also hold. It is a
 //!   [`Secret`] (redacted `Debug`, no `Display`, zeroized on drop - with the copy limits that type
 //!   states).
-//! - **Nothing composes it yet.** `sutura serve` declares no settings for an identity provider token endpoint or a
-//!   client credential, so a served deployment never reaches this port; the cells and the Keycloak
-//!   tier cell do.
+//! - **`sutura serve` composes it** for a source declaring `workload_identity.delegation`, refused
+//!   at boot unless the inbound mode is `direct`. No served-binary cell reaches it: a `bigquery`
+//!   deployment needs the ADBC driver to boot and the default test venue carries none, so the
+//!   composition is held in-process by `sutura-cli`'s `build_broker` cells.
 
 use std::sync::Arc;
 
@@ -187,8 +188,9 @@ pub trait DelegationExchange: core::fmt::Debug + Send + Sync {
 
 /// What one impersonating source exchanges through.
 ///
-/// `Arc` because one identity provider client - one TLS agent, one credential - serves every source a deployment
-/// declares, and the broker is per answer rather than per source.
+/// `Arc` because a cloned broker shares its source's one identity provider client - one TLS agent,
+/// one credential - rather than building another. A composition root builds one per source that
+/// declares a delegation, never one per deployment.
 #[derive(Debug, Clone)]
 pub struct Delegation {
     exchange: Arc<dyn DelegationExchange>,

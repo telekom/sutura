@@ -44,6 +44,10 @@ const REQUIRED: &[(&str, &str)] = &[
     ("E2E_REQUIRED", "ci"),
     ("ORACLE_RESULT", "oracle-tier"),
     ("ORACLE_SELECTED", "ci"),
+    ("DH_RESULT", "ci-datahub-tier"),
+    ("DH_SELECTED", "ci"),
+    ("BQC_RESULT", "bigquery-conformance"),
+    ("BQC_REQUIRED", "ci"),
 ];
 
 /// The job key of the aggregate.
@@ -279,6 +283,10 @@ mod tests {
             "          E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}",
             "          ORACLE_RESULT: ${{ needs.oracle-tier.result }}",
             "          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}",
+            "          DH_RESULT: ${{ needs.ci-datahub-tier.result }}",
+            "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
+            "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
+            "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
         ]
         .join("\n")
     }

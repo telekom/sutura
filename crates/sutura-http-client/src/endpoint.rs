@@ -11,8 +11,49 @@
 //! `Authority::host` already resolves past userinfo correctly, and [`Endpoint::parse`]
 //! additionally refuses any `user[:pass]@` prefix outright rather than trusting that resolution to
 //! stay correct forever.
+//!
+//! A refusal names the endpoint through [`ShownEndpoint`], never as the text was written: a
+//! refused endpoint may carry exactly the credential its refusal is about.
 
 use ureq::http::Uri;
+
+/// A declared endpoint as a refusal shows it: the scheme, host, port and path [`Uri`] parsed, and
+/// never its userinfo, query or fragment.
+///
+/// Outside this module it is built only by [`Self::of`] - the field is private; inside it, cells
+/// and not the type hold that no refusal carries the declared text as written. Two shapes are not
+/// shown at all: text [`Uri`] does not parse, because a second parser's reading of input the dial
+/// parser refused is where a credential would survive; and text with an `@` outside the parsed
+/// authority, because an unencoded `/`, `?` or `#` in a password ends that authority early and the
+/// rest of the credential would read as path. The limit: a secret written into the PATH with no
+/// `@` is shown, because a path is not a credential to the parser that dials it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownEndpoint(Option<String>);
+
+impl ShownEndpoint {
+    #[must_use]
+    pub fn of(raw: &str) -> Self {
+        Self(raw.trim().parse::<Uri>().ok().and_then(|uri| {
+            // Past the LAST `@`, where `Authority::host` itself starts reading: `host:port` exactly as
+            // written, so a port this refusal is about is shown, and the userinfo before it never is.
+            let authority = uri.authority()?.as_str();
+            if raw.matches('@').count() != authority.matches('@').count() {
+                return None;
+            }
+            let host_port = authority
+                .rsplit_once('@')
+                .map_or(authority, |(_userinfo, host_port)| host_port);
+            let path = Some(uri.path()).filter(|path| *path != "/").unwrap_or_default();
+            Some(format!("{}://{host_port}{path}", uri.scheme_str()?))
+        }))
+    }
+}
+
+impl core::fmt::Display for ShownEndpoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.0.as_deref().unwrap_or("the declared endpoint"))
+    }
+}
 
 /// Why a declared endpoint is not usable.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -20,8 +61,9 @@ pub enum InvalidEndpoint {
     /// Not a parseable URL, or a parseable URL naming neither `http` nor `https`, or one naming no
     /// authority at all.
     #[error("{given} is not an http:// or https:// URL")]
-    NotAnHttpUrl { given: String },
-    /// The authority carries `user[:pass]@` - refused outright. **This is not merely defence in
+    NotAnHttpUrl { given: ShownEndpoint },
+    /// The authority carries `user[:pass]@` - refused outright - or a token endpoint's path carries
+    /// an `@`, which is where an unencoded `/` in a password moves the rest of the credential. **This is not merely defence in
     /// depth against a spoofed host**: the round-2 review measured a reader built from
     /// `http://[::1]:1@localhost:<port>` dialling `localhost` in clear text with the bearer
     /// prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with
@@ -30,12 +72,12 @@ pub enum InvalidEndpoint {
     /// real target - but a declared endpoint has no legitimate use for embedded credentials, so
     /// this refuses the shape by name rather than relying on that resolution being correct forever.
     #[error("{given} carries credentials in the URL (a user[:pass]@ prefix), which is refused")]
-    CredentialsInUrl { given: String },
+    CredentialsInUrl { given: ShownEndpoint },
     /// A path, a query or a fragment beyond the bare root - a reverse-proxy path prefix is a real
     /// shape, not yet supported, a stated limit. The fragment is checked on RAW text in
     /// [`Endpoint::parse`]: `http::Uri` silently discards a `#`.
     #[error("{given} carries a path, query or fragment beyond the root, which this reader does not support")]
-    PathBeyondRoot { given: String },
+    PathBeyondRoot { given: ShownEndpoint },
     /// `http://` to a host that is not an IP loopback literal - see
     /// [`sutura_domain::source::host_is_loopback`].
     #[error(
@@ -62,10 +104,14 @@ impl Endpoint {
     /// (`http://[::1]:1@localhost`) reach `host_is_loopback` with the wrong string. The stored
     /// form is rebuilt from the parsed `scheme`/`authority`, so any root spelling normalises alike.
     pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
-        let not_an_http_url = || InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() };
+        let not_an_http_url = || InvalidEndpoint::NotAnHttpUrl {
+            given: ShownEndpoint::of(raw),
+        };
         // `http::Uri` silently discards a fragment at parse, so a `#` is refused HERE, on the raw text.
         if raw.contains('#') {
-            return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
+            return Err(InvalidEndpoint::PathBeyondRoot {
+                given: ShownEndpoint::of(raw),
+            });
         }
         let uri: Uri = raw
             .trim()
@@ -77,7 +123,9 @@ impl Endpoint {
         }
         let authority = uri.authority().ok_or_else(not_an_http_url)?;
         if authority.as_str().contains('@') {
-            return Err(InvalidEndpoint::CredentialsInUrl { given: raw.to_owned() });
+            return Err(InvalidEndpoint::CredentialsInUrl {
+                given: ShownEndpoint::of(raw),
+            });
         }
         // A declared port must be a valid nonzero `u16`; bytes (not `&str`) so a bracketed IPv6
         // host's own colons are never mistaken for the port's.
@@ -93,7 +141,9 @@ impl Endpoint {
             .path_and_query()
             .is_none_or(|path_and_query| matches!(path_and_query.as_str(), "" | "/"));
         if !root_only {
-            return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
+            return Err(InvalidEndpoint::PathBeyondRoot {
+                given: ShownEndpoint::of(raw),
+            });
         }
         if scheme == "http" {
             // `Authority::host` already resolves past any userinfo (to the text after the LAST

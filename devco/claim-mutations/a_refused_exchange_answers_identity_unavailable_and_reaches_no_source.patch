@@ -1,0 +1,27 @@
+diff --git a/crates/sutura-exec-bigquery/src/principal.rs b/crates/sutura-exec-bigquery/src/principal.rs
+--- a/crates/sutura-exec-bigquery/src/principal.rs
++++ b/crates/sutura-exec-bigquery/src/principal.rs
+@@ -382,12 +382,17 @@
+             let (material, expires) = match delegation {
+                 None => (assertion.clone(), expires),
+                 Some(delegation) => {
+-                    let delegated = delegation
+-                        .exchange(assertion)
+-                        .map_err(|cause| DeclaredPrincipalsUnusable::Delegation {
+-                            source: source.clone(),
+-                            cause,
+-                        })?;
++                    let Ok(delegated) = delegation.exchange(assertion) else {
++                        drop(presented.insert(
++                            source.clone(),
++                            Presented::SubjectToken {
++                                material: assertion.clone(),
++                                impersonate: Some(target.clone()),
++                            },
++                        ));
++                        deadlines.push(expires);
++                        continue;
++                    };
+                     let until = Expiry::At {
+                         unix_seconds: delegated.not_after_unix_seconds(),
+                     };

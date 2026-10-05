@@ -55,13 +55,13 @@ const HEADER_LINES: usize = 5;
 
 /// One extracted step.
 #[derive(Debug, PartialEq, Eq)]
-struct Extracted {
+pub(crate) struct Extracted {
     /// The step's `- name:`, or `unnamed` where it has none.
-    step: String,
+    pub(crate) step: String,
     /// 1-based line in the source file where the body's first line sits.
     first_body_line: usize,
     /// The body, dedented, with GitHub expressions replaced.
-    body: String,
+    pub(crate) body: String,
 }
 
 /// Replace every `${{ ... }}` with the expansion that has the SAME word-splitting behaviour the
@@ -138,7 +138,7 @@ const EXPANSION: &str = "$GHA_EXPRESSION";
 /// A single-line `run: cmd` is extracted too. It is not a shape this repository uses today, and
 /// skipping it would mean a step added in that form was silently unlinted - which is the whole
 /// failure mode this module exists to remove.
-fn extract(text: &str) -> Vec<Extracted> {
+pub(crate) fn extract(text: &str) -> Vec<Extracted> {
     let mut found = Vec::new();
     let mut step = String::from("unnamed");
     let lines: Vec<&str> = text.lines().collect();

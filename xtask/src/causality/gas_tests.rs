@@ -101,6 +101,55 @@ fn git_output(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
     command.current_dir(dir).args(args).output().expect("git runs")
 }
 
+/// `github.com/telekom/sutura#1239`: `the_orphan`'s module is declared in `src/lib.rs`, which the
+/// base run reverts, so it has no base result. Refused by name, and passed once the COMMITTED list
+/// exempts it. The base already carries an entry for `existing`, which this diff did not add: not
+/// stale, because the tree still declares that fn.
+#[test]
+fn a_committed_exemption_passes_an_orphan_and_an_older_entry_is_not_stale() {
+    let older = "existing # an earlier change's entry\n";
+    let orphan = |list: &str| {
+        let base = [
+            ("src/lib.rs", "pub fn g() -> u8 { 1 }\n"),
+            ("tests/old.rs", "#[test]\nfn existing() {}\n"),
+            ("devco/causality-no-base-exemptions", older),
+        ];
+        let head = [
+            ("src/lib.rs", "pub fn g() -> u8 { 2 }\n#[cfg(test)]\nmod orphan;\n"),
+            (
+                "src/orphan.rs",
+                "#[test]\nfn the_orphan() {\n    assert_eq!(super::g(), 2);\n}\n",
+            ),
+            ("tests/old.rs", "#[test]\nfn existing() {}\n"),
+            (
+                "tests/t.rs",
+                "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n",
+            ),
+            ("devco/causality-no-base-exemptions", list),
+        ];
+        changed_tree(&base, &head)
+    };
+    let exempted = format!("{older}the_orphan # declared in src/lib.rs, which the base run reverts\n");
+    assert_eq!((orphan(older), orphan(&exempted)), (Verdict::Fail, Verdict::Pass));
+}
+
+/// An entry that matches no function in the tree is refused on a run that would otherwise pass.
+#[test]
+fn an_exemption_naming_no_fn_in_the_tree_is_refused() {
+    let head = [
+        ("src/lib.rs", "pub fn g() -> u8 { 2 }\n"),
+        (
+            "tests/t.rs",
+            "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n",
+        ),
+        ("devco/causality-no-base-exemptions", "gone # its test was deleted\n"),
+    ];
+    assert_eq!(
+        changed_tree(&[("src/lib.rs", "pub fn g() -> u8 { 1 }\n")], &head),
+        Verdict::Fail
+    );
+}
+
 /// `causality::run` DISPATCHES to `claim::run` rather than merely being able to. Nothing else
 /// in this module exercises that: `claim::tests` calls `claim::run` directly, and the round
 /// reviews of #790 name this exact seam as "read by review, not measured by a cell". Proven
@@ -773,6 +822,22 @@ fn a_modified_test_green_on_base_beside_an_implementation_change_is_refused() {
     let head = [
         ("src/lib.rs", "pub fn f() -> u8 { 1 }\npub fn g() -> u8 { 3 }\n"),
         ("tests/t.rs", &*edited),
+    ];
+    assert_eq!(changed_tree(&base, &head), Verdict::Fail);
+}
+
+/// `github.com/telekom/sutura#1239`: two tests added beside an implementation change, one red on
+/// base and one green there. The whole-run rule answered `ok - red on base` from the red one alone;
+/// the green one passes without the change, so the range refuses.
+#[test]
+fn a_green_added_test_beside_a_red_one_is_refused() {
+    let base = [("src/lib.rs", "pub fn g() -> u8 { 1 }\n")];
+    let head = [
+        ("src/lib.rs", "pub fn g() -> u8 { 2 }\n"),
+        (
+            "tests/t.rs",
+            "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n\n#[test]\nfn the_green_one() {\n    assert_ne!(wired::g(), 0);\n}\n",
+        ),
     ];
     assert_eq!(changed_tree(&base, &head), Verdict::Fail);
 }

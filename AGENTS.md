@@ -48,9 +48,19 @@ Those three plus secure-by-design are the definition of *correct* in review here
   `just ship-check` before saying done. An added or modified test PINNING behaviour the base tree
   already provides may pass only under an accepted `Claim-Cell: <test-fn-name>` declaration naming
   it plus a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`; a claim
-  cell with no killing mutation is refused. Limits: a test sharing one file with its implementation
-  change gets a non-verdict pass either way - no base run exists there to redden it; and the base
-  check is per RUN, not per test, so a pin passes beside any scoped test that is red on base.
+  cell with no killing mutation is refused. A `crates/sutura-app/tests/` matrix cell whose changed
+  lines run only for a data system unavailable offline may instead leave the scope under
+  `Live-Cell: <test-fn-name> <system> <ci-job>`, refused unless that system's `Unavailable` entry
+  in `adapters::exemptions::EXEMPTIONS` names that job as its `runs_in` and `ci.yml` declares it,
+  and refused for a name `Claim-Cell:` also declares. Its limits: the gate does not check that
+  the changed lines run only for that system or that the job selects the cell; a bare name takes
+  every system's row of a macro cell out; and the job skips forks, and `ci-aggregate` requires it
+  only on a same-repository pull request or merge group that selects its category, so elsewhere
+  nothing that gates a merge measures a live cell. Other limits: a test sharing one file with its
+  implementation change gets a non-verdict pass either way - no base run exists there to redden it. An added test
+  the base run produced no result for is refused by name unless `devco/causality-no-base-exemptions`
+  lists it with a reason; that key is the bare fn name, and when the per-test lines do not match
+  nextest's summary no test can be named, so none is refused.
 - **Cite a `just` task, never a raw command line** - `check-guidance` fails a citation of a task
   that does not exist, or a cited `cargo` line missing `--all-features`.
 - **Invariants are held by a type, a lint, a hook or a gate - never by recall.** Changing one is an

@@ -101,7 +101,7 @@ fn unreachable_lines(excused: &[Excused], measured: &str) -> Vec<String> {
 pub(crate) fn contradiction(outcome: &BaseOutcome, reverted: &Reverted) -> Vec<String> {
     if !matches!(
         *outcome,
-        BaseOutcome::RedByAssertion { .. } | BaseOutcome::RedOutsideTheDiff { .. }
+        BaseOutcome::RedByAssertion { .. } | BaseOutcome::RedOutsideTheDiff { .. } | BaseOutcome::RedWithGreenSibling { .. }
     ) {
         return Vec::new();
     }
@@ -267,6 +267,19 @@ mod tests {
         assert!(
             contradiction(&BaseOutcome::Green, &excused).is_empty(),
             "a green run has nothing to contradict"
+        );
+        let sibling = BaseOutcome::RedWithGreenSibling {
+            red: vec![String::from("x tests::one")],
+            green: vec![String::from("x tests::two")],
+        };
+        assert_eq!(
+            contradiction(&sibling, &excused).len(),
+            3,
+            "so does a red run with a green sibling: the revert reddened SOMETHING"
+        );
+        assert!(
+            contradiction(&sibling, &Reverted::Behaviour).is_empty(),
+            "an unexplained red-with-green run has nothing to contradict"
         );
         assert!(
             contradiction(&BaseOutcome::DidNotCompile, &excused).is_empty(),

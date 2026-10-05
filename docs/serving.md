@@ -706,7 +706,9 @@ mechanisms and limits below.
 `server.request_timeout_seconds` bounds the caller's **whole wait**. The same setting, minus a
 one-second reply margin, opens the absolute deadline carried by the `Warehouse` port. The engine
 returns after that deadline at a cooperative yield and drops its rows future; Postgres sends
-`SET LOCAL statement_timeout` after acquiring its execution lock. **BigQuery sends what is left of
+what is left as `SET LOCAL statement_timeout` once its per-call connection is open - loading the
+driver and connecting run before it, spending the budget with nothing to stop them. **BigQuery
+sends what is left of
 the deadline as the job's `jobTimeoutMs`** through the ADBC driver's `bigquery.query.job_timeout`,
 which the service honours on a best-effort basis; at the deadline this process also stops waiting
 and asks the driver to cancel the job, queued behind the driver's statement lock. Neither has yet
@@ -716,9 +718,9 @@ cooperative, or best-effort.
 
 `max_concurrent_queries` is that bound. A question holds its slot from the moment it starts until the
 port call returns - **not** merely until the caller is answered. For the engine that is after the
-timer is observed at a cooperative yield; for Postgres it is after the execution-lock wait and the
-statement stop; for BigQuery it is whenever the driver answers, which nothing bounds - no request
-asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
+timer is observed at a cooperative yield; for Postgres it is once the statement stops, and a connect
+that hangs holds the slot, since no connect timeout is written; for BigQuery it is whenever the
+driver answers, which nothing bounds - no request asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
 cannot stop the underlying work at all.
 
 A question that cannot get a slot inside `admission_timeout_seconds` is answered `503` with
@@ -758,11 +760,11 @@ pinned MCP SDK delivers that cancellation as a token the handler does not read.
 Stated plainly, because each of these has been mistaken for the thing above.
 
 - **It does not cancel anything by itself.** The per-request deadline is a separate mechanism. The
-  engine observes it at cooperative yield points, Postgres after its execution-lock wait, and
+  engine observes it at cooperative yield points, Postgres once its connection is open, and
   BigQuery sends what remains to its service. None of those facts turns the concurrency ceiling into
   a cancellation mechanism.
 - **It does not impose one universal duration bound.** Already-running blocking engine work may
-  outlive the rows future, Postgres's lock wait is outside its statement timeout, and BigQuery's
+  outlive the rows future, Postgres's driver load and connect are outside its statement timeout, and BigQuery's
   stopped-job reply is unmeasured while its socket allowance may cross the caller's reply margin.
 - **It is not a per-caller budget.** One caller can fill every slot and shed everybody else. With leg 1
   configured two callers *can* now be told apart - and nothing does: there is no budget port to key on
@@ -820,7 +822,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | ----------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `server.host`                                   | `127.0.0.1`                          | An IP address, never a hostname: a name resolves to whatever the resolver says today. Either family - `::1` and `[::1]` are both read. See [Address families](#address-families)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `server.port`                                   | `8080`                               |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres after its execution-lock wait. **BigQuery is the exception, and it is one an operator has to know:** what is left is sent as the job's `jobTimeoutMs`, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the `408` a caller sees does not by itself stop the work behind it                                                                                                     |
+| `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres once its connection is open. **BigQuery is the exception, and it is one an operator has to know:** what is left is sent as the job's `jobTimeoutMs`, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the `408` a caller sees does not by itself stop the work behind it                                                                                                       |
 | `server.max_body_bytes`                         | `65536`                              | At most one mebibyte. A question is a few hundred bytes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `server.agent_surface.enabled`                  | `false`                              | Mounts the agent surface at `/mcp`. Off by default even in a build with the `agent` feature linked. `true` with no `security.inbound` block refuses to start (the agent surface is only served where a caller can be verified), and `true` on a build without the `agent` feature refuses naming the feature. See [the agent surface over HTTP](#the-agent-surface-over-http)                                                                                                                                                                                                                                                                                                                                                          |
 | `security.access_token`                         | absent                               | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -890,7 +892,7 @@ model's `source:` names.**
 | `sources.<alias>.user` | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
 | `sources.<alias>.password_file` | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
 | `sources.<alias>.transport_mode` | absent | Postgres, ClickHouse and Oracle. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on all three. Oracle accepts `plaintext` only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so `verified` and `mutual` are refused rather than half-honoured |
-| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. `system` as an explicit choice, or an absolute PEM bundle path. Not accepted on Oracle - see `transport_mode` |
+| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. An absolute PEM bundle path, or `system` as an explicit choice - which a Postgres source refuses at startup. Not accepted on Oracle - see `transport_mode` |
 | `sources.<alias>.client_certificate` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
 | `sources.<alias>.client_key` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | `sources.<alias>.posture` | absent | `shared-service-user` or `impersonation-at-source`. Required, with no default |
@@ -954,9 +956,10 @@ the block above:
 
 - **`sutura serve` opens it only when built with `--features bigquery`.** A binary without the
   feature refuses the source at startup, naming the feature - a source build with the feature off
-  is the only one that still refuses. Every published artefact carries it: `github.com/telekom/
-  sutura#685` step 5 ships the `bigquery` adapter (and `postgres`, `tls`, `datahub`) in every
-  release tarball and image, so opening a dataset needs no separate build any more.
+  is the only one that still refuses. Every published artefact carries it since `github.com/
+  telekom/sutura#685` step 5: the `bigquery` adapter (and `postgres`, `clickhouse`, `tls`,
+  `datahub`, `openmetadata`, `agent`) is in every release tarball and image, so opening a
+  dataset needs no separate build any more.
 - **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
   source and a `bigquery` source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.
@@ -1002,7 +1005,7 @@ sources:
     user: "sutura_reader"
     password_file: "/etc/sutura/postgres-password"
     transport_mode: "verified"
-    # An explicit choice, never a default. Use `system` to read the host store instead.
+    # An explicit choice, never a default. A postgres source refuses `system` - see below.
     transport_anchors: "/etc/sutura/database-ca.pem"
     posture: "shared-service-user"
     acknowledged_because: "the reporting role is intentionally the same for every caller"
@@ -1017,8 +1020,10 @@ are mutually exclusive.
 
 - `plaintext` uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
   IP literal; a hostname or non-loopback address is a startup refusal.
-- `verified` requires `transport_anchors` and requires the TLS handshake. `system` means the host's
-  trust store because the operator wrote it; an absolute path means that PEM bundle alone. It
+- `verified` requires `transport_anchors` and requires the TLS handshake. An absolute path means
+  that PEM bundle alone. `system` means the host's trust store because the operator wrote it, and
+  a `postgres` source refuses it at startup: libpq reads `system` as OpenSSL's compiled-in store,
+  not the host's, so the ADBC driver could not verify against what was declared. It
   presents nothing, so a `client_certificate` or `client_key` written on a `verified` entry is a
   **startup refusal naming the key**, never a setting read past - the mode that presents a
   certificate is `mutual`.
@@ -1442,7 +1447,7 @@ address can start questions.
 The same caller can keep a question running after being answered `408` for as long as its adapter
 overruns the port budget - the request timeout minus a one-second reply margin (`docs/adr/0029`).
 The engine stops at its next cooperative yield. Postgres stops at `SET LOCAL statement_timeout`,
-after an execution-lock wait nothing bounds (the raw SQL path too, since `#1144`). ClickHouse's
+after a per-call driver load and connect nothing bounds (the raw SQL path too, since `#1144`). ClickHouse's
 server stops at `max_execution_time`, checked at block boundaries, while its HTTP client waits
 without a deadline. BigQuery stops at a best-effort `jobTimeoutMs` and a client-side cancel. Oracle
 does not stop a statement that keeps its socket busy - its call timeout is a per-read idle timeout,

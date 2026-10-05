@@ -13,6 +13,13 @@
 //! map decides is only WHETHER this caller may be served here. Its own module header states what
 //! that costs relative to the exchange.
 //!
+//! **A source declaring `workload_identity.delegation` presents the token its caller's own inbound
+//! token is exchanged for**, through the client `delegation` builds - `direct` mode's second
+//! document (`docs/adr/0014`, fourth and fifth amendments). Held in-process by this root's
+//! `build_broker` cells and by `serve::tests::delegation_served`, which reaches it behind the real
+//! router and leg-1 gate. The spawned binary reaches it only in `tests/served/delegation_adbc.rs`,
+//! whose `#[ignore]`d cells need the ADBC driver to boot and run under `just e2e-datahub-adbc`.
+//!
 //! It scans the WHOLE `sources:` registry rather than the `bigquery`-kind entries only, for the
 //! reason the deleted builder did: a plan may read a shared source of one kind and an impersonating
 //! one of another, and a broker is per answer. A non-`BigQuery` adapter that cannot deliver the
@@ -38,8 +45,13 @@ use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 ///   that is not a service-account address, which is what makes a bad declaration a startup
 ///   failure rather than a per-question one;
 /// - a source declaring the pool expectations `telekom/sutura#817` added, which described a token
-///   exchange no transport in this build performs.
-pub(crate) fn build_broker(registry: &sutura_config::SourceRegistry) -> Result<DeclaredPrincipalBroker, String> {
+///   exchange no transport in this build performs;
+/// - a declared `delegation` whose endpoint, client ID, audience or client secret file this
+///   adapter cannot send - see [`delegation`].
+pub(crate) fn build_broker(
+    registry: &sutura_config::SourceRegistry,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<DeclaredPrincipalBroker, String> {
     let mut broker = DeclaredPrincipalBroker::empty();
     for (alias, source) in registry.each() {
         if let Some(SourcePosture::SharedServiceUser { declared }) = source.posture() {
@@ -78,7 +90,55 @@ pub(crate) fn build_broker(registry: &sutura_config::SourceRegistry) -> Result<D
         }
         let declared = DeclaredPrincipals::parse(declared)
             .map_err(|cause| format!("`sources.{alias}.workload_identity.impersonate` is unusable: {cause}"))?;
-        broker = broker.impersonating(alias.clone(), declared);
+        broker = match workload.delegation() {
+            None => broker.impersonating(alias.clone(), declared),
+            Some(declaration) => {
+                broker.impersonating_delegated(alias.clone(), declared, delegation(alias, declaration, outbound)?)
+            }
+        };
     }
     Ok(broker)
 }
+
+/// What one source's declared delegation exchange is composed into: the real RFC 8693 client at
+/// the caller's identity provider, over `security.outbound`'s rotating agent.
+///
+/// **Every value is parsed by the adapter that sends it, here at boot**, so an unusable one stops
+/// the process naming its key. The client secret is read once, from its file, into a `Secret`; no
+/// refusal below carries it, the subject token, or the file's contents.
+///
+/// One client per source rather than one per deployment: nothing here is shared that would need
+/// to be, and a second declared source pays one more TLS agent.
+fn delegation(
+    alias: &sutura_domain::model::SourceName,
+    declared: &sutura_config::sources::workload_identity::DelegationDeclared,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_exec_bigquery::delegation::Delegation, String> {
+    use sutura_exec_bigquery::delegation::http::{ExchangeClient, OverHttp, ReadBounds, TokenEndpoint, rotating_agent};
+    use sutura_exec_bigquery::delegation::{Delegation, RequestedAudience};
+
+    let key = format!("sources.{alias}.workload_identity.delegation");
+    let endpoint = TokenEndpoint::parse(declared.token_endpoint())
+        .map_err(|cause| format!("`{key}.token_endpoint` is not an endpoint this exchange can dial: {cause}"))?;
+    let audience = RequestedAudience::parse(declared.audience())
+        .map_err(|cause| format!("`{key}.audience` is not an audience this exchange can ask for: {cause}"))?;
+    let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), declared.client_secret_file())?;
+    let client =
+        ExchangeClient::new(declared.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
+    let bounds = ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
+        .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
+    let (agent, rotator) = rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (delegation exchange)", rotator);
+    Ok(Delegation::through(
+        std::sync::Arc::new(OverHttp::new(endpoint, client, agent, bounds)),
+        audience,
+    ))
+}
+
+/// How long one exchange may take. Fixed rather than declared: it runs inside a question's own
+/// request timeout, so a key for it would be a second bound on the same wait.
+const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
+
+/// A token response is a few kilobytes; this bounds a misbehaving endpoint, not a real answer.
+const EXCHANGE_MAX_ANSWER_BYTES: u64 = 64 * 1024;

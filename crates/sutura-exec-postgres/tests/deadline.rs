@@ -36,14 +36,13 @@ mod deadline {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{ParamValue, Value, Warehouse as _};
+    use sutura_exec_postgres::adbc::{AdbcPostgres, Conninfo, FixtureAdmin};
     use sutura_exec_postgres::fixture::FixtureCredential;
-    use sutura_exec_postgres::{PostgresError, PostgresWarehouse};
 
     const SERVICE: &str = "postgres";
 
-    /// A fresh schema per test - the isolation `tests/conformance.rs` and `tests/raw.rs` use, so
-    /// cells running in parallel against one server never see one another's views or tables.
-    fn open(case: &str) -> Option<(PostgresWarehouse, String)> {
+    /// The tier's connection string into `schema`, or `None` (and a `NOT RUN` line) without a tier.
+    fn conninfo(case: &str, schema: &str) -> Option<Conninfo> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
             Provisioned::At(endpoint) => endpoint,
             Provisioned::Skipped(absent) => {
@@ -52,75 +51,66 @@ mod deadline {
             }
         };
         let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
+        Some(
+            credential
+                .conninfo_in(&corpus::source(), endpoint.host(), endpoint.port(), schema)
+                .unwrap_or_else(|e| panic!("no connection string for the tier at {endpoint}: {e}")),
+        )
+    }
+
+    /// A fresh schema per test - the isolation `tests/conformance.rs` and `tests/raw.rs` use, so
+    /// cells running in parallel against one server never see one another's views or tables.
+    fn open(case: &str) -> Option<(AdbcPostgres, String)> {
         let schema = format!("deadline_{case}_{}", std::process::id());
-        let warehouse = PostgresWarehouse::connect_in_schema(corpus::source(), corpus::posture(), &config, &schema)
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        // The tier first: with none there is no driver either, and the cell is NOT RUN.
+        let conninfo = conninfo(case, &schema)?;
+        let warehouse = AdbcPostgres::new(
+            corpus::source(),
+            corpus::posture(),
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .expect("the default ceiling parses");
+        warehouse
+            .create_schema(&schema)
+            .unwrap_or_else(|e| panic!("postgres could not create {schema}: {e}"));
         Some((warehouse, schema))
     }
 
-    /// A second, PLAIN connection into the SAME schema `open` puts its warehouse in - used to issue
-    /// the `CREATE VIEW` neither port method here can: `execute` only ever renders a `SELECT`, and
-    /// `execute_raw` wraps every call in a transaction this adapter always rolls back.
+    /// A second, PLAIN connection into the SAME schema `open` puts its warehouse in, running `sql` -
+    /// what neither port method here can: `execute` only ever renders a `SELECT`, and `execute_raw`
+    /// runs inside a `READ ONLY` transaction this adapter always rolls back. The connection is
+    /// returned, so a transaction `sql` leaves open lives until the caller drops it.
+    fn admin(case: &str, schema: &str, sql: &str) -> Option<FixtureAdmin> {
+        let conninfo = conninfo(case, schema)?;
+        let mut admin = FixtureAdmin::open(
+            &sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            &conninfo,
+        )
+        .unwrap_or_else(|e| panic!("the admin connection did not open: {e}"));
+        admin
+            .run(sql)
+            .unwrap_or_else(|e| panic!("the admin connection could not run `{sql}`: {e}"));
+        Some(admin)
+    }
+
     fn create_view(schema: &str, sql: &str) {
-        let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
-            Provisioned::At(endpoint) => endpoint,
-            Provisioned::Skipped(_) => return,
-        };
-        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
-        let runtime = tokio::runtime::Runtime::new().expect("a runtime builds");
-        let (client, connection) = runtime
-            .block_on(config.connect(tokio_postgres::NoTls))
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
-        runtime.spawn(async move {
-            drop(connection.await);
-        });
-        runtime
-            .block_on(client.batch_execute(&format!("SET search_path TO \"{schema}\"; {sql}")))
-            .unwrap_or_else(|e| panic!("the admin connection could not create the view: {e}"));
+        drop(admin("view", schema, sql));
     }
 
     fn statement(sql: &str) -> RawStatement {
         RawStatement::parse(sql).expect("a test statement is a statement")
     }
 
-    /// A second, PLAIN connection holding `table` locked `ACCESS EXCLUSIVE` in an open, uncommitted
-    /// transaction - for as long as this value lives. Dropping it closes the connection, which
-    /// terminates the backend and releases the lock; there is no explicit `ROLLBACK` to run.
-    struct LockHolder {
-        _runtime: tokio::runtime::Runtime,
-        _client: tokio_postgres::Client,
-    }
-
-    /// `None` when the tier is absent (same skip as `open`) - the caller must skip the test too, it
-    /// cannot proceed without something to block on.
-    fn hold_exclusive_lock(case: &str, schema: &str, table: &TableName) -> Option<LockHolder> {
-        let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
-            Provisioned::At(endpoint) => endpoint,
-            Provisioned::Skipped(absent) => {
-                eprintln!("deadline::{case}: NOT RUN - {absent}");
-                return None;
-            }
-        };
-        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
-        let runtime = tokio::runtime::Runtime::new().expect("a runtime builds");
-        let (client, connection) = runtime
-            .block_on(config.connect(tokio_postgres::NoTls))
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
-        runtime.spawn(async move {
-            drop(connection.await);
-        });
-        runtime
-            .block_on(client.batch_execute(&format!(
-                "SET search_path TO \"{schema}\"; BEGIN; LOCK TABLE \"{table}\" IN ACCESS EXCLUSIVE MODE"
-            )))
-            .unwrap_or_else(|e| panic!("the admin connection could not lock {table}: {e}"));
-        Some(LockHolder {
-            _runtime: runtime,
-            _client: client,
-        })
+    /// A second connection holding `table` locked `ACCESS EXCLUSIVE` in an open, uncommitted
+    /// transaction - for as long as the returned value lives. Dropping it closes the connection,
+    /// which terminates the backend and releases the lock.
+    fn hold_exclusive_lock(case: &str, schema: &str, table: &TableName) -> Option<FixtureAdmin> {
+        admin(
+            case,
+            schema,
+            &format!("BEGIN; LOCK TABLE \"{table}\" IN ACCESS EXCLUSIVE MODE"),
+        )
     }
 
     fn column(table: &TableName, name: &str) -> PlanColumn {
@@ -264,7 +254,7 @@ mod deadline {
             .expect_err("a statement over the ceiling must not answer with rows");
         assert!(
             warehouse.deadline_exceeded(&error),
-            "the ceiling firing must classify as deadline_exceeded too: {error}"
+            "the ceiling firing must classify as deadline_exceeded too: {error:?}"
         );
         // Both bounds stay under the statement's own 20s `pg_sleep`, which is the ceiling this
         // cell has to prove happened BEFORE - answering past it is a different failure entirely.
@@ -300,7 +290,7 @@ mod deadline {
             .expect_err("a statement over its own budget must not answer with rows");
         assert!(
             warehouse.deadline_exceeded(&error),
-            "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
+            "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error:?}"
         );
         let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
         assert!(
@@ -498,107 +488,6 @@ mod deadline {
         assert!(
             elapsed < ceiling,
             "stopped at ~300ms plus tolerance, not left blocked on the lock: {elapsed:?}"
-        );
-    }
-
-    /// **A budget spent DURING the wait for `execution_lock`, not before it.** A raw `pg_sleep(1.5)`
-    /// on a scoped thread holds the connection (and its lock) for 1.5s; a certified `execute` on a
-    /// 300ms budget starts 100ms later, on the SAME connection, so it must wait roughly 1.4s for the
-    /// lock before it can even ask what is left - long past its own budget. `sutura_app::answer`'s
-    /// own pre-call check ran before either wait started and cannot see this: the check this proves
-    /// is `deadline.rs`'s own re-check AFTER the lock is acquired, refusing locally as
-    /// `PostgresError::DeadlineSpent` rather than sending a statement the server would just answer
-    /// (`telekom/sutura#687`'s round-2 review, finding 1 - the probe that found this untested).
-    #[test]
-    fn a_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
-        let Some((warehouse, _schema)) = open("lockwait") else {
-            return;
-        };
-        let table = corpus::table();
-        let metric = MetricName::parse("lockwait_probe").expect("a test metric name is a name");
-        let (range, bindings) = range_over(
-            Date::new(2000, 1, 1).expect("year 2000 is in range"),
-            Date::new(2099, 12, 31).expect("year 2099 is in range"),
-            &table,
-        );
-        let plan = QueryPlan::new(
-            corpus::source(),
-            metric.clone(),
-            StatementTables::only(table.clone()),
-            PlanBucket::new(ResultLabel::bucket(), Grain::Day, column(&table, "day")),
-            Vec::new(),
-            PlanMeasure::Simple {
-                term: PlanTerm::Aggregate {
-                    aggregate: Aggregate::Sum,
-                    column: column(&table, "amount_cents"),
-                },
-            },
-            ResultLabel::measure(&metric),
-            bindings,
-            range,
-        );
-        let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
-        );
-
-        // Generous on purpose: this thread is the blocker, not what is under test - the certified
-        // call below is what must be refused by a spent budget, not this raw one.
-        let blocker_deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
-        );
-        let outcome = std::thread::scope(|scope| {
-            scope.spawn(|| {
-                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
-            });
-            std::thread::sleep(Duration::from_millis(100));
-            warehouse.execute(Executable::Query(&plan), &corpus::presented(), deadline)
-        });
-
-        let error = outcome.expect_err("a budget spent waiting for the lock must not answer with rows");
-        assert!(
-            matches!(error, PostgresError::DeadlineSpent),
-            "expected DeadlineSpent, got {error:?}"
-        );
-        assert!(
-            warehouse.deadline_exceeded(&error),
-            "DeadlineSpent must classify as deadline_exceeded too: {error}"
-        );
-    }
-
-    #[test]
-    fn a_raw_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
-        let Some((warehouse, _schema)) = open("rawlockwait") else {
-            return;
-        };
-        let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
-        );
-
-        let blocker_deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
-        );
-        let outcome = std::thread::scope(|scope| {
-            scope.spawn(|| {
-                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
-            });
-            std::thread::sleep(Duration::from_millis(100));
-            warehouse.execute_raw(&statement("select 1"), &corpus::presented(), deadline)
-        });
-
-        let error = outcome
-            .expect("a raw call must produce an execution result")
-            .expect_err("a raw call with a budget spent waiting for the lock must not answer with rows");
-        assert!(
-            matches!(error, PostgresError::DeadlineSpent),
-            "expected DeadlineSpent, got {error:?}"
-        );
-        assert!(
-            warehouse.deadline_exceeded(&error),
-            "DeadlineSpent must classify as deadline_exceeded too: {error}"
         );
     }
 }

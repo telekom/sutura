@@ -6,10 +6,10 @@
 //! the case. Every value is single-quoted with `\` and `'` escaped (`conninfo_parse`), so a declared
 //! value cannot open a second key.
 //!
-//! **Every one of libpq 18.6's 50 keywords is classified in `KEYWORDS`**: written, read only in
-//! a case refused here, or left to libpq for a stated reason. libpq fills an unwritten key from the
+//! **Every one of libpq 18.6's 50 keywords is classified in `KEYWORDS`**: written, or left to
+//! libpq for a stated reason. libpq fills an unwritten key from the
 //! process environment (`PG*`) and then from a `PGSERVICE` file, which sets only keys still unset
-//! (`parseServiceFile`, `fe-connect.c:6126`) - and `tokio-postgres` reads neither. The
+//! (`parseServiceFile`, `fe-connect.c:6126`) - and a declaration names neither. The
 //! `adbc-driver-postgresql` check compares that table's keywords with the `PQconninfoOptions` of the
 //! libpq the drivers are built against, so a libpq bump that adds one fails `just validate` until it
 //! is classified.
@@ -18,33 +18,44 @@
 //! reads `host` as a list, so a target holding a list separator, or nothing, is refused. libpq
 //! drops TLS on a unix socket whatever `sslmode` says, and reads its `system` store as OpenSSL's
 //! compiled-in default, a build-host path in the static build rather than the host store
-//! `rustls-native-certs` reads for the `tokio-postgres` path. An empty password is refused, because libpq reads one as unset and looks it
+//! `rustls-native-certs` reads for every other outbound channel here. An empty password is refused, because libpq reads one as unset and looks it
 //! up in a password file. TLS is refused while `OPENSSL_CONF` is set, because libpq has no cipher
 //! knob and that file can lower the protocol ceiling and the cipher list below the declared channel.
-//! Declared material is read once here too, through the same
-//! [`client_config`](crate::tls::client_config) that path boots with, so an unreadable bundle or
-//! client pair is refused before a driver loads rather than at the first connect.
+//! A [`Kerberos`] sign-in is refused to a socket, where a server offers no GSSAPI; while
+//! `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as whatever a default
+//! cache holds and reads a client keytab only where that cache does not exist; and with GSSAPI
+//! encryption beside TLS, which libpq tries first and which verifies none of the declared anchors.
+//! Declared material is read once here too, through `sutura_tls`'s read, so an unreadable bundle or
+//! client pair is refused before a driver loads rather than at the first connect. A key that does
+//! not match its certificate is not checked here, and fails at libpq's connect.
 //!
-//! **The limits.** libpq re-reads the files at every connect, so what was checked here is not
+//! **The limits.** A Kerberos sign-in is the PROCESS's: libpq takes no keytab or cache per
+//! connection, so every Kerberos source signs in as the one principal the named cache holds, and the
+//! server maps it to the declared `user`. The string pins what the ticket is for (`krbsrvname`) and
+//! that the credential is never forwarded (`gssdelegation`), not who holds it. Which server
+//! principal GSSAPI authenticates is the `<krbsrvname>/<host>` that `krb5.conf` makes of the declared
+//! host (`qualify_shortname`, `dns_canonicalize_hostname`), not anything the declared anchors hold. libpq re-reads the files at every connect, so what was checked here is not
 //! what is presented later. libpq refuses a client key readable by group or others; this does not
 //! check that, so such a key passes here and fails at connect. The string names keys libpq 16 to 18
 //! added (`sslcertmode`, `require_auth`, `sslkeylogfile`), so a mounted driver over an older libpq
 //! refuses it at connect. `require_auth` admits `none`, which a `mutual` source signing in by
 //! certificate needs, so a server that asks for no password is accepted; and it admits cleartext
-//! `password` - both as `tokio-postgres` does. OpenSSL still reads its compiled-in default
+//! `password`. OpenSSL still reads its compiled-in default
 //! configuration file when `OPENSSL_CONF` is unset; in the nix build that file is in the store, and
 //! what the static musl artefact's copy holds is unmeasured. `PGTZ`, `PGDATESTYLE` and `PGGEQO` have
 //! no keyword, so the string cannot pin them: each reaches the server as a session setting. The
-//! `OPENSSL_CONF` cell hands the variable's state in; that [`Conninfo::new`] reads the process's own
-//! is not held by a cell here. And no cell here observes a handshake: the strings below are what
+//! environment (`OPENSSL_CONF`, `KRB5CCNAME`) is read through a lookup a cell supplies; that the
+//! constructors hand it the process's own `std::env::var_os` is the one line no cell drives. And no cell here observes a handshake: the strings below are what
 //! libpq is told, read against its source, not what it did.
+
+use std::ffi::OsString;
 
 use sutura_domain::identity::Secret;
 use sutura_domain::model::SourceName;
 
-use crate::PostgresError;
+use sutura_tls::{Anchors, Identity, LoadError};
+
 use crate::connection::ConnectionTarget;
-use crate::tls::{TlsAnchors, TlsIdentity};
 
 /// How one libpq keyword is kept from widening the channel or changing who signs in.
 #[cfg(test)]
@@ -52,8 +63,6 @@ use crate::tls::{TlsAnchors, TlsIdentity};
 enum Held {
     /// Written on every string that libpq reads it for, and what leaving it unwritten would allow.
     Written(&'static str),
-    /// Read only in the case named, which [`Conninfo::new`] refuses.
-    Refused(&'static str),
     /// Left to libpq, for the reason given.
     Harmless(&'static str),
 }
@@ -68,7 +77,13 @@ const KEYWORDS: [(&str, Held); 50] = [
     ),
     ("user", Held::Written("`PGUSER` would sign in as another role")),
     ("password", Held::Written("`PGPASSWORD` would replace the declared one")),
-    ("passfile", Held::Refused("read only for an empty password")),
+    (
+        "passfile",
+        Held::Harmless(
+            "read only where no password is written: a password sign-in refuses an empty one, and \
+             `require_auth='gss'` sends nothing a password file holds",
+        ),
+    ),
     (
         "channel_binding",
         Held::Harmless("verify-full already authenticates the server; plaintext has no channel to bind"),
@@ -83,7 +98,7 @@ const KEYWORDS: [(&str, Held); 50] = [
     ("port", Held::Written("`PGPORT` would dial another port")),
     (
         "client_encoding",
-        Held::Written("`PGCLIENTENCODING` would re-encode text; `tokio-postgres` sends `UTF8` too"),
+        Held::Written("`PGCLIENTENCODING` would re-encode text the adapter reads as UTF-8"),
     ),
     (
         "options",
@@ -134,7 +149,7 @@ const KEYWORDS: [(&str, Held); 50] = [
     ("requirepeer", Held::Harmless("only narrows, and only on a socket")),
     (
         "require_auth",
-        Held::Written("Kerberos, SSPI or OAuth would sign in as an ambient identity"),
+        Held::Written("the declared method; otherwise SSPI or OAuth could sign in as an ambient identity"),
     ),
     (
         "min_protocol_version",
@@ -154,19 +169,19 @@ const KEYWORDS: [(&str, Held); 50] = [
     ),
     (
         "gssencmode",
-        Held::Written("GSSAPI encryption would replace TLS, verified by none of the declared anchors"),
+        Held::Written("`require` only where declared; otherwise GSSAPI could replace the declared TLS"),
     ),
     (
         "krbsrvname",
-        Held::Harmless("read only for GSSAPI, which gssencmode and require_auth rule out"),
+        Held::Written("on Kerberos; `PGKRBSRVNAME` would aim the ticket at another service"),
     ),
     (
         "gsslib",
-        Held::Harmless("read only for GSSAPI, which gssencmode and require_auth rule out"),
+        Held::Harmless("chooses SSPI or GSSAPI on Windows, which no release targets"),
     ),
     (
         "gssdelegation",
-        Held::Harmless("read only for GSSAPI, which gssencmode and require_auth rule out"),
+        Held::Written("`0` on Kerberos; `PGGSSDELEGATION=1` would hand the server this process's credential"),
     ),
     (
         "replication",
@@ -213,9 +228,97 @@ pub enum Channel<'a> {
     /// No transport security.
     Plaintext,
     /// TLS, verified against `anchors`, presenting nothing.
-    Verified(&'a TlsAnchors),
+    Verified(&'a Anchors),
     /// TLS, verified against the anchors, presenting the identity.
-    Mutual(&'a TlsAnchors, &'a TlsIdentity),
+    Mutual(&'a Anchors, &'a Identity),
+}
+
+/// How the declared user signs in.
+#[derive(Debug, Clone, Copy)]
+enum SignIn<'a> {
+    Password(&'a Secret),
+    Kerberos(&'a Kerberos),
+}
+
+/// A Kerberos sign-in through GSSAPI, as the declaration names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kerberos {
+    service: KerberosService,
+    encryption: GssEncryption,
+}
+
+impl Kerberos {
+    /// The sign-in a declaration names. The credential is never delegated to the server.
+    #[must_use]
+    pub const fn new(service: KerberosService, encryption: GssEncryption) -> Self {
+        Self { service, encryption }
+    }
+}
+
+/// The service half of the server's principal, `<service>/<host>` - libpq's `krbsrvname`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KerberosService(String);
+
+/// A declared Kerberos service name that is not one.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidKerberosService {
+    #[error("a Kerberos service name is empty")]
+    Empty,
+    #[error("a Kerberos service name holds {found:?}; it is `A-Z`, `a-z`, `0-9`, `-`, `_` and `.` alone")]
+    Character { found: char },
+}
+
+impl KerberosService {
+    /// Parses a service name: one or more ASCII letters, digits, `-`, `_` or `.`, so a declared one
+    /// cannot name a realm (`@`) or a second component (`/`).
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidKerberosService`] for an empty name or any other character.
+    pub fn parse(name: &str) -> Result<Self, InvalidKerberosService> {
+        if name.is_empty() {
+            return Err(InvalidKerberosService::Empty);
+        }
+        let usable = |character: char| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.');
+        if let Some(found) = name.chars().find(|&character| !usable(character)) {
+            return Err(InvalidKerberosService::Character { found });
+        }
+        Ok(Self(String::from(name)))
+    }
+}
+
+/// Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GssEncryption {
+    /// Required, over [`Channel::Plaintext`]: GSSAPI is the channel, TLS is off.
+    Required,
+    /// Off: GSSAPI signs in, and the channel is the declared one.
+    Off,
+}
+
+/// What [`Conninfo`] reads from the process environment, handed in so a cell can set it.
+#[derive(Debug, Clone, Copy)]
+struct Process {
+    openssl_configured: bool,
+    kerberos_cache_named: bool,
+}
+
+impl Process {
+    /// The process's own environment - the one line no cell drives, because setting a variable is
+    /// `unsafe`; [`Process::read_with`] is what the cells hold.
+    fn read() -> Self {
+        Self::read_with(|name| std::env::var_os(name))
+    }
+
+    /// The environment `var` answers for. Only `KRB5CCNAME` names the Kerberos credential: with no
+    /// cache named, MIT krb5 signs in as whatever the default cache holds and reads the client keytab
+    /// only when that cache does not exist, so `KRB5_CLIENT_KTNAME` alone pins nobody.
+    fn read_with(var: impl Fn(&str) -> Option<OsString>) -> Self {
+        Self {
+            openssl_configured: var("OPENSSL_CONF").is_some(),
+            kerberos_cache_named: var("KRB5CCNAME").is_some_and(|value| !value.is_empty()),
+        }
+    }
 }
 
 /// A declared connection the ADBC transport cannot hold to, refused before anything dials.
@@ -244,28 +347,48 @@ pub enum UnusableChannel {
     OpensslConfig { alias: SourceName },
     #[error("`sources.{alias}` declares an empty password, which libpq would look up elsewhere instead")]
     EmptyPassword { alias: SourceName },
+    #[error(
+        "`sources.{alias}` declares Kerberos to `{target}`, which libpq dials as a unix socket, where \
+         a server offers no GSSAPI. Declare a TCP host for Kerberos"
+    )]
+    KerberosOverASocket { alias: SourceName, target: String },
+    #[error(
+        "`sources.{alias}` declares Kerberos and `KRB5CCNAME` names no credential cache, \
+         so libpq would sign in as whichever principal a default cache holds, a keytab notwithstanding. \
+         Name the cache - a keytab in `KRB5_CLIENT_KTNAME` fills it"
+    )]
+    NoKerberosCache { alias: SourceName },
+    #[error(
+        "`sources.{alias}` declares GSSAPI encryption beside TLS; libpq would take GSSAPI first and \
+         verify none of the declared anchors. Declare one of the two"
+    )]
+    GssEncryptionBesideTls { alias: SourceName },
     #[error("`sources.{alias}` declares TLS material that cannot be used")]
     Material {
         alias: SourceName,
         #[source]
-        cause: PostgresError,
+        cause: LoadError,
     },
+    /// A fixture schema that is not one word, refused before it reaches the string.
+    #[cfg(feature = "fixtures")]
+    #[error("the fixture schema `{schema}` is not one word of ASCII letters, digits and `_`")]
+    NotASchema { schema: String },
 }
 
-/// The connection string for one source. Only [`Conninfo::new`] makes one, and its `Debug` is the
-/// [`Secret`]'s, so the password it carries is never printed.
+/// The connection string for one source. Only [`Conninfo::new`] and [`Conninfo::kerberos`] make
+/// one, and its `Debug` is the [`Secret`]'s, so the password it carries is never printed.
 #[derive(Debug)]
 pub struct Conninfo(Secret);
 
 impl Conninfo {
-    /// Builds the connection string for `source` over `channel`.
+    /// Builds the connection string for `source` over `channel`, signing in with `password`.
     ///
     /// # Errors
     ///
     /// [`UnusableChannel`] for a target that is not exactly one host or directory, for an empty
     /// password, for a TLS channel over a unix socket (a [`ConnectionTarget::UnixSocket`], or a host
     /// libpq reads as one: a leading `/` or `@`), for `system` anchors, for TLS while `OPENSSL_CONF`
-    /// is set, and for declared material [`client_config`](crate::tls::client_config) refuses.
+    /// is set, and for a declared bundle or client pair `sutura_tls` cannot read.
     pub fn new(
         source: &SourceName,
         target: ConnectionTarget<'_>,
@@ -275,18 +398,81 @@ impl Conninfo {
         password: &Secret,
         channel: Channel<'_>,
     ) -> Result<Self, UnusableChannel> {
-        let openssl_configured = std::env::var_os("OPENSSL_CONF").is_some();
-        Self::under(openssl_configured, source, target, port, database, user, password, channel)
+        let sign_in = SignIn::Password(password);
+        Self::under(Process::read(), "", source, target, port, database, user, sign_in, channel)
     }
 
-    fn under(
-        openssl_configured: bool,
+    /// [`Conninfo::new`] with every unqualified name resolved in `schema` - the fixture tier's
+    /// isolation, one schema per cell, written as the `options` keyword the shipped string pins empty.
+    ///
+    /// # Errors
+    ///
+    /// [`UnusableChannel::NotASchema`] for a schema that is not one word, and [`Conninfo::new`]'s.
+    #[cfg(feature = "fixtures")]
+    pub fn in_schema(
+        schema: &str,
         source: &SourceName,
         target: ConnectionTarget<'_>,
         port: u16,
         database: &str,
         user: &str,
         password: &Secret,
+    ) -> Result<Self, UnusableChannel> {
+        if schema.is_empty() || !schema.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(UnusableChannel::NotASchema {
+                schema: String::from(schema),
+            });
+        }
+        let options = format!("-c search_path={schema}");
+        let process = Process {
+            openssl_configured: false,
+            kerberos_cache_named: false,
+        };
+        let sign_in = SignIn::Password(password);
+        Self::under(
+            process,
+            &options,
+            source,
+            target,
+            port,
+            database,
+            user,
+            sign_in,
+            Channel::Plaintext,
+        )
+    }
+
+    /// Builds the connection string for `source` over `channel`, signing in with Kerberos as the
+    /// principal the credential cache `KRB5CCNAME` names holds - filled from `KRB5_CLIENT_KTNAME`'s
+    /// keytab where one is named.
+    ///
+    /// # Errors
+    ///
+    /// [`Conninfo::new`]'s, less the password's, and [`UnusableChannel`] for a target libpq reads as
+    /// a unix socket, for an environment naming no Kerberos credential, and for GSSAPI encryption
+    /// declared beside TLS.
+    pub fn kerberos(
+        source: &SourceName,
+        target: ConnectionTarget<'_>,
+        port: u16,
+        database: &str,
+        user: &str,
+        kerberos: &Kerberos,
+        channel: Channel<'_>,
+    ) -> Result<Self, UnusableChannel> {
+        let sign_in = SignIn::Kerberos(kerberos);
+        Self::under(Process::read(), "", source, target, port, database, user, sign_in, channel)
+    }
+
+    fn under(
+        process: Process,
+        options: &str,
+        source: &SourceName,
+        target: ConnectionTarget<'_>,
+        port: u16,
+        database: &str,
+        user: &str,
+        sign_in: SignIn<'_>,
         channel: Channel<'_>,
     ) -> Result<Self, UnusableChannel> {
         let host = match target {
@@ -300,6 +486,27 @@ impl Conninfo {
             });
         }
         let socket = matches!(target, ConnectionTarget::UnixSocket(_)) || host.starts_with(['/', '@']);
+        let (require_auth, gssencmode) = match sign_in {
+            SignIn::Password(_) => ("password,md5,scram-sha-256,none", "disable"),
+            SignIn::Kerberos(kerberos) => {
+                if socket {
+                    return Err(UnusableChannel::KerberosOverASocket {
+                        alias: source.clone(),
+                        target: host,
+                    });
+                }
+                if !process.kerberos_cache_named {
+                    return Err(UnusableChannel::NoKerberosCache { alias: source.clone() });
+                }
+                match (kerberos.encryption, channel) {
+                    (GssEncryption::Off, _) => ("gss", "disable"),
+                    (GssEncryption::Required, Channel::Plaintext) => ("gss", "require"),
+                    (GssEncryption::Required, Channel::Verified(_) | Channel::Mutual(..)) => {
+                        return Err(UnusableChannel::GssEncryptionBesideTls { alias: source.clone() });
+                    }
+                }
+            }
+        };
         let port = port.to_string();
         let mut text = String::new();
         for (key, value) in [
@@ -308,10 +515,10 @@ impl Conninfo {
             ("dbname", database),
             ("user", user),
             ("hostaddr", ""),
-            ("options", ""),
+            ("options", options),
             ("client_encoding", "UTF8"),
-            ("require_auth", "password,md5,scram-sha-256,none"),
-            ("gssencmode", "disable"),
+            ("require_auth", require_auth),
+            ("gssencmode", gssencmode),
             ("sslkeylogfile", ""),
             ("ssl_min_protocol_version", "TLSv1.2"),
         ] {
@@ -320,7 +527,7 @@ impl Conninfo {
         let (anchors, identity) = match channel {
             Channel::Plaintext => {
                 pair(&mut text, "sslmode", "disable");
-                return with_password(text, password, source).map(Self);
+                return signed_in(text, sign_in, source).map(Self);
             }
             Channel::Verified(anchors) => (anchors, None),
             Channel::Mutual(anchors, identity) => (anchors, Some(identity)),
@@ -331,16 +538,18 @@ impl Conninfo {
                 target: host,
             });
         }
-        let TlsAnchors::Bundle(ref bundle) = *anchors else {
+        let Anchors::Bundle(ref bundle) = *anchors else {
             return Err(UnusableChannel::HostStore { alias: source.clone() });
         };
-        if openssl_configured {
+        if process.openssl_configured {
             return Err(UnusableChannel::OpensslConfig { alias: source.clone() });
         }
-        crate::tls::client_config(anchors, identity).map_err(|cause| UnusableChannel::Material {
+        let unusable = |cause| UnusableChannel::Material {
             alias: source.clone(),
             cause,
-        })?;
+        };
+        sutura_tls::load_anchors(anchors).map_err(unusable)?;
+        identity.map(sutura_tls::load_identity).transpose().map_err(unusable)?;
         pair(&mut text, "sslmode", "verify-full");
         pair(&mut text, "sslrootcert", &bundle.display().to_string());
         match identity {
@@ -351,7 +560,7 @@ impl Conninfo {
                 pair(&mut text, "sslkey", &identity.key().display().to_string());
             }
         }
-        with_password(text, password, source).map(Self)
+        signed_in(text, sign_in, source).map(Self)
     }
 
     /// The string, for the one caller that hands it to the driver.
@@ -371,6 +580,19 @@ fn pair(text: &mut String, key: &str, value: &str) {
         text.push(character);
     }
     text.push_str("' ");
+}
+
+/// Appends what the sign-in writes and seals the string: the password, or the Kerberos service and
+/// delegation.
+fn signed_in(mut text: String, sign_in: SignIn<'_>, source: &SourceName) -> Result<Secret, UnusableChannel> {
+    match sign_in {
+        SignIn::Password(password) => with_password(text, password, source),
+        SignIn::Kerberos(kerberos) => {
+            pair(&mut text, "krbsrvname", &kerberos.service.0);
+            pair(&mut text, "gssdelegation", "0");
+            Ok(Secret::new(text))
+        }
+    }
 }
 
 /// Appends the password and seals the string, refusing an empty one: libpq reads `password=''` as
@@ -397,9 +619,13 @@ mod tests {
     use sutura_domain::identity::Secret;
     use sutura_domain::model::SourceName;
 
-    use super::{Channel, Conninfo, Held, KEYWORDS, UnusableChannel};
+    use super::{
+        Channel, Conninfo, GssEncryption, Held, InvalidKerberosService, KEYWORDS, Kerberos, KerberosService, Process, SignIn,
+        UnusableChannel,
+    };
+    use sutura_tls::{Anchors as TlsAnchors, Identity as TlsIdentity, LoadError};
+
     use crate::connection::ConnectionTarget;
-    use crate::tls::{TlsAnchors, TlsIdentity};
 
     /// Every channel's shared prefix: the declared target, then the keys the environment may not fill.
     const PINNED: &str = "host='db.example' port='5432' dbname='sales' user='reader' hostaddr='' \
@@ -418,6 +644,29 @@ mod tests {
         )]
         let text = conninfo.secret().expose_secret().to_owned();
         Ok(text)
+    }
+
+    /// The string a Kerberos sign-in builds, in an environment that names a credential or none.
+    fn kerberized(
+        named: bool,
+        target: ConnectionTarget<'_>,
+        kerberos: &Kerberos,
+        channel: Channel<'_>,
+    ) -> Result<String, UnusableChannel> {
+        let process = Process {
+            openssl_configured: false,
+            kerberos_cache_named: named,
+        };
+        let sign_in = SignIn::Kerberos(kerberos);
+        let conninfo = Conninfo::under(process, "", &source(), target, 5432, "sales", "reader", sign_in, channel)?;
+        #[expect(clippy::disallowed_methods, reason = "the cell asserts the exact string libpq is handed")]
+        let text = conninfo.secret().expose_secret().to_owned();
+        Ok(text)
+    }
+
+    fn kerberos(encryption: GssEncryption) -> Kerberos {
+        let service = KerberosService::parse("postgres").expect("a test service is a service");
+        Kerberos::new(service, encryption)
     }
 
     /// A self-signed certificate and its key, written where the cell can name them.
@@ -516,7 +765,7 @@ mod tests {
             matches!(
                 refused,
                 UnusableChannel::Material {
-                    cause: crate::PostgresError::AnchorsRead { .. },
+                    cause: LoadError::AnchorsRead { .. },
                     ..
                 }
             ),
@@ -564,7 +813,15 @@ mod tests {
     fn tls_is_refused_while_openssl_conf_is_set_and_plaintext_is_not() {
         let (bundle, _) = material("openssl-conf");
         let anchors = TlsAnchors::Bundle(bundle);
-        let under = |channel| Conninfo::under(true, &source(), HOST, 5432, "sales", "reader", &Secret::new("p"), channel);
+        let password = Secret::new("p");
+        let process = Process {
+            openssl_configured: true,
+            kerberos_cache_named: false,
+        };
+        let under = |channel| {
+            let sign_in = SignIn::Password(&password);
+            Conninfo::under(process, "", &source(), HOST, 5432, "sales", "reader", sign_in, channel)
+        };
         let refused = under(Channel::Verified(&anchors)).expect_err("its OpenSSL would read the file");
         assert!(matches!(refused, UnusableChannel::OpensslConfig { .. }), "{refused:?}");
         under(Channel::Plaintext).expect("plaintext never starts OpenSSL");
@@ -580,12 +837,119 @@ mod tests {
             matches!(
                 refused,
                 UnusableChannel::Material {
-                    cause: crate::PostgresError::IdentityRead { .. },
+                    cause: LoadError::IdentityRead { .. },
                     ..
                 }
             ),
             "{refused:?}"
         );
+    }
+
+    /// Every Kerberos string's shared prefix, the password one's with GSSAPI the only method.
+    const KERBEROS: &str = "host='db.example' port='5432' dbname='sales' user='reader' hostaddr='' \
+                            options='' client_encoding='UTF8' require_auth='gss' ";
+
+    #[test]
+    fn a_kerberos_sign_in_requires_gssapi_encryption_names_the_service_and_sends_no_password() {
+        let text = kerberized(true, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext).expect("it builds");
+        assert_eq!(
+            text,
+            format!(
+                "{KERBEROS}gssencmode='require' sslkeylogfile='' ssl_min_protocol_version='TLSv1.2' \
+                 sslmode='disable' krbsrvname='postgres' gssdelegation='0' "
+            )
+        );
+    }
+
+    #[test]
+    fn a_kerberos_sign_in_inside_tls_keeps_gssapi_encryption_off_and_delegates_nothing() {
+        let (bundle, _) = material("kerberos-tls");
+        let anchors = TlsAnchors::Bundle(bundle.clone());
+        let service = KerberosService::parse("POSTGRES").expect("a test service is a service");
+        let inside = Kerberos::new(service, GssEncryption::Off);
+        let text = kerberized(true, HOST, &inside, Channel::Verified(&anchors)).expect("it builds");
+        assert_eq!(
+            text,
+            format!(
+                "{KERBEROS}gssencmode='disable' sslkeylogfile='' ssl_min_protocol_version='TLSv1.2' \
+                 sslmode='verify-full' sslrootcert='{}' sslcertmode='disable' krbsrvname='POSTGRES' gssdelegation='0' ",
+                bundle.display()
+            )
+        );
+    }
+
+    #[test]
+    fn kerberos_with_no_cache_named_is_refused_rather_than_signing_in_as_the_default_cache() {
+        let refused =
+            kerberized(false, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext).expect_err("no cache is named");
+        assert!(
+            matches!(refused, UnusableChannel::NoKerberosCache { ref alias } if alias.as_str() == "pg"),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn only_a_named_cache_names_the_kerberos_credential_and_a_keytab_alone_does_not() {
+        let lookup = |set: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                set.iter()
+                    .find(|&&(key, _)| key == name)
+                    .map(|&(_, value)| std::ffi::OsString::from(value))
+            }
+        };
+        let named = |set| Process::read_with(lookup(set)).kerberos_cache_named;
+        assert!(!named(&[]), "nothing set");
+        assert!(!named(&[("KRB5_CLIENT_KTNAME", "/run/keytab")]), "a keytab pins no principal");
+        assert!(!named(&[("KRB5CCNAME", "")]), "an empty name is unset");
+        assert!(named(&[("KRB5CCNAME", "MEMORY:sutura")]), "a named cache");
+        assert!(named(&[("KRB5CCNAME", "MEMORY:s"), ("KRB5_CLIENT_KTNAME", "/run/keytab")]));
+        let openssl = |set| Process::read_with(lookup(set)).openssl_configured;
+        assert!(!openssl(&[]));
+        assert!(openssl(&[("OPENSSL_CONF", "")]), "libpq's OpenSSL reads even an empty one");
+    }
+
+    #[test]
+    fn gssapi_encryption_beside_tls_is_refused_by_name() {
+        let (bundle, _) = material("kerberos-both");
+        let anchors = TlsAnchors::Bundle(bundle);
+        let refused = kerberized(true, HOST, &kerberos(GssEncryption::Required), Channel::Verified(&anchors))
+            .expect_err("libpq would take GSSAPI and skip the anchors");
+        assert!(
+            matches!(refused, UnusableChannel::GssEncryptionBesideTls { .. }),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn kerberos_to_a_unix_socket_is_refused_by_name() {
+        for target in [
+            ConnectionTarget::UnixSocket(Path::new("/run/postgresql")),
+            ConnectionTarget::Host("/tmp"),
+        ] {
+            let refused = kerberized(true, target, &kerberos(GssEncryption::Off), Channel::Plaintext)
+                .expect_err("a server offers no GSSAPI on a socket");
+            assert!(
+                matches!(refused, UnusableChannel::KerberosOverASocket { ref alias, .. } if alias.as_str() == "pg"),
+                "{refused:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_service_name_cannot_carry_a_realm_a_second_component_or_nothing() {
+        assert_eq!(KerberosService::parse(""), Err(InvalidKerberosService::Empty));
+        for (name, found) in [
+            ("postgres@EXAMPLE.TEST", '@'),
+            ("postgres/db.example", '/'),
+            ("post gres", ' '),
+            ("postgres'", '\''),
+        ] {
+            assert_eq!(
+                KerberosService::parse(name),
+                Err(InvalidKerberosService::Character { found }),
+                "{name:?}"
+            );
+        }
     }
 
     #[test]
@@ -597,13 +961,20 @@ mod tests {
             built(HOST, "p", Channel::Plaintext),
             built(HOST, "p", Channel::Verified(&anchors)),
             built(HOST, "p", Channel::Mutual(&anchors, &identity)),
+            kerberized(true, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext),
+            kerberized(
+                true,
+                HOST,
+                &kerberos(GssEncryption::Off),
+                Channel::Mutual(&anchors, &identity),
+            ),
         ]
         .map(|text| format!(" {}", text.expect("each channel builds")));
         let mut seen = std::collections::HashSet::new();
         for (keyword, held) in KEYWORDS {
             assert!(seen.insert(keyword), "{keyword} is classified twice");
             let written = strings.iter().any(|text| text.contains(&format!(" {keyword}='")));
-            let (Held::Written(reason) | Held::Refused(reason) | Held::Harmless(reason)) = held;
+            let (Held::Written(reason) | Held::Harmless(reason)) = held;
             assert!(!reason.is_empty(), "{keyword} is classified for no stated reason");
             assert_eq!(written, matches!(held, Held::Written(_)), "{keyword} is {held:?}");
         }

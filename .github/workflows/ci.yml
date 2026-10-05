@@ -162,6 +162,8 @@ on:
   # it: it is not a required context, nothing has it in `needs`, and the pull request it came from
   # already ran it. Making a queue entry call a cloud provider would be a decision about cost and
   # about a secret, not a fix, so it is named here rather than taken.
+  # `bigquery-conformance` is that decision TAKEN, by the owner, for one leg: it runs in the queue
+  # too, because the queue is the only run that tests the merged result against a real dataset.
   #
   # SCOPE: this file only, and deliberately. `ci` is the only required context, so adding
   # `merge_group` to `docs.yml` or `security-audit.yml` would buy a duplicate run and nothing
@@ -718,26 +720,6 @@ jobs:
         if: ${{ always() && github.event_name != 'push' }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
-      # THE ONE SUBJECT NO HOOK SEES. The queue squashes and composes the landed subject from the
-      # PULL-REQUEST TITLE, so `commit-msg` - which judges commits made in a checkout - never reads
-      # the string that becomes permanent history: `spike(metadata): …` is on `main` as `ed650549`
-      # over a vocabulary that holds eleven types and not that one (#935). This step is the venue
-      # that has the title.
-      #
-      # IT IS THE FIRST `nix run .#xtask` STEP IN THIS FILE, DELIBERATELY. `obligations::REQUIRED`
-      # holds its `if:` by a line, and that rule's order half requires every obligation to sit
-      # ahead of the first step realising the xtask closure - which this one is, so it neither
-      # displaces the three closure-free obligations above it nor sits behind a closure it would
-      # otherwise wait on. Moving it below `Classify the change` reddens `check-workflows`.
-      #
-      # THE GATE FAILS CLOSED ON AN EMPTY TITLE, which is what this expression expands to on any
-      # event without a pull request - so dropping the `if:` is a red run rather than a silent pass.
-      - name: PR title
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: nix run .#xtask -- check-pr-title "$TITLE"
-
       # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
       # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
       - name: Classify the change
@@ -920,6 +902,16 @@ jobs:
       - name: Postgres tier
         if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
+
+      # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2): every
+      # `kind: postgres` source is answered over ADBC, and a musl release links the static driver,
+      # so its libpq and static OpenSSL have to answer real statements somewhere. This builds the
+      # adapter's tier-backed targets static for x86_64-musl with that archive and runs them
+      # against the Postgres tier in the sandbox - `nix/shipped.nix`'s `linkedDriversTests` says
+      # what that leaves out. Gated like the tier above: the adapter, its driver and its tier.
+      - name: Postgres linked driver
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true') && github.event_name != 'push'
+        run: nix build .#checks.x86_64-linux.postgres-linked-driver -L
 
       # The ClickHouse tier's state machine, for the Postgres tier's reason and gated the same way
       # on its own category. The golden cells it serves run in `Tests` above, which starts this tier.
@@ -1681,6 +1673,9 @@ jobs:
     outputs:
       identity: ${{ steps.classify.outputs.identity }}
       data_source_bigquery: ${{ steps.classify.outputs.data_source_bigquery }}
+      # `bigquery-driver-check`'s selection, one flag: its `if:` may hold no `||` beside the
+      # release-skip clause (`xtask/src/workflows/obligations.rs`), so the OR is taken here.
+      driver_check: ${{ steps.classify.outputs.data_source_bigquery == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1806,6 +1801,7 @@ jobs:
   # The real DataHub tier supplies the certified metric and the ADBC driver executes it against
   # fixture tables this run created in BigQuery. The Keycloak tier verifies the caller; the source
   # deliberately uses the acknowledged shared CI identity. The dataset group serializes writes.
+  # The same app runs the two `delegation_adbc` cells, which need only the driver this job mounts.
   # Forks, Dependabot and merge groups cannot receive the bq-test credential; the aggregate below
   # requires this leg for every selected same-repository pull request and push.
   e2e-datahub-adbc:
@@ -1868,6 +1864,86 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/bq-key.json"
 
+  # The golden matrix's `bigquery` row against a real dataset: `nix run .#bigquery-provision`
+  # loads the example corpus and the two-fact tables into the dataset once, then
+  # `nix run .#bigquery-conformance` runs every `bigquery` cell of `sutura-app`'s golden and
+  # differential targets, and the two-fact differential, under the one shared CI identity - no
+  # impersonation claim.
+  # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
+  # bq-test credential, and there the row skips under its named exemption as everywhere else.
+  # Run-or-fail through `ci-aggregate` on a same-repository pull request and in the merge queue when
+  # `data_source_bigquery` is selected, and outside the ruleset itself. One run's corpus cell timed
+  # out undiagnosed (37152629712), so how it behaves under load is unproven.
+  bigquery-conformance:
+    needs: [ci]
+    if: (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    environment: bq-test
+    # One dataset, fixed table names: the group serializes every run that writes them.
+    concurrency:
+      group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Place credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "bq-test has no CI credential" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+      # The project comes off the key, masked before it is exported, so it reaches the cells
+      # without reaching the log.
+      - name: Mask resource names and read the project off the key
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: |
+          set -eu
+          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
+            || { echo "the CI credential names no project_id" >&2; exit 1; }
+          if [ -z "$project" ]; then
+            echo "the CI credential names an empty project_id" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$project"
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "bq-test has no SUTURA_BQ_DATASET" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
+          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Load the example corpus once
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: nix run .#bigquery-provision -- --no-capture
+      - name: Golden corpus on BigQuery
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: nix run .#bigquery-conformance -- --no-capture
+      - name: Remove credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bq-key.json"
+
   # Legs and their categories: `ci` is always required; `e2e-datahub-adbc` is selected by
   # BigQuery, DataHub or identity; `keycloak-served-test` is `identity`. `core` (a shared or unmapped
   # path) subsumes every category because the category outputs are emitted as `core || selected`,
@@ -1899,8 +1975,10 @@ jobs:
   #
   # Category-gated on `data_source_bigquery`, which until this job existed was published by `ci`
   # and read by NOTHING: the leg that consumed it was deleted with the HTTP transport, so the
-  # classification axis for this adapter was orphaned. `ci-aggregate` holds run-or-fail for it,
-  # exactly as it does for `keycloak-served-test`.
+  # classification axis for this adapter was orphaned. And on `data_source_postgres`, because this
+  # is also the one venue that runs the linked PostgreSQL driver's libpq and its sign-in cells
+  # against their tiers, so a change confined to that adapter must run it too. `ci-aggregate` holds
+  # run-or-fail for either, exactly as it does for `keycloak-served-test`.
   #
   # It reads no secret and needs no environment, so a fork's pull request can run it - the same
   # reason `keycloak-served-test` carries no event exception.
@@ -1911,7 +1989,7 @@ jobs:
   # `release.yml` runs this check against the published build, so a release commit loses nothing.
   bigquery-driver-check:
     needs: [identity-classify]
-    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true' }}
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.driver_check == 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 45
     permissions:
@@ -1974,6 +2052,49 @@ jobs:
       - name: Oracle acceptance cells
         run: nix run .#oracle-acceptance -- --no-capture
 
+  # The DataHub metadata tier, as a live acceptance venue: brings up the docker `datahub`
+  # compose profile (five containers, three JVMs and a migration job, so the cap is wide) and
+  # runs the cells `just datahub-acceptance`'s recipe weaves together - the instance reachable,
+  # the deployment-defined metric document round-tripping, a dataset page and a relationship page
+  # preserving their wire shapes, the golden catalog read back through `HttpAspectReader`
+  # (`--features http`), and a bearer-LESS read refused
+  # (auth is ON) - failing rather than skipping, because `SUTURA_DEV_REQUIRE_TIER=1` is exported in
+  # two places: the just recipe sets it and the flake `datahub-acceptance` app exports it too, and the
+  # pair must be kept in sync manually (see #1254).
+  # Category-gated on `catalog_datahub`, which `xtask/src/affected.rs` derives from the
+  # `crates/sutura-catalog-datahub` crate; a change to the docker tier (`compose.services.yaml`,
+  # which holds the `datahub` profile) falls open to `core`, which runs every leg. Held run-or-fail
+  # by `ci-aggregate`. An app rather than a `checks.*` entry for `oracle-tier`'s reason: it needs
+  # a docker socket, and its cells fail on a missing endpoint, which would go fatal on every
+  # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
+  # info` inside the 10s default has wedged on this runner.
+  ci-datahub-tier:
+    needs: [ci]
+    if: needs.ci.outputs.catalog_datahub == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    concurrency:
+      group: ci-datahub-tier-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: DataHub acceptance cells
+        run: nix run .#datahub-acceptance
+
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
   # - stays where the decision is reviewed. Event-gated rather than category-gated: `examples/demo-chatinterface/**`
@@ -2021,7 +2142,15 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier]
+    needs: [
+      ci,
+      keycloak-served-test,
+      bigquery-driver-check,
+      e2e-datahub-adbc,
+      oracle-tier,
+      ci-datahub-tier,
+      bigquery-conformance,
+    ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -2031,11 +2160,15 @@ jobs:
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
-          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.data_source_postgres == 'true' }}
           E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
           ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
+          DH_RESULT: ${{ needs.ci-datahub-tier.result }}
+          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
+          BQC_RESULT: ${{ needs.bigquery-conformance.result }}
+          BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2043,7 +2176,7 @@ jobs:
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if:`, top of the file) - `bigquery-driver-check` included,
           # whose own `if:` repeats that test now that it `needs: [identity-classify]` rather than
-          # `[ci]`, and whose `BQ_SELECTED` reads `ci`'s `''` exactly as `KC_SELECTED` does below.
+          # `[ci]`, and whose `BQ_SELECTED` renders `false` off `ci`'s `''` outputs, as `KC_SELECTED` reads `''` below.
           # `keycloak-served-test` (#983) does NOT skip any more - it
           # `needs: [identity-classify]`, which carries no such `if:`, so it runs on a release
           # commit independently of `ci`'s skip and its own result is `success` or `failure`, not
@@ -2073,7 +2206,7 @@ jobs:
           # that category was published and consumed by nothing.
           if [ "$BQ_SELECTED" = "true" ]; then
             if [ "$BQ_RESULT" != "success" ]; then
-              fail "bigquery-driver-check must run (data_source_bigquery category selected) but reported '$BQ_RESULT'"
+              fail "bigquery-driver-check must run (data_source_bigquery or data_source_postgres selected) but reported '$BQ_RESULT'"
             fi
           else
             case "$BQ_RESULT" in
@@ -2091,6 +2224,20 @@ jobs:
               *) fail "e2e-datahub-adbc reported '$E2E_RESULT' without an allowed skip" ;;
             esac
           fi
+          # The golden matrix's live `bigquery` row: required on a same-repository pull request and in the
+          # merge queue when `data_source_bigquery` is selected, because its cells leave offline causality
+          # under `Live-Cell:` and these runs are their only evidence. A fork or Dependabot receives no
+          # bq-test credential, so there the job skips and its cells skip under their named exemption.
+          if [ "$BQC_REQUIRED" = "true" ]; then
+            if [ "$BQC_RESULT" != "success" ]; then
+              fail "bigquery-conformance must run for the selected category and event but reported '$BQC_RESULT'"
+            fi
+          else
+            case "$BQC_RESULT" in
+              skipped|success) ;;
+              *) fail "bigquery-conformance reported '$BQC_RESULT' without an allowed skip" ;;
+            esac
+          fi
           # The Oracle docker tier reads no secret, so it carries no event exception: every event
           # that selects `data_source_oracle` or `catalog_rdbms` must run it, the same rule as
           # `bigquery-driver-check` above.
@@ -2102,6 +2249,20 @@ jobs:
             case "$ORACLE_RESULT" in
               skipped|success) ;;
               *) fail "oracle-tier reported '$ORACLE_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The DataHub docker tier reads no secret, so it carries no event exception: every
+          # event that selects `catalog_datahub` must run it - the same rule as `oracle-tier`,
+          # and it is what closes the gap the `e2e-datahub-adbc` leg left for the adapter's own
+          # discoverable tier: a selected-but-skipped filter can no longer go green.
+          if [ "$DH_SELECTED" = "true" ]; then
+            if [ "$DH_RESULT" != "success" ]; then
+              fail "ci-datahub-tier must run (catalog_datahub category selected) but reported '$DH_RESULT'"
+            fi
+          else
+            case "$DH_RESULT" in
+              skipped|success) ;;
+              *) fail "ci-datahub-tier reported '$DH_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

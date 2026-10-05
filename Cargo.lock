@@ -4232,6 +4232,7 @@ dependencies = [
  "sutura-catalog-okf",
  "sutura-catalog-openmetadata",
  "sutura-catalog-rdbms",
+ "sutura-catalog-wren",
  "sutura-config",
  "sutura-dev",
  "sutura-domain",
@@ -4273,6 +4274,7 @@ version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sutura-catalog-local",
  "sutura-dev",
  "sutura-domain",
  "sutura-http-client",
@@ -4326,10 +4328,12 @@ version = "0.6.1"
 dependencies = [
  "futures-util",
  "oracledb",
+ "rcgen",
  "rustls",
  "sutura-dev",
  "sutura-domain",
  "sutura-semantic",
+ "sutura-tls",
  "thiserror 2.0.21",
  "tokio",
  "tokio-postgres",
@@ -4533,12 +4537,8 @@ dependencies = [
  "adbc_driver_manager",
  "arrow-array 59.2.0",
  "arrow-schema 59.2.0",
- "bytes",
  "divan",
- "futures-util",
  "rcgen",
- "rustls",
- "rustls-native-certs",
  "sutura-adbc",
  "sutura-conformance",
  "sutura-dev",
@@ -4546,9 +4546,6 @@ dependencies = [
  "sutura-sql",
  "sutura-tls",
  "thiserror 2.0.21",
- "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
 ]
 
 [[package]]

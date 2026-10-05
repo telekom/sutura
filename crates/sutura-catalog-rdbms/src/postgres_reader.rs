@@ -55,9 +55,9 @@
 //! material is resolved by a composition root into a `rustls::ClientConfig` for `verified`/`mutual`
 //! channels, or `None` for `plaintext`. When a `ClientConfig` is supplied the reader forces
 //! `SslMode::Require` so a server declining TLS cannot silently downgrade the verifier to
-//! cleartext - the same hardening `sutura-exec-postgres::connect_secured` applies. There is no
-//! unconditional `NoTls`: plaintext is reached only through the declared `plaintext` mode, which
-//! the transport layer already refuses for a remote host.
+//! cleartext - the libpq `sslmode=verify-full` the Postgres data source's `Conninfo` writes holds
+//! the same line. There is no unconditional `NoTls`: plaintext is reached only through the
+//! declared `plaintext` mode, which the transport layer already refuses for a remote host.
 //!
 //! # Feature gating
 //!

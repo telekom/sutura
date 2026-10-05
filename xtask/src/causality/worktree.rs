@@ -8,7 +8,7 @@
 //! way this module spawns one.
 //!
 //! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`search`],
-//! [`head_branch`], [`head_commit`], [`branch_metadata`] and [`at_base`] - are here for that
+//! [`head_branch`], [`head_commit`], [`branch_metadata`], [`at_base`] and [`declares_fn`] - are here for that
 //! second reason and no other. Each returns raw output and decides nothing; `super::provenance`, `super::stack` and
 //! `super::features` parse them, so every classification they feed is testable without a
 //! repository.
@@ -131,6 +131,18 @@ pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> String {
         .stderr(std::process::Stdio::null())
         .output()
         .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Does a tracked `.rs` file in the working tree contain `fn <name>` as whole words?
+///
+/// A git failure reads as no, which `super::no_base` refuses as stale: the closed direction.
+pub(super) fn declares_fn(root: &Path, name: &str) -> bool {
+    git(root)
+        .args(["grep", "-q", "-w", "-F", "-e", &format!("fn {name}"), "--", "*.rs"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// Every path the diff touched, one per line - **deletions included**.

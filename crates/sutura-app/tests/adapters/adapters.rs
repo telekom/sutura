@@ -48,9 +48,10 @@ use sutura_dev::provisioned::{self, Provisioned};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
-use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::Warehouse;
-use sutura_exec_bigquery::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobTransport};
+use sutura_exec_bigquery::BigQueryWarehouse;
+use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation};
+use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
 use sutura_exec_postgres::fixture::FixtureCredential;
 
 /// The version the goldens are pinned under.
@@ -377,17 +378,18 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
 
     /// Whether this adapter can execute HERE at all.
     ///
-    /// Defaults to `true`, which is the truth for the in-process and in-memory adapters. A network
-    /// adapter - one that needs a provisioned service to be listening - reports whether that tier is
-    /// up. When it is `false`, a corpus cell is SKIPPED (the skip notice has already reached stderr
-    /// through `sutura_dev::provisioned`); the skip-or-fail direction is
-    /// `SUTURA_DEV_REQUIRE_TIER`, read once by the provisioner. A provisioned tier makes the cells
-    /// run rather than skip, which is the point of the flag; in the sandbox that tier is the nix one
-    /// (`nix/postgres-tier.nix`), elsewhere docker, and both write the same discovery file.
+    /// Defaults to `true`, the truth for the in-process adapters; a network adapter reports whether
+    /// its venue is up. When it is `false` a cell skips - through [`runs_here`] alone, which refuses
+    /// a skip `exemptions::EXEMPTIONS` does not name. For a tier, `SUTURA_DEV_REQUIRE_TIER` (read once by the
+    /// provisioner) turns that skip into a failure wherever a gate provisioned one.
     fn available() -> bool {
         true
     }
 }
+
+#[path = "exemptions.rs"]
+pub(crate) mod exemptions;
+pub(crate) use exemptions::runs_here;
 
 impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
     const NAME: &'static str = "datafusion";
@@ -424,7 +426,7 @@ impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
     }
 }
 
-impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
+impl DataSystemUnderTest for sutura_exec_postgres::adbc::AdbcPostgres {
     const NAME: &'static str = "postgres";
 
     fn available() -> bool {
@@ -438,12 +440,22 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
         // no published credential is a provisioner that half-ran, and the refusal names the
         // variable rather than trying `sutura` at whatever host discovery answered with.
         let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = Self::local_config(endpoint.host(), endpoint.port(), &credential);
         // One PRIVATE schema per open, so parallel corpus cells sharing one server cannot clobber one
         // another's tables - the same per-worktree isolation the compose tier gets, applied per cell.
         let schema = format!("cell_{}_{}", std::process::id(), schema_counter());
-        let warehouse = Self::connect_in_schema(name, posture(), &config, &schema)
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        let conninfo = credential
+            .conninfo_in(&name, endpoint.host(), endpoint.port(), &schema)
+            .unwrap_or_else(|e| panic!("no connection string for the tier at {endpoint}: {e}"));
+        let warehouse = Self::new(
+            name,
+            posture(),
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        warehouse
+            .create_schema(&schema)
+            .unwrap_or_else(|e| panic!("postgres could not create {schema}: {e}"));
         for (table, csv) in tables {
             warehouse
                 .load_csv(&table, &csv)
@@ -489,91 +501,132 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
     }
 }
 
-/// Never returned in practice: `available()` reports `bigquery` unavailable unconditionally, and
-/// every cell this suite expands over the axis checks that before it ever asks [`NoLocalTier`]
-/// anything. A typed `Err` rather than a panic all the same, because `clippy::panic_in_result_fn`
-/// asks every `Result`-returning method here to answer that way regardless.
-#[derive(Debug, thiserror::Error)]
-#[error("`available()` reports `bigquery` unavailable, so no cell should ever reach this transport")]
-pub(crate) struct NeverAsked;
+/// The two-fact ratio's calendar, a table the example corpus lacks. Here rather than in
+/// `federated::corpus`, which adds it for every other data system, because the `bigquery`
+/// provisioning cell sits in the golden target and loads it too - one copy of the rows for both.
+pub(crate) const DIM_CALENDAR: &str =
+    "month\n2026-01-01\n2026-02-01\n2026-03-01\n2026-04-01\n2026-05-01\n2026-06-01\n2026-07-01\n2026-08-01\n";
 
-/// The transport [`DataSystemUnderTest`] instantiates `BigQueryWarehouse` over here - never asked
-/// anything, for [`NeverAsked`]'s own reason.
-pub(crate) struct NoLocalTier;
+/// The two-fact ratio's second fact, for [`DIM_CALENDAR`]'s reason.
+pub(crate) const FCT_TICKET_MONTHLY: &str = "month,customer_key,tickets\n2026-04-01,5,50\n2026-05-01,2,4\n2026-05-01,5,3\n\
+     2026-05-01,42,5\n2026-06-01,1,2\n2026-06-01,2,3\n2026-06-01,11,1\n2026-06-01,20,6\n2026-07-01,2,100\n";
 
-impl JobTransport for NoLocalTier {
-    type Error = NeverAsked;
+/// One table the `bigquery` dataset holds, and what the provisioning cell loads into it: `None` for an
+/// example-corpus table, which loads its committed CSV, and the rows of a two-fact table the corpus
+/// lacks.
+pub(crate) type DatasetTable = (&'static str, Option<&'static str>);
 
-    fn run(&self, _request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
-        Err(NeverAsked)
-    }
+/// Every table the `bigquery` dataset holds. The derived corpus's APPENDED rows are not here: the
+/// dataset holds one `fct_subscription_monthly`, the committed one every other cell reads.
+pub(crate) const BIGQUERY_TABLES: [DatasetTable; 7] = [
+    ("dim_customer", None),
+    ("dim_product", None),
+    ("dim_region", None),
+    ("fct_subscription_monthly", None),
+    ("fct_usage_daily", None),
+    ("dim_calendar", Some(DIM_CALENDAR)),
+    ("fct_ticket_monthly", Some(FCT_TICKET_MONTHLY)),
+];
 
-    fn validate(&self, _request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
-        Err(NeverAsked)
-    }
-
-    fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
-        Err(NeverAsked)
-    }
-
-    #[cfg(feature = "fixtures")]
-    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
-        Err(NeverAsked)
-    }
-}
-
-/// `BigQuery`: the one data system with no LOCAL venue at all, and the reason `available()` is not
-/// merely defaulted `true` and wrong for it.
-///
-/// `DuckDB` and `DataFusion` are always here; `Postgres` sometimes is, once a tier answers.
-/// `BigQuery` is cloud-only - there is no `nix/bigquery-tier.nix` and could not honestly be one - so
-/// this is the first entry that answers `available()` `false` unconditionally rather than from a
-/// discovery read, and every cell this axis is expanded over (the anchor check, the executed
-/// corpus, agreement with the engine) skips it the same way it already skips an undiscovered
-/// Postgres. **This adapter's OWN corpus is not this axis at all** -
-/// `crates/sutura-exec-bigquery/tests/conformance.rs` binds it to `sutura-conformance`'s packs over
-/// an in-process canned transport, which is what `execute_packs!`'s own registry gate requires a
-/// bound adapter's crate to be named here for - `docs/adr/0012`'s *one registration, not two*,
-/// closing `telekom/sutura#710`.
-impl DataSystemUnderTest for sutura_exec_bigquery::BigQueryWarehouse<NoLocalTier> {
+/// `BigQuery`: cloud-only, so its venue is the dataset the `bigquery-conformance` CI job loads
+/// [`BIGQUERY_TABLES`] into before this axis runs. Every cell READS those tables and none writes, so
+/// an open over any other table is refused rather than loaded: it would replace a table other cells
+/// are reading, and one dataset has no per-open schema to give it. **Its limit:** a table is matched
+/// by NAME, so a derived corpus's edit to an example table is not what runs here - the two-fact
+/// differential's appended `fct_subscription_monthly` rows fall outside its question's range, which
+/// is what lets that cell compare. It executes as the job's one CI identity under the matrix's
+/// `shared-service-user` posture, so it says nothing about impersonation.
+impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
     const NAME: &'static str = "bigquery";
 
     fn available() -> bool {
-        false
+        bigquery_venue().is_some()
     }
 
-    fn open_on(_name: SourceName, _tables: Vec<(TableName, PathBuf)>) -> Self {
-        panic!("`available()` guards the Open of every bigquery cell")
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
+        for (table, _) in &tables {
+            assert!(
+                BIGQUERY_TABLES.iter().any(|&(held, _)| held == table.as_str()),
+                "{table} is not a table the bigquery dataset holds, and loading it would replace a table \
+                 the other cells are reading"
+            );
+        }
+        bigquery_warehouse(name)
     }
+}
+
+/// The provisioned dataset as a warehouse on source `name` - one address for the provisioning cell
+/// that loads it and every cell that reads it.
+pub(crate) fn bigquery_warehouse(name: SourceName) -> BigQueryWarehouse<AdbcBigQuery> {
+    let venue = bigquery_venue().expect("`available()` guards every bigquery open");
+    BigQueryWarehouse::over_adbc(
+        name,
+        posture(),
+        venue.project.clone(),
+        venue.dataset.clone(),
+        venue.driver.clone(),
+        Impersonation::Disabled,
+        BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
+    )
+}
+
+/// Where a provisioned `BigQuery` dataset is, read once from the job's environment.
+struct BigQueryVenue {
+    project: ProjectId,
+    dataset: DatasetId,
+    driver: DriverLocation,
+}
+
+/// The `BigQuery` venue, or `None` on a host that names none.
+///
+/// **`SUTURA_BQ_DATASET` is the switch, and past it nothing is optional**: a half-configured venue
+/// panics naming the variable, because one that skipped would be a green run over nothing. No value
+/// is printed - a public log should not learn a resource name from a refusal.
+fn bigquery_venue() -> Option<&'static BigQueryVenue> {
+    static CACHED: OnceLock<Option<BigQueryVenue>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let dataset = set("SUTURA_BQ_DATASET")?;
+            let required = |name: &str| {
+                set(name).unwrap_or_else(|| panic!("SUTURA_BQ_DATASET names a bigquery venue and {name} is unset or empty"))
+            };
+            drop(required("GOOGLE_APPLICATION_CREDENTIALS"));
+            Some(BigQueryVenue {
+                project: ProjectId::parse(required("SUTURA_BQ_PROJECT"))
+                    .unwrap_or_else(|_| panic!("SUTURA_BQ_PROJECT is not a project id")),
+                dataset: DatasetId::parse(dataset).unwrap_or_else(|_| panic!("SUTURA_BQ_DATASET is not a dataset id")),
+                driver: DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER"))
+                    .unwrap_or_else(|_| panic!("SUTURA_BIGQUERY_ADBC_DRIVER is not an absolute path")),
+            })
+        })
+        .as_ref()
+}
+
+/// An environment value, or `None` where it is unset or blank.
+fn set(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 /// The fourth DATA SOURCE, over the wire like Postgres - `github.com/telekom/sutura#127` PR 2.
 ///
-/// **`available()` answers `false` unconditionally, like `bigquery`'s - and for a related but not
-/// identical reason.** `BigQuery` is cloud-only and has no local venue at all; Oracle Database DOES
-/// have one - `compose.services.yaml`'s `oracle` profile, over `just dev-up-oracle` - but two
-/// things stop this cell from reaching it yet:
+/// **`available()` answers `false` unconditionally.** Oracle Database HAS a local venue -
+/// `compose.services.yaml`'s `oracle` profile, over `just dev-up-oracle` - but two things stop this
+/// cell from reaching it yet:
 ///
-/// - **No nix-native venue exists**, unlike Postgres: Oracle Database is proprietary and not
-///   packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` for any `just validate` leg to
-///   provision - `compose.services.yaml`'s own row on the service says so. `available()` is
-///   therefore NOT gated by discovery at all here, which is deliberate: `sutura_dev::provisioned::
-///   here` applies `SUTURA_DEV_REQUIRE_TIER` PER PROCESS, not per named service, and that flag is
-///   set globally the moment the (unrelated) Postgres tier comes up under `nix/with-tier.sh` - so
-///   calling the panicking `here` for `"oracle"` here would turn every `just test`/`just causality`
-///   run FATAL the instant Postgres provisions, over a service nothing asked it to bring up. That
-///   is a limit of the shared flag, not of this adapter, and it is exactly why `sutura-catalog-
-///   datahub`'s own `datahub`-tier cell lives behind `#[ignore]` and a named acceptance task instead
-///   of in this matrix.
-/// - **No CSV-fixture importer exists yet.** `PostgresWarehouse`/`DuckDbWarehouse` both grow a
+/// - **No nix-native venue exists**: Oracle Database is not packaged in `nixpkgs`, so no
+///   `just validate` leg can provision one. And `available()` is deliberately NOT a discovery read:
+///   `sutura_dev::provisioned::here` applies `SUTURA_DEV_REQUIRE_TIER` per PROCESS, set the moment
+///   the unrelated Postgres tier comes up, so asking it about `"oracle"` would make every tiered
+///   run fatal over a service nothing asked for.
+/// - **No CSV-fixture importer exists yet.** `AdbcPostgres`/`DuckDbWarehouse` both grow a
 ///   `load_csv`/`attach_csv` that infers a schema from the example corpus's CSVs and loads it;
 ///   `OracleWarehouse` has no such method, because writing one blind - with no live Oracle to
 ///   validate the generated DDL and bulk-insert shape against - is exactly the "looks like coverage,
 ///   proves nothing" failure `AGENTS.md` warns against.
 ///
 /// So this registration compiles `OracleWarehouse` against the matrix's own `DataSystemUnderTest`
-/// port and reserves its place; every cell this axis is expanded over skips it the same way it
-/// already skips `bigquery`, and `crates/sutura-app/tests/golden/dialects.rs`'s `oracle` render
+/// port and reserves its place; every cell this axis is expanded over skips it under its named
+/// entry in `exemptions::EXEMPTIONS`, and `crates/sutura-app/tests/golden/dialects.rs`'s `oracle` render
 /// cells are still the only Oracle coverage this suite produces.
 impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
     const NAME: &'static str = "oracle";
@@ -709,10 +762,10 @@ where
 /// THE ENGINE: the plan becomes a logical plan over Arrow and no SQL is generated, so a dialect bug
 /// is unreachable on that path. Every other entry is a DATA SOURCE: the plan is rendered into its
 /// dialect's SQL and pushed down. All are `Warehouse` implementations and the corpus does not know
-/// which it is talking to. `Postgres` and `ClickHouse` need a provisioned tier to execute, and
-/// `BigQuery` and `Oracle` have none any gate reaches, so each skips where
-/// [`DataSystemUnderTest::available`] answers `false` - the first two from a discovery read, the
-/// last two unconditionally.
+/// which it is talking to. `Postgres` and `ClickHouse` need a provisioned tier, `BigQuery` a
+/// provisioned dataset, and `Oracle` has no venue at all, so each skips where
+/// [`DataSystemUnderTest::available`] answers `false` - and only under its named entry in
+/// `exemptions::EXEMPTIONS`, which [`runs_here`] is the one reader of.
 ///
 /// # `dialects: $cell` - `$cell!(name, Dialect, ParseTarget)`
 ///
@@ -788,6 +841,9 @@ macro_rules! registered {
             declaring,
             sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
         );
+        // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
+        // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.
+        $cell!(wren, declaring, crate::catalogs::WrenImport);
     };
 
     (data_systems: $cell:ident) => {
@@ -800,17 +856,18 @@ macro_rules! registered {
         // A DATA SOURCE, reached over the wire, and likewise a development dependency: it proves the
         // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
         // Its cells run against this worktree's provisioned tier and skip where none is up.
-        $cell!(postgres, sutura_exec_postgres::PostgresWarehouse);
+        $cell!(postgres, sutura_exec_postgres::adbc::AdbcPostgres);
         // A DATA SOURCE over HTTP, likewise a development dependency, and likewise run against this
         // worktree's provisioned tier (`nix/clickhouse-tier.nix`) and skipped where none is up.
         $cell!(
             clickhouse,
             sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>
         );
-        // CLOUD-ONLY, and the reason `available()` answers `false` unconditionally: see the impl.
+        // CLOUD-ONLY: it executes where `SUTURA_BQ_DATASET` names the dataset the
+        // `bigquery-conformance` job provisioned, and skips under a named exemption elsewhere.
         $cell!(
             bigquery,
-            sutura_exec_bigquery::BigQueryWarehouse<crate::adapters::NoLocalTier>
+            sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>
         );
         // `available()` also answers `false` unconditionally, for its own two reasons: see the impl.
         $cell!(oracle, sutura_exec_oracle::OracleWarehouse);
@@ -833,13 +890,9 @@ macro_rules! registered {
             sutura_sql::Dialect::BigQuery,
             polyglot_sql::DialectType::BigQuery
         );
-        // `sutura-exec-oracle` exists now (`#127` PR 2, above in `data_systems:`), and it is
-        // registered with `available() == false` - no venue in `just validate` brings up a real
-        // Oracle, and no CSV importer attaches the corpus to one yet even where a developer's own
-        // docker could. So the parse check this cell runs is STILL the whole of what backs the
-        // render: green means this crate's own renderer produced something Oracle's own grammar
-        // accepts, not that a real Oracle agrees with the number - see the `data_systems:` entry's
-        // own doc for exactly what is missing and why.
+        // Registered as a data system with `available() == false` (see that impl), so the parse
+        // check this cell runs is the whole of what backs the render: Oracle's grammar accepts it,
+        // which says nothing about a real Oracle agreeing with the number.
         $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
     };
 }

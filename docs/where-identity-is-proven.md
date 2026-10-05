@@ -183,7 +183,7 @@ The two rows are that split and not a duplication.
 | `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - | - |
 | The RFC 8693 request document a broker sent, while one existed | - the broker and its fake exchange this row was written for were deleted with the old `wire` transport (`docs/adr/0018`, eighth amendment), and that cell stays a record of a withdrawn claim. The tree sends one again since #1208 - the delegation exchange behind the new `wire` feature - and the row below is where that request is pinned | - | - | - | - | - | - |
-| The document leg 1 verified was the `subject_token` the exchanging broker offered | - | - no exchanging broker is shipped; this was green over a fake exchange, in two halves each against its own fixture, until that tree was deleted. What ships puts the verified document behind a loopback `url` credential source instead, and `adbc/subject/tests.rs` is where that is asserted | - | - | - | - | - |
+| The document leg 1 verified was the `subject_token` the exchanging broker offered | - | **yes** - since #1258 the served root composes the delegation exchange into `DeclaredPrincipalBroker` for a source declaring `workload_identity.delegation`, and `a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back` sends two callers' mock-issuer tokens through the real gate and router and reads each one as the `subject_token` a loopback IdP received. In process; on the spawned binary over the ADBC driver, `a_spawned_deployment_exchanges_the_declared_callers_own_token_and_no_one_elses` reads one declared caller's token as the only `subject_token` and an undeclared caller's as none, where `just e2e-datahub-adbc` runs, since no nix check carries the driver; what a real IdP and pool do with the token is the token-exchange row below. Without a delegation the verified document goes behind a loopback `url` credential source instead, asserted in `adbc/subject/tests.rs` | - | - | - | - | - |
 | A subject the shipped broker holds nothing for reaches no authorization server and no data system | - | **yes** - `DeclaredPrincipalBroker` refuses a caller its source does not name before anything is built or sent; the exchanging broker this row was written for is deleted and the refusal outlived it | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | redundant | - | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - | - |
@@ -197,6 +197,8 @@ The two rows are that split and not a duplication.
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no | no - it reads one identity per question and no rows at all; the row half needs the served surface | - |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - the cells here read `SESSION_USER()` and no rows. `test-infra/pulumi/google`'s row access policies grant `serviceAccount:` members, which since `telekom/sutura#929` F3 IS the identity each subject executes as - so the grants are provisioned and the missing half is a dispatch and a served surface, not a resource | - |
 | **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no | no - a different adapter, refused at boot before any venue | - |
+| **Whether the shipped ClickHouse source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the composition root | no | - | - | no | no - a different adapter, refused at boot before any venue | - |
+| **Whether the Oracle source (behind the default-off `oracle` feature, in no published binary) executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the composition root with the reason that no build delivers it | no | - | - | no | no - a different adapter, refused at boot before any venue | - |
 | Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
 | Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
 | **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | no - it asks the adapter directly, so nothing here goes through a served binary | - |
@@ -268,6 +270,12 @@ a real issuer. **What the served root attaches is `DeclaredPrincipalBroker`**, w
 a caller may be served at a source the operator declared for them rather than exchanging a credential
 - so a `bigquery` source declared `impersonation-at-source` boots, and the assertion it carries goes
 to the ADBC driver for Google's token service to federate, which is the venue below and not this one.
+**Since #1258 that broker also exchanges**, for a source declaring `workload_identity.delegation`:
+the verified token is the `subject_token` of an RFC 8693 exchange at the operator's identity
+provider, and the token that comes back is what the source receives.
+`crates/sutura-cli/src/serve/tests/delegation_served.rs` holds that join again, through the real
+router over this issuer's tokens, against a loopback identity provider and a recording transport -
+so it is still a join between leg 1's real bytes and a fake, and still not citable for leg 2.
 
 ### And on the composed binary, which is a different claim from any of the above
 
@@ -318,15 +326,20 @@ subscriber - cannot see it, and two of that crate's own tests stand in `tower_ht
 say so. A suite reading the process's own streams sees every thread. It is also why the wait is a
 blocking read with a budget rather than a sweep: the record is not ordered against the response.
 
-**What the composed binary cannot host, and why the tests above stay at the router:** the key-set
-windows cannot be shortened from a settings file, so the rotation and rate-limit bounds would mean a
-test sleeping for the shipped minute; and the exchange half needs the exchanging broker, which has no
-implementor a composition root can reach since the BigQuery `wire` transport was deleted. Those two
-are the honest reason `credential_unavailable_is_reachable_end_to_end` and
+**What the composed binary cannot host in its default venue, and why the tests above stay at the
+router:** the key-set windows cannot be shortened from a settings file, so the rotation and
+rate-limit bounds would mean a test sleeping for the shipped minute; and the exchange half needs a
+`bigquery` source, which the spawned binary boots only where an ADBC driver is mounted - so the
+delegation exchange is held at the router too, in
+`crates/sutura-cli/src/serve/tests/delegation_served.rs`. On the binary it is held only by the two
+`#[ignore]`d cells in `crates/sutura-cli/tests/served/delegation_adbc.rs` that the
+`e2e-datahub-adbc` CI job runs. Those two limits are the honest reason
+`credential_unavailable_is_reachable_end_to_end` and
 `two_subjects_drive_two_different_exchanged_credentials` are router tests rather than binary ones.
 **The sentence this replaced said the root refuses to boot an `impersonation-at-source` source, and
 that stopped being true**: the served root attaches `DeclaredPrincipalBroker` to a declared
-`bigquery` source, so such a deployment boots - what it cannot host is a test about an EXCHANGE.
+`bigquery` source, so such a deployment boots where the ADBC driver loads, and stops at the driver
+refusal where none does.
 
 **And the line the transport crate draws, because it decides which fixture a new test should reach
 for:** a test that goes through the **router** mints from this venue, through the shared helpers in
@@ -366,9 +379,9 @@ about the vocabulary rather than to this row.
 
 ### What only this venue can answer
 
-1. **That a chain is actually VERIFIED.** `crates/sutura-exec-postgres/src/tls.rs` proves the
-   `rustls::ClientConfig` construction refuses what a closed type refuses, and nothing there
-   connects - so nothing there shows a handshake failing.
+1. **That a chain is actually VERIFIED.** `crates/sutura-exec-postgres/src/adbc/conninfo.rs`
+   proves the string libpq is told for each declared channel, and nothing there connects - so
+   nothing there shows a handshake failing.
    `a_source_chain_from_the_declared_anchor_is_verified_and_answers` and
    `a_source_chain_from_an_untrusted_issuer_is_refused` are the two directions against a real
    server, and the second is the one that matters.

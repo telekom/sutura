@@ -99,7 +99,7 @@ impl Drop for ScratchDir {
 /// rather than at parse - `sutura-config` checks it is an ABSOLUTE path, because a relative one
 /// resolves against an arbitrary working directory, and nothing else. A path that is absolute
 /// and points at nothing reaches `open_one_rdbms_catalog`, which reads it through the same
-/// `connection::config` a `sources:` Postgres entry uses, and refuses naming the catalog and the
+/// `crate::password_file` read a `sources:` Postgres entry uses, and refuses naming the catalog and the
 /// file - the same error identity a declared `postgres` source's missing credential earns.
 #[test]
 fn a_rdbms_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
@@ -126,7 +126,7 @@ fn a_rdbms_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
 /// A `transport_mode: verified` connection whose `transport_anchors` points at no file is
 /// accepted by `sutura-config` (which checks the key is present, not that the material loads)
 /// and refused at `open_one_rdbms_catalog`, which loads the bundle through
-/// `sutura_exec_postgres::tls::client_config`. The refusal names the catalog and the material.
+/// `sutura_catalog_rdbms::postgres_channel::client_config`. The refusal names the catalog and the material.
 ///
 /// The `password_file` here is a REAL, readable file (see [`readable_password_file`]) because
 /// `open_one_rdbms_catalog` reads the credential before it builds the TLS config - a missing

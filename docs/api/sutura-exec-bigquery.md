@@ -47,11 +47,13 @@ driver owns the HTTP transport and its own authentication, so this crate ships n
 reads no credential file - the previous HTTP `wire` transport and its STS/credential machinery
 were removed when ADBC became this adapter's only mode.
 
-So nothing here may be cited as a round-tripped invariant. `sutura serve` links this adapter and
-dispatches `kind: bigquery` behind its default-off `bigquery` feature, but the ADBC driver path is
-not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
-the `wire`-era acceptance/corpus/differential legs went away with the transport. A default build
-links none of this.
+`sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
+feature. The golden matrix's `bigquery` row runs the example corpus through this transport
+against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
+and one run's corpus cell timed out undiagnosed (37152629712), so how it behaves under load is
+unproven. That job gates a merge through `ci-aggregate` on a same-repository pull request or
+merge group that selects the `data_source_bigquery` category; a fork gets no credential, so there the cells
+skip under their named exemption. A default build links none of this.
 
 # Identity
 
@@ -240,7 +242,7 @@ pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<
 
 Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
 
-**The mirror of #78's `PostgresWarehouse::load_csv`, and it exists for the reason that one
+**The mirror of #78's `AdbcPostgres::load_csv`, and it exists for the reason that one
 does: a relational data system has to be GIVEN tables before a corpus can be run against it,
 and the example models are files.** The differences from the Postgres shape are in
 `crate::importer`'s header - there is no `COPY`, so the rows travel inside the statement and
@@ -258,8 +260,9 @@ that parsed.
 `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
 methods are spread over files is one whose surface nobody can read in one place.
 
-Returns how many data rows the fixture carried, so a caller can assert the load moved what the
-file holds rather than trusting a green.
+Returns how many data rows the importer parsed out of the fixture. **The limit:** that is the
+parse's count and not the dataset's - nothing reads the table back - so a caller comparing it
+with the file measures the importer; what shows the rows landed is a query over them.
 
 ```rust
 pub const fn new(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, transport: T) -> Self
@@ -1388,9 +1391,10 @@ version has none.
   obtain a pool-audience token for any subject whose inbound token they also hold. It is a
   `Secret` (redacted `Debug`, no `Display`, zeroized on drop - with the copy limits that type
   states).
-- **Nothing composes it yet.** `sutura serve` declares no settings for an identity provider token endpoint or a
-  client credential, so a served deployment never reaches this port; the cells and the Keycloak
-  tier cell do.
+- **`sutura serve` composes it** for a source declaring `workload_identity.delegation`, refused
+  at boot unless the inbound mode is `direct`. No served-binary cell reaches it: a `bigquery`
+  deployment needs the ADBC driver to boot and the default test venue carries none, so the
+  composition is held in-process by `sutura-cli`'s `build_broker` cells.
 
 ### `struct RequestedAudience`
 
@@ -1519,8 +1523,9 @@ pub struct Delegation
 
 What one impersonating source exchanges through.
 
-`Arc` because one identity provider client - one TLS agent, one credential - serves every source a deployment
-declares, and the broker is per answer rather than per source.
+`Arc` because a cloned broker shares its source's one identity provider client - one TLS agent,
+one credential - rather than building another. A composition root builds one per source that
+declares a delegation, never one per deployment.
 
 #### Methods
 
@@ -1557,7 +1562,8 @@ pub struct TokenEndpoint
 The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
 
 The origin is held to `Endpoint::parse`'s scheme rule; unlike an `Endpoint` it keeps its
-path, and it refuses a query, a fragment and a `user[:pass]@` authority.
+path, and it refuses a query, a fragment and any `@` - in the authority or, where an unencoded
+`/` in a password ends the parsed authority early, in the path.
 
 A loopback endpoint is dialled directly, never through a proxy - `sutura_http_client::agent`'s
 own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
@@ -1640,3 +1646,13 @@ pub const fn new(endpoint: TokenEndpoint, client: ExchangeClient, agent: sutura_
 ##### Implements
 
 `Debug`, `DelegationExchange`
+
+#### `use ReadBounds`
+
+The bounds and the rotating agent `OverHttp` dials over, so a composition root builds them
+without naming the shared client crate itself.
+
+#### `use rotating_agent`
+
+The bounds and the rotating agent `OverHttp` dials over, so a composition root builds them
+without naming the shared client crate itself.

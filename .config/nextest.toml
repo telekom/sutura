@@ -25,11 +25,14 @@
 # a mispaired OS thread, a barrier nobody releases - holds the whole run open until a human notices
 # and sends SIGTERM by hand, which is what happened at 3293s. `terminate-after = 5` on a 60s period
 # is 5 minutes, the number `#692`'s own thread states as the bar for ANY test in this suite. The
-# longest legitimately slow cell found by reading the workspace is nowhere close: postgres's own
-# cancellation-under-load cell (`crates/sutura-exec-postgres/tests/deadline.rs`) asserts its OWN
-# elapsed time stays under 18s, and the most generous reply budget in the default suite
-# (`crates/sutura-cli/tests/mcp.rs`) is 120s of slack around a local reply that returns in a
-# fraction of that - so 5 minutes has no legitimately slow cell within an order of magnitude of it.
+# slowest regular cells are postgres (18s) and mcp (120s), a long way from the ceiling. What
+# actually sets the margin is the gas family: it measured 174.6s max in three later runs under
+# normal CI load (lines 82-83 below), so the margin from the default 300s ceiling is 1.7x for
+# those cells. One note: the composite gas cell at the foot of this file measured 410.3s in one
+# host-starved run (line 79) but gets a doubled 600s ceiling from the override it sits beside,
+# re-added 10-02 after it hit the 300s ceiling in two runs. That single cell is not the one the
+# 1.7x above rests on; it carries its own ceiling - so "any test" here means every test but that composite cell. (The 600s override is the composite cell's alone; no other gas cell has a special
+# ceiling.)
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
 
@@ -98,3 +101,24 @@ test-group = "real-cargo"
 # restore one run per cell under the default ceiling.
 filter = "binary_id(xtask::bin/xtask) & test(=causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven)"
 slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.default.overrides]]
+# The live BigQuery cells, which query a real dataset. Measured in the first green run
+# (37156913407): the corpus cell 77.9s over 45 questions, 1.7s each, and the differential-agree cell
+# 78.3s; every other cell under 22s, and each question carries its own 30s deadline. Two 60s periods
+# = 120s, 1.5x the slowest measured. Limit: run 37152629712's corpus cell hit the 300s default with
+# no output, about 4x the measurement and not diagnosed - this ceiling surfaces that sooner, it does
+# not explain it. `&`, not `+` (a union), so it matches only the cells named `bigquery` and not every
+# sutura-app test (the ignored provisioning cell gets it too, at 10-15s); everywhere but the
+# `bigquery-conformance` job they skip in milliseconds. The job's one other cell, the two-fact
+# differential, has its own override below, because offline it executes real legs.
+filter = "package(sutura-app) & test(/bigquery/)"
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+# The two-fact differential, the `bigquery-conformance` job's one live cell not named `bigquery`.
+# Measured: 15.4s live (run 37267669815), with `bigquery` available; 3.6s in
+# `just validate`, where it executes the `DuckDB`, `DataFusion` and tier legs and skips `BigQuery`.
+# 120s is about 8x the live measurement. Limit: that is one live run and one offline run.
+filter = "package(sutura-app) & test(=tests::leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused)"
+slow-timeout = { period = "60s", terminate-after = 2 }

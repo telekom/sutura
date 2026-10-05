@@ -49,7 +49,9 @@ pub fn print(version: &str, environment: Environment) {
 ///
 /// The whole tree goes out as one `Debug` field. That is safe because the only credential-shaped
 /// value in it is held in a type whose `Debug` redacts, and `sutura-config` has a test asserting
-/// that at the outermost struct - not because this function was careful.
+/// that at the outermost struct, and refuses at load a catalog endpoint, an inbound URL, a
+/// delegation token endpoint or a source host carrying an `@` - not because this function was careful. The limit: a value with
+/// no `@` that holds a secret anyway, such as one written into a path, is printed.
 pub fn announce(settings: &Settings) {
     tracing::info!(
         environment = %settings.environment(),

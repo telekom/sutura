@@ -269,10 +269,11 @@ pub(crate) fn run() -> Result<(), String> {
             // and the broker itself is deleted, but the ADBC driver DOES take a subject's own
             // bearer now - `crate::adbc::identity::authenticate` federates it against the declared
             // pool. This attaches `DeclaredPrincipalBroker`: the declared subject-to-account map,
-            // presenting each subject's OWN verified assertion rather than a principal to become.
+            // presenting each subject's OWN verified assertion - or, for a source declaring a
+            // delegation, the token that assertion is exchanged for - rather than a principal to become.
             // `crate::serve::broker` carries what that does not cover, and refuses at boot every
             // declaration this build cannot honour.
-            let broker = broker::build_broker(settings.sources())?;
+            let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
             (started(&catalogs, engines, broker, &settings)?, None)
         }
         #[cfg(feature = "postgres")]
@@ -309,7 +310,12 @@ pub(crate) fn run() -> Result<(), String> {
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
             #[cfg(feature = "bigquery")]
-            let served = started(&catalogs, mixed.engines, broker::build_broker(settings.sources())?, &settings)?;
+            let served = started(
+                &catalogs,
+                mixed.engines,
+                broker::build_broker(settings.sources(), outbound.as_ref())?,
+                &settings,
+            )?;
             // No `BigQuery` adapter linked, so no adapter in this build declares
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
@@ -650,13 +656,10 @@ pub(crate) use crate::clickhouse::ClickHouseSource;
 #[cfg(feature = "oracle")]
 pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 
-/// A `Postgres` source as this binary composes it: one connection under the deployment's declared
-/// identity, secured as the source declares.
-///
-/// Named once for the reason `BigQuerySource` is: it appears in a registry type, a `Warehouse`
-/// bound and a constructor's return, and the three layers ARE the composition.
+/// A `Postgres` source as this binary composes it - `crate::postgres`'s, named here for this
+/// root's registry types.
 #[cfg(feature = "postgres")]
-pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
+pub(crate) type PostgresSource = crate::postgres::PostgresSource;
 
 /// A `BigQuery` source as this binary composes it: the adapter, over the ADBC driver.
 ///
@@ -707,7 +710,7 @@ where
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
 ///
 /// **One function rather than the same four lines in five arms**, and the argument is one sentence
-/// for all of them: `DataFusionWarehouse`, `PostgresWarehouse`, `ClickHouseWarehouse` and
+/// for all of them: `DataFusionWarehouse`, `AdbcPostgres`, `ClickHouseWarehouse` and
 /// `OracleWarehouse` each declare `ImpersonationCapability::NoPlaceForASubject`, each composition
 /// root refuses an `impersonation-at-source` entry at the posture cross-check before opening one,
 /// and so the only identity a question is answered under is the one this process holds.

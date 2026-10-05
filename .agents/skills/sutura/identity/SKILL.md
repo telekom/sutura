@@ -97,7 +97,7 @@ proof of impersonation.
   subject with none at an impersonating source is refused as `credential_unavailable`), while
   `StaticCredentialBroker` never reads it. `docs/adr/0014`'s fourth amendment settles which document
   each mode retains: in `direct` the inbound token serves leg 1 only and a source declared with a
-  `Delegation` presents the exchanged token; nothing composes that in `serve` yet. That field is also why `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material
+  `Delegation` presents the exchanged token; `sutura serve` composes that for a source declaring `workload_identity.delegation`, refused at boot unless the inbound mode is `direct`. That field is also why `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material
   is a timing oracle.
 
 ## Leg 1, and the four things it does not answer
@@ -162,9 +162,9 @@ moment it started presenting credential material.
 EXCHANGED (RFC 8693), with an `ImpersonateAsAccount` second hop and a private credential cache
 (`docs/adr/0031`, `docs/adr/0032`). Its two HTTP implementors went with the BigQuery `wire`
 transport; after that every `StsExchange` in the tree was a test fake and no composition root could
-reach the broker, so `docs/adr/0018`'s eighth amendment deleted all 2,571 lines of it. **No served build
-exchanges a token, and nothing caches a credential** - the one exchange in the tree is #1208's
-delegation port (next paragraph), which `serve` does not compose. `security.credential_cache` is still
+reach the broker, so `docs/adr/0018`'s eighth amendment deleted all 2,571 lines of it. **Nothing
+caches a credential, and the one exchange a served build runs** is #1208's delegation port (next
+paragraph), only for a source that declares it. `security.credential_cache` is still
 parsed and still refuses a zero capacity or window - and **is read by nothing**, which is a settings
 surface with no mechanism behind it rather than a cache that is merely off.
 
@@ -176,6 +176,18 @@ result - each request exchanges again, so two subjects have no store to collide 
 later inherits the `PrincipalChain` key rule below. The `wire` implementor decodes the issued JWT's
 `aud`/`exp` without verifying its signature - a misconfiguration check, not a defence against the
 IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
+`sutura serve` builds it from `sources.<alias>.workload_identity.delegation` (`token_endpoint`,
+`client_id`, `client_secret_file`, `audience`), each parsed at boot by the adapter's own type, and
+`Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** a
+`bigquery` deployment needs the ADBC driver to boot and no nix check has one, so the composition is
+held in-process, by `build_broker`'s cells and by `serve::tests::delegation_served` (the real router
+and leg-1 gate, a loopback IdP, and a recording transport behind the real adapter). The spawned
+binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d cells, run by the
+`e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`), which skips the merge queue, forks and
+Dependabot. They read what the IdP was offered, what the surface answered and which Google token
+host the driver dialled through a refusing proxy - never the token it carried, so a source handed
+the caller's own token instead of the exchanged one is held in-process only. And nothing requires a
+`direct` impersonating source to declare one: without it the inbound token is presented.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
@@ -190,9 +202,11 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
 
 - The BigQuery adapter builds a **workload-identity credential document** per request and hands it
   to the driver: an `external_account` whose `credential_source` is a loopback `url` serving the
-  asking subject's OWN verified assertion, nonce-bound, for as long as one request holds it
-  (`crates/sutura-exec-bigquery/src/adbc/subject.rs`). No served build exchanges a token - Google's
-  token service federates the assertion against the pool the source declares. Which of
+  asking subject's OWN verified assertion - or, for a source declaring `workload_identity.delegation`,
+  the token the operator's identity provider exchanged it for - nonce-bound, for as long as one
+  request holds it (`crates/sutura-exec-bigquery/src/adbc/subject.rs`). No served build exchanges
+  with the pool itself - Google's token service federates that token against the pool the source
+  declares. Which of
   [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented, and a
   transport that cannot serve the arm it is handed refuses.
 - **`service_account_impersonation_url` names the account declared for the asking subject**, which
@@ -215,8 +229,9 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   `credential_unavailable`.
 - `CredentialUnavailable` is reachable **through the served binary**: a served impersonating source
   with no inbound gate answers `403 credential_unavailable` (no verified subject to serve), and a
-  broker that cannot be reached gets `503` from `SurfaceFailure::Broker`. None of that is an answer
-  *under* an asker.
+  broker that cannot be reached gets `503` from `SurfaceFailure::Broker` - which is also what a
+  refused delegation exchange answers, held behind the real router by `serve::tests::delegation_served`.
+  None of that is an answer *under* an asker.
 - **No exchange has run against a real Google token service from any code in this tree.** A round of
   this file offered a hosted run on 2026-09-16 as evidence, unqualified. That run was of
   `wire::StsOverHttp`, `wire::IamCredentialsOverHttp` and `WorkloadIdentity::target_for` - all three

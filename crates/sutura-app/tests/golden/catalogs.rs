@@ -288,6 +288,58 @@ pub(crate) trait GoldenCatalog: CatalogUnderTest {}
 
 impl GoldenCatalog for sutura_catalog_local::LocalCatalog {}
 
+/// What a wren user deploys: `sutura import wren` over `sutura-cli`'s synthetic wren fixture, read
+/// back by [`sutura_catalog_local::LocalCatalog`]. The converter stays the only mapping of a manifest.
+///
+/// Here rather than in `adapters.rs` for [`GoldenCatalog`]'s reason: only this target expands the
+/// `catalogs:` arm. A wrapper because `LocalCatalog` is already registered as `markdown`. It is
+/// `declaring`: the corpus is not the golden catalog, so it is measured against what the importer
+/// can write, which is what its `capabilities` below states. That declaration is this test's: the
+/// deployed `LocalCatalog` still records its own in the bundle's contribution manifest.
+pub(crate) struct WrenImport(sutura_catalog_local::LocalCatalog);
+
+impl SemanticCatalog for WrenImport {
+    type Error = sutura_catalog_local::LocalCatalogError;
+
+    const KIND: sutura_domain::pinned::CatalogKind = sutura_domain::pinned::CatalogKind::Declaring;
+
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            sutura_domain::capabilities::DefinitionCapabilities::of([
+                DefinitionKind::Structure,
+                DefinitionKind::Descriptions,
+                DefinitionKind::Relationships,
+                DefinitionKind::Metrics,
+                DefinitionKind::Grains,
+            ])
+            .and_may_provide([DefinitionKind::ColumnTypes]),
+            sutura_domain::knowledge::KnowledgeCapabilities::none(),
+        )
+    }
+
+    fn load(&self) -> Result<sutura_domain::pinned::PinnedDefinitions, Self::Error> {
+        self.0.load()
+    }
+}
+
+impl CatalogUnderTest for WrenImport {
+    const NAME: &'static str = "wren";
+
+    fn open() -> Self {
+        static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+            "wren-import-{}-{}",
+            std::process::id(),
+            OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        drop(std::fs::remove_dir_all(&out));
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sutura-cli/tests/fixtures/wren-import");
+        sutura_catalog_wren::import(&fixture, &out).expect("the wren fixture imports");
+        let wren = sutura_domain::model::SourceName::parse("wren").expect("the importer's default source name is a name");
+        Self(sutura_catalog_local::LocalCatalog::new(wren, out, crate::adapters::version()))
+    }
+}
+
 /// A catalog cell that holds for EVERY registered catalog, golden or declaring.
 ///
 /// These three are what register successfully for a partial model: pinning whatever loads, that what

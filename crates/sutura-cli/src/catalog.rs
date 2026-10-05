@@ -405,7 +405,7 @@ fn open_one_rdbms_catalog(
         }
         sutura_config::CatalogConnection::Oracle(connection) => {
             let password = crate::password_file::read_key(
-                &format!("catalogs.{}.connection", settings.name()),
+                &format!("catalogs.{}.connection.password_file", settings.name()),
                 connection.password_file(),
             )?;
             let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
@@ -453,60 +453,50 @@ fn postgres_dictionary_reader(
     predicate: sutura_catalog_rdbms::postgres_reader::RowPredicate,
     rdbms: &sutura_config::RdbmsSettings,
 ) -> Result<sutura_catalog_rdbms::postgres_reader::PostgresReader, String> {
+    use sutura_catalog_rdbms::postgres_channel::{Target, client_config, config};
     use sutura_catalog_rdbms::postgres_reader::PostgresReader;
-    use sutura_exec_postgres::connection::{ConnectionTarget, config as pg_config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+    use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
 
     let (target, port) = match connection.dial() {
-        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
+        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (Target::Host(host.as_str()), *port),
         sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (ConnectionTarget::UnixSocket(directory.as_path()), *port)
+            (Target::UnixSocket(directory.as_path()), *port)
         }
     };
-    let config = pg_config(
-        target,
-        port,
-        connection.database(),
-        connection.user(),
+    let password = crate::password_file::read_key(
+        &format!("catalogs.{}.connection.password_file", settings.name()),
         connection.password_file(),
-    )
-    .map_err(|cause| {
-        format!(
-            "`catalogs.{}.connection.password_file` could not be read: {cause}",
-            settings.name()
-        )
-    })?;
+    )?;
+    let config = config(target, port, connection.database(), connection.user(), &password);
 
     // Resolve the declared transport into a `rustls::ClientConfig` (`verified`/`mutual`) or `None`
     // for `plaintext`. The transport layer has already refused plaintext to a remote host.
-    let tls = match connection.transport() {
-        sutura_config::sources::transport::SourceTransport::Plaintext => None,
-        sutura_config::sources::transport::SourceTransport::Verified { anchors } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            Some(client_config(&anchors, None).map_err(|cause| {
-                format!(
-                    "`catalogs.{}.connection` is declared TLS and its material is not usable: {cause}",
-                    settings.name()
-                )
-            })?)
-        }
-        sutura_config::sources::transport::SourceTransport::Mutual { anchors, identity } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            let tls_identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
-            Some(client_config(&anchors, Some(&tls_identity)).map_err(|cause| {
-                format!(
-                    "`catalogs.{}.connection` is declared mTLS and its material is not usable: {cause}",
-                    settings.name()
-                )
-            })?)
-        }
+    let anchors = |declared: &TrustAnchors| match *declared {
+        TrustAnchors::System => sutura_tls::Anchors::System,
+        TrustAnchors::File(ref path) => sutura_tls::Anchors::Bundle(path.clone()),
     };
+    let tls = match *connection.transport() {
+        SourceTransport::Plaintext => None,
+        SourceTransport::Verified { anchors: ref declared } => Some(client_config(&anchors(declared), None)),
+        SourceTransport::Mutual {
+            anchors: ref declared,
+            ref identity,
+        } => Some(client_config(
+            &anchors(declared),
+            Some(&sutura_tls::Identity::new(
+                identity.certificate().clone(),
+                identity.key().clone(),
+            )),
+        )),
+    }
+    .transpose()
+    .map_err(|cause| {
+        format!(
+            "`catalogs.{}.connection` is declared TLS and its material is not usable: {}",
+            settings.name(),
+            crate::commands::render(&cause)
+        )
+    })?;
 
     PostgresReader::new(
         config,

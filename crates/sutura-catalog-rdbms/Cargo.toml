@@ -23,6 +23,9 @@ tokio-postgres = { workspace = true, optional = true }
 tokio-postgres-rustls = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
+# The declared bundle and client-identity read `postgres_channel` folds into the reader's
+# `rustls::ClientConfig` - the same read `sutura-exec-postgres` refuses unusable material with.
+sutura-tls = { workspace = true, optional = true }
 # The LIVE Oracle dictionary reader (`src/oracle_reader.rs`), behind the same `live` feature. Oracle's
 # own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among them, so a
 # `live` build compiles two rustls providers - the hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
@@ -40,6 +43,7 @@ live = [
   "dep:rustls",
   "dep:futures-util",
   "dep:oracledb",
+  "dep:sutura-tls",
 ]
 
 [dev-dependencies]
@@ -50,6 +54,9 @@ sutura-semantic = { workspace = true }
 # The provisioned-tier reach and skip-or-fail direction for `tests/provisioned.rs` - the same
 # crate every tier-backed fixture in this workspace uses (`sutura/dev`), scoped to `sutura-domain`.
 sutura-dev = { workspace = true }
+# A generated self-signed pair for `postgres_channel`'s refusal cells, the crate `sutura-exec-postgres`
+# and `sutura-http` rest their own TLS cells on - already in the dev graph.
+rcgen = { workspace = true }
 # `tests/provisioned.rs` exercises the live reader against a real Postgres tier, so it only builds
 # (and only the `--all-features` gates reach it) with the `live` feature that links the reader.
 [[test]]

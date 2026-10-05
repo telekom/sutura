@@ -429,7 +429,8 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
+            wholeTree;
           inherit (commonArgs) version;
         };
 
@@ -454,6 +455,17 @@
         # The ADBC DuckDB driver archives, the same four triples and a separate set for the same
         # reason. No source input: `nix/duckdb-adbc.nix` says why nixpkgs' `duckdb` is the driver.
         duckdbAdbcDrivers = import ./nix/duckdb-adbc-drivers.nix { inherit pkgs; };
+
+        # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
+        # archive is linked (only the musl triples link one). Every `kind: postgres` source is
+        # answered over ADBC, so the tier-backed cells need a driver wherever the tier runs; on
+        # darwin this is the one build of it, on linux the native gnu one.
+        postgresAdbcHost = import ./nix/postgres-adbc.nix {
+          inherit pkgs;
+          src = arrow-adbc-src;
+          crossSystemName = system;
+        };
+        postgresAdbcHostDriver = "${postgresAdbcHost}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
@@ -489,6 +501,10 @@
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
           // shipped.allFeaturesProbes // shipped.linkedDriversTests // {
           default = shipped.nativeBinaries.sutura;
+
+          # This host's mounted PostgreSQL ADBC driver, so the dev shell names the SAME derivation
+          # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
+          adbc-driver-postgresql-host = postgresAdbcHost;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
@@ -730,6 +746,9 @@
             preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
+            # The driver every Postgres cell opens, as the composition root would on a host that
+            # links none - the tier is useless to an ADBC-only adapter without it.
+            SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
           });
 
           # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
@@ -757,6 +776,13 @@
           # one per line rather than `inherit`ed, because that is what those gates parse.
           one-binary = shipped.artifactChecks.one-binary;
           shipped-features = shipped.artifactChecks.shipped-features;
+
+          # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2) -
+          # `nix/shipped.nix`'s `linkedDriversTests` carries what it runs and what it leaves out.
+          # Only an x86_64-linux builder can execute the static x86_64-musl test binary, so on any
+          # other system this is a stub that says so and proves nothing.
+          postgres-linked-driver = shipped.linkedDriversTests."adbc-postgres-tier-x86_64-unknown-linux-musl-test"
+            or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
           # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
           # if pixi.lock disagrees; nix is the authority.
@@ -1096,8 +1122,41 @@
             sutura-keycloak-tier start
             (
               exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
-                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' "$@"
+                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery) | test(/^delegation_adbc::/)' "$@"
             )
+          '');
+        };
+
+        # The golden matrix's `bigquery` row, live, as two apps the `bigquery-conformance` CI job runs
+        # in order: `bigquery-provision` loads the example corpus and the two-fact tables into the
+        # dataset `SUTURA_BQ_DATASET` names, ONCE, and `bigquery-conformance` runs every `bigquery`
+        # cell of `sutura-app`'s golden and differential targets, and the two-fact differential,
+        # against it through the ADBC driver, under one shared CI identity.
+        # Two apps so a failed load stops the job before any cell reads. The cells themselves refuse
+        # a missing project, driver or credential by name; the dataset check here is what stops an
+        # unset one from skipping every cell green.
+        apps.bigquery-provision = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-provision" ''
+            set -euo pipefail
+            : "''${SUTURA_BQ_DATASET:?bigquery-provision: SUTURA_BQ_DATASET is unset or empty}"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --run-ignored only -E 'test(=data_systems::the_bigquery_dataset_holds_the_example_corpus)' "$@"
+          '');
+        };
+        apps.bigquery-conformance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-conformance" ''
+            set -euo pipefail
+            : "''${SUTURA_BQ_DATASET:?bigquery-conformance: SUTURA_BQ_DATASET is unset or empty}"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/) | test(/leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused/)' "$@"
           '');
         };
 
@@ -1121,6 +1180,37 @@
             export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
             exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
               --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
+          '');
+        };
+
+        # The DataHub venue (#1251): starts the compose `datahub` profile and runs the live
+        # acceptance cells - the instance reachable, the deployment-defined metric document
+        # round-tripping, a dataset page and a relationship page preserving their wire shapes,
+        # the golden catalog read back through `HttpAspectReader`, and a bearer-less read refused -
+        # failing rather than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`. Both entry points pass
+        # `--features http`. The `ci-datahub-tier` CI job runs it; `just
+        # datahub-acceptance` is its by-hand twin - the same cells, but this app runs `--profile ci`
+        # and forwards its arguments - and nothing checks that the two agree, so keep them aligned by
+        # hand; this app's `export SUTURA_DEV_REQUIRE_TIER=1` is what makes the CI leg fail rather
+        # than skip. An app for `apps.oracle-acceptance`'s reason: the runner needs the pinned
+        # toolchain, the cargo env and the warm start a bare `just` would not have, and a nix check
+        # has no docker socket. No teardown: the CI runner is ephemeral, and a tier a developer started by
+        # hand is neither adopted nor stopped.
+        apps.datahub-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-datahub-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with datahub
+            token="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+            cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$token"
+            export SUTURA_DEV_REQUIRE_TIER=1
+            SUTURA_DATAHUB_PAT="$(cat "$token")"
+            export SUTURA_DATAHUB_PAT
+            exec cargo test --profile ci -p sutura-catalog-datahub --features http --test provisioned -- --ignored --nocapture "$@"
           '');
         };
 
@@ -1324,7 +1414,7 @@
           program = "${cargoWrapper}/bin/sutura-cargo";
         };
         # `nix run .#xtask` - every subcommand this repository already calls this way from
-        # `ci.yml` and `release.yml` (`classify`, `check-pr-title`, `check-attribution`,
+        # `ci.yml` and `release.yml` (`classify`, `check-attribution`,
         # `attribution`, `crap-delta`), and now `hygiene` from `version-bump.yml`. An EXPLICIT
         # app rather than the one `nix run` synthesises implicitly from `packages.xtask`'s own
         # `meta.mainProgram`, because several of those subcommands shell out to `cargo metadata`

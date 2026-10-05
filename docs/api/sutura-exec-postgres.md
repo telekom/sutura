@@ -7,28 +7,27 @@
 
 The public API of `sutura-exec-postgres`, rendered from rustdoc JSON.
 
-A `Warehouse` adapter over PostgreSQL - one connection under the deployment's declared
-identity (`SharedServiceUser`). The static half of Postgres: no OAuth, no impersonation.
+A `Warehouse` adapter over PostgreSQL, through the ADBC
+driver - `adbc::AdbcPostgres`, one connection string under the deployment's declared identity
+(`SharedServiceUser`). The static half of Postgres: no OAuth, no impersonation.
 
-The client is async and the `Warehouse` port is not, so this adapter owns a `tokio` runtime
-and `block_on`s each call. `tokio-postgres` is pure Rust and links nothing native. SQL renders
-through `sutura-sql` (`Dialect::Postgres`); nothing here is compiled or translated.
+**ADBC is the only transport** (`telekom/sutura#913` stage 2). The driver is the self-built
+`libadbc_driver_postgresql` (`nix/postgres-adbc.nix`): linked into every musl release, mounted
+from `SUTURA_POSTGRES_ADBC_DRIVER` everywhere else. SQL renders through `sutura-sql`
+(`Dialect::Postgres`); nothing here is compiled or translated. `adbc`'s header says what holds
+the channel, the deadline and the single-statement guarantee, and what does not.
 
 ## Limits
 
-- **No transport of its own.** `PostgresWarehouse::connect` opens with no TLS at all; the
-  verifying path is `PostgresWarehouse::connect_secured`, which takes the
-  `rustls::ClientConfig` a composition root built from the declared channel
-  (`tls::client_config`). Which source gets which is `sutura_config::sources::transport`'s
-  decision and never this adapter's, so a caller that builds no config gets a cleartext
-  connection - including to a server that offers TLS.
-- **`dry_run`, `execute` and `execute_raw` all stop at the port's per-request deadline**
-  (`telekom/sutura#1144` threaded this onto the raw path too), with `SET LOCAL statement_timeout` -
-  `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
-  a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
-  query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
-  `deadline_exceeded`. The connect-time `SET statement_timeout` remains the outer ceiling a
-  request's own budget may only narrow, never widen, on every path including the raw one.
+- **One declared identity, only.** A Postgres source signs in solely as the deployment's
+  declared shared service account: a password, or one Kerberos principal from the deployment's
+  keytab. OAuth and per-caller sign-in are not supported: `AdbcPostgres::IMPERSONATION` is
+  `NoPlaceForASubject`, and `Conninfo` pins `require_auth` to `password,md5,scram-sha-256,none`
+  and `gssencmode` to `disable` everywhere but `Conninfo::kerberos`, which writes
+  `require_auth='gss'` and the `gssencmode` its declaration names. No settings key selects
+  Kerberos yet.
+- **`transport_anchors: system` is refused** (`adbc::UnusableChannel::HostStore`): libpq's
+  `system` store is OpenSSL's compiled-in default, not the host store sutura reads.
 
 ## `enum PostgresError`
 
@@ -40,11 +39,7 @@ Why this data system could not answer.
 
 ### Variants
 
-- `Runtime`
-- `Connect`
-- `Prepare`
-- `Execute`
-- `DivisionByZero` - The server refused a statement as `division by zero` (SQLSTATE `22012`).
+- `DivisionByZero` - The server refused a statement as `division by zero` (SQLSTATE `22012`) - how Postgres honours `zero_denominator: fails`, kept typed rather than folded into `Self::Adbc`.
 - `UnsupportedType` - A column came back as a type this adapter does not map. An error, not a stringified value.
 - `NotFinite` - A floating-point (or `NUMERIC`) column came back as a value that is not a number.
 - `NotADate` - A day came back that is not a date this build can represent.
@@ -55,124 +50,35 @@ Why this data system could not answer.
   data - two aggregates over no group produce one row of two integers - and it travels as an
   `Err` from the port, which the boot path reads as *this declaration went unchecked*.
 - `Render`
-- `Fixture` - A fixture import failed.
+- `Fixture` - A fixture import failed at the server.
 - `FixtureRead`
 - `InvalidColumnName` - A CSV header named a column that is not a valid identifier. Refused, not interpolated.
 - `FixtureSchema` - The shared conformance fixture schema could not be inferred.
-- `InvalidSchemaName` - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
 - `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
 
-  The value becomes a `SET statement_timeout = N` line verbatim, so it is parsed at the
+  The value becomes a `SET LOCAL statement_timeout = N` ceiling, so it is parsed at the
   boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
-  cannot be a timeout must not reach the statement as uninterpreted text. The cause
-  survives so the operator sees the number did not parse, not a plain refusal.
-- `RawTransaction` - The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed text on the simple query protocol (`docs/adr/0013`), never the caller's.
-- `Transaction` - The certified path's own per-statement transaction (`docs/adr/0029`) did not open - sutura's own fixed literal text, never the caller's, the same as `Self::RawTransaction`.
-- `DeadlineSpent` - The deadline was already spent once `PostgresWarehouse::execution_lock` was acquired - refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
+  cannot be a timeout must not reach the statement as uninterpreted text. The cause survives
+  so the operator sees the number did not parse, not a plain refusal.
+- `DeadlineSpent` - The deadline was already spent before anything was sent - refused locally, no round trip.
 - `Adbc` - The ADBC transport's own failure; its refusals before any SQL are the variants above.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
-- `AnchorsRead` - The declared trust anchors could not be read or parsed.
-- `AnchorsEmpty` - The declared trust anchors parsed to no certificates.
-- `IdentityRead` - The declared client identity could not be read.
-- `IdentityIncomplete` - The declared client certificate parsed to no certificate, or the key to no key.
-- `IdentityKey` - The client key file held no readable plaintext PEM private-key section.
-- `IdentityRefused` - rustls refused the loaded certificate and key as one identity: the `ring` provider could not load the key, or the key does not match the certificate. The cause says which.
-- `SystemStoreRead` - The explicitly selected host trust store could not be read completely.
-- `SystemStoreEmpty` - The explicitly selected host trust store held no roots.
-- `SystemStoreCertificate` - A certificate returned by the host trust-store reader was not a usable root.
-- `TlsConfiguration` - The cryptographic provider could not construct a client verifier.
 
 ### Implements
 
 `Debug`, `Display`, `Error`
 
-## `struct PostgresWarehouse`
-
-```rust
-pub struct PostgresWarehouse
-```
-
-A `PostgreSQL` connection, behind the `Warehouse` port.
-
-### Methods
-
-```rust
-pub fn connect(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, config: &tokio_postgres::Config) -> Result<Self, PostgresError>
-```
-
-Opens one connection under the supplied `tokio_postgres::Config` and keeps it for this
-adapter's life, over no transport security. The fixture tier's path (unix socket, loopback),
-and the composition root's `plaintext` choice - the caller has already refused a
-non-loopback plaintext host.
-
-```rust
-pub fn connect_in_schema(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, config: &tokio_postgres::Config, schema: &str) -> Result<Self, PostgresError>
-```
-
-Like `connect`, but every unqualified table name resolves to a fresh,
-private schema - so several warehouses can share one Postgres without clobbering each other.
-The caller-supplied schema name is validated to a word before it reaches `CREATE SCHEMA`.
-
-```rust
-pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, config: &tokio_postgres::Config, tls: Option<sutura_tls::Rotating<rustls::ClientConfig>>) -> Result<Self, PostgresError>
-```
-
-Opens one connection under the supplied `config`, secured as the caller resolved.
-
-`tls` is `None` for a `plaintext` channel and a rotating `rustls::ClientConfig` handle for
-`verified` and `mutual` channels. Both are produced by the composition root, which is the only
-place that can see the declared `sutura_config::sources::transport::SourceTransport`. The
-handle is resolved ONCE here (`Rotating::current`), so the resulting connection keeps that
-pair for its life - `docs/adr/0010`: a live connection is left until it closes.
-
-```rust
-pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError>
-```
-
-Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
-rows through `COPY ... FROM STDIN`. Re-inferring from the committed CSV each run cannot
-drift from it, and recreating makes a run idempotent.
-
-```rust
-pub fn load_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError>
-```
-
-Exposes a conformance fixture with the same exact types as the other adapter bindings.
-
-Available only with the default-off `fixtures` feature.
-
-```rust
-pub fn local_config(host: &str, port: u16, credential: &fixture::FixtureCredential) -> tokio_postgres::Config
-```
-
-A connection config for the fixture tier, over a credential that has already been parsed.
-
-**It TAKES the credential and reads no environment of its own**, which is the whole change:
-`host` and `port` are parameters, so this function cannot know it is talking to an ephemeral
-local server, and the shape it replaced offered `sutura`/`sutura`/`sutura` to whatever host
-it was handed whenever nothing was set. There is no unconfigured state to substitute for now
-- `fixture::FixtureCredential` cannot hold one - so this stays infallible.
-
-### Implements
-
-`Debug`, `Warehouse`
-
 ## Module `adbc`
 
-The ADBC transport for PostgreSQL, the second adapter on `sutura-adbc` (`telekom/sutura#913`).
+The PostgreSQL adapter's one transport, the second adapter on `sutura-adbc` (`telekom/sutura#913`).
 
 The `Warehouse` port over the self-built driver
-(`nix/postgres-adbc.nix`), answering with `PostgresError`: every case
-`parity` holds is refused under the variant the `tokio-postgres` path refuses it with. A
-certified answer's Arrow batches are handed on as they arrive, except a `NUMERIC` column, which
-`numeric` re-reads per cell.
-
-**Shipped, and answering nothing.** `sutura-cli`'s `postgres` feature compiles this module into
-every release, and every musl release links the static driver (`nix/shipped.nix`). No
-composition root constructs `AdbcPostgres`: the `tokio-postgres`
-path in `lib.rs` still answers every Postgres source, and no settings key selects this one.
-`sutura doctor` probes the linked driver; tests reach the rest.
+(`nix/postgres-adbc.nix`), answering with `PostgresError`. A certified
+answer's Arrow batches are handed on as they arrive, except a `NUMERIC` column, which `numeric`
+re-reads per cell. **Every `kind: postgres` source is answered here**: the composition root
+constructs `AdbcPostgres` for each, over the driver this artefact
+links (both musl triples) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names.
 
 # What holds what
 
@@ -180,14 +86,16 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
   (`apache-arrow-adbc-24`) sends a parameterless `execute_update` through `PQexec`, the simple
   protocol, which runs every statement of a multi-statement string; `execute` asks for a result
   stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
-  So `session`'s `Setting::apply` is the one `execute_update` here, its text is fixed literals
-  and a `NonZeroU32`, and `clippy.toml` bans every other call
+  So `session`'s `Setting::apply` is the one shipped `execute_update` here, its text is fixed
+  literals and a `NonZeroU32` (the `fixtures` loader is the other, in no
+  release), and `clippy.toml` bans every other call
   in the workspace - except one written inside an existing `disallowed_methods` expectation's
   scope, which that expectation covers too (the ban's own entry states it).
 - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
-  opens when autocommit is switched off, clamped to the same connect-time ceiling the
-  `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
-  (`57014`) is the deadline to `Warehouse::deadline_exceeded`, the split `deadline.rs` draws.
+  opens when autocommit is switched off, clamped to the deployment's ceiling
+  (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`), and always rolled back. A statement the server cancelled for it
+  (`57014`), or a stream that failed once that timeout had run out, is the deadline to
+  `Warehouse::deadline_exceeded`.
 - **The channel is the declared one.** `Conninfo` builds the libpq
   connection string from the declaration and classifies every libpq keyword, pinning each one the
   environment could weaken; its own header carries what it refuses and what it cannot pin.
@@ -197,21 +105,24 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
 
 # Limits
 
-- **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`), except a domain over it, which
-  stays text here. Parity is held per case by `parity` against the tier, for the types its cases
-  name and no others.
-- **No run against a real driver.** Every cell here is a fake connection. The server refusing a
-  multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
-  mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
-  not observed.
+- **`NUMERIC` is read exactly** (`numeric`): scale-zero text that fits an `i64` is an integer,
+  the rest exact text - except a domain over it, which the driver tags with the domain's name and
+  so stays text. `tests/types.rs` holds each mapped type against the tier through the real driver.
+- **The cells here are a fake connection**; the integration tests are what reach a server through
+  a real driver (mounted on a host, linked in `nix/shipped.nix`'s musl test build). The server
+  refusing a multi-statement string at `Parse` is held there; the driver's `BEGIN` on
+  autocommit-off is read off its source and observed only through `SET LOCAL` taking effect.
+  `tests/kerberos.rs`'s Kerberos sign-in and its refused negative control (a declared service the
+  KDC does not know) run through the linked `x86_64` musl driver, in its CI venue alone.
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
-- **Every port method, read off the driver's source.** `session`'s header says what each sends;
-  `numeric` closes the `NUMERIC` drift for a column the driver tags `numeric`. No cell has run
-  them against a server.
-- **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
-  OAuth; a mounted driver's keeps both, and `Conninfo` refuses GSSAPI,
-  SSPI and OAuth sign-in on either route, because a declaration can name none of them.
+- **Every port method.** `session`'s header says what each sends.
+- **One declared identity.** A source signs in only as its declared shared service account: with
+  a password or a client certificate, or as the one Kerberos principal the process's named
+  credential cache holds, when `Conninfo::kerberos` declares it
+  (the linked libpq through a static MIT krb5, `nix/postgres-adbc.nix`). No settings key selects
+  Kerberos yet. OAuth and per-caller sign-in are not supported: `Conninfo`
+  refuses SSPI and OAuth on either driver, and the linked libpq is built without libcurl.
 
 ### `enum AdbcError`
 
@@ -226,10 +137,11 @@ Why this transport could not answer.
 - `Load`
 - `Adbc`
 - `Batch`
+- `TimedOut` - The stream failed once the statement's timeout had run out - the server cancelling it, read by the clock where the stream carries no SQLSTATE (`session::timed_out`).
 - `Unannounced`
 - `Parameters`
 - `Unreadable`
-- `DeadlineSpent` - Spent before anything was sent - refused locally, the `tokio-postgres` path's `DeadlineSpent`.
+- `DeadlineSpent` - Spent once the connection was open - refused locally, as `PostgresError::DeadlineSpent`.
 
 #### Implements
 
@@ -247,6 +159,17 @@ Not `sutura_adbc::DriverLocation`, whose linked route is the `BigQuery` archive;
 parsed by it, so an empty or relative one is refused exactly as for every ADBC adapter.
 
 #### Methods
+
+```rust
+pub fn from_host() -> Result<Self, NoDriver>
+```
+
+The driver this process opens: the one this artefact links, else the one
+`MOUNTED_DRIVER` names.
+
+# Errors
+
+`NoDriver` where neither is there, or the named path is not one.
 
 ```rust
 pub fn linked_in() -> Option<Self>
@@ -279,16 +202,66 @@ Loads and initialises the driver, opening no database - what `sutura doctor` ask
 
 `Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
+### `enum NoDriver`
+
+```rust
+pub enum NoDriver
+```
+
+Why this process has no PostgreSQL driver to open.
+
+#### Variants
+
+- `Unset`
+- `Unusable`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `struct AdbcPostgres`
 
 ```rust
 pub struct AdbcPostgres
 ```
 
-A PostgreSQL source reached through its ADBC driver, behind the same `Warehouse` port and the
-same `PostgresError` the `tokio-postgres` path answers with.
+A PostgreSQL source reached through its ADBC driver, behind the `Warehouse` port.
 
 #### Methods
+
+```rust
+pub fn create_schema(&self, schema: &str) -> Result<(), PostgresError>
+```
+
+Creates `schema` if it is not there - the per-cell isolation a fixture opens with
+`Conninfo::in_schema`.
+
+# Errors
+
+`PostgresError::Fixture` where the server refused it, and the driver's load or connect.
+
+```rust
+pub fn load_csv(&self, table: &sutura_domain::model::TableName, path: &std::path::Path) -> Result<(), PostgresError>
+```
+
+Exposes a CSV as a table: infers column types, recreates the table, then inserts the rows -
+re-inferred from the committed file on every run, so it cannot drift from it.
+
+# Errors
+
+`PostgresError::FixtureRead`, `PostgresError::InvalidColumnName`, or
+`PostgresError::Fixture` where the server refused the load.
+
+```rust
+pub fn load_fixture_csv(&self, table: &sutura_domain::model::TableName, path: &std::path::Path) -> Result<(), PostgresError>
+```
+
+Exposes a conformance fixture with the same exact types as the other adapter bindings.
+
+# Errors
+
+`PostgresError::FixtureRead`, `PostgresError::FixtureSchema`, or
+`PostgresError::Fixture` where the server refused the load.
 
 ```rust
 pub fn new(source: SourceName, posture: SourcePosture, driver: PostgresDriver, conninfo: Conninfo) -> Result<Self, PostgresError>
@@ -296,8 +269,8 @@ pub fn new(source: SourceName, posture: SourcePosture, driver: PostgresDriver, c
 
 Takes the source, the driver and the connection string it connects with.
 
-Reads the connect-time ceiling the `tokio-postgres` path reads
-(`SUTURA_DEV_STATEMENT_TIMEOUT_MS`).
+Reads the deployment's statement-timeout ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`), which a
+request's own budget may only narrow.
 
 # Errors
 
@@ -307,14 +280,64 @@ Reads the connect-time ceiling the `tokio-postgres` path reads
 
 `Debug`, `Warehouse`
 
+### `struct FixtureAdmin`
+
+```rust
+pub struct FixtureAdmin
+```
+
+A plain second connection to the fixture tier, for what no port method may do.
+
+It creates a view, or holds a lock inside a transaction it leaves open until it is dropped. It
+runs whatever it is handed, through the simple protocol - which is why it exists only under the
+`fixtures` feature.
+
+#### Methods
+
+```rust
+pub fn open(driver: &PostgresDriver, conninfo: &Conninfo) -> Result<Self, AdbcError>
+```
+
+One connection over `conninfo`.
+
+# Errors
+
+The driver's load or connect.
+
+```rust
+pub fn run(&mut self, sql: &str) -> Result<(), AdbcError>
+```
+
+Runs `sql`, every statement in it, on this connection.
+
+# Errors
+
+`AdbcError::Adbc` where the server refused it.
+
 ### `use Channel`
 
 How the channel to the source is secured, as the composition root resolved the declaration.
 
 ### `use Conninfo`
 
-The connection string for one source. Only `Conninfo::new` makes one, and its `Debug` is the
-`Secret`'s, so the password it carries is never printed.
+The connection string for one source. Only `Conninfo::new` and `Conninfo::kerberos` make
+one, and its `Debug` is the `Secret`'s, so the password it carries is never printed.
+
+### `use GssEncryption`
+
+Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
+
+### `use InvalidKerberosService`
+
+A declared Kerberos service name that is not one.
+
+### `use Kerberos`
+
+A Kerberos sign-in through GSSAPI, as the declaration names it.
+
+### `use KerberosService`
+
+The service half of the server's principal, `<service>/<host>` - libpq's `krbsrvname`.
 
 ### `use UnusableChannel`
 
@@ -322,14 +345,19 @@ A declared connection the ADBC transport cannot hold to, refused before anything
 
 ### `use UnusableDriverPath`
 
+### `constant MOUNTED_DRIVER`
+
+The variable a host that links no driver names a mounted one with.
+
+**Not a settings key**: which driver file a host carries is a property of the host rather than of
+the semantic deployment, and a release artefact that links one never reads it - the order
+`bigquery_driver` in `sutura-cli` gives for the other ADBC adapter, for its reason: a mounted
+path must not be able to displace the driver a published artefact carries.
+
 ## Module `connection`
 
-The driver configuration for one declared PostgreSQL connection.
-
-A composition root owns mapping its source declaration into these values. This module owns the
-driver-specific half: how TCP and unix-socket targets are represented to `tokio-postgres`, and
-reading the password file once at boot. Keeping that here means both shipped composition roots
-reach the same driver behaviour without depending on each other.
+What a composition root reads out of one PostgreSQL declaration before a `Conninfo` is built:
+the address it dials and the password, read once at boot.
 
 ### `enum ConnectionTarget`
 
@@ -354,40 +382,37 @@ The address a PostgreSQL source is dialled through.
 pub struct PasswordFileUnreadable
 ```
 
-The declared password file could not be read while the connection was built.
+The declared password file could not be read.
 
 #### Implements
 
 `Debug`, `Display`, `Error`
 
-### `fn config`
+### `fn read_password`
 
 ```rust
-pub fn config(target: ConnectionTarget<'_>, port: u16, database: &str, user: &str, password_file: &std::path::Path) -> Result<tokio_postgres::Config, PasswordFileUnreadable>
+pub fn read_password(password_file: &std::path::Path) -> Result<sutura_domain::identity::Secret, PasswordFileUnreadable>
 ```
 
-Builds the driver configuration for one declared PostgreSQL connection.
+Reads the declared password file into a `Secret`.
 
 The password is trimmed exactly once after reading, so a trailing newline from a mounted secret
-is not part of the credential, then parsed into `Secret`. The read `String` is shadowed by
-that `Secret`, not dropped - it is not zeroised, and it lives unzeroised until this function
-returns. The returned config does not select TLS; `crate::PostgresWarehouse::connect_secured`
-makes a supplied TLS client mandatory before it dials.
+is not part of the credential. The read `String` is shadowed by that `Secret`, not dropped - it
+is not zeroised, and it lives unzeroised until this function returns (`docs/adr/0020`'s "not
+claimed" list).
 
 # Errors
 
-Returns `PasswordFileUnreadable` when `password_file` cannot be read.
+`PasswordFileUnreadable` when `password_file` cannot be read.
 
 ## Module `fixture`
 
-The fixture tier's credential - a value that cannot exist unconfigured.
+The fixture tier's credential and its loader - a value that cannot exist unconfigured.
 
-**Behind the default-off `fixtures` feature**, because both callers are tests
-(`crates/sutura-exec-postgres/tests/conformance.rs` and
-`crates/sutura-app/tests/adapters/adapters.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
-no artefact a release publishes contains this module or the connection config over it, which
-deletes the *reachable from a consumer* half rather than hardening it. `--all-features` compiles,
-lints and tests it on every run.
+**Behind the default-off `fixtures` feature**, because every caller is a test and
+`nix/shipped.nix` builds cargo's DEFAULT set: so no artefact a release publishes contains this
+module, which deletes the *reachable from a consumer* half rather than hardening it.
+`--all-features` compiles, lints and tests it on every run.
 The fixture tier's credential: **configured, or refused by name.**
 
 # What this replaces, and why the old shape was wrong in a way its strength cannot fix
@@ -409,7 +434,7 @@ the password: a weak default a caller must object to is the opposite of secure b
 
 `crate::fixture::FixtureCredential` is the only way to hold one, its three values are private, and
 `FixtureCredential::parse` is the only way in. So *unconfigured* is not a value
-`PostgresWarehouse::local_config` can be handed - it is unrepresentable rather than rejected -
+`FixtureCredential::conninfo` can be handed - it is unrepresentable rather than rejected -
 and there is no branch left for a fallback to live in.
 
 # Where the values come from, because nothing set them before
@@ -501,10 +526,36 @@ The fixture tier's credential.
 
 Exists only if all three values were present, so nothing downstream asks again. No `Display`,
 no `PartialEq`, no public field and no public accessor: the password is a
-`sutura_domain::identity::Secret`, which has neither `Display` nor `==`, and the two names
-leave this crate only as arguments to `PostgresWarehouse::local_config`.
+`sutura_domain::identity::Secret`, which has neither `Display` nor `==`, and the values leave
+this crate only inside a `Conninfo`.
 
 #### Methods
+
+```rust
+pub fn as_role(&self, role: &str) -> Self
+```
+
+The same credential, signing in as `role` - the tier's certificate-authenticated role.
+
+```rust
+pub fn conninfo(&self, source: &SourceName, host: &str, port: u16, channel: Channel<'_>) -> Result<Conninfo, UnusableChannel>
+```
+
+The tier at `host:port` as this credential, over `channel`.
+
+# Errors
+
+`Conninfo::new`'s.
+
+```rust
+pub fn conninfo_in(&self, source: &SourceName, host: &str, port: u16, schema: &str) -> Result<Conninfo, UnusableChannel>
+```
+
+The tier at `host:port` as this credential, every unqualified name resolved in `schema`.
+
+# Errors
+
+`Conninfo::in_schema`'s.
 
 ```rust
 pub fn from_env() -> Result<Self, UnconfiguredFixture>
@@ -517,147 +568,4 @@ purpose - see that function for why the seam is there.
 
 #### Implements
 
-`Debug`
-
-## Module `tls`
-
-Building the `rustls::ClientConfig` a TLS `postgres` source channel verifies with.
-
-This is the TLS half of `sutura_config::sources::transport`, turned into a verifier. That module
-owns the three-state DECLARATION (`plaintext` / `verified` / `mutual`); this one owns turning a
-declared `verified` or `mutual` channel into the thing the driver connects with: read the anchor
-store, read the optional client identity, and refuse the combinations a closed type refuses.
-
-The two crates do not share a dependency, so this module's input is the RESOLVED material a
-composition root extracted from the declaration - the same boundary `connect_secured`'s own
-signature draws, and the reason the adapters here never carry a second copy of the three-state
-shape. What a composition root hands this module is: whether the declared anchors are a PEM
-bundle or the host's system store, and an optional client identity path pair.
-
-# What fails here, and why it is a connect-time refusal
-
-Configuration refuses what only a tree can see (an unknown `transport_mode` word, TLS naming no
-anchors, a partial identity, a relative path). What this module refuses is what only a file and
-a TLS implementation can answer - and each refusal is fail-closed and names the path:
-
-* anchors that cannot be read (`PostgresError::AnchorsRead`) or parse to no certificates
-  (`PostgresError::AnchorsEmpty`);
-* a `system` store that cannot be read completely or contains no usable roots
-  (`PostgresError::SystemStoreRead`, `PostgresError::SystemStoreEmpty`);
-* an identity half that cannot be read (`PostgresError::IdentityRead`) or parses to the wrong
-  kind (`PostgresError::IdentityIncomplete`, `PostgresError::IdentityKey`);
-* a certificate and key rustls will not present together (`PostgresError::IdentityRefused`,
-  which names no path: the pair is already loaded by then).
-
-An untrusted-issuer chain is not refused HERE: verification is the handshake's job, and a
-`ClientConfig` built over the declared roots is exactly the thing that refuses it. The
-tier-backed test that connects a source to a server under an unTRUSTED issuer is refused by
-`PostgresWarehouse::connect_secured`'s `PostgresError::Connect` arm at the handshake, while the
-construction half stays honest about what it can know: a `ClientConfig` whose roots are the
-declared file.
-
-The construction is always compiled (this crate is the source channel), so `checks.nextest`
-exercises every refusal above in-crate against `rcgen`-generated material, and `tests/tls.rs`
-drives the same construction against the tier's real server - where the two cells are that the
-declared anchor verifies and an issuer it does not name is refused.
-
-**The READ itself lives in `sutura-tls`**, a leaf crate with no dependency on a crypto provider,
-a network client, or `sutura-config` - extracted here because `github.com/telekom/sutura#125`'s
-remainder needs the identical bundle-or-system-store read a second time, for a `ureq`-based
-outbound adapter, and copying `bundle_roots`/`system_roots`/the identity loaders a second time
-is exactly the duplication `AGENTS.md` asks not to hold twice. What stays HERE, and is this
-crate's own, is folding the read bytes into a `RootCertStore` (the step that also catches a
-certificate rustls itself cannot use as a root - `PostgresError::AnchorsRead` for a bundle
-entry, `PostgresError::SystemStoreCertificate` for a system-store one, unchanged from before
-the extraction) and building the `ring`-backed `rustls::ClientConfig` `tokio-postgres-rustls`
-wants. Every error variant this module can produce is unchanged; only where the read happens did.
-
-### `enum TlsAnchors`
-
-```rust
-pub enum TlsAnchors
-```
-
-The trust anchors a TLS source channel verifies against, resolved from the declaration.
-
-#### Variants
-
-- `Bundle` - A PEM bundle at this absolute path. Read by `client_config` once, at boot.
-- `System` - The host's own trust store, read once by `client_config`. This is reached only when the deployment explicitly wrote `transport_anchors: system`; it is never a fallback.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `struct TlsIdentity`
-
-```rust
-pub struct TlsIdentity
-```
-
-The client certificate and key a `mutual` channel presents, resolved from the declaration.
-
-A pair - configuration already refused a partial one at load; this module reads both paths and
-refuses a file that does not hold its half.
-
-#### Methods
-
-```rust
-pub fn certificate(&self) -> &Path
-```
-
-The declared client certificate path.
-
-```rust
-pub fn key(&self) -> &Path
-```
-
-The declared client key path.
-
-```rust
-pub const fn new(certificate: PathBuf, key: PathBuf) -> Self
-```
-
-A client identity from its declared paths.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `fn client_config`
-
-```rust
-pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<rustls::ClientConfig, crate::PostgresError>
-```
-
-Builds the `rustls::ClientConfig` a TLS source channel verifies (and, for `mutual`, presents)
-with, from the resolved anchor material and an optional client identity.
-
-# Errors
-
-`SystemStoreRead`/`SystemStoreEmpty` for a host store that cannot supply a complete non-empty
-root set; `AnchorsRead` for a bundle that cannot be read; `AnchorsEmpty` for a bundle that parses
-to no certificates; `IdentityRead`/`IdentityIncomplete`/`IdentityKey` for an identity half that
-cannot be read or does not hold its kind; `IdentityRefused` for a key that does not load or does
-not match its certificate.
-
-### `fn rotating_client_config`
-
-```rust
-pub fn rotating_client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<(sutura_tls::Rotating<rustls::ClientConfig>, sutura_tls::Rotator<rustls::ClientConfig, crate::PostgresError>), crate::PostgresError>
-```
-
-Builds a rotating `rustls::ClientConfig` handle (and the poll handle that keeps it current) for a
-TLS source channel, from the resolved anchor material and an optional client identity.
-
-A `postgres` source always names its anchors (a bundle or the `system` store) - there is no
-compiled-in default the way the outbound wire has one - so this always returns a rotating handle.
-A NEW connection calls `sutura_tls::Rotating::current` at connect time and keeps that pair for
-the adapter's life; a live connection is left until it closes. **Not drained** - there is no
-connection pool today, so draining would close a live connection with nothing to retire to
-(`docs/adr/0010`; `github.com/telekom/sutura#125` item 3).
-
-# Errors
-
-The same refusals as `client_config` when the declared material cannot be loaded or built at
-boot.
+`Clone`, `Debug`

@@ -16,43 +16,20 @@ sutura-domain = { workspace = true }
 # NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this adapter
 # never compiles anything.
 sutura-sql = { workspace = true }
-# Pure Rust and links nothing, which is the point this adapter exists to prove: Postgres is the
-# first source whose driver does not pull a native library, so the cross-build matrix survives it.
-tokio = { workspace = true, features = ["rt-multi-thread", "time", "net", "io-util", "sync", "macros"] }
-tokio-postgres = { workspace = true }
-# TLS for a Postgres SOURCE connection. Behind no feature, because when this crate is linked at all
-# (by a served deployment) the channel either verifies or refuses - and the pure-Rust driver keeps
-# these out of the musl cross builds the same way `tokio-postgres` itself does. See
-# `sutura_config::sources::transport`, which owns the three-state declaration this code turns into a
-# `rustls::ClientConfig` per connection.
-tokio-postgres-rustls = { workspace = true }
-rustls = { workspace = true }
-# Kept even though this crate's own `tls` module no longer reads the host store itself
-# (`sutura-tls` does): `PostgresError::SystemStoreRead` names `rustls_native_certs::Error` as its
-# `cause`, so the type has to be nameable here regardless of which crate calls the loader.
-rustls-native-certs = { workspace = true }
-# The bundle-or-system-store read and the client-identity read, shared with a `ureq`-based outbound
-# adapter (`sutura-exec-bigquery`, `github.com/telekom/sutura#125`'s remainder) so the refusals for
-# an unreadable, empty or malformed bundle/identity are not re-derived per adapter. This crate's own
-# `tls` module folds the result into a `RootCertStore` and the `rustls::ClientConfig` for
-# [`connect_secured`] to connect with - `sutura-tls` builds neither.
+# The declared bundle and client-identity read, shared with `sutura-exec-bigquery` and the HTTP
+# adapters, so a `Conninfo` refuses an unreadable or malformed file with the same refusal they do -
+# before a driver loads rather than at libpq's first connect.
 sutura-tls = { workspace = true }
-# (This crate's `tls` module builds the `ClientConfig` for [`connect_secured`] to connect with.)
-# The wire buffer a `ToSql` impl hands bytes to, and the `Sink` item a text `COPY` drives.
-bytes = { workspace = true }
-futures-util = { workspace = true }
 thiserror = { workspace = true }
-# The ADBC transport (`src/adbc.rs`, `telekom/sutura#913`), all behind the default-off `adbc`
-# feature. `sutura-adbc` is the shared crate that owns the workspace's one `unsafe` ADBC site, so
-# this adapter adds none; the driver manager loads the self-built `libadbc_driver_postgresql.so`
-# (`nix/postgres-adbc.nix`) by path and the two Arrow crates name what it hands back. Every one of
-# these is already in `Cargo.lock` through `sutura-exec-bigquery`, so the feature adds edges and no
-# packages.
-adbc_core = { version = "0.24", optional = true }
-adbc_driver_manager = { version = "0.24", optional = true }
-arrow-array = { version = "59", optional = true }
-arrow-schema = { version = "59", optional = true }
-sutura-adbc = { workspace = true, optional = true }
+# The one transport (`src/adbc.rs`, `telekom/sutura#913`). `sutura-adbc` is the shared crate that
+# owns the workspace's one `unsafe` ADBC site, so this adapter adds none; the driver manager loads
+# the self-built `libadbc_driver_postgresql` (`nix/postgres-adbc.nix`) - linked into a musl release,
+# mounted elsewhere - and the two Arrow crates name what it hands back.
+adbc_core = { version = "0.24" }
+adbc_driver_manager = { version = "0.24" }
+arrow-array = { version = "59" }
+arrow-schema = { version = "59" }
+sutura-adbc = { workspace = true }
 # The conformance packs, which `tests/conformance.rs` binds this adapter to, and the developer
 # workflow crate that answers where this worktree's Postgres is listening.
 #
@@ -73,28 +50,21 @@ divan = { workspace = true }
 # against real anchor/identity material. The same crate `sutura-http` rests its own TLS tests on, so
 # no new crate enters the dev graph.
 rcgen = { workspace = true }
-# THE FIXTURE-TIER CREDENTIAL, AND THE CONNECTION CONFIG OVER IT. Default-off, and the reason is the
-# ARTEFACT rather than build time: `nix/shipped.nix` builds cargo's DEFAULT feature set, so nothing a
-# release publishes contains `src/fixture.rs` or `PostgresWarehouse::local_config`. Both callers are
-# tests - `tests/conformance.rs` here and `crates/sutura-app/tests/adapters/adapters.rs` - so nothing
-# shipped loses anything, and `github.com/telekom/sutura#455` is a `pub fn` whose only guard against
-# a consumer reaching it was its name.
+# THE FIXTURE-TIER CREDENTIAL, ITS LOADER AND ITS ADMIN CONNECTION. Default-off, and the reason is
+# the ARTEFACT rather than build time: `nix/shipped.nix` builds cargo's DEFAULT feature set, so
+# nothing a release publishes contains `src/fixture.rs`, `AdbcPostgres::load_csv` or
+# `adbc::FixtureAdmin`. Every caller is a test - the tier-backed targets here,
+# `crates/sutura-app/tests/adapters/adapters.rs` and `crates/sutura-cli/tests` - so nothing shipped
+# loses anything, and `github.com/telekom/sutura#455` is a `pub fn` whose only guard against a
+# consumer reaching it was its name.
 #
 # **Not `pub(crate)`, and not because that would be weaker.** It would be stronger, and it does not
-# compile: both callers are INTEGRATION tests, which are separate crates. A test-only module has the
+# compile: the callers are INTEGRATION tests, which are separate crates. A test-only module has the
 # same problem. So a feature is the narrowest visibility this pair of call sites admits.
 #
 # Every compiling gate here passes `--all-features`, and `deny.toml` sets `all-features = true`, so
-# this is still compiled, linted and tested on every run. `check-default-features` and
-# `check-default-feature-tests` scope themselves to the shipped set, which this crate is not in.
+# this is still compiled, linted and tested on every run.
 [features]
-# THE ADBC TRANSPORT, shipped and answering nothing: `src/adbc.rs`'s header says what it holds and
-# what it does not. Default-off here for `sutura-exec-bigquery`'s reason - a native driver is a
-# per-triple addition a lean build should not link - and ON in every release, because
-# `sutura-cli`'s `postgres` feature turns it on. Every compiling gate passes `--all-features`, so
-# the module is compiled, linted and tested on every run; the OFF arm is now what only a direct
-# dependent without that feature compiles, and no REQUIRED gate lints it under `-D warnings`.
-adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:sutura-adbc"]
 fixtures = ["sutura-domain/fixtures"]
 
 [[test]]
@@ -102,8 +72,27 @@ name = "conformance"
 required-features = ["fixtures"]
 
 [[test]]
-name = "parity"
-required-features = ["adbc"]
+name = "deadline"
+required-features = ["fixtures"]
+
+[[test]]
+name = "raw"
+required-features = ["fixtures"]
+
+[[test]]
+name = "refusals"
+required-features = ["fixtures"]
+
+[[test]]
+name = "tls"
+required-features = ["fixtures"]
+
+[[test]]
+name = "types"
+required-features = ["fixtures"]
+
+[[test]]
+name = "kerberos"
 
 # `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -
 # `github.com/telekom/sutura#915` - so it is reached by `just bench`, never by `just validate`,

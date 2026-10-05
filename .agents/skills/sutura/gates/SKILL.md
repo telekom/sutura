@@ -862,11 +862,13 @@ panic-free.
   squashes and composes `main`'s subject from the title, so `commit-msg` judged every commit except
   the one that becomes history: six of the last hundred landed subjects are outside the vocabulary
   `xtask/src/commit_msg.rs` declares (`batch:` ×3, `batch C:`, `spike(`, and one with no type).
-  `check-pr-title` runs in the `ci` job's `pull_request` event, which is where that string exists,
-  and `obligations::REQUIRED` holds the step's `if:`. **Two limits:** it does not judge LENGTH - 69
-  of those hundred subjects exceed the commit-msg limit, so holding it would refuse most real merges
-  - and a title EDITED after the last push starts no `ci` run, so the verdict is about the title
-  that was there.
+  The title is judged by the required `pr-title` context (`.github/workflows/pr-title.yml`), which
+  fires on `edited` so a rename alone re-judges (#1249) and on `merge_group` so the queue never
+  waits on it; it fetches the live title, never the frozen payload. Its `grep -E` is held to
+  `commit_msg::check_shape` by `pr_title::tests::the_workflow_regex_agrees_with_the_rule`, which
+  runs the step body under a fake `gh`; `obligations::pr_title_check` holds both triggers.
+  **Limits:** length is not judged (69 of those hundred subjects exceed the commit-msg limit), and
+  the agreement is over a corpus - non-ASCII whitespace is outside it.
 - **A COLLISION RULE ONLY REACHES THE NAMES IT CAN READ - #937.** `check-guidance` refuses two ADR
   files claiming one ordinal, and the merge queue's own `hygiene` build is where that fires, because
   only the merged tree holds both files. What got past it was a NAMING: a bare `0037.md` planted in
@@ -1111,13 +1113,14 @@ calls in the same file (`edited_helper_caller`) - never merely a test in a chang
 deletion is `Weakens-Test:`'s. It is the added-test path itself, held through `causality::run` by
 `gas_tests`' four edited-assertion cells on the tests-only arm (no claim refused, no patch refused,
 a non-killing patch refused, claim plus killing patch accepted). Undeclared, a modified test green
-on base REFUSES on the tests-only arm, and on the separable arm when no other scoped test is red on
-base: `AddedTest::is_edited` keeps it out of `provenance::Moved`, so it is a pin, never a move
-(`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). Two limits, for added
-and modified tests alike. The base check is per RUN, not per test: `classify_base` answers
-`RedByAssertion` once ANY scoped test failed, so a pin beside one test that is genuinely red on base
-passes `ok`. And in an INSEPARABLE file either gets the same non-verdict pass - no base run exists
-there to redden it. The gate resolves each cell to a committed mutation at
+on base REFUSES on the tests-only arm, and on the separable arm whether or not another scoped test
+is red on base: `AddedTest::is_edited` keeps it out of `provenance::Moved`, so it is a pin, never a
+move (`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). Two limits, for
+added and modified tests alike. The base check is per test: beside a red one, an added test that
+PASSED on base (not moved, no failing result) is `RedWithGreenSibling` and FAILS, and one with NO
+base result is refused by name unless exempted (*A VERDICT IS OVER A SUBSET*, below). And in an
+INSEPARABLE file either gets the same non-verdict pass - no base run exists there to redden it. The
+gate resolves each cell to a committed mutation at
 `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. The composite half of #954: the reverse direction - an added test no declaration
@@ -1311,8 +1314,18 @@ and NAMES the ones it left out, `NOT MECHANICALLY SEPARABLE` included, where the
 argued: replayed over thirteen recent branch diffs, twelve reached a verdict and ALL TWELVE had
 `measured < M`** - seven at zero, three partial, two on arms that measure nothing at all. A
 fail-on-mismatch rule would have reddened every branch in the sample, and a gate that reddens
-correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
-proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
+correct work gets disabled. **What it therefore is not:** nothing forces the WHOLE remainder to be
+proven - `7 of 8` is an instruction to run a mutation by hand, not a mechanism - with ONE
+exception. A scoped test the base run produced NO PER-TEST RESULT for (`not run at base: <name>`)
+proves nothing on either tree, so the gate REFUSES it by name, after the outcome's own verdict
+has printed, unless `devco/causality-no-base-exemptions` lists it with a reason. Every run refuses
+that file first when it is unreadable, when a line has no reason, or when a name matches no `fn` in
+the working tree. Stale is judged against the tree, never against one diff's added tests, so an
+entry an earlier change committed cannot refuse an unrelated later one. **Limits:** the key is the
+bare fn name, so one entry exempts every scoped test of that name in any package, and any `fn` of
+that name keeps it fresh; an entry whose test does produce a base result exempts nothing and is not
+refused; and when the per-test lines do not account for nextest's `Summary` the gate prints
+`skipped names cannot be identified safely` and refuses nothing - the outcome's verdict stands.
 
 **FIVE passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
 which is the same defect class one level up, so it is worth the row. `no changed tests`,
@@ -1733,6 +1746,25 @@ it once BALANCES - so the comment half of that claim was asserted and the attrib
 why it earned the same treatment: a regression cell, measured to fail under exactly that mutation
 and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
 for the wrong reason.
+
+## The Live-Cell trailer
+
+`Live-Cell: <test-fn-name> <system> <ci-job>` moves a `crates/sutura-app/tests/` matrix cell out of
+the offline scope, as an `#[ignore]` would, when its changed lines run only for a data system
+unavailable offline.
+
+| Shape | Answer |
+| --- | --- |
+| `<system>`'s `Unavailable` entry has no `runs_in: Some("<ci-job>")` | refused |
+| `<ci-job>` is no job under `jobs:` in `ci.yml` | refused |
+| the name is also a `Claim-Cell:` | refused - the mutation is the proof |
+| the cell is outside `crates/sutura-app/tests/` | stays in scope, so the ordinary proof answers |
+| a per-system macro cell | every system's row leaves, the offline ones too - the name is bare |
+
+**What it does not hold:** whether the changed lines run only for that system, and whether the job
+selects the cell - review holds both. The job skips forks, and `ci-aggregate` requires it only on a
+same-repository pull request or merge group that selects its category, so elsewhere nothing that
+gates a merge measures a live cell. A cell whose subject is test code that runs offline is not a live cell.
 
 ## The Claim-Cell trailer
 

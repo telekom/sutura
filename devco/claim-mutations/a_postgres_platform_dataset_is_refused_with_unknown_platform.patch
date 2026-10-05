@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-datahub/src/http.rs b/crates/sutura-catalog-datahub/src/http.rs
+index ae360c2c6..35722ac99 100644
+--- a/crates/sutura-catalog-datahub/src/http.rs
++++ b/crates/sutura-catalog-datahub/src/http.rs
+@@ -449,7 +449,7 @@ fn split_dataset_urn(urn: &str) -> Option<(String, String)> {
+     let platform_urn = parts.next()?;
+     let name = parts.next()?;
+     let platform = platform_urn.strip_prefix("urn:li:dataPlatform:")?;
+-    Some((platform.to_owned(), name.to_owned()))
++    Some((if platform.is_empty() { String::new() } else { String::from("bigquery") }, name.to_owned()))
+ }
+
+ /// One `dataset` entity into this crate's own [`DatasetAspect`] shape, refusing an unexpected field

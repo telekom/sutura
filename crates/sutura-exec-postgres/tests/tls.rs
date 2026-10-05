@@ -2,9 +2,8 @@
 //! The VERIFYING half of the source channel, against the tier's real server.
 //!
 //! **This is the cell issue 125 could not write before the fact: a chain is actually verified.**
-//! `crates/sutura-exec-postgres/src/tls.rs` proves the `rustls::ClientConfig` construction refuses
-//! what a closed type refuses; nothing there connects, so nothing there shows a handshake failing.
-//! These cells do. The negatives are the ones that matter: a server whose chain is signed by an
+//! `src/adbc/conninfo.rs` proves the string libpq is told; nothing there connects, so nothing there
+//! shows a handshake failing. These cells do, through the real driver's libpq. The negatives are the ones that matter: a server whose chain is signed by an
 //! issuer the declared anchors do not name is REFUSED, and the tier's mutual-only role refuses a
 //! client that presents no certificate.
 //!
@@ -33,10 +32,12 @@ mod tls {
 
     use sutura_conformance::corpus;
     use sutura_dev::provisioned;
+    use sutura_domain::raw::RawStatement;
+    use sutura_domain::warehouse::Warehouse as _;
     use sutura_exec_postgres::PostgresError;
-    use sutura_exec_postgres::PostgresWarehouse;
+    use sutura_exec_postgres::adbc::{AdbcError, AdbcPostgres, Channel};
     use sutura_exec_postgres::fixture::FixtureCredential;
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+    use sutura_tls::{Anchors, Identity};
 
     /// The service the provisioner is asked for - the same name `nix/postgres-tier.nix` publishes.
     const SERVICE: &str = "postgres";
@@ -84,23 +85,37 @@ mod tls {
         })
     }
 
-    /// A connection config for the loopback TLS dial.
-    ///
-    /// This deliberately leaves tokio-postgres's default `SslMode::Prefer` unset: `connect_secured`
-    /// strengthens it to `Require` whenever a verifier is supplied. That the tier always answers the
-    /// TLS negotiation `S` means no cell in THIS file can observe a downgrade if that strengthening
-    /// were ever removed - the tier has no server to decline TLS with. The hermetic negative that
-    /// proves it is `crates/sutura-exec-postgres/src/tests.rs`, against a listener that answers `N`.
-    fn config(port: u16) -> tokio_postgres::Config {
-        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        PostgresWarehouse::local_config(LOOPBACK, port, &credential)
+    /// One statement over `channel` to the tier's loopback listener, as `credential` - `None` where
+    /// it answered, and the refusal where it did not.
+    fn refused(credential: &FixtureCredential, port: u16, channel: Channel<'_>) -> Option<PostgresError> {
+        let conninfo = credential
+            .conninfo(&corpus::source(), LOOPBACK, port, channel)
+            .expect("the declared channel builds a connection string");
+        let warehouse = AdbcPostgres::new(
+            corpus::source(),
+            corpus::posture(),
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .expect("the default ceiling parses");
+        let statement = RawStatement::parse("select 1").expect("a test statement is a statement");
+        warehouse
+            .execute_raw(&statement, &corpus::presented(), corpus::deadline())
+            .and_then(Result::err)
     }
 
-    /// The same dial as [`config`], selecting the role whose HBA line requires a certificate.
-    fn mutual_config(port: u16) -> tokio_postgres::Config {
-        let mut config = config(port);
-        config.user(MUTUAL_ROLE);
-        config
+    fn credential() -> FixtureCredential {
+        FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"))
+    }
+
+    /// A connect libpq refused - the handshake, not anything a statement did.
+    fn refused_at_connect(error: &PostgresError) -> bool {
+        matches!(
+            *error,
+            PostgresError::Adbc {
+                cause: AdbcError::Adbc(_)
+            }
+        )
     }
 
     #[test]
@@ -108,16 +123,12 @@ mod tls {
         let Some(tier) = tier() else {
             return;
         };
-        let tls = client_config(&TlsAnchors::Bundle(tier.anchor), None).expect("the tier's certificate is a usable anchor");
-        // A successful open IS the proof: the handshake verifies the chain against the declared
-        // anchor, and `connect_secured` then runs `SET statement_timeout` over the session.
-        PostgresWarehouse::connect_secured(
-            corpus::source(),
-            corpus::posture(),
-            &config(tier.port),
-            Some(sutura_tls::Rotating::fixed(tls)),
-        )
-        .expect("a source verifying the tier's own chain connects and runs a statement");
+        // An answer IS the proof: libpq ran `verify-full` against the declared anchor alone.
+        let refused = refused(&credential(), tier.port, Channel::Verified(&Anchors::Bundle(tier.anchor)));
+        assert!(
+            refused.is_none(),
+            "a source verifying the tier's own chain answers: {refused:?}"
+        );
     }
 
     #[test]
@@ -125,16 +136,16 @@ mod tls {
         let Some(tier) = tier() else {
             return;
         };
-        let identity = TlsIdentity::new(tier.client_certificate, tier.client_key);
-        let tls = client_config(&TlsAnchors::Bundle(tier.anchor), Some(&identity))
-            .expect("the tier's anchors and client identity build a mutual config");
-        PostgresWarehouse::connect_secured(
-            corpus::source(),
-            corpus::posture(),
-            &mutual_config(tier.port),
-            Some(sutura_tls::Rotating::fixed(tls)),
-        )
-        .expect("the mutual-only role accepts the client identity the tier signed");
+        let identity = Identity::new(tier.client_certificate, tier.client_key);
+        let refused = refused(
+            &credential().as_role(MUTUAL_ROLE),
+            tier.port,
+            Channel::Mutual(&Anchors::Bundle(tier.anchor), &identity),
+        );
+        assert!(
+            refused.is_none(),
+            "the mutual-only role accepts the identity the tier signed: {refused:?}"
+        );
     }
 
     #[test]
@@ -142,16 +153,13 @@ mod tls {
         let Some(tier) = tier() else {
             return;
         };
-        let tls = client_config(&TlsAnchors::Bundle(tier.anchor), None)
-            .expect("the tier's anchor builds a verifier without a client identity");
-        let refused = PostgresWarehouse::connect_secured(
-            corpus::source(),
-            corpus::posture(),
-            &mutual_config(tier.port),
-            Some(sutura_tls::Rotating::fixed(tls)),
-        );
-        let error = refused.expect_err("the mutual-only role must reject a client with no certificate");
-        assert!(matches!(error, PostgresError::Connect { .. }), "{error}");
+        let error = refused(
+            &credential().as_role(MUTUAL_ROLE),
+            tier.port,
+            Channel::Verified(&Anchors::Bundle(tier.anchor)),
+        )
+        .expect("the mutual-only role must reject a client with no certificate");
+        assert!(refused_at_connect(&error), "{error:?}");
     }
 
     #[test]
@@ -160,20 +168,13 @@ mod tls {
             return;
         };
         // An anchor that signs nothing the server presents. If verification were not happening, this
-        // would connect exactly as the cell above does.
+        // would connect exactly as the first cell does.
         let untrusted = rcgen::generate_simple_self_signed([String::from("not-the-tier")]).expect("a self-signed pair generates");
         let anchor = std::env::temp_dir().join(format!("sutura-pg-untrusted-{}.pem", std::process::id()));
         std::fs::write(&anchor, untrusted.cert.pem()).expect("the untrusted anchor writes");
-        let tls = client_config(&TlsAnchors::Bundle(anchor.clone()), None)
-            .expect("an unrelated certificate is still a parsable anchor");
-        let refused = PostgresWarehouse::connect_secured(
-            corpus::source(),
-            corpus::posture(),
-            &config(tier.port),
-            Some(sutura_tls::Rotating::fixed(tls)),
-        );
+        let outcome = refused(&credential(), tier.port, Channel::Verified(&Anchors::Bundle(anchor.clone())));
         let _ignored = std::fs::remove_file(&anchor);
-        let error = refused.expect_err("a chain the declared anchors do not name is refused");
-        assert!(matches!(error, PostgresError::Connect { .. }), "{error}");
+        let error = outcome.expect("a chain the declared anchors do not name is refused");
+        assert!(refused_at_connect(&error), "{error:?}");
     }
 }
