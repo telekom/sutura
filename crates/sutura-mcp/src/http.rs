@@ -78,7 +78,7 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use sutura_app::prompt::{CatalogProse, Tool};
 use sutura_app::surface::Surface;
-use sutura_config::RequestTimeout;
+use sutura_config::{BodyLimit, RequestTimeout};
 use sutura_runtime::Admission;
 
 use crate::{AgentSurface, Asking};
@@ -90,8 +90,9 @@ use crate::{AgentSurface, Asking};
 /// struct-expression literal cannot name its fields at all - and its `Default` builds a fresh
 /// `CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
 ///
-/// **The limit the two pins carry, stated rather than assumed contractually:** only
-/// `legacy_session_mode` and `json_response` are set here; the other eight fields are inherited
+/// **The limit the pins carry, stated rather than assumed contractually:** only
+/// `legacy_session_mode`, `json_response` and the body bound below are set here; the other seven
+/// fields are inherited
 /// from the SDK's `Default` through the builder and are not pinned - a future field with an unsafe
 /// default would arrive silently, and `allowed_hosts` stays loopback-only, so a composition root
 /// serving outside loopback must override it (the transport refuses every unrecognised `Host`, see
@@ -99,11 +100,16 @@ use crate::{AgentSurface, Asking};
 /// manager is kept idle by `legacy_session_mode: false` alone. Nothing here binds a session to a
 /// caller, and the SDK's own `create_session` takes no identity argument regardless - the caller is
 /// re-resolved per request out of each request's `Asked`, never out of a session.
+///
+/// **And `max_request_body_bytes` is the deployment's `server.max_body_bytes`**, the bound `/v1`
+/// reads under, rather than the SDK's own 4 MiB: the transport reads its own body, so an `axum`
+/// `DefaultBodyLimit` in front of it would bind nothing.
 #[must_use]
-pub fn config() -> StreamableHttpServerConfig {
+pub fn config(max_body: BodyLimit) -> StreamableHttpServerConfig {
     StreamableHttpServerConfig::default()
         .with_legacy_session_mode(false)
         .with_json_response(true)
+        .with_max_request_body_bytes(max_body.bytes())
 }
 
 /// Builds the streamable-HTTP transport over one [`Surface`], as a plain `tower_service::Service`
@@ -128,6 +134,7 @@ pub fn service<S>(
     list_physical_schema: bool,
     admission: Admission,
     reply: RequestTimeout,
+    max_body: BodyLimit,
     tools: Arc<[Tool]>,
     operator_instructions: Option<Arc<str>>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
@@ -148,7 +155,7 @@ where
             .listing_physical_schema(list_physical_schema))
         },
         Arc::new(LocalSessionManager::default()),
-        config(),
+        config(max_body),
     )
 }
 
@@ -315,6 +322,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             testing::operator_instructions(),
         );
@@ -357,6 +365,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             testing::operator_instructions(),
         );
@@ -407,6 +416,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             testing::operator_instructions(),
         );
@@ -441,14 +451,14 @@ mod tests {
     /// wrong signal for THIS property; asserting the field directly names the actual thing that
     /// changed.
     ///
-    /// **Only these two fields are contractual**: `StreamableHttpServerConfig` has ten fields, the
-    /// other eight are inherited from the SDK's `Default` through the builder ([`config`] applies
+    /// **Only these two fields are contractual here**: `StreamableHttpServerConfig` has ten fields, the
+    /// body bound has its own served cell and the rest are inherited from the SDK's `Default` through the builder ([`config`] applies
     /// both pins through the builder precisely because the struct is `#[non_exhaustive]`), and this
     /// cell asserts exactly what this module decides - `legacy_session_mode` (stateless sessions)
     /// and `json_response` - and nothing it merely inherits.
     #[test]
     fn the_streamable_http_config_pins_stateless_sessions() {
-        let config = super::config();
+        let config = super::config(settings().server().max_body());
         assert!(!config.legacy_session_mode, "{config:?}");
         assert!(config.json_response, "{config:?}");
     }
@@ -475,6 +485,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             None,
         );
@@ -525,6 +536,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             None,
         );

@@ -157,3 +157,35 @@ fn served_initialize_does_not_publish_the_whole_physical_schema() {
     let listing = served.mcp(Some(&token), &call.to_string()).json();
     assert_eq!(listing["result"]["structuredContent"]["models"], serde_json::json!([]));
 }
+
+/// `/mcp` reads no more of a body than `server.max_body_bytes`, the bound `/v1` reads under: the
+/// same over-cap body is a `413` on both, and the same message under the cap is answered.
+#[cfg(feature = "agent")]
+#[test]
+fn the_agent_route_reads_no_more_body_than_the_versioned_surface() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-body-cap").expect("the key set publishes");
+    let served = start_configured(
+        "agent-body-cap",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("asker@example.com"))
+        .expect("the issuer mints a token");
+    let padded = |bytes: usize| {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+            "params": {"_meta": {"padding": "x".repeat(bytes)}}
+        })
+        .to_string()
+    };
+    // The default `server.max_body_bytes` is 65536.
+    let over = padded(70 * 1024);
+    let versioned = served.post("/v1/query", Some(&token), &over);
+    assert_eq!(versioned.status, 413, "{}", versioned.body);
+    let agent = served.mcp(Some(&token), &over);
+    assert_eq!(agent.status, 413, "{}", agent.body);
+    let under = served.mcp(Some(&token), &padded(1024));
+    assert_eq!(under.status, 200, "{}", under.body);
+    assert!(!tool_names(&under).is_empty(), "{}", under.body);
+}

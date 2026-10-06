@@ -509,3 +509,113 @@ async fn no_bearer(router: &axum::Router, path: &str) -> (StatusCode, serde_json
     let value: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
     (status, value, challenge)
 }
+
+/// The deployment token these cells configure where they configure one.
+const DEPLOYMENT_TOKEN: &str = "a-deployment-token-0123456789abcdef";
+
+/// A router over `overlay` with `issuer`'s gate and an agent mount that answers every request `200`.
+///
+/// The mount stands in for `sutura_mcp::http::service`, so a refusal these cells read comes from a
+/// layer `crate::router` put in front of it.
+#[cfg(feature = "agent")]
+fn with_agent_mount(overlay: &str, issuer: &MockIssuer) -> axum::Router {
+    let settings = settings_with(overlay);
+    let gate = gate_over(&declared_inbound(&settings), &issuer.key_set());
+    let service = crate::surface::LocalService::start(
+        &crate::testing::catalog_of(bundle()),
+        fake_warehouse(),
+        crate::testing::sink(),
+        broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates");
+    let state = crate::testing::state_over(std::sync::Arc::new(service), settings)
+        .with_inbound_identity(std::sync::Arc::new(gate))
+        .with_agent_surface(crate::state::AgentMount::new(
+            tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
+                let _request = request;
+                async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
+            }),
+            crate::state::SpendHeadroomPush::NoCeilingConfigured,
+        ));
+    crate::router(&state).expect("a leg-one deployment with an agent mount assembles")
+}
+
+/// The status of one request through the real router, carrying each credential that is given.
+async fn status_of(
+    app: &axum::Router,
+    (method, path): (&str, &str),
+    bearer: Option<&str>,
+    assertion: Option<&str>,
+    host: Option<&str>,
+) -> StatusCode {
+    use tower::ServiceExt as _;
+
+    let mut request = request(method, path, bearer, axum::body::Body::from(crate::testing::A_QUESTION));
+    for (name, value) in [("x-transit-proof", assertion), ("host", host)] {
+        if let Some(value) = value {
+            let value = axum::http::HeaderValue::from_str(value).expect("a test header value is a header value");
+            let _previous = request.headers_mut().insert(name, value);
+        }
+    }
+    app.clone()
+        .oneshot(request)
+        .await
+        .expect("the router is infallible as a service")
+        .status()
+}
+
+/// A short-lived gateway assertion for `subject`, carrying every scope.
+fn assertion_from(issuer: &MockIssuer, subject: &str) -> String {
+    issuer
+        .mint(&accepted_by(subject).living_for(60))
+        .expect("the issuer signs an assertion")
+}
+
+/// `/mcp` spends the same rate limit tier `/v1` does: a burst past it is a `429` on both.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_agent_route_spends_the_same_rate_limit_as_the_versioned_surface() {
+    let issuer = an_issuer();
+    let overlay = format!(
+        "{}rate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
+        direct_overlay(&issuer, UNREAD)
+    );
+    let app = with_agent_mount(&overlay, &issuer);
+    let query = format!("{}{}", crate::constants::API_V1_PREFIX, crate::constants::base_paths::QUERY);
+    for path in [query.as_str(), crate::constants::AGENT_MOUNT_PATH] {
+        let mut statuses = Vec::new();
+        for _ in 0..3 {
+            statuses.push(status_of(&app, ("POST", path), None, None, None).await);
+        }
+        assert_eq!(
+            statuses.last(),
+            Some(&StatusCode::TOO_MANY_REQUESTS),
+            "{path} past a burst of one: {statuses:?}"
+        );
+    }
+}
+
+/// Behind a gateway with a deployment token, `/mcp` needs the token wherever `/v1` does: a verified
+/// assertion alone is a `401` on both, and the two together reach both.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_agent_route_needs_the_deployment_token_wherever_the_versioned_surface_does() {
+    let issuer = an_issuer();
+    let overlay = format!("{}  access_token: \"{DEPLOYMENT_TOKEN}\"\n", gateway_overlay(&issuer));
+    let app = with_agent_mount(&overlay, &issuer);
+    let assertion = assertion_from(&issuer, "someone@example.com");
+    for route in [("GET", "/v1/catalog"), ("POST", crate::constants::AGENT_MOUNT_PATH)] {
+        assert_eq!(
+            status_of(&app, route, None, Some(&assertion), None).await,
+            StatusCode::UNAUTHORIZED,
+            "{route:?} with an assertion and no deployment token"
+        );
+        assert_eq!(
+            status_of(&app, route, Some(DEPLOYMENT_TOKEN), Some(&assertion), None).await,
+            StatusCode::OK,
+            "{route:?} with both"
+        );
+    }
+}

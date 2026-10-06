@@ -7,6 +7,7 @@
 //! | liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 //! | documentation | anybody, when it is served at all | public | yes, when one is configured |
 //! | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
+//! | agent surface (`/mcp`), when mounted | a verified caller with the token, when one is configured | general, its own store | yes, when one is configured |
 //!
 //! Liveness has no token because a probe has no credential to present, which is exactly why its
 //! body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
@@ -462,7 +463,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     #[cfg(feature = "agent")]
     {
         let mut ungoverned: Vec<&'static str> = Vec::new();
-        if let Some(mount) = agent_subtree(state, settings.security().inbound())? {
+        if let Some(mount) = agent_subtree(state, settings.security().inbound(), &key, &mut limiters)? {
             // `merge_into`, and never a bare `merge`: it is the one call that both merges this
             // subtree and records its path, so a merged ungoverned route always reaches
             // `check_ungoverned` below.
@@ -675,6 +676,12 @@ fn inbound_layered(
 /// the outer one - an unverified caller is refused with leg 1's own `401` challenge before the
 /// transport is ever reached.
 ///
+/// **And the two outer layers `/v1` has, in `/v1`'s order**: the deployment token gate outside leg
+/// 1, and a general-tier limiter outside the gate, keyed by the same [`ClientAddress`] and swept by
+/// the same reaper. So `/mcp` gets the same rate limit and deployment token gate as `/v1`. The body
+/// cap is the transport's own, read from the same `server.max_body_bytes` (`sutura_mcp::http::config`),
+/// because a `DefaultBodyLimit` binds an `axum` extractor and the transport reads its own body.
+///
 /// Returns `Option<Ungoverned>` rather than a bare router so the mount and its allowlist row stay
 /// one value end to end: `assemble` merges what this hands back and records the path it rides
 /// inside. The path itself is never restated here - [`Ungoverned::layered`]/[`Ungoverned::try_layered`]
@@ -684,6 +691,8 @@ fn inbound_layered(
 fn agent_subtree(
     state: &ServiceState,
     declared: Option<&sutura_config::InboundIdentity>,
+    key: &ClientAddress,
+    limiters: &mut Vec<LimiterHandle>,
 ) -> Result<Option<Ungoverned>, RouterNotBuilt> {
     let Some(mount) = state.agent_surface() else {
         return Ok(None);
@@ -710,7 +719,19 @@ fn agent_subtree(
         ))
     });
     let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
-    Ok(Some(mount))
+    let mount = mount
+        .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)));
+    // `route_layer` like every layer here, so only `/mcp` itself is charged: a `layer` would also wrap
+    // this subtree's fallback, which the final merge makes the whole router's.
+    let limits = state.settings().rate_limit();
+    if !limits.enabled() {
+        return Ok(Some(
+            mount.layered(|router| router.route_layer(middleware::disabled_rate_limit_layer())),
+        ));
+    }
+    let (layer, handle) = middleware::api_rate_limit_layer(state.metrics(), limits.api(), key.clone()).map_err(limiter)?;
+    limiters.push(handle);
+    Ok(Some(mount.layered(|router| router.route_layer(layer))))
 }
 
 /// The generated document and the browser interface over it, or an empty router.
@@ -900,7 +921,9 @@ mod tests {
             crate::state::SpendHeadroomPush::NoCeilingConfigured,
         );
         let state = state.with_agent_surface(mount);
-        let refused = super::agent_subtree(&state, None).expect_err("a mount with no inbound identity assembles no subtree");
+        let key = crate::client_address::ClientAddress::from_settings(state.settings().rate_limit());
+        let refused = super::agent_subtree(&state, None, &key, &mut Vec::new())
+            .expect_err("a mount with no inbound identity assembles no subtree");
         assert!(
             matches!(refused, RouterNotBuilt::AgentSurfaceWithoutInboundIdentity),
             "expected the no-inbound refuse, got {refused:?}"
