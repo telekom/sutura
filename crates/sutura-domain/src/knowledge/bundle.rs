@@ -32,7 +32,7 @@ use super::{
     MAX_KNOWLEDGE_BYTES, NoteName, Phrase, Referent, phrase_identity, sum_bytes,
 };
 use crate::catalog::{Definitions, DimensionValue};
-use crate::model::{DimensionName, Grain, MetricName};
+use crate::model::{ColumnName, DimensionName, Grain, MetricName, ModelName};
 use crate::pinned::view::ScopedView;
 use crate::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 
@@ -185,6 +185,14 @@ pub enum InconsistentKnowledge {
         dimension: DimensionName,
         value: DimensionValue,
     },
+    #[error("glossary entry {term} means model {model}, which is not defined")]
+    GlossaryUnknownModel { term: Phrase, model: ModelName },
+    #[error("glossary entry {term} means column {column}, which model {model} does not declare")]
+    GlossaryUnknownColumn {
+        term: Phrase,
+        model: ModelName,
+        column: ColumnName,
+    },
     #[error("caveat {name} is about metric {metric}, which is not defined")]
     CaveatUnknownMetric { name: NoteName, metric: MetricName },
     #[error("caveat {name} is about dimension {dimension}, which metric {metric} does not declare")]
@@ -209,6 +217,11 @@ pub enum InconsistentKnowledge {
     /// prompt's preamble.
     #[error("caveat {name} is about nothing, so there is no question it would be shown beside")]
     CaveatAboutNothing { name: NoteName },
+    /// A caveat about a model or one of its columns. A caveat is printed under the metric it is
+    /// about, and a model has no block of its own to print it in, so it would load and be read by
+    /// nobody. Only a glossary entry may mean a model or a column.
+    #[error("caveat {name} is about model {model}, and a caveat is printed under a metric: name the metrics it warns about")]
+    CaveatAboutAModel { name: NoteName, model: ModelName },
     /// One phrase, claimed by TWO glossary entries. A phrase resolves to at most one thing across the
     /// whole glossary, and the check is on the CLAIM rather than on what it resolves to: two entries
     /// claiming one phrase are two bodies for it, and a map would keep the second silently.
@@ -343,39 +356,81 @@ enum Claim {
 
 /// What a referent got wrong, before the note that wrote it dresses it as its own error.
 ///
-/// One resolution and three dressings, rather than three copies of the resolution. The glossary and a
+/// One resolution and two dressings, rather than two copies of the resolution. The glossary and a
 /// caveat name the offending document differently - a term, a note name - and that difference is the
 /// whole reason their variants are not shared; the walk from a referent to the thing it refers to is
-/// not different, so it is written once. Each variant carries what it needs, so no site has to
-/// re-derive a name the walk already had - which is where an `expect` on an unreachable branch would
+/// not different, so it is written once. Each variant carries every name it needs, so no site has to
+/// re-derive one from the referent - which is where an `expect` on an unreachable branch would
 /// otherwise appear.
 enum ReferentFault<'a> {
-    UnknownMetric,
+    UnknownMetric {
+        metric: &'a MetricName,
+    },
     UnknownDimension {
+        metric: &'a MetricName,
         dimension: &'a DimensionName,
     },
     ValueNotAllowed {
+        metric: &'a MetricName,
         dimension: &'a DimensionName,
         value: &'a DimensionValue,
+    },
+    UnknownModel {
+        model: &'a ModelName,
+    },
+    UnknownColumn {
+        model: &'a ModelName,
+        column: &'a ColumnName,
     },
 }
 
 /// Does this referent name something the bundle declares?
 fn fault_in<'a>(definitions: &Definitions, referent: &'a Referent) -> Option<ReferentFault<'a>> {
-    let Some(metric) = definitions.metric(referent.metric()) else {
-        return Some(ReferentFault::UnknownMetric);
+    let metric = match *referent {
+        Referent::Model { ref model } => {
+            return definitions
+                .model(model)
+                .is_none()
+                .then_some(ReferentFault::UnknownModel { model });
+        }
+        Referent::Column { ref model, ref column } => {
+            let Some(declared) = definitions.model(model) else {
+                return Some(ReferentFault::UnknownModel { model });
+            };
+            return (!declared.has_column(column)).then_some(ReferentFault::UnknownColumn { model, column });
+        }
+        Referent::Metric { ref metric } | Referent::Dimension { ref metric, .. } | Referent::Value { ref metric, .. } => metric,
+    };
+    let Some(declared) = definitions.metric(metric) else {
+        return Some(ReferentFault::UnknownMetric { metric });
     };
     // `?` rather than `let ... else { return None }`, which the lint asks for: a referent that names
     // no dimension has nothing further to check, so the absence IS the answer.
-    let name = referent.dimension()?;
-    let Some(dimension) = metric.dimension(name) else {
-        return Some(ReferentFault::UnknownDimension { dimension: name });
+    let dimension = referent.dimension()?;
+    let Some(declared) = declared.dimension(dimension) else {
+        return Some(ReferentFault::UnknownDimension { metric, dimension });
     };
     let value = referent.value()?;
-    if dimension.permits(value) {
-        None
-    } else {
-        Some(ReferentFault::ValueNotAllowed { dimension: name, value })
+    (!declared.permits(value)).then_some(ReferentFault::ValueNotAllowed {
+        metric,
+        dimension,
+        value,
+    })
+}
+
+/// Whether the caller behind `view` may see what `referent` names - `docs/adr/0028`.
+///
+/// A match over every variant, so a referent added later is a compile error here rather than a
+/// note shown to every caller. A model or a column follows the MODEL: [`ScopedView::model`] holds a
+/// model only when its audience is granted, so a model declared with no audience is withheld from
+/// every caller-scoped view. The view scopes models and not columns, so a column is visible exactly
+/// when its model is.
+fn visible(view: &ScopedView<'_>, referent: &Referent) -> bool {
+    match *referent {
+        Referent::Metric { ref metric } | Referent::Dimension { ref metric, .. } | Referent::Value { ref metric, .. } => {
+            view.metric(metric).is_some()
+        }
+        Referent::Model { ref model } | Referent::Column { ref model, .. } => view.model(model).is_some(),
     }
 }
 
@@ -398,30 +453,31 @@ pub(super) fn identifier_shape(phrase: &str) -> String {
     String::from(out.trim_matches('_'))
 }
 
-/// What this phrase names, if the bundle declares anything at all under that name.
+/// What the bundle declares under a phrase somebody recorded as undefined, as the absence's own error.
 ///
 /// Compared through [`identifier_shape`] on both sides, so a phrase written the way a person writes it
 /// is recognised as naming something written the way an identifier is written - and a declared value
 /// like `business` is recognised in a note about "Business".
 ///
-/// A [`Referent`] is the return type because a referent is exactly the set of things a bundle declares
-/// under a name: a metric, a dimension of one, a permitted value of one. The caller dresses whichever
-/// it found as the error that names it.
-///
-/// Three passes rather than one, so the message is about the most important thing the phrase collides
-/// with: a phrase that names a metric is reported as naming the metric even if some dimension
-/// somewhere shares the word.
-fn declared_as(definitions: &Definitions, phrase: &Phrase) -> Option<Referent> {
+/// A metric, a dimension of one or a permitted value of one: the three things a metric block prints
+/// as askable, which are what an absence would contradict. Three passes rather than one, so the
+/// message is about the most important thing the phrase collides with: a phrase that names a metric
+/// is reported as naming the metric even if some dimension somewhere shares the word.
+fn declared_as(definitions: &Definitions, phrase: &Phrase) -> Option<InconsistentKnowledge> {
     let shape = identifier_shape(phrase.as_str());
     for name in definitions.metrics().keys() {
         if identifier_shape(name.as_str()) == shape {
-            return Some(Referent::Metric { metric: name.clone() });
+            return Some(InconsistentKnowledge::AbsenceNamesADefinedMetric {
+                phrase: phrase.clone(),
+                metric: name.clone(),
+            });
         }
     }
     for (name, metric) in definitions.metrics() {
         for dimension in metric.dimensions().keys() {
             if identifier_shape(dimension.as_str()) == shape {
-                return Some(Referent::Dimension {
+                return Some(InconsistentKnowledge::AbsenceNamesADeclaredDimension {
+                    phrase: phrase.clone(),
                     metric: name.clone(),
                     dimension: dimension.clone(),
                 });
@@ -432,7 +488,8 @@ fn declared_as(definitions: &Definitions, phrase: &Phrase) -> Option<Referent> {
         for (dimension, declared) in metric.dimensions() {
             for value in declared.allowed_values().into_iter().flatten() {
                 if identifier_shape(value.as_str()) == shape {
-                    return Some(Referent::Value {
+                    return Some(InconsistentKnowledge::AbsenceNamesADeclaredValue {
+                        phrase: phrase.clone(),
                         metric: name.clone(),
                         dimension: dimension.clone(),
                         value: value.clone(),
@@ -518,15 +575,15 @@ impl Knowledge {
         let metric = metric.clone();
         self.caveats
             .values()
-            .filter(move |note| note.about().iter().any(|referent| *referent.metric() == metric))
+            .filter(move |note| note.about().iter().any(|referent| referent.metric() == Some(&metric)))
     }
     /// This bundle's knowledge, filtered down to what one caller may see - `docs/adr/0028`.
     ///
     /// Knowledge follows its structured referents rather than its prose: a glossary entry follows the
-    /// metric its `Referent` names, a caveat survives only when EVERY metric it refers to is visible,
-    /// and a worked example follows the metric in its `Query`. The caller's own view supplies what is
-    /// visible - a metric is visible iff it is both declared and granted - so this is metadata access
-    /// over the already-pinned bundle, never a new source of definitions.
+    /// metric or the model its `Referent` names, a caveat survives only when EVERY metric it refers to
+    /// is visible, and a worked example follows the metric in its `Query`. The caller's own view
+    /// supplies what is visible - a metric or a model is visible iff it is both declared and granted -
+    /// so this is metadata access over the already-pinned bundle, never a new source of definitions.
     ///
     /// **It takes a [`ScopedView`] rather than a predicate, and that is where the ADR rule lives.**
     /// `docs/adr/0028`'s all-referents rule is exactly "a note survives when every metric it refers
@@ -563,13 +620,13 @@ impl Knowledge {
             glossary: self
                 .glossary
                 .iter()
-                .filter(|(_, entry)| view.metric(entry.means().metric()).is_some())
+                .filter(|(_, entry)| visible(view, entry.means()))
                 .map(|(term, entry)| (term.clone(), entry.clone()))
                 .collect(),
             caveats: self
                 .caveats
                 .iter()
-                .filter(|(_, note)| note.about().iter().all(|referent| view.metric(referent.metric()).is_some()))
+                .filter(|(_, note)| note.about().iter().all(|referent| visible(view, referent)))
                 .map(|(name, note)| (name.clone(), note.clone()))
                 .collect(),
             // Withheld from any caller-scoped view: no catalog-wide audience is declared, and the
@@ -655,7 +712,7 @@ impl Knowledge {
         let mut indexed: Glossary = BTreeMap::new();
         for entry in entries {
             if let Some(fault) = fault_in(definitions, entry.means()) {
-                return Err(glossary_fault(&fault, entry.term(), entry.means().metric()));
+                return Err(glossary_fault(&fault, entry.term()));
             }
             // One entry against itself first. A synonym that is the term again, or two synonyms that
             // are one phrase, is an ambiguity inside a single document - and reporting it as
@@ -698,8 +755,14 @@ impl Knowledge {
                 });
             }
             for referent in note.about() {
+                if let Referent::Model { ref model } | Referent::Column { ref model, .. } = *referent {
+                    return Err(InconsistentKnowledge::CaveatAboutAModel {
+                        name: note.name().clone(),
+                        model: model.clone(),
+                    });
+                }
                 if let Some(fault) = fault_in(definitions, referent) {
-                    return Err(caveat_fault(&fault, note.name(), referent.metric()));
+                    return Err(caveat_fault(&fault, note.name()));
                 }
             }
             if let Some(existing) = indexed.insert(note.name().clone(), note) {
@@ -719,8 +782,8 @@ impl Knowledge {
         let mut indexed: Absences = BTreeMap::new();
         for note in notes {
             for phrase in note.phrases() {
-                if let Some(declared) = declared_as(definitions, phrase) {
-                    return Err(absence_fault(phrase, &declared));
+                if let Some(fault) = declared_as(definitions, phrase) {
+                    return Err(fault);
                 }
                 match claims.insert(phrase_identity(phrase), Claim::NotDefined) {
                     None => {}
@@ -845,66 +908,71 @@ impl Knowledge {
 }
 
 /// One fault, dressed as the glossary's own error.
-fn glossary_fault(fault: &ReferentFault<'_>, term: &Phrase, metric: &MetricName) -> InconsistentKnowledge {
+fn glossary_fault(fault: &ReferentFault<'_>, term: &Phrase) -> InconsistentKnowledge {
     let term = term.clone();
-    let metric = metric.clone();
     match *fault {
-        ReferentFault::UnknownMetric => InconsistentKnowledge::GlossaryUnknownMetric { term, metric },
-        ReferentFault::UnknownDimension { dimension } => InconsistentKnowledge::GlossaryUnknownDimension {
+        ReferentFault::UnknownMetric { metric } => InconsistentKnowledge::GlossaryUnknownMetric {
             term,
-            metric,
+            metric: metric.clone(),
+        },
+        ReferentFault::UnknownDimension { metric, dimension } => InconsistentKnowledge::GlossaryUnknownDimension {
+            term,
+            metric: metric.clone(),
             dimension: dimension.clone(),
         },
-        ReferentFault::ValueNotAllowed { dimension, value } => InconsistentKnowledge::GlossaryValueNotAllowed {
-            term,
+        ReferentFault::ValueNotAllowed {
             metric,
+            dimension,
+            value,
+        } => InconsistentKnowledge::GlossaryValueNotAllowed {
+            term,
+            metric: metric.clone(),
             dimension: dimension.clone(),
             value: value.clone(),
+        },
+        ReferentFault::UnknownModel { model } => InconsistentKnowledge::GlossaryUnknownModel {
+            term,
+            model: model.clone(),
+        },
+        ReferentFault::UnknownColumn { model, column } => InconsistentKnowledge::GlossaryUnknownColumn {
+            term,
+            model: model.clone(),
+            column: column.clone(),
         },
     }
 }
 
 /// One fault, dressed as a caveat's own error.
-fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName, metric: &MetricName) -> InconsistentKnowledge {
-    let name = name.clone();
-    let metric = metric.clone();
-    match *fault {
-        ReferentFault::UnknownMetric => InconsistentKnowledge::CaveatUnknownMetric { name, metric },
-        ReferentFault::UnknownDimension { dimension } => InconsistentKnowledge::CaveatUnknownDimension {
-            name,
-            metric,
-            dimension: dimension.clone(),
-        },
-        ReferentFault::ValueNotAllowed { dimension, value } => InconsistentKnowledge::CaveatValueNotAllowed {
-            name,
-            metric,
-            dimension: dimension.clone(),
-            value: value.clone(),
-        },
-    }
-}
-
-/// What the bundle declares under a phrase somebody recorded as undefined, dressed as the absence's
-/// own error.
 ///
-/// The same one-resolution-three-dressings shape [`glossary_fault`] uses, over the other direction:
-/// there the note names something that does not exist, here it says something that does exist does
-/// not.
-fn absence_fault(phrase: &Phrase, declared: &Referent) -> InconsistentKnowledge {
-    let phrase = phrase.clone();
-    let metric = declared.metric().clone();
-    match (declared.dimension(), declared.value()) {
-        (None, _) => InconsistentKnowledge::AbsenceNamesADefinedMetric { phrase, metric },
-        (Some(dimension), None) => InconsistentKnowledge::AbsenceNamesADeclaredDimension {
-            phrase,
-            metric,
+/// A caveat about a model or a column is refused before its referents are resolved, so the two model
+/// faults are dressed as that refusal - which is what such a caveat is, declared model or not.
+fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName) -> InconsistentKnowledge {
+    let name = name.clone();
+    match *fault {
+        ReferentFault::UnknownMetric { metric } => InconsistentKnowledge::CaveatUnknownMetric {
+            name,
+            metric: metric.clone(),
+        },
+        ReferentFault::UnknownDimension { metric, dimension } => InconsistentKnowledge::CaveatUnknownDimension {
+            name,
+            metric: metric.clone(),
             dimension: dimension.clone(),
         },
-        (Some(dimension), Some(value)) => InconsistentKnowledge::AbsenceNamesADeclaredValue {
-            phrase,
+        ReferentFault::ValueNotAllowed {
             metric,
+            dimension,
+            value,
+        } => InconsistentKnowledge::CaveatValueNotAllowed {
+            name,
+            metric: metric.clone(),
             dimension: dimension.clone(),
             value: value.clone(),
         },
+        ReferentFault::UnknownModel { model } | ReferentFault::UnknownColumn { model, .. } => {
+            InconsistentKnowledge::CaveatAboutAModel {
+                name,
+                model: model.clone(),
+            }
+        }
     }
 }

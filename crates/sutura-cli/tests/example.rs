@@ -592,7 +592,14 @@ mod tests {
         // difference between them is a governance decision rather than a formatting one.
         let pinned = load();
         settings().bind(|| {
-            insta::assert_snapshot!("example_prompt", prompt(&pinned, sutura_app::prompt::CatalogProse::Quoted));
+            let quoted = prompt(&pinned, sutura_app::prompt::CatalogProse::Quoted);
+            let (head, glossary) = quoted.split_at(
+                quoted
+                    .find("## The words a question may arrive in")
+                    .expect("glossary heading"),
+            );
+            insta::assert_snapshot!("example_prompt", head);
+            insta::assert_snapshot!("example_prompt_glossary", glossary);
             insta::assert_snapshot!(
                 "example_prompt_without_prose",
                 prompt(&pinned, sutura_app::prompt::CatalogProse::Omitted)
