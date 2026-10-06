@@ -1,0 +1,12 @@
+diff --git a/xtask/src/registry.rs b/xtask/src/registry.rs
+--- a/xtask/src/registry.rs
++++ b/xtask/src/registry.rs
+@@ -163,7 +163,7 @@
+         Self {
+             seeds: &[],
+             in_scope: None,
+-            paired: Some(pair),
++            paired: Some(pair).filter(|_| false),
+         }
+     }
+ }
