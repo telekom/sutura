@@ -172,16 +172,12 @@ let
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
       features = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
-      # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
-      # dependency of `sutura-cli` and the generator is what renders the statement that
-      # subcommand prints. Nothing extra to forbid here beyond the shared list below.
-      #
-      # **Also unaffected by the fold.** `sutura-serve` used to ban this edge for itself
-      # (`alsoForbidden = [ "polyglot-sql" ]`) because it had no legitimate reason to link the SQL
-      # generator and `sutura` did; folding the two into one binary makes that ban moot rather than
-      # something to carry over - the one binary that remains is the one that was always allowed to
-      # link it.
-      alsoForbidden = [ ];
+      # `tokio-postgres` is banned by name (`github.com/telekom/sutura#1246`). Since
+      # `github.com/telekom/sutura#913` stage 2 the shipped `postgres` feature answers over the
+      # ADBC driver, and `tokio-postgres` reaches this crate only as a dev-dependency and through
+      # `rdbms`, which `features` above does not ship. A change that ships `rdbms` removes this
+      # ban in the same diff, the way `permit` below lifts `ring` and `ureq`.
+      alsoForbidden = [ "tokio-postgres" ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
       # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
       # `datahub` and `openmetadata`, and each pulls `ring` and `ureq` - so this entry states BY NAME that
