@@ -550,11 +550,10 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # **What it costs the lock** is measured in `docs/adr/0018`'s nineteenth amendment: `ureq`,
 # `ureq-proto` and `utf8-zero` are the three packages only `ureq` brings, and its TLS stack
 # (`rustls`, `ring`, `webpki-roots` and the others) is reached through other first-party paths too.
-# Which artifact compiles it for the TARGET is the one that turns the `wire` feature on - see
-# `crates/sutura-exec-bigquery/Cargo.toml`.
+# A build compiles it for the TARGET when a feature it turns on brings in a crate that dials out
+# over it: this `wire` is one, the catalogs' `http` another, and `sutura-exec-clickhouse` a third.
 #
-# `default-features = false` and then back only what is used, and the set is the smallest
-# one the wire needs:
+# `default-features = false` and then back only what is used:
 #
 #   * `rustls` is the TLS stack, and NOT `native-tls`. Same reason `tokio-rustls` is above: two of
 #     the four release triples are musl, nixpkgs has no musl OpenSSL, and rustls needs no system

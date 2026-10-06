@@ -274,8 +274,8 @@ fn a_result_that_would_not_fit_the_materialisation_budget_is_refused_at_the_row_
     // A generous budget does not stop at the shape, and a budget designed to be crossed must cross
     // on a batch the adapter has actually read - so the test reads the result with a budget too
     // small to hold one batch, refuses, and checks that the refusal is the budget's own
-    // (`OverBudget`) and not a shape or type failure. The consequence on the port is asserted through `result_did_not_fit`, the predicate the router
-    // reads to refuse a caller.
+    // (`OverBudget`) and not a shape or type failure. The consequence on the port is asserted
+    // through `result_did_not_fit`, the predicate the router reads to refuse a caller.
     let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture(), budget()).expect("an in-memory database opens");
     let query = GeneratedQuery::literal(
         source(),

@@ -7,10 +7,11 @@
 //! this crate was not allowed to name an Arrow type in. `docs/adr/0039` reverses exactly that, so
 //! the Arrow half of the table is now HERE and the engine has no `cell` of its own.
 //!
-//! Nothing is duplicated against another adapter any more: `crates/sutura-exec-duckdb/src/tests.rs`
-//! reads the driver's Arrow batches through this same reader, so
-//! `every_type_this_adapter_maps_answers_what_the_engine_answers` asserts the engine's own answers
-//! against the table here and not against a second mapping.
+//! What is still written out twice is the EXPECTED column, not the mapping:
+//! `every_type_this_adapter_maps_answers_what_the_engine_answers` in
+//! `crates/sutura-exec-duckdb/src/tests.rs` reads the driver's Arrow batches through this same
+//! reader and compares them with a `cases` list of its own. A changed expectation reddens only the
+//! cell that holds it, and a changed reader reddens both for any type both write out.
 //!
 //! The alternative - one test calling both adapters - already exists as `tests/differential.rs` in
 //! `sutura-app`, which runs one plan through both and compares the rows. It can only see the types a
