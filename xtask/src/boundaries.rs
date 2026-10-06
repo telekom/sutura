@@ -76,6 +76,8 @@ mod ports;
 mod second_workspace;
 mod shared_client;
 mod ungoverned;
+#[cfg(test)]
+mod wrapper_cells;
 
 use crate::Verdict;
 
