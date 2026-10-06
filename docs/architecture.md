@@ -575,6 +575,16 @@ Four artifacts, two libc flavours on two architectures, each a distroless image 
 binary. `cargo xtask check-workflows` fails if a workflow names a build output that does not
 exist, and the `one-binary` check fails if an image carries more than the binary.
 
+The published binary carries every shipped feature. Nix compiles the ADBC drivers (Go and C) and
+links them into it: `just build`. In the development shell, a `cargo` build can name one feature:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+That build links no driver. It loads the driver from the file that the development shell names in
+`SUTURA_BIGQUERY_ADBC_DRIVER`.
+
 The musl artifacts replace the system allocator. musl's mallocng serialises the whole process on one
 lock word: `src/malloc/mallocng/glue.h` defines `rdlock` and `wrlock` as the same exclusive lock and
 `upgradelock` as a no-op, and `struct malloc_context` is a single global with no arenas and no
