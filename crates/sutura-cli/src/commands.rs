@@ -71,19 +71,20 @@ fn render_filters(filters: &[RequiredFilter]) -> String {
     filters.iter().map(ToString::to_string).collect::<Vec<String>>().join(", ")
 }
 
-/// The name the CLI's single catalog is recorded under in its contribution manifest.
+/// The name the contribution manifest records this catalog under, and so part of its digest.
 ///
-/// The CLI reads a raw directory and is markdown by construction - there is no `catalogs:`
-/// declaration to dispatch, and therefore no name an operator wrote. It still needs a manifest key,
-/// because a single-source deployment carries a one-entry manifest, so it is a constant here the way
-/// [`crate::sources::BUILT_IN_SOURCE`] is for the data side.
-///
-/// The two spell the same word and are not the same declaration: this one names where the DEFINITIONS
-/// came from, and that one names the data system a question executes against. A deployment can
-/// declare the second in its `sources:` tree under any name it likes; nothing declares this one,
-/// because the `sutura` command reads a raw directory of markdown and there is no `catalogs:` entry
-/// to carry an operator's name for it.
-pub(crate) const CATALOG_SOURCE: &str = "local";
+/// The first catalog the resolved configuration declares - the embedded default (`model`) unless a
+/// configuration directory says otherwise - so `sutura catalog <dir>` and a served deployment of the
+/// same directory print one digest. A command-line tool reads one directory, so with several
+/// declared catalogs it cannot reproduce the composed digest a server reports.
+fn catalog_name() -> Result<SourceName, String> {
+    crate::sources::configured()?
+        .catalogs()
+        .each()
+        .next()
+        .map(|catalog| catalog.name().clone())
+        .ok_or_else(|| String::from("the configuration declares no catalog to name this directory"))
+}
 
 /// The catalog a command reads, built from its directory on the command line.
 ///
@@ -94,8 +95,7 @@ pub(crate) const CATALOG_SOURCE: &str = "local";
 pub(crate) fn catalog_reader(root: &Path) -> Result<LocalCatalog, String> {
     let version =
         DefinitionVersion::parse(DEFAULT_VERSION).map_err(|e| format!("the built-in default version is not a version: {e}"))?;
-    let name = SourceName::parse(CATALOG_SOURCE).map_err(|e| format!("the built-in catalog name is not a name: {e}"))?;
-    Ok(LocalCatalog::new(name, PathBuf::from(root), version))
+    Ok(LocalCatalog::new(catalog_name()?, PathBuf::from(root), version))
 }
 
 /// Reads a catalog directory into a pinned bundle.

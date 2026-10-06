@@ -578,7 +578,7 @@ fn pin(definitions: sutura_domain::catalog::Definitions) -> PinnedDefinitions {
         definitions,
         sutura_domain::knowledge::Knowledge::none(),
         ContributionManifest::single(
-            SourceName::parse(crate::commands::CATALOG_SOURCE).expect("the built-in catalog name is a name"),
+            SourceName::parse("model").expect("a catalog name is a name"),
             Contribution::of(sutura_domain::capabilities::MetadataCapabilities::nothing()),
         ),
     )
