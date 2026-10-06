@@ -16,10 +16,10 @@
 # `nix/bigquery-driver-check.sh` executes both release binaries on x86_64-linux and
 # reads what they say; this only builds.
 #
-# The one vendor hash covers all four triples: each triple realises a separate
-# Go-modules fixed-output derivation, but they all fetch the same resolved module
-# set (independent of libc/arch on linux), so they agree on one sha256. This was
-# measured, not asserted.
+# The one vendor hash covers all four triples and the darwin host's own: each
+# realises a separate Go-modules fixed-output derivation, but they all fetch the
+# same resolved module set (independent of libc and arch), so they agree on one
+# sha256. This was measured, not asserted - on aarch64-darwin for the host's.
 { pkgs, bigqueryAdbcGoSource, buildDriver }:
 # `buildDriver` is `import ./bigquery-adbc.nix`; `pkgs` is the HOST package set.
 let
@@ -42,10 +42,15 @@ let
       };
     };
 in
-# Every triple is cross-built uniformly through `pkgsCross`, exactly as
+# Every release triple is cross-built uniformly through `pkgsCross`, exactly as
 # `nix/shipped.nix` does - none is the host aliased to itself, because a driver
 # named for a release triple must actually target it.
 driver { triple = "x86_64-unknown-linux-gnu"; crossPkgs = pkgs.pkgsCross.gnu64; }
 // driver { triple = "aarch64-unknown-linux-gnu"; crossPkgs = pkgs.pkgsCross.aarch64-multiplatform; }
 // driver { triple = "aarch64-unknown-linux-musl"; crossPkgs = pkgs.pkgsCross.aarch64-multiplatform-musl; }
 // driver { triple = "x86_64-unknown-linux-musl"; crossPkgs = pkgs.pkgsCross.musl64; }
+# A darwin host's own, built natively and keyed by the triple `nix/shipped.nix`'s native build
+# looks up, so `nix build .#sutura` on a Mac links it as a linux build does (telekom/sutura#1295).
+# Not a release triple: no release publishes a darwin binary.
+// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin
+  (driver { triple = pkgs.stdenv.hostPlatform.rust.rustcTarget; crossPkgs = pkgs; })

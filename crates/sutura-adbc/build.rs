@@ -37,7 +37,14 @@
 //! and each directory is the whole contract.
 
 fn main() {
-    link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
+    let bigquery = link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
+    if bigquery && std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos") {
+        // A darwin Go archive leaves its runtime's system imports to the final link: x509 roots
+        // through CoreFoundation and Security, the DNS resolver through libresolv (`nm -u go.o`).
+        for lib in ["framework=CoreFoundation", "framework=Security", "resolv"] {
+            println!("cargo::rustc-link-lib={lib}");
+        }
+    }
     let postgres = link(POSTGRES_ARCHIVE_DIR, POSTGRES_ARCHIVES, "adbc_postgres_driver_linked");
     let duckdb = link(DUCKDB_ARCHIVE_DIR, DUCKDB_ARCHIVES, "adbc_duckdb_driver_linked");
     if postgres || duckdb {

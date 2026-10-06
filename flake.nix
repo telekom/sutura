@@ -568,7 +568,8 @@
           # so `buildInputs = [ ]` exited 0 over zero drivers - and so does any
           # expected count DERIVED from the same list (`0 -eq 0`). The floor is
           # therefore a literal: four is what `nix/bigquery-adbc-drivers.nix`
-          # declares, and a fifth triple has to fail here until somebody bumps it,
+          # declares (five on a darwin host, which also builds its own), and a
+          # further triple has to fail here until somebody bumps it,
           # which is the right amount of friction for a release-artefact set.
           # `attrValues` rather than four hand-written attribute names so this gate
           # cannot name a driver the driver file no longer builds.
@@ -591,6 +592,7 @@
           # `x86_64-linux` only.
           adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
             buildInputs = builtins.attrValues adbcDrivers;
+            declared = if pkgs.stdenv.hostPlatform.isDarwin then 5 else 4;
           } ''
             found=0
             for d in $buildInputs; do
@@ -600,8 +602,8 @@
               done
               found=$((found + 1))
             done
-            test "$found" -eq 4 \
-              || { echo "built $found ADBC driver triples and this release declares 4" >&2; exit 1; }
+            test "$found" -eq "$declared" \
+              || { echo "built $found ADBC driver triples and this system declares $declared" >&2; exit 1; }
             mkdir -p "$out"
             printf '%d ADBC driver triples built\n' "$found" > "$out/result"
           '';
