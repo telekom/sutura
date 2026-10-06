@@ -48,8 +48,10 @@ hook runner lives in, warms `xtask` so your first commit is not a cold compile, 
 `doctor`. It is idempotent, so re-run it whenever an environment file changes.
 
 **Hook tiers.** A hook that is too slow for its stage gets switched off, so each stage runs only what
-it can afford. `cargo xtask check-hook-tiers` holds the push and commit rows below; a hook is
-bypassable with `--no-verify`, so this is a tier policy rather than an invariant.
+it can afford. `cargo xtask check-hook-tiers` reads `.pre-commit-config.yaml` and nothing else: it
+holds the stages that file declares, not the table below, which can drift from the config with every
+gate green. A hook is bypassable with `--no-verify`, so this is a tier policy rather than an
+invariant.
 
 | Stage        | Runs                                                                                           | Does not run                                                 |
 | ------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |

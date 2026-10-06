@@ -127,7 +127,8 @@ filter = "package(sutura-app) & test(=tests::leg_executing_data_systems_agree_wi
 slow-timeout = { period = "60s", terminate-after = 2 }
 
 [[profile.default.overrides]]
-# STOPGAP for a load flake that reds every local commit hook (pre-commit runs the full nextest).
+# STOPGAP for a load flake that reds the suite in `just test`, `just validate` and CI; no commit
+# hook runs it any more. The cell was measured when one still did.
 # `every_paired_gate_passes_its_real_inputs_and_refuses_one_violation` ran into the 300s ceiling
 # (300.04s, 300.08s and 300.02s in three separate commit-hook runs on 10-06, five lanes sharing
 # the host), and its sibling paired-gate cells measured 99-222s in a four-cell run under load.
