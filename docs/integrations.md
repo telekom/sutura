@@ -39,7 +39,7 @@ A data source executes a compiled plan. The `Warehouse` port is synchronous and 
 | ---------- | ------------------------ | ------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                                         | per subject - `PerSubjectCredential`                       |
 | Postgres   | `sutura-exec-postgres`   | yes     | yes                                                         | one declared shared service account - `NoPlaceForASubject` |
-| DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                                         | one process identity - `NoPlaceForASubject`                |
+| DuckDB     | `sutura-exec-duckdb`     | yes     | yes, behind a default-off `duckdb` feature; see below       | one process identity - `NoPlaceForASubject`                |
 | DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer               | one process identity - `NoPlaceForASubject`                |
 | ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature              | one declared shared service account - `NoPlaceForASubject` |
 | Oracle     | `sutura-exec-oracle`     | yes     | declarable behind a default-off `oracle` feature; see below | one declared shared service account - `NoPlaceForASubject` |
@@ -62,6 +62,16 @@ database agreed to. It signs in only as its declared shared service account - `N
 an `impersonation-at-source` declaration is refused at the composition root with the reason that no
 build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
 work lands.
+
+**DuckDB is the local kind: one database file, opened read-only, raw SQL included.** A
+`kind: duckdb` source names one absolute `database_file`, and a build carrying the `duckdb`
+feature opens it - default-off, and in no published binary, so a build without it refuses the kind
+by name. The file is opened read-only with external access off and the configuration locked, which
+is what a raw `run_sql` statement on it runs under ([Serving](serving.md#the-raw-sql-tool-over-a-duckdb-source)
+says what that refuses and what it does not). The golden row runs against a file opened that way. It
+executes as the one process that holds the file - `NoPlaceForASubject`, so an
+`impersonation-at-source` declaration is refused at the composition root. Its deadline is carried,
+not enforced, until the #1236 watchdog lands (`docs/adr/0029`).
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,

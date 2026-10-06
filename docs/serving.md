@@ -1140,6 +1140,69 @@ directly:**
 - **Which of several open sources a statement runs against.** This build targets the sole registered
   data system and refuses rather than guesses where more than one is open; naming one is future work.
 
+### The raw SQL tool over a duckdb source
+
+A local `DuckDB` database file is the zero-infrastructure source for `run_sql`: no server, no role,
+no password. It needs a build carrying the `duckdb` feature (default-off, in no published binary):
+
+```yaml
+sources:
+  local:
+    kind: duckdb
+    database_file: /srv/sutura/warehouse.duckdb
+    posture: shared-service-user
+tools:
+  run_sql:
+    enabled: true
+```
+
+Everything the postgres section above says this service enforces holds here too: the switch and the
+scope, the wire shape with no provenance, the row cap, the multi-user boot refusal and the audit
+record. **What differs is what bounds the statement.** There is no role to grant. The file is opened
+with two options, and two settings are made on it before anything else runs. Each is measured
+against the pinned driver by a cell in `crates/sutura-exec-duckdb/tests/raw.rs` that is red without
+it:
+
+- `access_mode = READ_ONLY`: no write and no DDL takes effect, and a file that is not there is
+  refused at boot rather than created.
+- `enable_external_access = false`: nothing outside the database is read or written - `ATTACH`,
+  `COPY ... TO`, `EXPORT DATABASE`, `read_csv`, `read_parquet`, `read_text`, `glob`, `INSTALL` and
+  `LOAD` are refused. **On the pinned driver the disabled local file system below refuses each of
+  these first**, so no refusal is this option's alone and its cell asserts the setting; it is the
+  barrier for a network file system, which the pinned driver does not link.
+- `SET disabled_filesystems = 'LocalFileSystem'`: no local file is opened once the database is, so
+  the declared file's own bytes - pages a `SELECT` no longer shows included - are not readable
+  either, which external access alone leaves open. A setting rather than an option because the
+  pinned driver (`nix/duckdb.nix`) refuses it at open: DuckDB sets it only on a running database.
+  Both settings are the database's, so each cell asserts its refusal on a connection opened after
+  the open returned, the kind a question runs on.
+- `SET lock_configuration = true`, last: no `SET` or `RESET` of an instance-wide setting (the three
+  above, threads, memory, the spill directory), which would otherwise outlive the statement for
+  every later call.
+
+**Those settings, not a parse of the text, are the barrier.** The driver runs every statement of a
+string but the last while preparing it, so `drop table t; select 1` is two statements and both run -
+under the settings, which refuse the first. Unlike the postgres source, one call is not one statement.
+
+The byte cap is `runtime.working_set_max_bytes`, spent while the result is read: a result over it is
+refused as `result_too_large`.
+
+**What this does not reach:**
+
+- **The deadline is carry-only until #1236 lands** (`docs/adr/0029`). A budget spent before the call
+  is refused; a statement that starts runs until it ends, holding its admission slot.
+- **Spilling to disk is not measured.** The spill directory is a local file system, which this open
+  disables, so a statement too large for memory is expected to fail rather than spill.
+- **What lives and dies with one call's connection is allowed**: a `TEMP` table or a session setting.
+  Each call opens its own connection, so neither reaches the next call.
+- **A refused statement answers `statement_failed`, never `source_refused`**: the driver's error
+  carries nothing this adapter classifies, so a write refused by the read-only open reads the same as
+  a syntax error.
+- **`DuckDB`'s own memory is bounded by its default `memory_limit`**, not by
+  `runtime.working_set_max_bytes`.
+- **One source.** `run_sql` answers only where this is the deployment's sole source; a deployment with
+  a second source, of any kind, has no raw tool to run, as above.
+
 ### Address families
 
 `server.host` takes an address of either family. `127.0.0.1` and `::1` are both recognised as

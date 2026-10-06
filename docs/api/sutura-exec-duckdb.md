@@ -21,12 +21,14 @@ engine library defines `duckdb_adbc_init` - so the driver is the archive this ar
 arrives as Arrow batches and is handed on as the driver typed it: which types answer is decided
 once, by the domain's reader (`ResultBatches::to_rows`), for every Arrow adapter alike.
 
-Two things this adapter deliberately does not offer:
-
-**No arbitrary SQL entry point.** `DuckDbWarehouse::execute` takes an `Executable` and renders
-the statement itself, into a `GeneratedQuery` that carries its parameters separately. There is
-no method that takes a string. A development affordance that ran a statement somebody typed would
-be the shortest path around every check upstream of here.
+**A raw statement runs only on a database `DuckDbWarehouse::open` opened** (`docs/adr/0013`).
+`DuckDbWarehouse::execute` takes an `Executable` and renders the statement itself; the one door
+a caller's text reaches is `Warehouse::execute_raw`, and it answers `None` on a database
+`DuckDbWarehouse::in_memory` opened. A file is opened with `READ_ONLY` and then
+`THEN_LOCKED`: no write, no file or network outside the database, no extension, and the
+configuration locked so no statement can turn any of that back. **Those settings, not a parse of
+the text, are the barrier**: the driver runs every statement of a string but the last while
+preparing it, before anything here could look.
 
 **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and
 although this adapter has no row-level security to leak through, adding a cache here would be the
@@ -34,12 +36,17 @@ place the habit started.
 
 ## Limits
 
-- **The deadline is carried, not enforced** (`docs/adr/0029`): the driver's `ConnectionCancel`
-  interrupts a running statement, and honouring the deadline needs a watchdog per call
-  (`telekom/sutura#1236`).
+- **The deadline is carried, not enforced** (`docs/adr/0029`), on the raw path too: the driver's
+  `ConnectionCancel` interrupts a running statement, and honouring the deadline needs a watchdog
+  per call (`telekom/sutura#1236`). Until that lands, a raw statement runs until it ends.
 - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
-  the last (the pinned `StatementSetSqlQuery`). Only rendered statements and this crate's own
-  `attach_*` views reach it, each one statement.
+  the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; `READ_ONLY` and
+  `THEN_LOCKED` are what each of them runs under.
+- **What those leave a raw statement**: reading the declared database's tables, and
+  objects that live and die with its own connection (a `TEMP` table, a session setting).
+  `DuckDB`'s own `memory_limit` is its default, not `runtime.working_set_max_bytes`, and spilling
+  is unmeasured: no local file opens after the database does, so a statement too large for
+  memory is expected to fail rather than spill.
 - **A certified answer is handed on unread**, so a `REAL`, a non-finite `DOUBLE` or an unmapped
   type is refused by the domain's reader downstream rather than as a `DuckDbError`.
 
@@ -147,10 +154,12 @@ feature.
 pub fn in_memory(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, DuckDbError>
 ```
 
-Opens a database that exists only for this process.
+Opens a database that exists only for this process, WRITABLE - so it accepts no raw statement.
 
-What the golden suite uses: a fixture that is built from a committed CSV every run cannot
-drift from the CSV, and a database file in the repository would be a binary nobody reviews.
+What the conformance packs and the differential use, attaching views over committed CSVs: a
+fixture built from a committed CSV every run cannot drift from the CSV, and a database file
+in the repository would be a binary nobody reviews. The golden row opens `Self::open`
+instead, over a file `write_database` wrote.
 **The posture is a parameter and has no default**, for the reason the port gives: a defaulted
 posture would be a claim about who a query runs as that nobody made.
 
@@ -162,17 +171,35 @@ As `Self::open`.
 pub fn open(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, path: &Path, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, DuckDbError>
 ```
 
-Opens a database file.
+Opens a database file with `READ_ONLY`, then runs `THEN_LOCKED` on it: the one constructor
+a raw statement can run on.
 
 # Errors
 
 `DuckDbError::NoDriver` or `DuckDbError::Load` where there is no driver, and
-`DuckDbError::Open` where the database does not open - a path that is not UTF-8 included,
-refused rather than converted lossily into a path that names another file.
+`DuckDbError::Open` where the database does not open - a file that is not there included,
+since a read-only open creates nothing, a path that is not UTF-8, and a `THEN_LOCKED`
+statement the driver refused.
 
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `fn write_database`
+
+```rust
+pub fn write_database(path: &std::path::Path, tables: &[(sutura_domain::model::TableName, std::path::PathBuf)]) -> Result<(), DuckDbError>
+```
+
+Writes a database file holding one table per CSV, for a fixture to `DuckDbWarehouse::open`.
+
+Typed the way `DuckDbWarehouse::attach_csv` types a view. Available only with the default-off
+`fixtures` feature.
+
+# Errors
+
+`DuckDbError::Open` where the file cannot be created, and `DuckDbError::Attach` where a CSV
+cannot be read.
 
 ## `constant MOUNTED_DRIVER`
 
@@ -180,3 +207,29 @@ The variable a host that links no driver names a mounted `libduckdb` with.
 
 **Not a settings key**, for `sutura-adbc-postgres`'s `MOUNTED_DRIVER` reason: which driver file a
 host carries is a property of the host, and a build that links one never reads this.
+
+## `constant READ_ONLY`
+
+The options `DuckDbWarehouse::open` hands the driver with a database file's path.
+
+Each is measured against the pinned driver by `tests/raw.rs`, with a cell there that is red
+without it. `access_mode` refuses a write or DDL. `enable_external_access` refuses every file and
+network read or write outside the database and every extension install or load (`ATTACH`,
+`COPY ... TO`, `read_csv`, `glob`, `INSTALL`, `LOAD`) - **and so does `THEN_LOCKED`'s disabled
+local file system, first**, so on the pinned driver no refusal is external access's alone and its
+cell asserts the setting rather than an effect. It stays for the file system that is not local:
+a network one a driver build links, which the pinned one does not. `DuckDB` itself refuses
+turning either option back while the database is open, locked or not.
+
+## `constant THEN_LOCKED`
+
+What `DuckDbWarehouse::open` runs on the database once it is open, in order, before the
+handle exists for anyone to call.
+
+`disabled_filesystems` refuses a read of the database's OWN file as bytes, which external access
+alone leaves open, and `lock_configuration` - last, so it locks what came before - a `SET` of an
+instance-wide setting, which would otherwise outlive the statement for every later call. Each
+has a cell in `tests/raw.rs` that is red without it. **Statements, not open options**: the pinned
+driver refuses `disabled_filesystems` as an option ("Failed to set configuration option" -
+`DuckDB` sets it only on a running database), and a lock handed over at open would refuse the
+`SET` after it. So a lock moved first fails the open, rather than leaving the file system on.

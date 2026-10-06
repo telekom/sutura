@@ -147,7 +147,8 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         instead: "the engine ships. `sutura query` opens a `DataFusionWarehouse` over the Parquet, \
                   CSV and NDJSON files in the directory it was given - each text format plain or \
                   compressed, Parquet first; `sutura-exec-duckdb` is a DEV-dependency of \
-                  `sutura-app`'s tests. `docs/architecture.md`'s table is the inventory",
+                  `sutura-app`'s tests and, behind `sutura-cli`'s default-off `duckdb` feature, \
+                  what a `kind: duckdb` source opens. `docs/architecture.md`'s table is the inventory",
         only: &[],
         except: &[],
     },

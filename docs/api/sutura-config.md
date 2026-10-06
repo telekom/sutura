@@ -5249,6 +5249,12 @@ legitimate one.
 
   Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
   included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
+- `Duckdb` - A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
+
+  Declarable and openable behind the `duckdb` feature, `Postgres`'s shape. One process holds the
+  file under its own operating-system identity, so `sutura_exec_duckdb`'s
+  `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
+  refused at the composition root's posture cross-check.
 
 #### Methods
 
@@ -5910,6 +5916,7 @@ be skipped" look like the same sentence and are not.
   caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
   widens, so no declared `transport_anchors` could be what the source verifies against. A field
   here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+- `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
 
 ##### Methods
 

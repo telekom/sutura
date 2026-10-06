@@ -1,5 +1,5 @@
 //! The ONE `DuckDB` composition, shared by both of this crate's composition roots - `crate::oracle`'s
-//! shape, for its reason: [`build`] is the only place a declared `duckdb` entry becomes an open
+//! shape, for its reason: `build` below is the only place a declared `duckdb` entry becomes an open
 //! `sutura_domain::warehouse::Warehouse`, so the posture cross-check and the read-only open cannot
 //! differ between `sutura serve` and `sutura query`/`mcp`.
 //!
