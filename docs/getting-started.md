@@ -214,10 +214,11 @@ Recurring revenue in the month, in minor units, from active subscriptions only.
 | `dimensions[].values` | The values a filter may use. A dimension without `values` is group-by only.                     |
 | `anchor`              | Optional. A date range and its certified value. Sutura checks it at startup.                    |
 
-A catalog is held to carrying everything the format can express. A narrower one, which would be
-refused as `Unprovided`, states what it supplies in one `kind: declaration` document (at most one
-per directory): `definitions:` must list `structure`, and `may_provide:` and `knowledge:` are
-optional. `sutura import wren` writes one.
+A catalog with no declaration must carry every kind the format can express, except column types
+and column descriptions. A narrower one, which would be refused as `Unprovided`, states what it
+supplies in one `kind: declaration` document (at most one per directory): `definitions:` must list
+`structure`, `knowledge:` is required and may be `[]`, and `may_provide:` is optional.
+`sutura import wren` writes one.
 
 The data is one file for each model in the data directory: `<table>.parquet` or `<table>.csv`.
 
