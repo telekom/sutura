@@ -103,9 +103,9 @@ where
 ///
 /// **And the declaration the bundle RECORDS is held too**, because that is the one a deployment
 /// has: `sutura_app::assemble` checks each manifest entry, never the type's associated function.
-/// The two differ for a catalog that narrows per load - the wren row's tree is read by
-/// `LocalCatalog`, whose type declares every kind while the tree holds no cardinality
-/// (`github.com/telekom/sutura#1278`).
+/// The two differ for a tree that states its own declaration - the wren row's tree is read by
+/// `LocalCatalog`, whose type declares every kind while the importer's `declaration.md` declares
+/// what it wrote (`github.com/telekom/sutura#1278`).
 fn provides_exactly_what_it_declares<C>()
 where
     C: CatalogUnderTest,
@@ -123,6 +123,15 @@ where
             recorded.capabilities().checked_against(&produced),
             Ok(()),
             "the {} catalog records a declaration for {source} that its bundle does not hold",
+            C::NAME
+        );
+        // The bundle's own knowledge declaration is the one the prompt renders, so a recorded
+        // declaration narrower than it would tell the agent a list is kept that the source never
+        // declared.
+        assert_eq!(
+            recorded.capabilities().knowledge(),
+            pinned.knowledge().declares(),
+            "the {} catalog records knowledge for {source} that its bundle declares differently",
             C::NAME
         );
     }

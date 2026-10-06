@@ -2,6 +2,15 @@
 source: crates/sutura-cli/tests/import_wren.rs
 expression: snapshot
 ---
+=== declaration.md ===
+---
+kind: declaration
+definitions: [structure, descriptions]
+may_provide: [relationships, metrics, grains, column_types]
+knowledge: []
+---
+What `sutura import wren` can write. Widen these lists in the same change that adds a kind the
+converter did not write - a glossary note, for one - or this catalog refuses to load or compose.
 === metrics/sales_summary.md ===
 ---
 kind: cube

@@ -758,41 +758,60 @@ mod tests {
         dir
     }
 
-    /// A composition refusal whose `Display` names none of what went wrong: two catalogs under one
-    /// name compose to `CompositionError::Manifest`, and only its `#[source]`,
-    /// `InvalidManifest::DuplicateSource`, names the source. `cause.to_string()` alone would drop
-    /// it; `flatten` walks the chain.
-    ///
-    /// This cell used to provoke `CompositionError::Unfaithful` with a one-model tree, which only
-    /// refused because `LocalCatalog` recorded every kind its format can carry. It records what the
-    /// tree holds since `github.com/telekom/sutura#1278`, so that tree composes.
+    /// `LocalCatalog::capabilities` declares `MetadataCapabilities::everything()` regardless of a
+    /// given directory's content, so a directory holding one model and no relationships composes
+    /// to a `CompositionError::Unfaithful` naming `DefinitionKind::Relationships` - the kind
+    /// `UnfaithfulDeclaration::Unprovided` already carries as a field. Before this fix,
+    /// `cause.to_string()` rendered only `CompositionError::Unfaithful`'s own message, which does not
+    /// interpolate that field, and the kind was reachable only by walking the `#[source]` chain.
     #[test]
-    fn a_composition_refusal_names_what_only_its_cause_carries() {
-        let roots = [("orders", "fct_order"), ("customers", "dim_customer")].map(|(model, table)| {
-            let root = scratch(model);
-            std::fs::write(
-                root.join("model.md"),
-                format!(
-                    "---\nkind: model\nname: {model}\nsource: local\ntable: {table}\ncolumns: [id]\n---\nOne row per {model}.\n"
-                ),
-            )
-            .expect("a document is writable");
-            root
-        });
-        let catalogs = roots.clone().map(|root| {
-            LocalCatalog::new(
-                SourceName::parse("twice").expect("a test name is a name"),
-                root,
-                DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            )
-        });
-        let message = load_each(&catalogs).expect_err("two catalogs under one name are not a manifest");
-        for root in roots {
-            drop(std::fs::remove_dir_all(root));
-        }
+    fn a_composition_refusal_names_the_kind_it_already_carries() {
+        let root = scratch("unfaithful");
+        std::fs::write(
+            root.join("model.md"),
+            "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents]\n---\n\
+             Orders, one row per order.\n",
+        )
+        .expect("a document is writable");
+        let catalog = LocalCatalog::new(
+            SourceName::parse("test").expect("a test name is a name"),
+            root.clone(),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        );
+        let message = load_each(&[catalog]).expect_err("one model with no relationships is not everything");
+        drop(std::fs::remove_dir_all(&root));
         assert!(
-            message.contains("two contributions name the source `twice`"),
-            "the flattened message should name the duplicated source: {message}"
+            message.contains("relationships"),
+            "the flattened message should name the undersupplied kind: {message}"
+        );
+    }
+
+    /// A tree's own `kind: declaration` document is held to its content at composition, so a
+    /// hand-written one cannot over-claim (`github.com/telekom/sutura#1278`).
+    #[test]
+    fn a_declaration_document_that_over_claims_does_not_compose() {
+        let root = scratch("over-claims");
+        std::fs::write(
+            root.join("model.md"),
+            "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents]\n---\n\
+             Orders, one row per order.\n",
+        )
+        .expect("a document is writable");
+        std::fs::write(
+            root.join("declaration.md"),
+            "---\nkind: declaration\ndefinitions: [structure, descriptions, relationships]\nknowledge: []\n---\n",
+        )
+        .expect("a document is writable");
+        let catalog = LocalCatalog::new(
+            SourceName::parse("test").expect("a test name is a name"),
+            root.clone(),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        );
+        let message = load_each(&[catalog]).expect_err("a tree declaring relationships it lacks does not compose");
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            message.contains("declares relationships, and the bundle carries none"),
+            "the refusal should name the over-claimed kind: {message}"
         );
     }
 }

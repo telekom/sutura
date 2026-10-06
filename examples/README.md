@@ -34,14 +34,15 @@ principal" holds trivially: a local file has no login to present. That makes it 
 right shape for learning the format, and it is also exactly the claim that a laptop
 cannot test.
 
-**`authored-sql/`** is a catalog that uses the author's named SQL escape hatch AND composes: one
-metric whose `authored_sql:` combines two aggregates in a form the closed measure vocabulary does not
-carry, one ordinary closed-vocabulary metric beside it, a second model and the relationship between
-them, and the CSVs the two models describe. The second metric, the relationship, the dimension
-reached through it and the four knowledge documents date from when `LocalCatalog` recorded every
-kind its format can carry, which refused a one-model, one-metric version at composition; since
-`github.com/telekom/sutura#1278` it records what the directory carries, so they are no longer what
-makes composition succeed, and they stay off the authored metric itself. What it
+**`authored-sql/`** is the smallest catalog that uses the author's named SQL escape hatch AND still
+composes: one metric whose `authored_sql:` combines two aggregates in a form the closed measure
+vocabulary does not carry, one ordinary closed-vocabulary metric beside it, a second model and the
+relationship between them, and the CSVs the two models describe. It is not smaller than that because
+`LocalCatalog::capabilities()` declares every kind this format can carry
+(`MetadataCapabilities::everything()`), so composing this directory into a servable bundle refuses a
+one-model, one-metric version of it for an undeclared kind before ever reaching the authored-SQL
+check - the second metric, the relationship, the dimension reached through it and the four knowledge
+documents are what makes composition succeed, kept off the authored metric itself. What it
 demonstrates is admission and refusal, and nothing more: the catalog composes, the fragment sits
 under the definition digest exactly as written, and every adapter this repository ships then refuses
 to start on the bundle, naming the metric - no published code compiles the SQL or checks it against

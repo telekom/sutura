@@ -1,23 +1,24 @@
 # Authored SQL
 
-A catalog that uses the named escape hatch of
+The smallest catalog that uses the named escape hatch of
 [A named escape hatch for authored SQL](../../docs/adr/0004-a-named-escape-hatch-for-authored-sql.md)
-and composes: two models, one relationship between them, one metric whose computation is SQL an
-author wrote, one ordinary closed-vocabulary metric on the same model, the four knowledge documents,
-and the CSVs the two models describe.
+and still composes: two models, one relationship between them, one metric whose computation is
+SQL an author wrote, one ordinary closed-vocabulary metric on the same model, the four knowledge
+documents every kind needs, and the CSVs the two models describe.
 
-**Why it is not one model and one metric - a reason that no longer holds.** Composing this directory
-into a servable bundle runs `sutura_app::assemble::assemble` before it ever reaches the authored-SQL
-check, and that function refuses a contributor whose content does not produce every kind it
-declares. `LocalCatalog` used to record `MetadataCapabilities::everything()` for every directory, so
-a one-model, one-metric catalog failed there. So the directory carries a relationship
-(`order_customer`), a dimension reached through it (`region`, with an allowed-value list), a
-required filter and an anchor (all on `orders_total`, the closed-vocabulary metric) and one document
-under each of `knowledge/glossary`, `knowledge/caveats`, `knowledge/not-defined` and
-`knowledge/examples`, kept off the authored metric itself so `order_value_spread` stays exactly what
-the escape hatch decision describes. Since `github.com/telekom/sutura#1278` the adapter records only
-what the directory carries (`crates/sutura-catalog-local/src/lib.rs`), so the smaller catalog no
-longer fails at composition.
+**Why it is not one model and one metric.** `LocalCatalog::capabilities()` declares
+`MetadataCapabilities::everything()` - every definition kind and every knowledge capability this
+adapter format can carry, unconditionally (`crates/sutura-catalog-local/src/lib.rs`). Composing this
+directory into a servable bundle runs `sutura_app::assemble::assemble` before it ever reaches the
+authored-SQL check, and that function refuses a contributor whose content does not produce every
+kind it declares - a one-model, one-metric catalog fails there as
+`the catalog contributions do not compose`, naming the first undeclared kind, before the authored
+metric is ever looked at. So the directory carries a relationship (`order_customer`), a dimension
+reached through it (`region`, with an allowed-value list), a required filter and an anchor (all on
+`orders_total`, the closed-vocabulary metric) and one document under each of `knowledge/glossary`,
+`knowledge/caveats`, `knowledge/not-defined` and `knowledge/examples` - the minimum this format's
+reference adapter needs to compose at all, kept off the authored metric itself so
+`order_value_spread` stays exactly what the escape hatch decision describes.
 
 **What loading it proves, and what it does not.** `order_value_spread`'s document writes
 `authored_sql:` and no `measure:`; writing both, or neither, is a load failure. The fragment is
