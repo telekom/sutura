@@ -162,6 +162,29 @@ fn a_rdbms_catalog_with_a_missing_tls_anchor_bundle_is_refused_naming_it() {
     );
 }
 
+/// `transport_anchors: system` on a catalog connection is refused at boot: libpq's `system` store is
+/// not the host store sutura reads. The refusal comes from the shared connector, so this cell holds
+/// that the catalog's `verified` arm hands it the declared anchors rather than dialling regardless.
+/// `mutual` TLS is not exercised here: it needs a live TLS server.
+#[test]
+fn a_rdbms_catalog_declaring_the_system_trust_store_is_refused_naming_it() {
+    let scratch = ScratchDir::prepared();
+    let password_file = readable_password_file(&scratch);
+    let connection = format!(
+        "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
+         user: \"reader\"\n      password_file: \"{}\"\n      \
+         transport_mode: \"verified\"\n      transport_anchors: \"system\"\n",
+        password_file.display(),
+    );
+    let err =
+        crate::catalog::open_catalog(&catalogs(&connection), None).expect_err("the system trust store is a composition refusal");
+    assert!(
+        err.contains("`catalogs.dictionary.connection` cannot be dialled as declared")
+            && err.contains("`transport_anchors: system`"),
+        "the refusal names the catalog and the key: {err}"
+    );
+}
+
 /// `dialect: oracle` opens the Oracle documentation-schema reader - without dialling, as the
 /// Postgres one does not either - while `native_dictionary`, which no reader in this build reads, is
 /// refused naming the catalog and the key rather than opened as the documentation-schema reader.

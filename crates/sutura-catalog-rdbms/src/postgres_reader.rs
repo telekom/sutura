@@ -365,5 +365,16 @@ mod tests {
                 size - 1
             ),
         );
+
+        let mut assembly = Assembly::new("test", DictionaryBounds::new(cap(1), cap(size - 1)));
+        assert_eq!(
+            super::admit(&mut assembly, &batch())
+                .expect_err("the batch is billed before its rows are counted")
+                .to_string(),
+            format!(
+                "reading the dictionary failed: the dictionary stream reached the declared maximum of {} bytes",
+                size - 1
+            ),
+        );
     }
 }

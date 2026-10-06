@@ -322,9 +322,11 @@ impl<R> RdbmsCatalog<R> {
     /// over a live socket also enforces them inline, but this stays the conversion's own post-decode
     /// guard over a [`Dictionary`] whatever the reader did.
     ///
-    /// **The reading reader holds the caps inline too** ([`postgres_reader`] abandons a stream that
-    /// crosses the ceiling); this guard is the second, non-network half that a recorded or fetched
-    /// dictionary gets regardless of the transport.
+    /// **The Postgres reader bills each batch** before it decodes it: on the pinned driver
+    /// (`apache-arrow-adbc-24`), the whole result is one batch that libpq already holds, so the
+    /// byte cap refuses a result already fetched; the `LIMIT` bounds what libpq holds in rows. The
+    /// Oracle reader streams row by row. This guard is the second, non-network half that a recorded
+    /// or fetched dictionary gets regardless of the transport.
     #[must_use]
     pub const fn with_bounds(mut self, bounds: DictionaryBounds) -> Self {
         self.bounds = Some(bounds);

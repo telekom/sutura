@@ -22,7 +22,9 @@
 //! `sutura-exec-postgres`'s own `tests/tls.rs` against the same tier; this suite checks the reader's
 //! channel shape (read-only transaction, parameter binding, documented schema) over the unix-socket
 //! plaintext connection the tier authenticates by `trust`, through the shared connector the reader
-//! dials with - which also installs the fixture, over the simple protocol.
+//! dials with - which also installs the fixture, over the simple protocol. A catalog connection's
+//! `mutual` TLS is not exercised: the tier dials its unix socket in plaintext, so that half needs a
+//! live TLS server.
 
 // `#[cfg(test)]` for the reason `sutura-exec-postgres/tests/conformance.rs` gives: clippy honours
 // `allow-expect-in-tests` only under a literal `#[cfg(test)]` ancestor.
@@ -288,5 +290,65 @@ mod provisioned {
             .read_dictionary()
             .expect_err("a missing documentation schema is a read error");
         assert!(matches!(error, RdbmsError::Read(_)), "{error:?}");
+    }
+
+    /// Installs the fixture under a fresh nonce-named schema and returns its name.
+    fn fresh_fixture(tier: &Tier, tag: &str) -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the clock is after the epoch")
+            .as_nanos();
+        let schema = format!("{DOCUMENTATION_SCHEMA}_{tag}_{}_{nonce}", std::process::id());
+        install_fixture(tier, &schema, &format!("{schema}_ro"));
+        schema
+    }
+
+    #[test]
+    fn a_live_read_runs_at_repeatable_read() {
+        let Some(tier) = tier() else { return };
+        let schema = fresh_fixture(&tier, "iso");
+        let probe = format!("{schema}_iso");
+        tier.run_sql(&format!(
+            "CREATE SCHEMA {probe}; \
+             CREATE VIEW {probe}.columns AS \
+             SELECT environment, catalog_name, schema_name, table_name, model_name, \
+                    current_setting('transaction_isolation') AS table_description, \
+                    column_name, column_ordinal, column_type, column_description, is_primary_key, is_deleted \
+             FROM {schema}.columns"
+        ));
+        let dictionary = tier
+            .reader(&probe, None, None)
+            .read_dictionary()
+            .expect("the probe view is readable");
+        let [table] = dictionary.tables() else {
+            panic!("one table: {dictionary:?}")
+        };
+        assert_eq!(table.description(), Some("repeatable read"));
+    }
+
+    #[test]
+    fn the_limit_keeps_a_row_past_the_cap_out_of_the_byte_billing() {
+        let Some(tier) = tier() else { return };
+        let schema = fresh_fixture(&tier, "limit");
+        let wide = format!("{schema}_wide");
+        tier.run_sql(&format!(
+            "CREATE SCHEMA {wide}; \
+             CREATE TABLE {wide}.columns (LIKE {schema}.columns); \
+             INSERT INTO {wide}.columns \
+               (environment, schema_name, table_name, model_name, column_name, column_ordinal, \
+                column_description, is_primary_key, is_deleted) \
+             SELECT '{ENVIRONMENT}', 'public', 'orders', 'orders', 'c' || i, i, \
+                    CASE WHEN i = 3 THEN repeat('x', 1048576) END, i = 1, false \
+             FROM generate_series(1, 3) AS i"
+        ));
+        // Without the `LIMIT` the third (1 MiB) row reaches the batch and the BYTES cap refuses first.
+        let error = tier
+            .reader(&wide, NonZeroU64::new(1), NonZeroU64::new(256 * 1024))
+            .read_dictionary()
+            .expect_err("the second row is past the row cap");
+        assert_eq!(
+            error.to_string(),
+            "reading the dictionary failed: the dictionary stream reached the declared maximum of 1 rows",
+        );
     }
 }
