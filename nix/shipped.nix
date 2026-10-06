@@ -398,7 +398,8 @@ let
           set -o pipefail
           sh ${./kerberos-tier.sh} "$TMPDIR/kerberos-tier"
           . "$TMPDIR/kerberos-tier/env"
-          cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture 2>&1 | tee kerberos.log
+          # One thread: both cells share the env's one MEMORY ccache, so a parallel sign-in can lose its ticket.
+          cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture --test-threads=1 2>&1 | tee kerberos.log
           grep -qx 'linked-postgres-driver-signed-in-with-kerberos' kerberos.log
         '';
         installPhaseCommand = "install -Dm644 kerberos.log $out/kerberos.log";
