@@ -94,6 +94,9 @@ pub fn linked_postgres_driver() -> Result<ManagedDriver, CoreError> {
     }
 }
 
+/// Whether this artefact's own link carries the `DuckDB` driver, asked without initialising it.
+pub const LINKS_DUCKDB_DRIVER: bool = cfg!(adbc_duckdb_driver_linked);
+
 /// The `DuckDB` driver this artefact's own link carries - [`linked_driver`]'s contract, for the
 /// archive `nix/duckdb-adbc.nix` builds.
 ///

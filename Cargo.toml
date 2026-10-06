@@ -208,8 +208,8 @@ bzip2 = "0.6"
 # Arrow at the hexagon's interior - `docs/adr/0039`, and `crates/sutura-domain/Cargo.toml` carries
 # the argument and the measured cost. The major is the ENGINE's: `datafusion` resolves 59.2.0 and so
 # does `adbc_core`, so these unify with both and add no lockfile entry. `devco/arrow-majors-allow`
-# is where the surviving 58 major (the `duckdb` crate's) is explained; `cargo xtask check-arrow` is
-# what fails when a row there stops matching the lock.
+# names the one major; `cargo xtask check-arrow` is what fails when a row there stops matching the
+# lock.
 arrow-array = "59"
 arrow-schema = "59"
 # `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
@@ -306,16 +306,6 @@ polyglot-sql = { version = "0.13.1", default-features = false, features = [
   "dialect-bigquery",
   "dialect-oracle",
 ] }
-
-# The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
-# from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link
-# the `libduckdb` nixpkgs already builds, wired up in `flake.nix` and `devenv.nix`.
-#
-# It is a DATA SOURCE, not an engine, and the adapter that uses it is a **development**
-# dependency - of `sutura-app`'s test suite, and of nothing that ships. That is what keeps the musl
-# cross builds working: there is no musl `libduckdb` for a shipped binary to link against. Its job
-# is to prove the SQL we render actually runs.
-duckdb = "1.10505"
 
 # The in-process engine, for the adapter that executes a plan without rendering it. It has no
 # dialect: a plan becomes a logical plan over Arrow, which is the whole reason the `Warehouse` port

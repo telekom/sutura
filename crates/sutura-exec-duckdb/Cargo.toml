@@ -16,11 +16,16 @@ sutura-domain = { workspace = true }
 # decisions. NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this
 # adapter never compiles anything - it renders what it was handed.
 sutura-sql = { workspace = true }
-# Linked against the system `libduckdb` rather than built from source: the `bundled` feature
-# compiles DuckDB's C++ inside every build, which in the Nix sandbox is minutes and gigabytes per
-# derivation. `flake.nix` and `devenv.nix` provide the library and the two variables that find it.
-duckdb = { workspace = true }
 thiserror = { workspace = true }
+# The one transport (`telekom/sutura#913`). `DuckDB` is its own ADBC driver, so the driver manager
+# opens the engine's `duckdb_adbc_init` from this artefact's link or a mounted `libduckdb`;
+# `sutura-adbc` owns the workspace's one `unsafe` ADBC site, so this adapter adds none, and the two
+# Arrow crates name what the driver hands back.
+adbc_core = { version = "0.24" }
+adbc_driver_manager = { version = "0.24" }
+arrow-array = { version = "59" }
+arrow-schema = { version = "59" }
+sutura-adbc = { workspace = true }
 
 # The conformance packs, which `tests/conformance.rs` binds this adapter to. A DEV-dependency and
 # never more than one: the harness holds this adapter to the port's contract, and nothing shipped
