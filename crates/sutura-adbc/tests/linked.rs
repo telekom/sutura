@@ -78,12 +78,7 @@ mod tests {
     /// driver manager would derive - so the passing is load-bearing, not ceremony.
     #[test]
     fn a_mounted_duckdb_opens_by_its_own_entrypoint_and_not_by_a_derived_one() {
-        let dir = std::env::var_os("DUCKDB_LIB_DIR").expect("the dev shell and every nix check set DUCKDB_LIB_DIR");
-        let library = std::path::Path::new(&dir).join(format!(
-            "{}duckdb{}",
-            std::env::consts::DLL_PREFIX,
-            std::env::consts::DLL_SUFFIX
-        ));
+        let library = mounted_library();
         let Err(derived) = ManagedDriver::load_dynamic_from_filename(&library, None, AdbcVersion::default()) else {
             panic!("{} defines a name the driver manager derives", library.display());
         };
@@ -98,12 +93,7 @@ mod tests {
     /// `mounted_duckdb_driver` takes the path over.
     #[test]
     fn a_relative_mounted_duckdb_path_is_refused_rather_than_resolved() {
-        let dir = std::env::var_os("DUCKDB_LIB_DIR").expect("the dev shell and every nix check set DUCKDB_LIB_DIR");
-        let absolute = std::path::PathBuf::from(&dir).join(format!(
-            "{}duckdb{}",
-            std::env::consts::DLL_PREFIX,
-            std::env::consts::DLL_SUFFIX
-        ));
+        let absolute = mounted_library();
         // A `..`-relative spelling of the REAL library, so `dlopen` would reach it: the parse, not
         // the absence of a file, must be what refuses it.
         let relative = path_relative_to(&absolute);
@@ -111,6 +101,14 @@ mod tests {
             panic!("a relative driver path must be refused, never opened against this process's cwd");
         };
         assert_eq!(refused.status, Status::InvalidArguments, "{refused:?}");
+    }
+
+    /// The `libduckdb` the dev shell and every nix check name (`nix/duckdb.nix`).
+    fn mounted_library() -> std::path::PathBuf {
+        std::path::PathBuf::from(
+            std::env::var_os("SUTURA_DUCKDB_ADBC_DRIVER")
+                .expect("the dev shell and every nix check set SUTURA_DUCKDB_ADBC_DRIVER"),
+        )
     }
 
     /// `absolute` written relative to the process's working directory, climbing `..`, so the loader

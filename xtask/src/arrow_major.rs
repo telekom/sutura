@@ -13,12 +13,10 @@
 //! undefined behaviour. A duplicated hashing crate costs build time. A duplicated Arrow costs
 //! correctness the day anything crosses between them.
 //!
-//! AND WHY IT IS NOT ALREADY BROKEN. As of writing, this workspace holds two Arrow majors and it
-//! is a duplicate rather than a type boundary: the engine pulls one, the `DuckDB` adapter's crate
-//! pulls the other, and `sutura-exec-duckdb` declares no `arrow` dependency and names no Arrow
-//! type - it converts to a neutral row type instead. `differential.rs` compares rows rather than
-//! batches for the same reason. **The test for which one you have is not the lock file, it is
-//! whether any first-party crate names the type.** This gate reads the lock file, so it cannot
+//! WHY A SPLIT CAN BE TOLERATED AT ALL. The last one was a duplicate rather than a type boundary:
+//! the engine pulled 59, the `duckdb` crate pulled 58, and `sutura-exec-duckdb` named no Arrow type
+//! until it moved onto ADBC and the crate left the lock (`telekom/sutura#913`). **The test for which
+//! one you have is not the lock file, it is whether any first-party crate names the type.** This gate reads the lock file, so it cannot
 //! make that distinction - which is exactly why an accepted split needs a written reason rather
 //! than being silently tolerated.
 //!

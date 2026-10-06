@@ -83,11 +83,11 @@ repos:
       # They were on pre-push, which inverts that: the claim is already in history by the time
       # anything checks it, and a failure then needs a second commit to undo the first.
       #
-      # THROUGH THE DEVENV ENVIRONMENT, so the pinned duckdb (`DUCKDB_*_DIR`) and the nightly
-      # cargo are present however git invoked the hook. macOS does not pass the interactive
-      # shell's exported variables to a hook subprocess the way Linux does, and `libduckdb-sys`
-      # needs `DUCKDB_LIB_DIR` to link the nix duckdb rather than fall back to compiling duckdb's
-      # C++ from source (which fails for want of the toolchain). The `command -v devenv` guard
+      # THROUGH THE DEVENV ENVIRONMENT, so the mounted ADBC drivers (`SUTURA_DUCKDB_ADBC_DRIVER`,
+      # `SUTURA_POSTGRES_ADBC_DRIVER`) and the nightly cargo are present however git invoked the
+      # hook. macOS does not pass the interactive shell's exported variables to a hook subprocess
+      # the way Linux does, and every DuckDB or Postgres cell fails at its driver load without
+      # them. The `command -v devenv` guard
       # preserves the previous tiering on a host without devenv: `run-gate.sh` uses the shell's
       # local tools, else the same pinned nix route CI uses, else - with neither - a skip with a
       # notice, because CI runs the suite on every push.

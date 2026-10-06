@@ -66,7 +66,7 @@ single `-> sutura-config` row above to the whole class.
 connection string and its TLS posture (`Conninfo`, `Channel`), the driver load and the one open
 (`PostgresDriver`)** - what `sutura-exec-postgres` dials a PostgreSQL source through and
 `sutura-catalog-rdbms`'s live reader dials its documentation schema through (`telekom/sutura#913`,
-`docs/adr/0018`'s eighteenth and nineteenth amendments). It cannot live in the exec adapter, because a catalog adapter may not reach
+`docs/adr/0018`'s eighteenth and twentieth amendments). It cannot live in the exec adapter, because a catalog adapter may not reach
 `sutura-sql` and the exec adapter renders through it. `sutura-adbc` stays the generic loader. Two
 rows hold it, not the sentence: `FORBIDDEN_EDGES` `sutura-adbc-postgres -> sutura-sql`
 (`Edges::Every`), and the same `shared_client` row that sutura-http-client, sutura-bounded-read, sutura-adbc, and sutura-adbc-postgres carry. **The precedent it
@@ -115,13 +115,12 @@ Rules that are not visible from a manifest:
 
 ## Why a driver is a dev-dependency
 
-`sutura-cli` never links the `duckdb` crate - DataFusion is the one data-system adapter it links
-unconditionally, every other behind a default-off feature - and **that is what keeps the musl
-artifacts building**: the `duckdb` crate links the shared `libduckdb`, which a static musl binary
-cannot load (the musl link gets DuckDB's merged static archive as an ADBC driver instead,
-`nix/duckdb-adbc.nix`). `nix/duckdb.nix` is the single path from
-nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike so a pin cannot differ
-between the shell and CI.
+`sutura-cli` never links `sutura-exec-duckdb` - DataFusion is the one data-system adapter it links
+unconditionally, every other behind a default-off feature. Nothing links `libduckdb` any more:
+`sutura-exec-duckdb` opens DuckDB as its own ADBC driver (`telekom/sutura#913`), the archive a musl
+link carries (`nix/duckdb-adbc.nix`) or the `libduckdb` `SUTURA_DUCKDB_ADBC_DRIVER` names.
+`nix/duckdb.nix` is the single path from nixpkgs to that library, imported by `flake.nix` and
+`devenv.nix` alike so a pin cannot differ between the shell and CI.
 
 Postgres and DuckDB adapters are dev-dependencies for the same reason, and their cells are
 fail-closed: the Postgres tier is provisioned by `checks.nextest` **and** by `just test` from one
@@ -215,7 +214,7 @@ number:** it prints a whole second crate derivation, 62-85s over three runs, and
 | --- | --- |
 | *The deps derivation already built `ring`, so the probe reuses it* | It does not. `buildDepsOnly` runs unscoped and the probe asks for one package, so the resolver gives a narrower feature set, a different `-C metadata` and a **recompile**. The probe's log says `sutura> Compiling ring`. |
 | *So the feature is nearly free* | It is nearly free **in this graph**, because those units finish inside the slack ahead of `datafusion` on the critical path. A shorter critical path would expose them as time. |
-| *The adapter is why the closure is in the deps derivation* | It is not - `sutura-exec-bigquery` carries no `ureq` since its `wire` transport was deleted. A **dev-dependency** of `sutura-catalog-datahub` is, and a build-dependency of `libduckdb-sys` puts a host-side copy there too. Drop that dev-dependency and the musl cost comes back. |
+| *The adapter is why the closure is in the deps derivation* | It is not - `sutura-exec-bigquery` carries no `ureq` since its `wire` transport was deleted. A **dev-dependency** of `sutura-catalog-datahub` is. Drop that dev-dependency and the musl cost comes back. |
 | *The probe links what the tutorial tells a reader to build* | The same package and features, at the **`ci` profile**. The page says `--release`, whose thin LTO and `panic = "abort"` are a different link, and nothing measures that one. |
 
 Binary size remains unmeasured; no step prints it.

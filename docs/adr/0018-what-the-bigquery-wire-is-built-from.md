@@ -1742,7 +1742,42 @@ precedent.
 exec adapter's statement path produces. The catalog reader still answers over `tokio-postgres` until
 the stage-3 cutover lands; that change, not this one, takes `tokio-postgres` out of the workspace.
 
-## Nineteenth amendment, 2026-10-06: the catalog reader is on the connector, and `tokio-postgres` is gone
+## Nineteenth amendment, 2026-10-06: the DuckDB adapter answers over its ADBC driver, and the `duckdb` crate is gone
+
+**What moved.** `sutura-exec-duckdb` answers every port method over DuckDB's own ADBC entrypoint,
+`duckdb_adbc_init`. A musl link uses the archive the seventeenth amendment put in place, and every
+other build uses the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names (`nix/duckdb.nix`). The
+adapter holds one `ManagedDatabase`, opens a connection per call, and hands on the driver's Arrow
+batches. The domain's one reader then decides which types answer. The old path is deleted with no
+fallback: `duckdb` and `libduckdb-sys` leave `Cargo.lock` with 29 other packages, among them the
+whole `arrow 58` family. So the lock holds one Arrow major, and `devco/arrow-majors-allow` loses its
+`58` row. `DUCKDB_LIB_DIR`, `DUCKDB_INCLUDE_DIR` and the DuckDB `LD_LIBRARY_PATH` are gone from the
+dev shell, the checks and the apps: nothing links `libduckdb` now, so no build step reads a path to
+it.
+
+**The `+0` is re-taken, because its premise left with the crate.** This record measured `ureq` as
+free because `libduckdb-sys`'s downloader already resolved it. `check-shared-client` failed when that
+stopped being true, as it was written to (`` `libduckdb-sys` no longer depends on `ureq` ``). The
+gate's premise rule is removed with the premise. Re-measured on this lock: `ureq` stays one version,
+declared by `sutura-http-client` and the adapters and catalogs that dial over it. Only three packages
+leave the 522-package lock without it: `ureq`, `ureq-proto` and `utf8-zero`. Its TLS stack (`rustls`,
+`ring`, `webpki-roots` and the others) is reached through other first-party paths too. So `ureq` is
+now a first-party dependency that costs three packages, not a free one. The licence entries it
+justified stay in use.
+
+**What does NOT move.** `sutura-exec-duckdb` stays a dev-dependency, and nothing shipped calls the
+linked DuckDB driver. Deadlines stay carried-only, which is the stated limit of
+[0029](0029-where-a-deadline-lives.md); a watchdog that interrupts a running statement is
+`telekom/sutura#1236`. The adapter still declares `NoPlaceForASubject`.
+
+**Limits.** The materialisation budget refuses at the batch that crosses it, and the driver sends one
+DuckDB chunk per batch, so the budget no longer refuses at each row. The driver's `set_sql_query`
+runs every statement of a string except the last one, so this adapter sends it only rendered
+statements and its own one-statement `attach_*` views. A certified answer goes on unread, so the
+domain's reader refuses a `REAL` or a non-finite `DOUBLE` downstream, with the engine's error,
+rather than the adapter refusing it.
+
+## Twentieth amendment, 2026-10-06: the catalog reader is on the connector, and `tokio-postgres` is gone
 
 **What moved.** Stage 3 of `telekom/sutura#913`: `sutura-catalog-rdbms`'s live Postgres reader dials
 through `sutura-adbc-postgres`. One read is one connection: autocommit off, `SET TRANSACTION

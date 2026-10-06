@@ -233,7 +233,7 @@ runs:
     # **THE SECOND HALF IS NOT READ OUT OF A LOCK FILE, AND THAT IS THE POINT.** A document
     # generated from `Cargo.lock` beside the binary is a CHECKED claim about it - the two can
     # drift and neither says so - and it would also be the WRONG graph: `sutura-cli` links the
-    # engine only, while `libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in
+    # engine only, while the BigQuery wire puts `ureq`, rustls and `ring` in
     # the resolve for a binary that links none of them. What is inventoried here is what the
     # compiler actually put in, from inside the bytes being scanned. `nix/auditable.nix` carries
     # the argument; `docs/adr/0021`'s amendment is the decision.
