@@ -125,14 +125,15 @@ use crate::catalog::DimensionValue;
 use crate::model::{ColumnName, DimensionName, MetricName, ModelName, identifier_newtype};
 use crate::text::{first_altered_control, first_invisible, is_invisible};
 
-// Two splits rather than one file, because `cargo xtask max-lines` fails at a thousand lines under
-// `crates/` and cannot be exempted. The seams are real ones: `note` holds the four records, `check`
-// holds everything that runs once when a bundle is loaded, and this file holds the vocabulary a note
-// is written in and the bundle they sit in. The names stay where they were - a caller still writes
+// Three splits rather than one file, because `cargo xtask max-lines` fails at a thousand lines under
+// `crates/` and cannot be exempted. The seams are real ones: `note` holds the four records, `bundle`
+// holds everything that runs once when a bundle is loaded, `referent` holds the walks from a note's
+// names to what the definitions declare, and this file holds the vocabulary a note is written in. The names stay where they were - a caller still writes
 // `sutura_domain::knowledge::GlossaryEntry` - because the module is the unit of API and the files are
 // not.
 mod bundle;
 mod note;
+mod referent;
 
 pub use bundle::{InconsistentKnowledge, Knowledge, KnowledgeInput};
 pub use note::{Absence, Caveat, Example, GlossaryEntry};
@@ -200,7 +201,7 @@ fn collapse_spacing(raw: &str) -> String {
 /// sections apart, about what a reader sees as one word. So the authored spelling is kept as the
 /// value everywhere, and this is what the index is keyed on.
 ///
-/// A free function rather than a method, for the reason [`bundle::identifier_shape`] gives: the
+/// A free function rather than a method, for the reason [`referent::identifier_shape`] gives: the
 /// only legitimate use of the result is to notice that two documents disagree, and a phrase should
 /// not offer to fold its own case for anybody else.
 pub(super) fn phrase_identity(phrase: &Phrase) -> String {

@@ -12,7 +12,7 @@
 //! and that a well-formed example survives - because a check that refuses everything is as useless as
 //! one that refuses nothing.
 
-use super::bundle::identifier_shape;
+use super::referent::identifier_shape;
 use super::tests::{
     absence, accepts, caveat, declared_value, dimension_name, example, glossary_entry, june, metric_name, note_name,
     only_absences, only_caveats, only_examples, only_glossary, phrase, question, refuses, revenue,

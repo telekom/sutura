@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-domain/src/knowledge/bundle.rs b/crates/sutura-domain/src/knowledge/bundle.rs
---- a/crates/sutura-domain/src/knowledge/bundle.rs
-+++ b/crates/sutura-domain/src/knowledge/bundle.rs
-@@ -488,11 +488,10 @@
+diff --git a/crates/sutura-domain/src/knowledge/referent.rs b/crates/sutura-domain/src/knowledge/referent.rs
+--- a/crates/sutura-domain/src/knowledge/referent.rs
++++ b/crates/sutura-domain/src/knowledge/referent.rs
+@@ -143,11 +143,10 @@
          for (dimension, declared) in metric.dimensions() {
              for value in declared.allowed_values().into_iter().flatten() {
                  if identifier_shape(value.as_str()) == shape {
