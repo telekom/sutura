@@ -35,7 +35,7 @@
 //! and this paragraph is why the feature sets are absent, which is better than a gate that reads as
 //! if it covered them.
 //!
-//! **A client under another name.** The lock records the name `cargo` RESOLVED, so the third rule
+//! **A client under another name.** The lock records the name `cargo` RESOLVED, so the second rule
 //! holds the two names the ADR's measurement used and nothing wider: a fork of a forbidden client
 //! published under its own name, or a crate that re-exports one, resolves under a name this scan
 //! cannot see. A client arriving under another name is the same second client 0018's *Why `ureq`
@@ -59,13 +59,13 @@ const CLIENT: &str = "ureq";
 /// The record that would have to be re-taken if the first rule fails.
 const RECORD: &str = "docs/adr/0018-what-the-bigquery-wire-is-built-from.md";
 
-/// The two crates `docs/adr/0023`'s no-client measurement names, and the only two the third rule
+/// The two crates `docs/adr/0023`'s no-client measurement names, and the only two the second rule
 /// refuses. That record's claim is about its transport's feature closure, so a gate that refused
 /// other names would enforce a property no record measures; a client arriving under another name
 /// is a different defect, and the module header says what this scan cannot see about it.
 const FORBIDDEN: &[&str] = &["reqwest", "oauth2"];
 
-/// The record whose no-client measurement the third rule protects.
+/// The record whose no-client measurement the second rule protects.
 const RECORD_0023: &str = "docs/adr/0023-how-the-agent-surface-learns-who-is-asking.md";
 
 /// Every version of `name` the lock holds.
@@ -216,7 +216,21 @@ mod tests {
     }
 
     #[test]
-    fn the_real_lock_satisfies_both_rules() {
+    fn two_versions_of_the_client_trip_the_gate_through_its_entry() {
+        let lock = format!(
+            "{}{}",
+            stanza("ureq", "3.4.0", &["rustls"]),
+            stanza("ureq", "4.0.0", &["rustls"]),
+        );
+        assert_eq!(
+            check_lock(&lock),
+            crate::Verdict::Fail,
+            "a lock with two `ureq` versions is not the lock 0018 measured"
+        );
+    }
+
+    #[test]
+    fn the_real_lock_resolves_one_client() {
         // The gate against the tree it guards, so a refactor of the parse cannot pass its own fixtures
         // and fail the file. `arrow_major`'s suite does not do this and could; it is cheap here because
         // the lock is committed.
@@ -238,7 +252,7 @@ mod tests {
         // The red fixture: a lock the ADR did NOT measure, because one of the two crates it
         // forbids resolves - reached from `sutura-http`, the crate whose `server-side-http` feature
         // is the transport 0023 measured. The assertion drives `check_lock`, the entry `run` calls
-        // after reading the file, so the gate's own third rule trips the verdict rather than a test
+        // after reading the file, so the gate's own second rule trips the verdict rather than a test
         // that only touches the `versions_of` helper beneath it.
         let lock = format!(
             "{}{}{}{}",
@@ -256,7 +270,7 @@ mod tests {
 
     #[test]
     fn the_real_lock_forbids_nothing_the_adr_0023_names() {
-        // The third rule against the tree it guards, beside the existing real-lock test: a
+        // The second rule against the tree it guards, beside the existing real-lock test: a
         // refactor of the parse cannot pass its fixtures and miss the file.
         let Some(root) = crate::repo::root() else {
             return;

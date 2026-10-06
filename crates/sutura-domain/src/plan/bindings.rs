@@ -27,7 +27,7 @@
 //! writes `:n`, and `$1` sent to Oracle is not a placeholder at all. The renderer emits predicates
 //! in filter order and a positional adapter binds the list in list order, so those two agree only
 //! while the indices run `0, 1, .. n-1` down the filters. Read off the shipped adapters rather
-//! than reasoned about: `sutura_exec_duckdb::bind` maps
+//! than reasoned about: `sutura_exec_duckdb` binds
 //! [`QueryPlan::params`](crate::plan::QueryPlan::params) in list order against `?`,
 //! `sutura_exec_bigquery` sends the same list as an ordered array under a positional parameter
 //! mode, and `sutura_sql`'s `?` placeholder ignores the position it is given. `ClickHouse` is the

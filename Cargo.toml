@@ -482,7 +482,7 @@ tower_governor = { version = "0.8", default-features = false, features = ["axum"
 # cross build or need a vendored C OpenSSL compiled per target. rustls needs no system library.
 #
 # `tokio-rustls` is the ONLY new crate in the graph. `rustls`, `rustls-pki-types`, `rustls-webpki`,
-# `ring` and `untrusted` are already resolved - they arrive under `libduckdb-sys`'s `ureq`, which
+# `ring` and `untrusted` are already resolved - they arrive under `ureq`'s TLS stack, which
 # is why `deny.toml` already allows ISC and BSD-3-Clause "via the TLS stack described above". So the
 # licence allowlist needs no new entry, which was checked rather than assumed.
 #
@@ -547,18 +547,14 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # signature by starting a runtime of its own inside a call that is already on a blocking thread;
 # `ureq` is natively blocking and needs none.
 #
-# **Zero new packages in `Cargo.lock`, and that was measured rather than hoped for.** 3.4.0 with
-# exactly these two features is ALREADY resolved: it arrives as a build-dependency of
-# `libduckdb-sys`, whose `build.rs` downloads a prebuilt library when nothing else supplied one -
-# `deny.toml` says so at length, and says the downloader never runs here. So `ureq`, `ureq-proto`,
-# `rustls`, `ring`, `untrusted`, `rustls-webpki`, `rustls-pki-types`, `webpki-roots` and `subtle`
-# are all in the graph today, and so is every licence they need. **What changes is which side of
-# the build they are on:** today they are compiled for the HOST, as a build-dependency of a
-# dev-dependency; behind the `wire` feature they would be compiled for the TARGET by whichever
-# artifact turns the feature on. No artifact does - see `crates/sutura-exec-bigquery/Cargo.toml`.
+# **What it costs the lock** is measured in `docs/adr/0018`'s nineteenth amendment: `ureq`,
+# `ureq-proto` and `utf8-zero` are the three packages only `ureq` brings, and its TLS stack
+# (`rustls`, `ring`, `webpki-roots` and the others) is reached through other first-party paths too.
+# Which artifact compiles it for the TARGET is the one that turns the `wire` feature on - see
+# `crates/sutura-exec-bigquery/Cargo.toml`.
 #
-# `default-features = false` and then back only what is used, and the set is chosen to MATCH what
-# `libduckdb-sys` already resolves so nothing is added:
+# `default-features = false` and then back only what is used, and the set is the smallest
+# one the wire needs:
 #
 #   * `rustls` is the TLS stack, and NOT `native-tls`. Same reason `tokio-rustls` is above: two of
 #     the four release triples are musl, nixpkgs has no musl OpenSSL, and rustls needs no system

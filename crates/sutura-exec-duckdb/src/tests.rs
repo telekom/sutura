@@ -271,12 +271,10 @@ fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_prepared
 
 #[test]
 fn a_result_that_would_not_fit_the_materialisation_budget_is_refused_at_the_row_that_crosses_it() {
-    // THE POINT OF `Budgeted`. A generous budget below does not stop at the shape, and a budget
-    // designed to be crossed must cross on a row the adapter has actually decoded - so the test
-    // reads the result with a budget too small to hold two text cells, refuses, and checks BOTH
-    // that the refusal is the budget's own (`OverBudget`) and not a shape or type failure, and
-    // that the refused stream had answered far fewer rows than the statement produced. The
-    // consequence on the port is asserted through `result_did_not_fit`, the predicate the router
+    // A generous budget does not stop at the shape, and a budget designed to be crossed must cross
+    // on a batch the adapter has actually read - so the test reads the result with a budget too
+    // small to hold one batch, refuses, and checks that the refusal is the budget's own
+    // (`OverBudget`) and not a shape or type failure. The consequence on the port is asserted through `result_did_not_fit`, the predicate the router
     // reads to refuse a caller.
     let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture(), budget()).expect("an in-memory database opens");
     let query = GeneratedQuery::literal(

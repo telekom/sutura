@@ -2,8 +2,8 @@
 # (`crates/sutura-adbc/build.rs`), on `nix/postgres-adbc.nix`'s pattern.
 #
 # **No driver source of its own: it is nixpkgs' `duckdb`, cross-built.** DuckDB compiles its ADBC
-# entrypoint, `duckdb_adbc_init`, into the engine library itself, so the DuckDB the dev shell and
-# `sutura-exec-duckdb` already link (`nix/duckdb.nix`) IS the driver - one version, one source
+# entrypoint, `duckdb_adbc_init`, into the engine library itself, so the DuckDB the dev shell
+# mounts for `sutura-exec-duckdb` (`nix/duckdb.nix`) IS the driver - one version, one source
 # hash, and no second DuckDB in the build. That name is the only C-linkage ADBC symbol it defines:
 # no `AdbcDriverInit`, and no `AdbcDriverDuckdbInit` for a driver manager to derive from a file
 # name, which is why the mounted route passes the entrypoint explicitly (`src/lib.rs`).
