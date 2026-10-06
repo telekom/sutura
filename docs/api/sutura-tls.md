@@ -28,10 +28,8 @@ and the exact type a `rustls`-depending caller already has: `rustls` itself re-e
 verbatim as `rustls::pki_types` (`pub use pki_types::*;`), so nothing converts at the seam. This
 crate builds no `RootCertStore` and installs no crypto provider, because neither is shared:
 
-- `sutura-exec-postgres::tls` folds the returned certificates into a `RootCertStore` (the step
-  that also catches a certificate rustls itself cannot use as a root) and builds a
-  `rustls::ClientConfig` with the `ring` provider IT already depends on, for
-  `tokio-postgres-rustls`.
+- `sutura-adbc-postgres` reads the declared files only to refuse unusable material before a
+  driver loads, and hands libpq the paths.
 - A `ureq`-based adapter turns the same `CertificateDer` bytes into `ureq::tls::Certificate` (via
   `Certificate::from_der(der.as_ref()).to_owned()`) and hands `RootCerts::Specific` to
   `ureq::tls::TlsConfig` - the workspace's own pinned `ureq` takes that shape directly, so no new

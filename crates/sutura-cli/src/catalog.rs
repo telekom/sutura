@@ -453,54 +453,71 @@ fn postgres_dictionary_reader(
     predicate: sutura_catalog_rdbms::postgres_reader::RowPredicate,
     rdbms: &sutura_config::RdbmsSettings,
 ) -> Result<sutura_catalog_rdbms::postgres_reader::PostgresReader, String> {
-    use sutura_catalog_rdbms::postgres_channel::{Target, client_config, config};
+    use sutura_adbc_postgres::{Channel, ConnectionTarget, Conninfo, PostgresDriver, UnusableChannel};
     use sutura_catalog_rdbms::postgres_reader::PostgresReader;
+    use sutura_config::sources::placement::PostgresDial;
     use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
 
-    let (target, port) = match connection.dial() {
-        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (Target::Host(host.as_str()), *port),
-        sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (Target::UnixSocket(directory.as_path()), *port)
-        }
+    let name = settings.name();
+    let (target, port) = match *connection.dial() {
+        PostgresDial::Tcp { ref host, port } => (ConnectionTarget::Host(host.as_str()), port),
+        PostgresDial::UnixSocket { ref directory, port } => (ConnectionTarget::UnixSocket(directory.as_path()), port),
     };
     let password = crate::password_file::read_key(
-        &format!("catalogs.{}.connection.password_file", settings.name()),
+        &format!("catalogs.{name}.connection.password_file"),
         connection.password_file(),
     )?;
-    let config = config(target, port, connection.database(), connection.user(), &password);
-
-    // Resolve the declared transport into a `rustls::ClientConfig` (`verified`/`mutual`) or `None`
-    // for `plaintext`. The transport layer has already refused plaintext to a remote host.
+    // The shape `crate::postgres::build` resolves a `sources:` entry's channel in: the transport
+    // layer has already refused plaintext to a remote host.
     let anchors = |declared: &TrustAnchors| match *declared {
         TrustAnchors::System => sutura_tls::Anchors::System,
         TrustAnchors::File(ref path) => sutura_tls::Anchors::Bundle(path.clone()),
     };
-    let tls = match *connection.transport() {
-        SourceTransport::Plaintext => None,
-        SourceTransport::Verified { anchors: ref declared } => Some(client_config(&anchors(declared), None)),
+    let (declared, pair) = match *connection.transport() {
+        SourceTransport::Plaintext => (None, None),
+        SourceTransport::Verified { anchors: ref declared } => (Some(anchors(declared)), None),
         SourceTransport::Mutual {
             anchors: ref declared,
             ref identity,
-        } => Some(client_config(
-            &anchors(declared),
-            Some(&sutura_tls::Identity::new(
+        } => (
+            Some(anchors(declared)),
+            Some(sutura_tls::Identity::new(
                 identity.certificate().clone(),
                 identity.key().clone(),
             )),
-        )),
-    }
-    .transpose()
-    .map_err(|cause| {
-        format!(
-            "`catalogs.{}.connection` is declared TLS and its material is not usable: {}",
-            settings.name(),
+        ),
+    };
+    let channel = match (declared.as_ref(), pair.as_ref()) {
+        (None, _) => Channel::Plaintext,
+        (Some(anchors), None) => Channel::Verified(anchors),
+        (Some(anchors), Some(pair)) => Channel::Mutual(anchors, pair),
+    };
+    // The connector's refusal names `sources.<name>`, its own key space; the catalog's key leads.
+    let conninfo = Conninfo::new(
+        name,
+        target,
+        port,
+        connection.database(),
+        connection.user(),
+        &password,
+        channel,
+    )
+    .map_err(|cause| match cause {
+        UnusableChannel::Material { cause, .. } => format!(
+            "`catalogs.{name}.connection` is declared TLS and its material is not usable: {}",
             crate::commands::render(&cause)
-        )
+        ),
+        other => format!(
+            "`catalogs.{name}.connection` cannot be dialled as declared: {}",
+            crate::commands::render(&other)
+        ),
     })?;
+    let driver = PostgresDriver::from_host()
+        .map_err(|none| format!("`catalogs.{name}` has no driver to open: {}", crate::commands::render(&none)))?;
 
     PostgresReader::new(
-        config,
-        tls,
+        driver,
+        conninfo,
         documentation_schema,
         environment,
         predicate,

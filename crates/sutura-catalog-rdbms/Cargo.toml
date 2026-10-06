@@ -15,35 +15,29 @@ thiserror = { workspace = true }
 # The LIVE Postgres dictionary reader (`src/postgres_reader.rs`), behind the default-off `live`
 # feature for the ARTEFACT reason `sutura/crate-map` states: a networked adapter's outbound TLS
 # stack must not reach a build that did not ask for it. The library closure stays domain + thiserror;
-# everything here arrives with that feature and with nothing else. `tokio-postgres` is pure Rust,
-# `tokio-postgres-rustls` pulls `ring` - so a `--features live` build is where the network cost is
-# paid, and `deny.toml`'s `all-features = true` compiles, lints and tests it on every gate run.
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros"], optional = true }
-tokio-postgres = { workspace = true, optional = true }
-tokio-postgres-rustls = { workspace = true, optional = true }
-rustls = { workspace = true, optional = true }
-futures-util = { workspace = true, optional = true }
-# The declared bundle and client-identity read `postgres_channel` folds into the reader's
-# `rustls::ClientConfig` - the same read `sutura-exec-postgres` refuses unusable material with.
-sutura-tls = { workspace = true, optional = true }
+# everything here arrives with that feature and with nothing else. The reader dials through the
+# shared connector `sutura-adbc-postgres` (`telekom/sutura#913` stage 3), binds through
+# `sutura-adbc`'s parameter batch, and decodes the Arrow batches the driver returns.
+sutura-adbc-postgres = { workspace = true, optional = true }
+sutura-adbc = { workspace = true, optional = true }
+adbc_core = { version = "0.24", optional = true }
+arrow-array = { workspace = true, optional = true }
 # The LIVE Oracle dictionary reader (`src/oracle_reader.rs`), behind the same `live` feature. Oracle's
-# own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among them, so a
-# `live` build compiles two rustls providers - the hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
+# own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among them - the
+# hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
 oracledb = { workspace = true, optional = true }
 
 [features]
 # The live Postgres and Oracle dictionary readers. Default-off: a build that does not ask for it
-# links no `tokio-postgres`/`oracledb`/`rustls` stack, which is what keeps the
-# musl cross builds and every published artefact free of it. `sutura-cli`'s `rdbms` feature turns
-# this on and composes the readers.
+# links no ADBC/`oracledb`/`rustls` stack, which is what keeps the musl cross builds and every
+# published artefact free of it. `sutura-cli`'s `rdbms` feature turns this on and composes the
+# readers.
 live = [
-  "dep:tokio",
-  "dep:tokio-postgres",
-  "dep:tokio-postgres-rustls",
-  "dep:rustls",
-  "dep:futures-util",
+  "dep:sutura-adbc-postgres",
+  "dep:sutura-adbc",
+  "dep:adbc_core",
+  "dep:arrow-array",
   "dep:oracledb",
-  "dep:sutura-tls",
 ]
 
 [dev-dependencies]
@@ -54,9 +48,6 @@ sutura-semantic = { workspace = true }
 # The provisioned-tier reach and skip-or-fail direction for `tests/provisioned.rs` - the same
 # crate every tier-backed fixture in this workspace uses (`sutura/dev`), scoped to `sutura-domain`.
 sutura-dev = { workspace = true }
-# A generated self-signed pair for `postgres_channel`'s refusal cells, the crate `sutura-exec-postgres`
-# and `sutura-http` rest their own TLS cells on - already in the dev graph.
-rcgen = { workspace = true }
 # `tests/provisioned.rs` exercises the live reader against a real Postgres tier, so it only builds
 # (and only the `--all-features` gates reach it) with the `live` feature that links the reader.
 [[test]]

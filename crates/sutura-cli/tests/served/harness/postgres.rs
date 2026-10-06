@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-use sutura_exec_postgres::adbc::{AdbcPostgres, Channel};
+use sutura_exec_postgres::adbc::{AdbcPostgres, Channel, FixtureAdmin, PostgresDriver};
 use sutura_exec_postgres::fixture::FixtureCredential;
 
 use super::{LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, config_path, derived_beside, example_root, settings_over};
@@ -16,7 +16,8 @@ use super::{LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, config_path, derived_bes
 /// pick.
 const FIXTURE_LOAD_LOCK_KEY: i64 = 0x5375_7475_7261_5351;
 
-/// Holds the fixture-load advisory lock for as long as it lives - dropping it is what releases it.
+/// Holds the fixture-load advisory lock for as long as it lives - dropping it closes the session
+/// that took it, which is what releases it.
 ///
 /// **Why the lock has to outlive the LOAD, not just wrap it.** A load drops and refills every table
 /// (`AdbcPostgres::load_csv`), so a served cell's questions must not overlap another cell's
@@ -29,24 +30,7 @@ const FIXTURE_LOAD_LOCK_KEY: i64 = 0x5375_7475_7261_5351;
 /// own test is done asking questions, is what closes that window: whichever cell is served and
 /// queried finishes before the other's reload can start.
 pub(crate) struct FixtureLoadGuard {
-    runtime: tokio::runtime::Runtime,
-    client: tokio_postgres::Client,
-}
-
-impl Drop for FixtureLoadGuard {
-    fn drop(&mut self) {
-        // Best-effort: this runs during an ordinary drop and, if the test is already panicking,
-        // during unwinding too - a second panic here would abort the process rather than fail the
-        // one test. Not load-bearing either way: an advisory lock is tied to the SESSION that took
-        // it, and this connection's session ends within the same drop regardless of whether the
-        // explicit unlock below succeeds.
-        drop(
-            self.runtime.block_on(
-                self.client
-                    .simple_query(&format!("SELECT pg_advisory_unlock({FIXTURE_LOAD_LOCK_KEY})")),
-            ),
-        );
-    }
+    _session: FixtureAdmin,
 }
 
 /// Acquires the fixture-load advisory lock on a dedicated connection and returns it held.
@@ -60,31 +44,18 @@ impl Drop for FixtureLoadGuard {
 /// serialises across processes rather than only across threads of one - a fixed key here (unrelated
 /// to any row or table this catalog uses) is enough, since there is exactly one thing this lock
 /// ever guards.
-fn lock_fixture_load(config: &tokio_postgres::Config) -> FixtureLoadGuard {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("a runtime for the advisory lock is buildable");
-    let (client, connection) = runtime
-        .block_on(config.connect(tokio_postgres::NoTls))
-        .expect("the provisioned tier accepts a lock connection");
-    // Own task - polled independently of this
-    // function's own `block_on` calls, which is what lets the lock query below go through the same
-    // client without deadlocking the executor. Its own error has no caller to route to; the next
-    // `block_on` fails on the client's state instead.
-    #[expect(
-        clippy::let_underscore_must_use,
-        clippy::let_underscore_untyped,
-        reason = "the connection driver task's own error has no caller to route to, and the next \
-                      block_on fails on the connection's state"
-    )]
-    runtime.spawn(async move {
-        let _ = connection.await;
-    });
-    runtime
-        .block_on(client.simple_query(&format!("SELECT pg_advisory_lock({FIXTURE_LOAD_LOCK_KEY})")))
+fn lock_fixture_load(tier: &DiscoveredTier) -> FixtureLoadGuard {
+    let source = SourceName::parse("fixture").expect("the fixture's own source name parses");
+    let conninfo = FixtureCredential::from_env()
+        .unwrap_or_else(|unconfigured| panic!("{unconfigured}"))
+        .conninfo(&source, &tier.host, tier.port, Channel::Plaintext)
+        .expect("the tier's published endpoint builds a connection string");
+    let driver = PostgresDriver::from_host().expect("the tier is up, so a driver is named");
+    let mut session = FixtureAdmin::open(&driver, &conninfo).expect("the provisioned tier accepts a lock connection");
+    session
+        .run(&format!("SELECT pg_advisory_lock({FIXTURE_LOAD_LOCK_KEY})"))
         .expect("the fixture-load advisory lock is acquirable");
-    FixtureLoadGuard { runtime, client }
+    FixtureLoadGuard { _session: session }
 }
 
 /// What loading the single-player example into the provisioned tier produced: everything a
@@ -106,8 +77,8 @@ pub(crate) struct LoadedTier {
 }
 
 /// What discovering the provisioned Postgres tier and reading its four published credentials
-/// returns: everything a fixture-install connection (a direct `tokio_postgres::Config`, whatever it
-/// installs) and a `sources:`/`connection:` entry both need. `None` is the ordinary no-tier outcome
+/// returns: everything a fixture-install connection (`FixtureAdmin`, whatever it installs) and a
+/// `sources:`/`connection:` entry both need. `None` is the ordinary no-tier outcome
 /// every adapter fixture uses. Once discovery finds the endpoint, every credential and TLS value is
 /// required: a half-provisioned tier is a failing test, not an absent one.
 ///
@@ -116,7 +87,6 @@ pub(crate) struct LoadedTier {
 /// source - reaches the tier the same way this file's own fixtures do, instead of a second copy of
 /// this same discovery.
 pub(crate) struct DiscoveredTier {
-    pub(crate) config: tokio_postgres::Config,
     pub(crate) host: String,
     pub(crate) port: u16,
     pub(crate) user: String,
@@ -134,16 +104,7 @@ pub(crate) fn discover_tier() -> Option<DiscoveredTier> {
     let password = required("SUTURA_POSTGRES_TIER_PASSWORD");
     let database = required("SUTURA_POSTGRES_TIER_DB");
     let anchor = required("SUTURA_POSTGRES_TIER_CA");
-
-    let mut config = tokio_postgres::Config::new();
-    config
-        .host(endpoint.host())
-        .port(endpoint.port())
-        .user(&user)
-        .password(&password)
-        .dbname(&database);
     Some(DiscoveredTier {
-        config,
         host: String::from(endpoint.host()),
         port: endpoint.port(),
         user,
@@ -164,7 +125,7 @@ pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTi
     let data = example_root().join("data");
     // Acquired BEFORE the load and returned to the caller still held - see `FixtureLoadGuard`'s own
     // documentation for why releasing it here, once the load loop returns, is not enough.
-    let guard = lock_fixture_load(&discovered.config);
+    let guard = lock_fixture_load(&discovered);
     {
         let source = SourceName::parse(loader_source).expect("the fixture's own loader source name parses");
         let reason = AcknowledgementReason::parse("the served Postgres example uses one fixture role")
@@ -179,7 +140,7 @@ pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTi
         let loader = AdbcPostgres::new(
             source,
             posture,
-            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
             conninfo,
         )
         .expect("the default ceiling parses");
