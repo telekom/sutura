@@ -2536,6 +2536,11 @@ The directory names are free.</p>
 </tr>
 </tbody>
 </table>
+<p>A catalog with no declaration must carry every kind the format can express, except column types
+and column descriptions. A narrower one, which would be refused as <code>Unprovided</code>, states what it
+supplies in one <code>kind: declaration</code> document (at most one per directory): <code>definitions:</code> must list
+<code>structure</code>, <code>knowledge:</code> is required and may be <code>[]</code>, and <code>may_provide:</code> is optional.
+<code>sutura import wren</code> writes one.</p>
 <p>The data is one file for each model in the data directory: <code>&lt;table&gt;.parquet</code> or <code>&lt;table&gt;.csv</code>.</p>
 <p>To declare the source in a file instead of on the command line, write <code>conf/base.yaml</code> and set
 <code>SUTURA_CONFIG_DIR=conf</code>:</p>

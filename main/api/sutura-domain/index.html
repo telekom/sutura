@@ -2696,12 +2696,14 @@ aspirational declaration. <code>Self::of_may_provide</code> is what such an adap
 else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
 unconditionally through <code>Self::of</code>, which is why the serialized form below carries only the
 declared set and why no existing digest moves.</p>
-<p><strong>The conditional marking is a property of the CODE, not of the serialized declaration.</strong> It is
+<p><strong>The conditional marking is a property of the CODE, or of what a source states about itself,
+not of the serialized declaration.</strong> It is
 deliberately absent from the <code>Serialize</code>/<code>Deserialize</code> below, which emit and read the declared
 set exactly as the previous newtype did - the contribution manifest's digest therefore records
 which kinds a source declared (so widening any declaration moves the digest) and not whether a
-kind was conditional (a property <code>sutura-app</code>'s assembler and the conformance suite read off the
-adapter's own <code>capabilities()</code>, never off a wire). A value that round-trips through serde loses
+kind was conditional (a property <code>sutura-app</code>'s assembler reads off the in-memory manifest entry
+and the conformance suite off the adapter's own <code>capabilities()</code>, never off a wire). So a markdown
+tree's <code>may_provide</code> list is not under the digest. A value that round-trips through serde loses
 the marking and reads as unconditionally declared, which is the stricter direction and the honest
 one: nothing in this repository deserializes a live declaration to serve with.</p>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
@@ -2788,7 +2790,8 @@ four kinds: there is already a closed set for those, it is already rendered into
 prompt, and a copy of it would be a second thing to keep in step.</p>
 <p><strong>This value duplicates nothing and derives nothing.</strong> The knowledge capabilities a <em>bundle</em>
 carries (<code>crate::knowledge::Knowledge::declares</code>) are under the definition digest and travel
-with the answer; the declaration here is a property of the linked code. That the two agree is
+with the answer; the declaration here is a property of the linked code, or of what a source
+states about itself (a markdown tree's <code>kind: declaration</code> document). That the two agree is
 exactly what <code>Self::checked_against</code> checks, and it is a check rather than a derivation because
 a derivation could not fail.</p>
 <h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
