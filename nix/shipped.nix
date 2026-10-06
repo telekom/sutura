@@ -33,6 +33,8 @@
 , adbcDrivers
 # The per-triple ADBC PostgreSQL derivations - their musl static archives, see `adbcArchiveFor`.
 , postgresAdbcDrivers
+# The per-triple ADBC DuckDB derivations - their musl static archives, see `adbcArchiveFor`.
+, duckdbAdbcDrivers
 # The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
 , postgresTier
 # `flake.nix`'s `wholeTree`, for the tier run's test build - see `linkedDriversTests`.
@@ -64,15 +66,19 @@ let
   # **The PostgreSQL archive on the two musl triples only** (`telekom/sutura#913` stage 1): a static
   # binary has no other route to a driver, and every other build mounts the `.so`. Its directory
   # carries libpq and static OpenSSL 3, so every musl release ships OpenSSL (`docs/adr/0018`).
+  # The DuckDB archive likewise, on the musl triples only, for the same reason.
   adbcArchiveFor = target:
     let
       drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
       postgres = postgresAdbcDrivers."adbc-driver-postgresql-${target}" or null;
+      duckdb = duckdbAdbcDrivers."adbc-driver-duckdb-${target}" or null;
     in
     pkgs.lib.optionalAttrs (drv != null) {
       SUTURA_ADBC_ARCHIVE_DIR = "${drv}/lib";
     } // pkgs.lib.optionalAttrs (postgres != null && pkgs.lib.hasSuffix "-linux-musl" target) {
       SUTURA_ADBC_POSTGRES_ARCHIVE_DIR = "${postgres}/lib";
+    } // pkgs.lib.optionalAttrs (duckdb != null && pkgs.lib.hasSuffix "-linux-musl" target) {
+      SUTURA_ADBC_DUCKDB_ARCHIVE_DIR = "${duckdb}/lib";
     };
 
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
@@ -321,19 +327,19 @@ let
     in
     { inherit crossLib args; };
 
-  # BOTH LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
-  # decision, in a TEST build: the release links the same two archives (`adbcArchiveFor`) and
-  # `sutura doctor` only initialises the PostgreSQL one, so this is where its libpq RUNS. It builds
-  # `crates/sutura-adbc/tests/linked.rs` for
-  # x86_64-unknown-linux-musl with both archive directories and RUNS it, which only an x86_64-linux
-  # builder can, so the attribute exists there alone. A failing cell fails the build; the rest of
-  # the verdict - that the cell's LINKED arm is what ran, since a build that stopped linking the
+  # ALL THREE LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
+  # decision, in a TEST build: the release hands its link the same three archives
+  # (`adbcArchiveFor`) and `sutura doctor` only initialises the PostgreSQL one - no shipped code
+  # calls the DuckDB one yet - so this is where libpq RUNS and where DuckDB answers a query. It
+  # builds `crates/sutura-adbc/tests/linked.rs` for x86_64-unknown-linux-musl with every archive
+  # directory and RUNS its two linked cells, which only an x86_64-linux builder can, so the
+  # attribute exists there alone. A failing cell fails the build; the rest of the verdict - that each cell's LINKED arm is what ran, since a build that stopped linking an
   # archive passes the unlinked arm - is `nix/bigquery-driver-check.sh`'s `linked_verdict` over the
   # `linked.log` this installs, and that script self-checks the function before it reads a log. `nix/bigquery-driver-check.sh` realises it in CI.
   linkedDriversTests = pkgs.lib.optionalAttrs (system == "x86_64-linux") (
     let
       target = "x86_64-unknown-linux-musl";
-      cell = "tests::the_postgres_driver_is_there_exactly_where_its_archive_is_linked";
+      cells = builtins.concatStringsSep " " (map (d: "tests::the_${d}_driver_is_there_exactly_where_its_archive_is_linked") [ "postgres" "duckdb" ]);
       inherit (crossEnv { inherit target; profile = "ci"; }) crossLib args;
       testArgs = args // adbcArchiveFor target // {
         pname = "sutura-adbc-linked";
@@ -363,7 +369,7 @@ let
         doInstallCargoArtifacts = false;
         buildPhaseCargoCommand = ''
           set -o pipefail
-          cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cell} --nocapture 2>&1 | tee linked.log
+          cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cells} --nocapture 2>&1 | tee linked.log
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
       });

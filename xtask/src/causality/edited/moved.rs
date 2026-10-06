@@ -42,7 +42,7 @@ use crate::causality::diff::{ChangedFile, RemovedLine};
 use crate::causality::names::Ident;
 use crate::causality::provenance::Reach;
 use crate::causality::regions::{PostImage, item_end};
-use crate::causality::scoped::function_name;
+use crate::causality::scoped::{Code, function_name};
 
 /// One outermost `fn` item of an image: the key a move is matched on, and where it sat.
 #[derive(Debug)]
@@ -64,11 +64,12 @@ impl Item {
 fn items(text: Option<String>) -> Vec<Item> {
     let text = text.unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
+    let code = Code::of(&text);
     let mut out = Vec::new();
     let mut index = 0_usize;
-    while let Some(line) = lines.get(index) {
-        let trimmed = line.trim();
-        let Some(name) = function_name(trimmed).filter(|_| !trimmed.starts_with("//")) else {
+    while index < lines.len() {
+        let declared = function_name(&code, index);
+        let Some(name) = declared else {
             index += 1;
             continue;
         };

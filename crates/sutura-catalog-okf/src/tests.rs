@@ -226,3 +226,18 @@ fn the_example_corpus_loads_and_digests_stably() {
     assert_eq!(first.digest(), second.digest(), "the same corpus pins to the same digest");
     assert!(!first.definitions().models().is_empty(), "the example corpus has models");
 }
+
+#[test]
+fn a_refused_open_is_the_open_refusal() {
+    // `github.com/telekom/sutura#1227`: the symlink-swap cells that held this mapping raced a sleep
+    // window. `sutura-bounded-read` holds `O_NOFOLLOW` at the open without a race; this holds what
+    // this adapter makes of the open's refusal.
+    let mapped = super::map_read_error(sutura_bounded_read::ReadError::Open {
+        path: PathBuf::from("b.yaml"),
+        cause: rustix::io::Errno::LOOP,
+    });
+    assert!(
+        matches!(mapped, OkfCatalogError::Open { ref path, cause } if path == Path::new("b.yaml") && cause == rustix::io::Errno::LOOP),
+        "{mapped:?}"
+    );
+}

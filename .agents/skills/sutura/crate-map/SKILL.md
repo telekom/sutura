@@ -66,7 +66,7 @@ single `-> sutura-config` row above to the whole class.
 connection string and its TLS posture (`Conninfo`, `Channel`), the driver load and the one open
 (`PostgresDriver`)** - what `sutura-exec-postgres` currently dials a PostgreSQL source through, and what
 `sutura-catalog-rdbms`'s live reader will dial through in stage 3 of `telekom/sutura#913` (decided 10-02, `docs/adr/0018`'s
-seventeenth amendment). It cannot live in the exec adapter, because a catalog adapter may not reach
+eighteenth amendment). It cannot live in the exec adapter, because a catalog adapter may not reach
 `sutura-sql` and the exec adapter renders through it. `sutura-adbc` stays the generic loader. Two
 rows hold it, not the sentence: `FORBIDDEN_EDGES` `sutura-adbc-postgres -> sutura-sql`
 (`Edges::Every`), and the same `shared_client` row that sutura-http-client, sutura-bounded-read, sutura-adbc, and sutura-adbc-postgres carry. **The precedent it
@@ -115,9 +115,11 @@ Rules that are not visible from a manifest:
 
 ## Why a driver is a dev-dependency
 
-`sutura-cli` never links DuckDB - DataFusion is the one data-system adapter it links
+`sutura-cli` never links the `duckdb` crate - DataFusion is the one data-system adapter it links
 unconditionally, every other behind a default-off feature - and **that is what keeps the musl
-artifacts building**: nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path from
+artifacts building**: the `duckdb` crate links the shared `libduckdb`, which a static musl binary
+cannot load (the musl link gets DuckDB's merged static archive as an ADBC driver instead,
+`nix/duckdb-adbc.nix`). `nix/duckdb.nix` is the single path from
 nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike so a pin cannot differ
 between the shell and CI.
 

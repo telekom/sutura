@@ -285,10 +285,10 @@
           # not a tool that runs during the build, and `strictDeps = true` above makes the
           # distinction load-bearing rather than stylistic.
           #
-          # Only the NATIVE args carry either. The cross builds below deliberately do not: nixpkgs
-          # has no musl libduckdb, and `sutura-cli` keeps the adapter behind a default-off feature
-          # so the musl artifacts never ask for one. `libiconv` is what `-liconv` resolves to on a
-          # mac, where rustc emits it for every link and nix keeps it out of the SDK.
+          # Only the NATIVE args carry either. The cross builds below deliberately do not: the `duckdb`
+          # crate links the shared libduckdb, and `sutura-cli` keeps the adapter behind a default-off
+          # feature so the musl artifacts never ask for one. `libiconv` is what `-liconv` resolves to on
+          # a mac, where rustc emits it for every link and nix keeps it out of the SDK.
           buildInputs = [ duckdb.package ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
         } // duckdb.env;
 
@@ -429,7 +429,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers postgresTier
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
             wholeTree;
           inherit (commonArgs) version;
         };
@@ -451,6 +451,10 @@
           inherit pkgs;
           src = arrow-adbc-src;
         };
+
+        # The ADBC DuckDB driver archives, the same four triples and a separate set for the same
+        # reason. No source input: `nix/duckdb-adbc.nix` says why nixpkgs' `duckdb` is the driver.
+        duckdbAdbcDrivers = import ./nix/duckdb-adbc-drivers.nix { inherit pkgs; };
 
         # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
         # archive is linked (only the musl triples link one). Every `kind: postgres` source is
@@ -546,7 +550,7 @@
           });
 
         }
-        // adbcDrivers // postgresAdbcDrivers;
+        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
@@ -638,6 +642,24 @@
               || { echo "built $found ADBC PostgreSQL driver triples and this release declares 4" >&2; exit 1; }
             mkdir -p "$out"
             printf '%d ADBC PostgreSQL driver triples built\n' "$found" > "$out/result"
+          '';
+
+          # The DuckDB driver archives: `adbc-driver-postgresql`'s count, for the third driver.
+          # Each archive's own build links a probe against it - `-static` on musl - and refuses
+          # one defining a generic ADBC name (`nix/duckdb-adbc.nix`); running it is
+          # `linkedDriversTests` again.
+          adbc-driver-duckdb = pkgs.runCommand "adbc-driver-duckdb-check" {
+            buildInputs = builtins.attrValues duckdbAdbcDrivers;
+          } ''
+            found=0
+            for d in $buildInputs; do
+              test -f "$d/lib/libduckdb_adbc.a" || { echo "missing libduckdb_adbc.a in $d" >&2; exit 1; }
+              found=$((found + 1))
+            done
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC DuckDB driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC DuckDB driver triples built\n' "$found" > "$out/result"
           '';
 
           # `--all-features` is load-bearing, not thoroughness for its own sake: the

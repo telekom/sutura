@@ -6,12 +6,13 @@
 //! assert in `nix/bigquery-driver-check.sh` in the negative direction. `adbc_driver_manager`
 //! offers the other constructor for exactly this case, and it needs the driver's init function
 //! resolved at LINK time rather than found on disk. That is what `../build.rs` arranges from
-//! `nix/bigquery-adbc.nix`'s `c-archive` output and `nix/postgres-adbc.nix`'s static archive.
+//! `nix/bigquery-adbc.nix`'s `c-archive` output and the static archives of `nix/postgres-adbc.nix`
+//! and `nix/duckdb-adbc.nix`.
 //!
 //! **Compiled only where an archive is linked** (`cfg(adbc_driver_linked)` for `BigQuery`,
-//! `cfg(adbc_postgres_driver_linked)` for PostgreSQL), which is the limit
-//! worth stating first: `just lint` and every `--all-features` cargo gate in this workspace take
-//! the source build, so no gate's clippy run judges the lines below. What holds them instead is
+//! `cfg(adbc_postgres_driver_linked)` for PostgreSQL, `cfg(adbc_duckdb_driver_linked)` for
+//! `DuckDB`), which is the limit worth stating first: `just lint` and every `--all-features` cargo
+//! gate in this workspace take the source build, so no gate's clippy run judges the lines below. What holds them instead is
 //! `cargo xtask check-unsafe`, a text gate that reads this file whether or not a compiler does,
 //! plus the `cross` release builds and `just bigquery-driver-check`, which link and RUN it.
 //!
@@ -32,7 +33,7 @@ use core::ffi::{c_int, c_void};
 // (`unused_doc_comments`, which `-D warnings` makes an error).
 //
 // WHAT MAKES THE DECLARATION SOUND. The signature is not written out here by hand and then hoped
-// to match: it is `FFI_AdbcDriverInitFunc` applied to each item at `BIGQUERY`/`POSTGRES`, so a driver-manager
+// to match: it is `FFI_AdbcDriverInitFunc` applied to each item at `BIGQUERY`/`POSTGRES`/`DUCKDB`, so a driver-manager
 // release that changed the ABI would not compile rather than mis-call. The symbol itself comes from
 // the archive `../build.rs` links, built from the flake-pinned driver source by the ONE derivation
 // that also builds the `.so` this repository has been loading dynamically since `telekom/sutura#913`
@@ -41,7 +42,10 @@ use core::ffi::{c_int, c_void};
 // WHAT WOULD BREAK IT. A second producer of one of these names: a declaration resolves to whatever
 // the linker found. Each name is driver-specific - the Go archive exports `AdbcDriverBigqueryInit`
 // beside the generic one, and the PostgreSQL archive is built to define no generic ADBC name at all
-// (`nix/postgres-adbc.nix`) - so two drivers in one artefact share no symbol, measured with `nm`.
+// (`nix/postgres-adbc.nix`), and the `DuckDB` archive's build refuses one that does
+// (`nix/duckdb-adbc.nix`) - so no two drivers in one artefact share a driver-init symbol. The
+// refusal greps only the generic ADBC names (`grep -E ' [A-Z] Adbc'`); other un-namespaced C globals
+// are unmeasured, and the once-seen no-overlap was x86_64-musl, not aarch64-musl.
 // And this is a raw `extern` declaration, so
 // a build that compiled it against a target whose `c_int` differs from the archive's would be
 // undefined behaviour - both are produced for the same triple by the same flake, which is the
@@ -54,6 +58,9 @@ unsafe extern "C" {
     #[cfg(adbc_postgres_driver_linked)]
     #[link_name = "AdbcDriverPostgresqlInit"]
     fn postgres_init(version: c_int, driver: *mut c_void, error: *mut FFI_AdbcError) -> AdbcStatusCode;
+    #[cfg(adbc_duckdb_driver_linked)]
+    #[link_name = "duckdb_adbc_init"]
+    fn duckdb_init(version: c_int, driver: *mut c_void, error: *mut FFI_AdbcError) -> AdbcStatusCode;
 }
 
 /// Each entrypoint as the driver manager's own function-pointer type.
@@ -64,6 +71,8 @@ unsafe extern "C" {
 const BIGQUERY: FFI_AdbcDriverInitFunc = bigquery_init;
 #[cfg(adbc_postgres_driver_linked)]
 const POSTGRES: FFI_AdbcDriverInitFunc = postgres_init;
+#[cfg(adbc_duckdb_driver_linked)]
+const DUCKDB: FFI_AdbcDriverInitFunc = duckdb_init;
 
 /// The `BigQuery` driver this artefact carries, initialised through its linked-in entrypoint.
 ///
@@ -84,4 +93,14 @@ pub(crate) fn driver() -> Result<ManagedDriver, CoreError> {
 #[cfg(adbc_postgres_driver_linked)]
 pub(crate) fn postgres_driver() -> Result<ManagedDriver, CoreError> {
     ManagedDriver::load_static(&POSTGRES, AdbcVersion::default())
+}
+
+/// The `DuckDB` driver this artefact carries; [`driver`]'s contract.
+///
+/// # Errors
+///
+/// As [`driver`].
+#[cfg(adbc_duckdb_driver_linked)]
+pub(crate) fn duckdb_driver() -> Result<ManagedDriver, CoreError> {
+    ManagedDriver::load_static(&DUCKDB, AdbcVersion::default())
 }

@@ -345,7 +345,7 @@ services:
   #     this tier runs exposes NO token-minting surface: `/auth/authenticate` and `/auth/accessTokens`
   #     live in the React frontend this file deliberately omits (both 404 on the pinned 1.7.0 GMS,
   #     measured), so the TIER mints its own PAT offline with its own `DATAHUB_TOKEN_SERVICE_SIGNING_KEY`
-  #     (`sutura-dev mint-pat`), and `just e2e-datahub-bigquery --datahub tier` and
+  #     (`sutura-dev mint-pat`), and `just e2e-datahub-adbc --datahub tier` and
   #     `just datahub-acceptance` both present it as their bearer. The limit that REMAINS is that a
   #     self-minted PAT is not a DB-backed token-service token (no per-token revocation or audit),
   #     and that this is still a single-node tier with generated secrets, not a production DataHub.

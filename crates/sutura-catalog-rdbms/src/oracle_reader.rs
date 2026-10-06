@@ -16,13 +16,15 @@
 //!
 //! # The limits, next to the claims
 //!
-//! - **No passing live Oracle run is cited.** No venue that runs `just validate` reaches an
-//!   Oracle server (`compose.services.yaml`'s `oracle` row says why). The live cells in
-//!   `tests/oracle_provisioned.rs` exist and the `oracle-tier` CI job runs them. No run of them is
-//!   cited here yet. The unit cells prove the constructor refusals, the rendered statement, the flag
-//!   decode, and a golden of the dictionary assembled from positional values handed to the
-//!   decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
-//!   transaction and the driver's own type conversion stay unexercised.
+//! - **One live Oracle run is cited, and no `just validate` venue reaches a server.**
+//!   `compose.services.yaml`'s `oracle` row says why. The `oracle-tier` CI job ran both cells in
+//!   `tests/oracle_provisioned.rs` green on 2026-10-02 at `53055e9a4`, the head of the pull request
+//!   that landed them as #1232 (run 36997951066, job 110814411138, beside the adapter's acceptance
+//!   cell: `3 tests run: 3 passed`): a read binds models to the declared source alias, and an
+//!   absent documentation schema is refused by the server. Outside that job the unit cells prove
+//!   the constructor refusals, the rendered statement, the flag decode, and a golden of the
+//!   dictionary assembled from positional values handed to the decoder - never a read, because the
+//!   driver cannot build a row outside a session.
 //! - **Read-only by statement, not by driver flag.** The pinned driver has no read-only option;
 //!   the reader issues `SET TRANSACTION READ ONLY` before its one `SELECT` and rolls back after it.
 //!   That it makes the transaction read-only is unobserved against a server.

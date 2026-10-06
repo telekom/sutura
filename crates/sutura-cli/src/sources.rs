@@ -224,9 +224,8 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// the outbound transports share one read rather than re-reading a bundle, the
 /// host store or a client identity pair per source.
 ///
-/// Called unconditionally - on a build with no `bigquery` feature this simply has no reader, the same
-/// shape `security.credential_cache` is in on that build. See `docs/adr/0010`'s amendment for the
-/// limit: a declaration with no linked adapter is read and unused, not refused, because refusing it
+/// Called unconditionally - on a build with no `bigquery` feature this simply has no reader. See
+/// `docs/adr/0010`'s amendment for the limit: a declaration with no linked adapter is read and unused, not refused, because refusing it
 /// would mean this settings crate knowing which features a binary was built with.
 ///
 /// # Errors

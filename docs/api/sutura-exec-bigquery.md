@@ -51,9 +51,10 @@ were removed when ADBC became this adapter's only mode.
 feature. The golden matrix's `bigquery` row runs the example corpus through this transport
 against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
 and one run's corpus cell timed out undiagnosed (37152629712), so how it behaves under load is
-unproven. That job gates a merge through `ci-aggregate` on a same-repository pull request or
-merge group that selects the `data_source_bigquery` category; a fork gets no credential, so there the cells
-skip under their named exemption. A default build links none of this.
+unproven. That job gates a merge through `ci-aggregate` on a same-repository pull request that
+Dependabot did not open, or a merge group, that selects the `data_source_bigquery` category; a
+fork or a Dependabot pull request gets no credential, so there the cells skip under their named
+exemption. A default build links none of this.
 
 # Identity
 
@@ -637,6 +638,17 @@ bounds the scan without bounding the bill. And it is per JOB, so N questions cos
 ### `use UnusableCeiling`
 
 Why a configured bytes-billed ceiling is not one this transport will send.
+
+### `use DriverMessage`
+
+A driver message with every console job link cut out, so no rendered error says where a job ran.
+
+The pinned driver appends `(Query: <link>)` to the message of any error after the job was
+created (`go/record_reader.go`'s `runQuery`), and the link names the project, location and job.
+
+**The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
+gate - a private tuple field in a child module, so a `DriverMessage(..)` in `super` is `E0423`.
+Only `driver_message.rs` itself can skip `of`.
 
 ### `use Impersonation`
 

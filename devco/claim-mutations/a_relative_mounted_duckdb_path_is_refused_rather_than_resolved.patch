@@ -1,0 +1,19 @@
+diff --git a/crates/sutura-adbc/src/lib.rs b/crates/sutura-adbc/src/lib.rs
+index fdebd35f9..8c1b7edaa 100644
+--- a/crates/sutura-adbc/src/lib.rs
++++ b/crates/sutura-adbc/src/lib.rs
+@@ -130,13 +130,5 @@ pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
+ /// [`CoreError`] where the named path is unusable (empty or relative), where the library does not
+ /// load, or where its initialisation refused.
+ pub fn mounted_duckdb_driver(named: &str) -> Result<ManagedDriver, CoreError> {
+-    let at = DriverLocation::parse(named)
+-        .map_err(|cause| CoreError::with_message_and_status(cause.to_string(), adbc_core::error::Status::InvalidArguments))?;
+-    let Some(path) = at.mounted() else {
+-        return Err(CoreError::with_message_and_status(
+-            "a parsed driver path is mounted or linked; the linked route is linked_duckdb_driver",
+-            adbc_core::error::Status::Internal,
+-        ));
+-    };
+-    ManagedDriver::load_dynamic_from_filename(path, Some(b"duckdb_adbc_init"), AdbcVersion::default())
++    ManagedDriver::load_dynamic_from_filename(std::path::Path::new(named), Some(b"duckdb_adbc_init"), AdbcVersion::default())
+ }

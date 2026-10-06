@@ -887,3 +887,11 @@ pool, and the cells that hold the budget are the domain guard's own and a bare s
 directly - `crates/sutura-exec-datafusion/src/collect/budget_tests.rs` says so in its header rather
 than leaving the reader to infer coverage it does not have. The 1 GiB default is unchanged: nothing
 here is a measurement on a production-scale corpus, which is the first amendment's standing caveat.
+
+## Fifth amendment, 2026-10-02: nixpkgs does build a musl `libduckdb`
+
+"What is not decided" says "nixpkgs has no musl `libduckdb`". That is false: nixpkgs' `duckdb`
+cross-builds for both musl triples, and `nix/duckdb-adbc.nix` links a `-static` probe against its
+merged archive, which the musl artifacts now receive as an ADBC driver. The rest of that entry
+stands: `sutura-exec-duckdb` is still a dev-dependency, and shipping a data source still changes the
+cross-build matrix - and this change moved it without shipping one.
