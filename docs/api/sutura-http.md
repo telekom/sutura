@@ -870,6 +870,68 @@ Generous rather than tight, and sized off what a caller plausibly already has: a
 characters and a W3C `traceparent` is 55. Anything longer is not an identifier somebody is
 correlating with, and an unbounded one is a log line of a size a caller chooses.
 
+## Module `host`
+
+Which `Host` this deployment answers.
+
+One list, derived from the deployment, is checked on every route that answers a caller: `/v1/*`,
+the documentation, and `/mcp`. `/health` and `/metrics` are outside it because a probe and a scrape
+arrive with the pod's own address as their `Host`.
+
+**Matched like the agent transport matches**: the `Host` header, else the request's own
+authority; the port ignored; the name compared ASCII case-insensitively with an IPv6 literal's
+brackets removed. A `Host` that is not an authority is refused.
+
+**Two limits, stated where they bind.** A bind off the loopback that declares no
+`server.allowed_hosts` answers every `Host` (`HostAllowlist::of` is `None`, and the router says
+so at startup): such a bind already needs a credential, so the `Host` is not what guards it. And a
+request with no `Host` and no authority is answered, because an HTTP/1.1 client always names one -
+the check is for a client that names a host, not for an HTTP/1.0 one.
+
+### `struct HostAllowlist`
+
+```rust
+pub struct HostAllowlist
+```
+
+The hosts one deployment answers, in the form `AllowedHost` stores them.
+
+#### Methods
+
+```rust
+pub fn of(settings: &Settings) -> Option<Self>
+```
+
+The list this deployment enforces, or `None` where it enforces none.
+
+Enforced when the bind is loopback, or when `server.allowed_hosts` names a host. The list is the
+loopback names, those declared hosts, and the host of the deployment's own resource identifier
+(`security.inbound`), which is the name its callers reach it by.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `fn announce`
+
+```rust
+pub fn announce(allowlist: Option<&HostAllowlist>)
+```
+
+Says what the check does, because the off-host case answers everything and must not look like
+it is guarded.
+
+### `fn require_host`
+
+```rust
+pub async fn require_host(__arg0: axum::extract::State<HostAllowlist>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+```
+
+Refuses a request whose `Host` is not on the list.
+
+A `from_fn_with_state` middleware for the reason `crate::middleware::require_token` is one: it
+has to run for a whole subtree. The value refused is not logged - it is the caller's own text.
+
 ## Module `inbound`
 
 Leg 1 of the identity path: how a caller proves who it is, on this transport.
@@ -3042,6 +3104,11 @@ come from the variant, so two handlers cannot answer the same situation with dif
   for a route no scope can turn on would go obtain a grant that could never help. Checked
   BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
   is the reason a caller with every scope this surface issues still cannot reach the route.
+- `HostNotAllowed` - The request's `Host` is not one this deployment answers.
+
+  **`403`, and no `Host` echoed back**: the value is the caller's own text and the list it was
+  refused against is this deployment's. An operator reading a client's complaint has something
+  to act on: `server.allowed_hosts` is the key that admits another name.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 
   **No bare `String` to except any more.** `detail` is `Detail`, a witness type whose only
@@ -3123,6 +3190,7 @@ Assembling the router: three tiers, and what guards each.
 | liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 | documentation | anybody, when it is served at all | public | yes, when one is configured |
 | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
+| agent surface (`/mcp`), when mounted | a verified caller with the token, when one is configured | general, its own store | yes, when one is configured |
 
 Liveness has no token because a probe has no credential to present, which is exactly why its
 body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
