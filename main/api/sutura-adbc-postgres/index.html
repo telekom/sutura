@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-semantic/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-adbc-postgres/">
       
       
-        <link rel="prev" href="../sutura-catalog-wren/">
+        <link rel="prev" href="../sutura-adbc/">
       
       
-        <link rel="next" href="../sutura-sql/">
+        <link rel="next" href="../sutura-tls/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>sutura-semantic - sutura</title>
+        <title>sutura-adbc-postgres - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura-semantic" class="md-skip">
+        <a href="#sutura-adbc-postgres" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              sutura-semantic
+              sutura-adbc-postgres
             
           </span>
         </div>
@@ -1406,37 +1406,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-semantic
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1452,214 +1425,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compiled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum Compiled
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum Compiled">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compilefailure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum CompileFailure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum CompileFailure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fn-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fn compile
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-bundleinconsistent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use BundleInconsistent
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-federatedplan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use FederatedPlan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-queryplan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use QueryPlan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planfilter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanFilter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planmeasure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanMeasure
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planpredicate" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanPredicate
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planterm" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanTerm
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-predicateorigin" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PredicateOrigin
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1893,10 +1658,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../sutura-adbc-postgres/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-adbc-postgres
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1912,6 +1704,169 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#use-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Channel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-conninfo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Conninfo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-gssencryption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use GssEncryption
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-invalidkerberosservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use InvalidKerberosService
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-kerberos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Kerberos
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-kerberosservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use KerberosService
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-unusablechannel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use UnusableChannel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-adbcerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use AdbcError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-mounted_driver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use MOUNTED_DRIVER
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-nodriver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use NoDriver
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-postgresdriver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use PostgresDriver
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-unusabledriverpath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use UnusableDriverPath
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-connectiontarget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use ConnectionTarget
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2239,99 +2194,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#enum-compiled" class="md-nav__link">
+  <a href="#use-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        enum Compiled
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum Compiled">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compilefailure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum CompileFailure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum CompileFailure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fn-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fn compile
+        use Channel
       
     </span>
   </a>
@@ -2339,10 +2205,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-bundleinconsistent" class="md-nav__link">
+  <a href="#use-conninfo" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use BundleInconsistent
+        use Conninfo
       
     </span>
   </a>
@@ -2350,10 +2216,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-federatedplan" class="md-nav__link">
+  <a href="#use-gssencryption" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use FederatedPlan
+        use GssEncryption
       
     </span>
   </a>
@@ -2361,10 +2227,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-queryplan" class="md-nav__link">
+  <a href="#use-invalidkerberosservice" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use QueryPlan
+        use InvalidKerberosService
       
     </span>
   </a>
@@ -2372,10 +2238,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-planfilter" class="md-nav__link">
+  <a href="#use-kerberos" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use PlanFilter
+        use Kerberos
       
     </span>
   </a>
@@ -2383,10 +2249,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-planmeasure" class="md-nav__link">
+  <a href="#use-kerberosservice" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use PlanMeasure
+        use KerberosService
       
     </span>
   </a>
@@ -2394,10 +2260,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-planpredicate" class="md-nav__link">
+  <a href="#use-unusablechannel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use PlanPredicate
+        use UnusableChannel
       
     </span>
   </a>
@@ -2405,10 +2271,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-planterm" class="md-nav__link">
+  <a href="#use-adbcerror" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use PlanTerm
+        use AdbcError
       
     </span>
   </a>
@@ -2416,10 +2282,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-predicateorigin" class="md-nav__link">
+  <a href="#use-mounted_driver" class="md-nav__link">
     <span class="md-ellipsis">
       
-        use PredicateOrigin
+        use MOUNTED_DRIVER
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-nodriver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use NoDriver
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-postgresdriver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use PostgresDriver
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-unusabledriverpath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use UnusableDriverPath
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-connectiontarget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use ConnectionTarget
       
     </span>
   </a>
@@ -2451,160 +2361,48 @@
      Edit the doc comments in the crate source instead, then regenerate.
      The commands are on the API reference landing page. -->
 
-<h1 id="sutura-semantic">sutura-semantic<a class="headerlink" href="#sutura-semantic" title="Permanent link">&para;</a></h1>
-<p>The public API of <code>sutura-semantic</code>, rendered from rustdoc JSON.</p>
-<p>The semantic compiler: a modelled question becomes one plan for one data system.</p>
-<p>Two stages, in two modules, and the split is the design rather than tidiness:</p>
-<ol>
-<li><strong>Resolve</strong> looks every name up in the caller's <code>ScopedView</code>
-   of the pinned snapshot. Its only outputs are references into that bundle and refusals naming
-   the argument that failed. It cannot reach a live catalog, because it is handed the view and
-   nothing else - and a metric outside that view resolves as unknown, not merely undescribed.</li>
-<li><strong>Plan</strong> settles what nothing else may settle: which single data
-   system the statement runs against, and which values become bind parameters. It holds no SQL,
-   and its serialized form is what a golden snapshot pins.</li>
-</ol>
-<p><strong><code>compile</code> runs both, and stops. There is no third stage in this crate.</strong> The <code>Warehouse</code>
-port takes a plan: an adapter that executes over Arrow renders nothing, and a SQL-speaking
-adapter renders for the dialect it alone knows. Whoever wants SQL calls <code>sutura_sql::generate</code>
-and names the dialect there.</p>
-<p><strong><code>sutura-sql</code> is a separate crate, and this crate does not depend on it.</strong> Rendering used to be
-a <code>pub</code> module here - <code>generate</code> and <code>dialect</code> - which put <code>polyglot-sql</code> in the transitive
-closure of every consumer of the core, the network binary included: it links the engine, renders
-nothing, and could reach no line of that code. Moving the two modules out drops the generator
-from this crate's tree, and <code>cargo xtask check-boundaries</code> fails if either edge comes back, so
-the direction is a gate rather than a sentence in this comment.</p>
-<p><code>compile</code> returns a <code>Compiled</code> rather than a <code>Result</code> of a plan, because a refusal is an
-answer: a caller must not be able to mistake "you may not ask that" for a transport failure and
-retry until something works.</p>
-<p><strong>Nothing here emits SQL, parses SQL, or names a dialect.</strong> After the split that is a fact about
-the dependency list rather than a discipline: there is no SQL generator in this crate's tree to
-call.</p>
-<h2 id="enum-compiled"><code>enum Compiled</code><a class="headerlink" href="#enum-compiled" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Compiled</span>
-</span></code></pre></div>
-<p>What compiling a question produced.</p>
-<p>A refusal is a variant here rather than an <code>Err</code>, which is the same choice
-<code>sutura_domain::query::ToolOutcome</code> makes and for the same reason.</p>
-<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>Planned</code> - The question resolved to one data system, and this is what we decided to execute.</li>
-</ul>
-<p>The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
-  set by its rarest variant makes every refusal carry the cost of an answer.
-- <code>Federated</code> - The question resolved to two data systems, split into a fact leg and a lookup leg.</p>
-<p>The two legs execute against their own sources and the combiner behind
-  <code>FederationCombiner</code> turns the batches
-  back into one answer above them.
-- <code>Refused</code> - The question was refused, and this is why.</p>
-<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">DomainPlan</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The plan, if the question resolved to one data system.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">RefusalReason</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The refusal, if there was one.</p>
-<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code></p>
-<h2 id="enum-compilefailure"><code>enum CompileFailure</code><a class="headerlink" href="#enum-compilefailure" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CompileFailure</span>
-</span></code></pre></div>
-<p>Why compiling failed, which is never why a question was refused.</p>
-<p><strong>Several arms rather than one bundle error, and <code>telekom/sutura#338</code> is the report.</strong> A question
-the deployment declines comes back as <code>Compiled::Refused</code>; what reaches this type is our own
-side being wrong. Each arm below is one way that can happen: the pinned bundle names something it
-does not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, the
-splitter built a two-source plan that
-<code>FederatedPlan::new</code> then rejected, a producer
-built a plan whose predicates and parameters did not resolve each other, the splitter ran with no
-remote dimension, and a chain reached the plan stage having left the metric's data system.
-<code>NotAssembled</code> used to
-be flattened into <code>RefusalReason::FederationNotExecutable</code>, which is what a build whose adapter
-type does not declare <code>Warehouse::EXECUTES_LEGS</code> is told - so a wiring defect and a statement
-about the build's own capability arrived as one value, and a caller could not tell which it had.</p>
-<p>The arms are deliberately NOT counted in this prose: a number here is a second thing to keep
-true, and it had already stopped being true once - it said four while the enum held five.</p>
-<p><strong>The limit, next to the claim:</strong> nothing provokes <code>NotAssembled</code>
-or <code>NotBound</code> today. Every <code>FederatedPlanError</code> variant is
-structurally unreachable from the splitter as it stands, and every
-<code>IncoherentBindings</code> variant is unreachable from the
-two functions that build a binding set, because both mint each parameter index from the position
-the value was pushed to - <code>crate::plan::PlanError</code> enumerates why, one variant at a time - so what
-these arms buy is that a future edit which makes one reachable surfaces as a failure rather than
-as a refusal a caller would retry.</p>
-<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>Bundle</code> - The pinned bundle names a model or a relationship it does not hold.</li>
-<li><code>AuthoredSqlNotPlanned</code> - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.</li>
-<li><code>NotAssembled</code> - A two-source plan this workspace compiled and could not then assemble.</li>
-<li><code>NotBound</code> - A plan this workspace compiled whose predicates and parameters did not resolve each other.</li>
-<li><code>NoRemoteJoin</code> - A2: the splitter ran with no remote dimension to join the fact leg through.</li>
-</ul>
-<p>Same limit as <code>NotAssembled</code> and <code>NotBound</code>: <code>plan</code> calls the splitter only when exactly one
-  remote source exists and a remote dimension has a join by construction, so nothing provokes
-  this either. It replaces a fabricated <code>RefusalReason::PlanSpansTooManySources { sources: 1,
-  limit: 2 }</code> a caller could not have narrowed their way out of.
-- <code>ChainLeavesItsSource</code> - A chain that leaves the metric's data system after its first hop reached the plan stage.</p>
-<p>The bundle should not have assembled: <code>sutura_domain::catalog</code> refuses such a chain at load,
-  naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
-  buys is the thing the load check alone did not have - a second reader of the same rule, on
-  the path where getting it wrong renders another data system's table into one statement under
-  a certified metric name. <code>crate::plan::PlanError::ChainLeavesItsSource</code> carries the report.
-- <code>NoSecondFactModel</code> - The splitter carried a cross-model ratio's second-fact leaves with no second fact model or calendar model resolved for them. Same limit as <code>NoRemoteJoin</code>: <code>plan</code> dispatches such a ratio only once <code>resolve</code> has already looked up both, so nothing provokes this either - see <code>crate::plan::PlanError::NoSecondFactModel</code>'s own doc for the construction that holds it.</p>
-<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">compile</span><span class="p">(</span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">Query</span><span class="p">,</span><span class="w"> </span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">view</span><span class="p">::</span><span class="n">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">row_ceiling</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">RowCeiling</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Compiled</span><span class="p">,</span><span class="w"> </span><span class="n">CompileFailure</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Resolves and plans. It does not render.</p>
-<p><strong>The dialect used to be an argument here, and that was a parameter that could lie.</strong> Compiling
-rendered a statement alongside the plan, and the one caller that answers questions threw the
-statement away - because the port takes a plan, and a SQL-speaking adapter renders its own. So the
-dialect decided nothing, while a caller could hand this <code>Postgres</code> and a <code>DuckDB</code> warehouse and
-nothing anywhere would notice the disagreement.</p>
-<p>Rendering now lives where the dialect is actually known: <code>sutura_sql::generate</code>, in its own
-crate, called by the adapter that speaks that dialect. Whoever wants SQL asks for it, and
-linking this crate no longer links a SQL generator.</p>
-<p>The error type is <code>CompileFailure</code> and a refused question is not one of its arms: a refusal is
-an answer and comes back as <code>Compiled</code>.</p>
-<p><strong>A broken bundle is no longer the only way this can fail</strong>, which is the change
-<code>telekom/sutura#338</code> asked for and the one thing about it a test can hold:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>use sutura_domain::pinned::PinnedDefinitions;
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>use sutura_domain::pinned::view::ScopedView;
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>use sutura_domain::query::Query;
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>use sutura_semantic::{BundleInconsistent, compile};
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>fn _only_a_broken_bundle(query: &amp;Query, pinned: &amp;PinnedDefinitions) -&gt; Option&lt;BundleInconsistent&gt; {
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    compile(query, &amp;ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>}
-</span></code></pre></div>
-<p>And the twin, so a rename cannot make that block pass vacuously:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>use sutura_domain::pinned::PinnedDefinitions;
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>use sutura_domain::pinned::view::ScopedView;
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>use sutura_domain::query::Query;
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>use sutura_semantic::{CompileFailure, compile};
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>fn _either_way(query: &amp;Query, pinned: &amp;PinnedDefinitions) -&gt; Option&lt;CompileFailure&gt; {
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    compile(query, &amp;ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>}
-</span></code></pre></div>
-<h2 id="use-bundleinconsistent"><code>use BundleInconsistent</code><a class="headerlink" href="#use-bundleinconsistent" title="Permanent link">&para;</a></h2>
-<p>Why resolution did not produce a resolution.</p>
-<p>Two shapes, deliberately separated. A <code>RefusalReason</code> is an answer to the caller: the question
-named something that is not there, or not permitted. An absence is a broken bundle, which the
-caller did nothing to cause and can do nothing about, so it must not be dressed up as a refusal
-they might retry differently.</p>
-<p>The absence variants should be unreachable: <code>Definitions::assemble</code> checks every one of these
-cross-references before a bundle exists. They are written out rather than reached with an
-<code>expect</code> because a panic path here is reachable from a catalog file, and the no-panic ban is not
-conditional on another check having been right.</p>
-<h2 id="use-federatedplan"><code>use FederatedPlan</code><a class="headerlink" href="#use-federatedplan" title="Permanent link">&para;</a></h2>
-<h2 id="use-queryplan"><code>use QueryPlan</code><a class="headerlink" href="#use-queryplan" title="Permanent link">&para;</a></h2>
-<h2 id="use-planfilter"><code>use PlanFilter</code><a class="headerlink" href="#use-planfilter" title="Permanent link">&para;</a></h2>
-<h2 id="use-planmeasure"><code>use PlanMeasure</code><a class="headerlink" href="#use-planmeasure" title="Permanent link">&para;</a></h2>
-<h2 id="use-planpredicate"><code>use PlanPredicate</code><a class="headerlink" href="#use-planpredicate" title="Permanent link">&para;</a></h2>
-<h2 id="use-planterm"><code>use PlanTerm</code><a class="headerlink" href="#use-planterm" title="Permanent link">&para;</a></h2>
-<h2 id="use-predicateorigin"><code>use PredicateOrigin</code><a class="headerlink" href="#use-predicateorigin" title="Permanent link">&para;</a></h2>
+<h1 id="sutura-adbc-postgres">sutura-adbc-postgres<a class="headerlink" href="#sutura-adbc-postgres" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-adbc-postgres</code>, rendered from rustdoc JSON.</p>
+<p>The PostgreSQL ADBC connector: the libpq connection string and its TLS posture (<code>Conninfo</code>,
+<code>Channel</code>), the driver a process loads (<code>PostgresDriver</code>), and the one connection opened
+over them (<code>PostgresDriver::connect</code>).</p>
+<p>It is shared rather than adapter code so that <code>sutura-exec-postgres</code> and a metadata reader dial
+a source through one refusal set. It names no SQL dialect - a catalog adapter may not reach
+<code>sutura-sql</code> (<code>xtask/src/boundaries/edges.rs</code>), and neither may this crate - and it carries no
+adapter prefix, so its normal tree is held off adapters, the application, settings and the
+transports by its own row in <code>xtask/src/boundaries/shared_client.rs</code>.</p>
+<h2 id="use-channel"><code>use Channel</code><a class="headerlink" href="#use-channel" title="Permanent link">&para;</a></h2>
+<p>How the channel to the source is secured, as the composition root resolved the declaration.</p>
+<h2 id="use-conninfo"><code>use Conninfo</code><a class="headerlink" href="#use-conninfo" title="Permanent link">&para;</a></h2>
+<p>The connection string for one source. Only <code>Conninfo::new</code> and <code>Conninfo::kerberos</code> make
+one, and its <code>Debug</code> is the <code>Secret</code>'s, so the password it carries is never printed.</p>
+<h2 id="use-gssencryption"><code>use GssEncryption</code><a class="headerlink" href="#use-gssencryption" title="Permanent link">&para;</a></h2>
+<p>Whether GSSAPI encrypts the channel - libpq's <code>gssencmode</code>.</p>
+<h2 id="use-invalidkerberosservice"><code>use InvalidKerberosService</code><a class="headerlink" href="#use-invalidkerberosservice" title="Permanent link">&para;</a></h2>
+<p>A declared Kerberos service name that is not one.</p>
+<h2 id="use-kerberos"><code>use Kerberos</code><a class="headerlink" href="#use-kerberos" title="Permanent link">&para;</a></h2>
+<p>A Kerberos sign-in through GSSAPI, as the declaration names it.</p>
+<h2 id="use-kerberosservice"><code>use KerberosService</code><a class="headerlink" href="#use-kerberosservice" title="Permanent link">&para;</a></h2>
+<p>The service half of the server's principal, <code>&lt;service&gt;/&lt;host&gt;</code> - libpq's <code>krbsrvname</code>.</p>
+<h2 id="use-unusablechannel"><code>use UnusableChannel</code><a class="headerlink" href="#use-unusablechannel" title="Permanent link">&para;</a></h2>
+<p>A declared connection the ADBC transport cannot hold to, refused before anything dials.</p>
+<h2 id="use-adbcerror"><code>use AdbcError</code><a class="headerlink" href="#use-adbcerror" title="Permanent link">&para;</a></h2>
+<p>Why a PostgreSQL ADBC call could not answer.</p>
+<h2 id="use-mounted_driver"><code>use MOUNTED_DRIVER</code><a class="headerlink" href="#use-mounted_driver" title="Permanent link">&para;</a></h2>
+<p>The variable a host that links no driver names a mounted one with.</p>
+<p><strong>Not a settings key</strong>: which driver file a host carries is a property of the host rather than of
+the semantic deployment, and a release artefact that links one never reads it - the order
+<code>bigquery_driver</code> in <code>sutura-cli</code> gives for the other ADBC adapter, for its reason: a mounted
+path must not be able to displace the driver a published artefact carries.</p>
+<h2 id="use-nodriver"><code>use NoDriver</code><a class="headerlink" href="#use-nodriver" title="Permanent link">&para;</a></h2>
+<p>Why this process has no PostgreSQL driver to open.</p>
+<h2 id="use-postgresdriver"><code>use PostgresDriver</code><a class="headerlink" href="#use-postgresdriver" title="Permanent link">&para;</a></h2>
+<p>Where the PostgreSQL driver comes from: this artefact's own link, or a mounted <code>.so</code>.</p>
+<p>Not <code>sutura_adbc::DriverLocation</code>, whose linked route is the <code>BigQuery</code> archive; a mounted path is
+parsed by it, so an empty or relative one is refused exactly as for every ADBC adapter.</p>
+<h2 id="use-unusabledriverpath"><code>use UnusableDriverPath</code><a class="headerlink" href="#use-unusabledriverpath" title="Permanent link">&para;</a></h2>
+<h2 id="use-connectiontarget"><code>use ConnectionTarget</code><a class="headerlink" href="#use-connectiontarget" title="Permanent link">&para;</a></h2>
+<p>The address a PostgreSQL source is dialled through.</p>
 
 
 
