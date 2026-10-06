@@ -190,12 +190,8 @@ parking_lot = "0.12"
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }
 
-# The `rdbms` catalog's live dictionary reader's client, and the served tests' fixture-install
-# connection. No data source uses it: `sutura-exec-postgres` answers every source over ADBC
-# (`telekom/sutura#913`), and the reader moves to ADBC after it.
-tokio-postgres = "0.7"
-# The `StreamExt` the live dictionary reader drains a `tokio-postgres` row stream with; already in
-# the graph as a tokio-postgres dependency, so naming it adds no supply-chain surface.
+# The `StreamExt` `sutura-exec-datafusion` drains an engine stream with; already in the graph
+# through `datafusion`, so naming it adds no supply-chain surface.
 futures-util = "0.3"
 # Writing the compressed fixtures the engine's `compression` feature reads back, in DEV-dependencies
 # and nowhere else - nothing this workspace ships compresses anything. Both were already in
@@ -217,25 +213,10 @@ arrow-schema = "59"
 # `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own
 # dependency, so this is a new edge and not a new crate.
 arrow-buffer = "59"
-# TLS for a Postgres SOURCE connection: `MakeRustlsConnect`, which turns a `rustls::ClientConfig`
-# into the connector `tokio-postgres::Config::connect` wants. This is the first thing in the
-# workspace that must VERIFY a peer's chain - see `docs/adr/0010` - so the trust store is declared
-# per source and never inherited. `postgres-native-tls` is deliberately absent: two of the four
-# release triples are musl, nixpkgs has no musl OpenSSL, and rustls needs no system library.
-#
-# It has no default features, so its own `ring` provider is the one `tokio-rustls` already asks for.
-tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
-# rustls itself, to build the `ClientConfig` over the declared trust anchors. The anchor bundle and
-# a client identity are read off disk by `sutura_catalog_rdbms::postgres_channel::client_config`,
-# using rustls's own trailing `PemObject` reader, so no separate PEM crate enters the
-# graph for it.
-#
-# `tls12` is pinned HERE rather than left to arrive by feature unification with `tokio-rustls`'s own
-# `tls12` (below): without the explicit pin, a source build with `--features postgres` and no `tls`
-# is 1.3-only while adding `tls` widens it to 1.2 too, so the protocol set an outbound Postgres
-# source accepts would depend on an unrelated listener feature. Fail-closed either way - a 1.2-only
-# server is refused without this feature - so the pin is about making the behaviour legible rather
-# than about closing a gap.
+# rustls itself, for the loopback TLS fixtures (`sutura-http-client`'s `tls-test` and
+# `sutura-cli`'s served cells). No shipped adapter builds a `ClientConfig` with it since the `rdbms`
+# catalog reader moved to the ADBC connector (`telekom/sutura#913`); `tls12` matches
+# `tokio-rustls`'s own pin below.
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"] }
 # `CertificateDer`/`PrivateKeyDer`/the `PemObject` reader, with no crypto provider and no TLS
 # implementation attached - `rustls` itself re-exports this crate verbatim as `rustls::pki_types`.
@@ -254,12 +235,12 @@ rustls-native-certs = "0.8.4"
 # `cc`/`bindgen` build-dependency, so there is nothing here that could `dlopen` an Instant Client the
 # way an ODPI-C wrapper would. Oracle's own organisation publishes it as a "thin mode" driver that
 # speaks the wire protocol itself. Synchronous - `Connection::execute` is a plain blocking `fn` over a
-# `std::net::TcpStream` - so `sutura-exec-oracle` needs no `tokio` runtime of its own, unlike
-# `tokio-postgres`. It pulls `rustls` with ITS OWN default features (`aws_lc_rs`), which this
-# workspace cannot narrow from the downstream side - Cargo feature unification is additive across the
-# whole resolve graph - so depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys`
-# into any build that also links this adapter; both are already in `Cargo.lock` via other paths, so
-# this adds no new package, only a new feature activation on the one already there.
+# `std::net::TcpStream` - so `sutura-exec-oracle` needs no `tokio` runtime of its own. It pulls
+# `rustls` with ITS OWN default features (`aws_lc_rs`), which this workspace cannot narrow from the
+# downstream side - Cargo feature unification is additive across the whole resolve graph - so
+# depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys` into any build that also
+# links this adapter; both are already in `Cargo.lock` via other paths, so this adds no new package,
+# only a new feature activation on the one already there.
 oracledb = "26.0.0-beta.4"
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which

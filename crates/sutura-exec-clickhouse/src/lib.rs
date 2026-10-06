@@ -12,8 +12,7 @@
 //! runtime there, while `ureq` can execute the request directly. `ClickHouse`'s
 //! own HTTP interface asks for nothing more than one request/response per statement, which is
 //! `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
-//! no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what most of
-//! `sutura_catalog_rdbms::postgres_channel::client_config`'s reasoning transfers to.
+//! no C TLS library, and this crate's own `tls` module (over `sutura-tls`) builds the verifier.
 //!
 //! # Why a driver-shaped seam, and not just a hand-rolled client
 //!

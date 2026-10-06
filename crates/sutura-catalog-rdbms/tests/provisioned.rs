@@ -21,7 +21,8 @@
 //! invents one, which the unit-level contract already states. The TLS cells live in
 //! `sutura-exec-postgres`'s own `tests/tls.rs` against the same tier; this suite checks the reader's
 //! channel shape (read-only transaction, parameter binding, documented schema) over the unix-socket
-//! plaintext connection the tier authenticates by `trust`.
+//! plaintext connection the tier authenticates by `trust`, through the shared connector the reader
+//! dials with - which also installs the fixture, over the simple protocol.
 
 // `#[cfg(test)]` for the reason `sutura-exec-postgres/tests/conformance.rs` gives: clippy honours
 // `allow-expect-in-tests` only under a literal `#[cfg(test)]` ancestor.
@@ -31,9 +32,12 @@ mod provisioned {
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use adbc_core::{Connection as _, Statement as _};
+    use sutura_adbc_postgres::{AdbcError, Channel, ConnectionTarget, Conninfo, PostgresDriver};
     use sutura_catalog_rdbms::postgres_reader::{PostgresReader, RowPredicate};
     use sutura_catalog_rdbms::{DictionaryReader as _, RdbmsCatalog, RdbmsError};
     use sutura_dev::provisioned::{self, Provisioned};
+    use sutura_domain::identity::Secret;
     use sutura_domain::model::{ColumnName, ModelName, SourceName};
     use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
 
@@ -51,22 +55,72 @@ mod provisioned {
     /// The declared environment key the fixture rows carry.
     const ENVIRONMENT: &str = "test";
 
-    /// A connection config for the tier's unix socket, over the exported credential, or `None`
-    /// where nothing is provisioned (the `SKIPPED` notice is already on stderr).
-    fn tier_config() -> Option<tokio_postgres::Config> {
+    /// The tier's unix socket over the exported credential - the driver and a way to build its
+    /// connection string, one per reader - or `None` where nothing is provisioned (the `SKIPPED`
+    /// notice is already on stderr). A provisioned tier names a driver, so its absence fails.
+    fn tier() -> Option<Tier> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
             Provisioned::At(endpoint) => endpoint,
             Provisioned::Skipped(_) => return None,
         };
-        let mut config = tokio_postgres::Config::new();
-        // The nix tier publishes its socket directory as a `/`-prefixed host; the driver treats
-        // that as a unix socket directory.
-        config.host(endpoint.host()).port(endpoint.port());
-        config
-            .user(required(USER))
-            .password(required(PASSWORD))
-            .dbname(required(DATABASE));
-        Some(config)
+        Some(Tier {
+            driver: PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            socket: String::from(endpoint.host()),
+            port: endpoint.port(),
+        })
+    }
+
+    struct Tier {
+        driver: PostgresDriver,
+        socket: String,
+        port: u16,
+    }
+
+    impl Tier {
+        /// The nix tier publishes its socket directory as a `/`-prefixed host, which libpq dials as
+        /// a unix socket.
+        fn conninfo(&self) -> Conninfo {
+            let source = SourceName::parse("dictionary").expect("catalog name parses");
+            let target = ConnectionTarget::Host(&self.socket);
+            let password = Secret::new(required(PASSWORD));
+            Conninfo::new(
+                &source,
+                target,
+                self.port,
+                &required(DATABASE),
+                &required(USER),
+                &password,
+                Channel::Plaintext,
+            )
+            .expect("the tier's plaintext connection string builds")
+        }
+
+        fn reader(&self, schema: &str, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> PostgresReader {
+            let environment = String::from(ENVIRONMENT);
+            PostgresReader::new(
+                self.driver.clone(),
+                self.conninfo(),
+                String::from(schema),
+                environment,
+                RowPredicate::None,
+                row_cap,
+                byte_cap,
+            )
+            .expect("the fixture reader settings parse")
+        }
+
+        /// Runs every statement in `statement`, committed - the fixture's own DDL and rows.
+        fn run_sql(&self, statement: &str) {
+            let mut connection = self.driver.connect(&self.conninfo()).expect("the tier opens");
+            let mut fixture = connection.new_statement().expect("a statement allocates");
+            fixture.set_sql_query(statement).expect("the fixture text is accepted");
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "a fixture install: this file's own DDL and literal rows, never caller text"
+            )]
+            let installed = fixture.execute_update();
+            installed.expect("the documentation-schema fixture installs");
+        }
     }
 
     fn required(variable: &str) -> String {
@@ -80,7 +134,7 @@ mod provisioned {
     /// `amount` column), bound to the semantic model `orders` in `ENVIRONMENT`. The described
     /// objects' source alias is NOT the catalog name - the reader's caller declares a separate
     /// alias, and the bundle must bind models to it.
-    fn install_fixture(config: &tokio_postgres::Config, schema: &str, read_only_schema: &str) {
+    fn install_fixture(tier: &Tier, schema: &str, read_only_schema: &str) {
         let statement = format!(
             "CREATE SCHEMA {schema}; \
              CREATE TABLE {schema}.columns ( \
@@ -117,58 +171,27 @@ mod provisioned {
              END $$; \
              CREATE VIEW {read_only_schema}.columns AS SELECT * FROM {read_only_schema}.probe()"
         );
-        run_sql(config, &statement);
-    }
-
-    fn run_sql(config: &tokio_postgres::Config, statement: &str) {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("a runtime builds");
-        let (client, connection) = runtime
-            .block_on(config.clone().connect(tokio_postgres::NoTls))
-            .expect("the tier opens");
-        runtime.spawn(async move {
-            #[expect(
-                clippy::let_underscore_must_use,
-                clippy::let_underscore_untyped,
-                reason = "the connection driver task's own error has no caller in this setup path"
-            )]
-            let _ = connection.await;
-        });
-        runtime
-            .block_on(client.batch_execute(statement))
-            .expect("the documentation-schema fixture installs");
+        tier.run_sql(&statement);
     }
 
     #[test]
     fn a_live_documentation_schema_binds_models_to_the_declared_source_alias() {
-        let Some(config) = tier_config() else { return };
+        let Some(tier) = tier() else { return };
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("the clock is after the epoch")
             .as_nanos();
         let schema = format!("{DOCUMENTATION_SCHEMA}_{}_{nonce}", std::process::id());
         let read_only_schema = format!("{schema}_ro");
-        install_fixture(&config, &schema, &read_only_schema);
+        install_fixture(&tier, &schema, &read_only_schema);
 
         let catalog_name = SourceName::parse("dictionary").expect("catalog name parses");
         let source_alias = SourceName::parse("warehouse").expect("source alias parses");
         let version = DefinitionVersion::parse("dict-1").expect("version parses");
 
-        // A read-only, plaintext reader over the tier's unix socket. `tls = None` for the declared
-        // `plaintext` channel; the schema and environment are this test's own validated literals;
-        // and the row/byte caps comfortably bound this fixture.
-        let reader = PostgresReader::new(
-            config.clone(),
-            None,
-            schema.clone(),
-            String::from(ENVIRONMENT),
-            RowPredicate::None,
-            NonZeroU64::new(1000),
-            NonZeroU64::new(1 << 20),
-        )
-        .expect("the fixture reader settings parse");
+        // A read-only, plaintext reader over the tier's unix socket; the schema and environment are
+        // this test's own validated literals, and the row/byte caps comfortably bound this fixture.
+        let reader = tier.reader(&schema, NonZeroU64::new(1000), NonZeroU64::new(1 << 20));
 
         let catalog = RdbmsCatalog::new(catalog_name.clone(), version, reader).with_source_alias(source_alias.clone());
         let pinned = catalog.load().expect("the live dictionary loads");
@@ -214,16 +237,7 @@ mod provisioned {
                 "reading the dictionary failed: the dictionary stream reached the declared maximum of 1 bytes",
             ),
         ] {
-            let reader = PostgresReader::new(
-                config.clone(),
-                None,
-                schema.clone(),
-                String::from(ENVIRONMENT),
-                RowPredicate::None,
-                row_cap,
-                byte_cap,
-            )
-            .expect("the capped reader settings parse");
+            let reader = tier.reader(&schema, row_cap, byte_cap);
             assert_eq!(
                 reader
                     .read_dictionary()
@@ -233,46 +247,33 @@ mod provisioned {
             );
         }
 
-        let reader = PostgresReader::new(
-            config.clone(),
-            None,
-            read_only_schema,
-            String::from(ENVIRONMENT),
-            RowPredicate::None,
-            None,
-            None,
-        )
-        .expect("the read-only probe settings parse");
+        let reader = tier.reader(&read_only_schema, None, None);
         let error = reader
             .read_dictionary()
             .expect_err("a dictionary view cannot write during a read");
         let RdbmsError::Read(cause) = error else {
             panic!("expected a database read error")
         };
-        let database_error = cause
-            .downcast_ref::<tokio_postgres::Error>()
-            .and_then(tokio_postgres::Error::as_db_error)
-            .expect("the server refused the write");
+        let Some(AdbcError::Adbc(refused)) = cause.downcast_ref::<AdbcError>() else {
+            panic!("expected the server's refusal: {cause:?}")
+        };
         assert_eq!(
-            database_error.code(),
-            &tokio_postgres::error::SqlState::READ_ONLY_SQL_TRANSACTION,
+            refused.sqlstate.map(|c| u8::try_from(c).unwrap_or(0)),
+            *b"25006",
+            "read_only_sql_transaction: {refused:?}"
         );
 
-        run_sql(
-            &config,
-            &format!("UPDATE {schema}.columns SET is_primary_key = NULL WHERE column_name = 'amount'"),
-        );
+        tier.run_sql(&format!(
+            "UPDATE {schema}.columns SET is_primary_key = NULL WHERE column_name = 'amount'"
+        ));
         assert_eq!(
             catalog.load().expect_err("null key evidence is malformed").to_string(),
             "reading the dictionary failed: a documentation row carried no primary-key evidence",
         );
-        run_sql(
-            &config,
-            &format!(
-                "UPDATE {schema}.columns SET is_primary_key = false WHERE column_name = 'amount'; \
-                 INSERT INTO {schema}.columns SELECT * FROM {schema}.columns WHERE column_name = 'amount'"
-            ),
-        );
+        tier.run_sql(&format!(
+            "UPDATE {schema}.columns SET is_primary_key = false WHERE column_name = 'amount'; \
+             INSERT INTO {schema}.columns SELECT * FROM {schema}.columns WHERE column_name = 'amount'"
+        ));
         assert_eq!(
             catalog.load().expect_err("a repeated column is malformed").to_string(),
             "reading the dictionary failed: a documentation table repeated column amount",
@@ -281,18 +282,9 @@ mod provisioned {
 
     #[test]
     fn a_live_reader_refuses_when_the_documentation_schema_is_absent() {
-        let Some(config) = tier_config() else { return };
-        let reader = PostgresReader::new(
-            config,
-            None,
-            String::from("no_such_schema"),
-            String::from(ENVIRONMENT),
-            RowPredicate::None,
-            None,
-            None,
-        )
-        .expect("the missing-schema reader settings parse");
-        let error = reader
+        let Some(tier) = tier() else { return };
+        let error = tier
+            .reader("no_such_schema", None, None)
             .read_dictionary()
             .expect_err("a missing documentation schema is a read error");
         assert!(matches!(error, RdbmsError::Read(_)), "{error:?}");

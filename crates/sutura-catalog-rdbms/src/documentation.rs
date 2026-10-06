@@ -3,8 +3,9 @@
 //! [`Table`]s. [`crate::postgres_reader`]'s header carries the column table this module decodes.
 //!
 //! A reader asks its driver for one row's columns, hands them over as a [`Row`] after
-//! [`Assembly::admit`] has counted the row against the declared caps, and gets a [`Dictionary`]
-//! back from [`Assembly::finish`]. What a reader still owns is its SQL, its transaction and how
+//! [`Assembly::admit`] has counted the row against the declared caps (or [`Assembly::bill`] a whole
+//! batch and [`Assembly::count_row`] each of its rows), and gets a [`Dictionary`] back from
+//! [`Assembly::finish`]. What a reader still owns is its SQL, its transaction and how
 //! it measures a row's size.
 
 use std::collections::BTreeMap;
@@ -112,12 +113,24 @@ impl<'env> Assembly<'env> {
     /// Counts one row of `size` bytes against the declared caps, refusing the row that crosses
     /// either, so the caller abandons its stream there rather than after it.
     pub(crate) fn admit(&mut self, size: u64) -> Result<(), RdbmsError> {
+        self.count_row()?;
+        self.bill(size)
+    }
+
+    /// Counts one row against the row cap, refusing the row that crosses it.
+    pub(crate) fn count_row(&mut self) -> Result<(), RdbmsError> {
         self.rows_read = self.rows_read.saturating_add(1);
         if self.rows_read > self.bounds.max_rows().get() {
             return Err(RdbmsError::Read(Box::new(CapExceeded::Rows {
                 limit: self.bounds.max_rows().get(),
             })));
         }
+        Ok(())
+    }
+
+    /// Spends `size` bytes from the byte cap, refusing what crosses it - a row, or a whole batch
+    /// for a reader whose driver hands rows over in batches.
+    pub(crate) fn bill(&mut self, size: u64) -> Result<(), RdbmsError> {
         if self.bytes_remaining < size {
             return Err(RdbmsError::Read(Box::new(CapExceeded::Bytes {
                 limit: self.bounds.max_bytes().get(),

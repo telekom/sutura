@@ -96,14 +96,12 @@ pub mod fixture;
 #[cfg(feature = "live")]
 pub mod oracle_reader;
 #[cfg(feature = "live")]
-pub mod postgres_channel;
-#[cfg(feature = "live")]
 pub mod postgres_reader;
 
 /// The live reader a declared `connection.dialect` selects, so one [`RdbmsCatalog`] type holds
 /// either without a trait object.
 #[cfg(feature = "live")]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AnyDictionaryReader {
     /// The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
     Postgres(Box<crate::postgres_reader::PostgresReader>),

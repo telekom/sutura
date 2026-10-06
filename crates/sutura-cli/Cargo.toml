@@ -49,8 +49,7 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "sutura-exe
 #
 # Default-off for local Cargo builds; `nix/shipped.nix` enables it in published binaries.
 #
-# The adapter owns every driver type `sutura serve` composes with. The test harness's own
-# `tokio-postgres` connection is a dev-dependency, so this shipped feature compiles none of it.
+# The adapter owns every driver type `sutura serve` composes with.
 postgres = ["dep:sutura-exec-postgres"]
 
 # The ClickHouse adapter, over its HTTP interface.
@@ -110,8 +109,8 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # Postgres documentation schema, and with it the outbound TLS stack that reader needs.
 #
 # **Default-off for the same ARTEFACT reason `postgres` above is.** `sutura-catalog-rdbms/live`
-# pulls `tokio-postgres-rustls`/`ring` into the build, so a release that never declared
-# `catalog.kind: rdbms` links none of it. `nix/shipped.nix` builds cargo's default set, so no
+# pulls the ADBC connector and the Oracle driver's `rustls` into the build, so a release that never
+# declared `catalog.kind: rdbms` links none of it. `nix/shipped.nix` builds cargo's default set, so no
 # published artefact contains the reader; `--features rdbms` is how an operator building `sutura`
 # turns it on, and `deny.toml`'s `all-features = true` keeps it compiled, linted and tested on
 # every gate run.
@@ -120,9 +119,9 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # above: the adapter crate's own `live` feature gates its reader module, and this crate's feature
 # is what an operator building `sutura` types.
 #
-# The reader's `tokio_postgres::Config` and `rustls::ClientConfig` are `sutura-catalog-rdbms`'s own
-# (`postgres_channel`), beside the one `tokio-postgres` client left in the workspace.
-rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live"]
+# `sutura-adbc-postgres` is named because this root builds the reader's `Conninfo` and resolves its
+# driver, the way `crate::postgres` does for a `sources:` entry.
+rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live", "dep:sutura-adbc-postgres"]
 
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
@@ -200,6 +199,8 @@ sutura-catalog-openmetadata = { workspace = true, optional = true }
 # unless `--features rdbms` asks for them. `catalog.kind: rdbms` is therefore openable only by a
 # build that turned the feature on, and refused by name otherwise - see `crate::catalog`.
 sutura-catalog-rdbms = { workspace = true, optional = true }
+# The connector the `rdbms` reader dials through, behind the same feature.
+sutura-adbc-postgres = { workspace = true, optional = true }
 # The OKF metadata adapter. **A normal dependency, not an optional one**, for the same reason
 # `sutura-catalog-local` is: it is a pure directory read with no native or outbound-TLS
 # dependency, so it cross-compiles to musl and there is no artefact reason to hold it out of the
@@ -261,12 +262,10 @@ serde_json = { workspace = true }
 # the loopback TLS identity provider the delegation exchange's `security.outbound` cell dials.
 sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
 # The served Postgres cells load the example into the tier through the adapter's fixture-only
-# loader and open it with the fixture's driver. This feature is absent from the shipped binary.
+# loader and open it with the fixture's driver; its `FixtureAdmin` holds the harness's advisory
+# lock and installs the documentation schema (`tests/served/harness/postgres.rs`,
+# `tests/common/fixtures.rs`). This feature is absent from the shipped binary.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
-# The fixture-install connection the Postgres test harness holds its advisory lock and installs
-# its documentation schema through (`tests/served/harness/postgres.rs`, `tests/common/fixtures.rs`,
-# `tests/mcp/rdbms.rs`). A dev-dependency, so the shipped `postgres` feature compiles none of it.
-tokio-postgres = { workspace = true }
 sutura-http-client = { workspace = true, features = ["tls-test"] }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
