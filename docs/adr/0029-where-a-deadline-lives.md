@@ -247,7 +247,7 @@ arrives it shortens the budget the transport opens and changes nothing on the po
   `block_on` on the same adapter, then flat. Until that next call, the stopped question's memory
   reservations and any not-yet-aborted leaf survive. The multi-thread runtime has no such gap - its
   workers keep running independently and reap on their own.
-- **The DuckDB adapter observes nothing.** Its row is empty on purpose.
+- **The DuckDB adapter observes nothing.** Its row is empty on purpose. *(Superseded by the Sixth amendment.)*
 - **The raw SQL tool is stopped by the smaller of its own budget and a ceiling.** On Postgres,
   `run_raw` sends what is left of the deadline as `SET LOCAL statement_timeout`, clamped to the
   `SUTURA_DEV_STATEMENT_TIMEOUT_MS` this deployment configured at connect. When the ceiling fires
@@ -346,3 +346,21 @@ and unbounded: `Conninfo` writes no `connect_timeout`, so with `PGCONNECT_TIMEOU
 that never answers holds the call, and its admission permit, until the OS gives up on the connect -
 libpq's documented default, not measured here. The six tier cells in
 `crates/sutura-exec-postgres/tests/deadline.rs` run against the new transport.
+
+## Sixth amendment, 2026-10-06: the DuckDB adapter stops a statement at the deadline
+
+The limit "carried, not enforced" on `sutura-exec-duckdb` is closed (`telekom/sutura#1236`). Measured
+on the pinned driver: `ConnectionCancel` from another thread ends a running `execute` in about the
+cancel's own latency, with `INTERRUPT Error: Interrupted!` and the error detail
+`duckdb:error_type = Interrupt`; `StatementCancel` does not, because the driver manager holds the
+statement's lock for the whole `execute`, so the cancel waits for the call it should stop.
+
+What runs now, in `Warehouse::execute`: a spent budget is refused before the statement starts; a
+scoped watchdog thread waits for what is left of the deadline and cancels the connection; a failure
+that carries `Interrupt` after the watchdog fired is `deadline_exceeded`, so a refusal by name and
+not a retryable error. An interrupt the watchdog did not cause stays the engine's own error.
+`dry_run` only prepares and still carries the deadline.
+
+**Limit.** The stop lands at the engine's next interrupt check, not at the instant, and a failed
+cancel leaves the statement to finish. The cell is
+`a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name`.

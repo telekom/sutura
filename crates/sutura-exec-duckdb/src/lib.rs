@@ -28,9 +28,11 @@
 //!
 //! ## Limits
 //!
-//! - **The deadline is carried, not enforced** (`docs/adr/0029`), on the raw path too: the driver's
-//!   `ConnectionCancel` interrupts a running statement, and honouring the deadline needs a watchdog
-//!   per call (`telekom/sutura#1236`). Until that lands, a raw statement runs until it ends.
+//! - **The deadline is a watchdog per `execute`** (`docs/adr/0029`, sixth amendment): a thread
+//!   calls the driver's `ConnectionCancel` when the budget is spent, the engine answers `Interrupt`,
+//!   and that is read as the deadline. Granularity is the engine's own interrupt check, so a
+//!   statement is stopped at its next one rather than the instant; `dry_run` only prepares and
+//!   carries the deadline, and so does the raw path, where a statement runs until it ends.
 //! - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
 //!   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; [`READ_ONLY`] and
 //!   [`THEN_LOCKED`] are what each of them runs under.
@@ -43,11 +45,14 @@
 //!   type is refused by the domain's reader downstream rather than as a [`DuckDbError`].
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Instant;
 
 use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{OptionDatabase, OptionValue};
 use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};
-use adbc_driver_manager::{ManagedDatabase, ManagedDriver, ManagedStatement};
+use adbc_driver_manager::{ManagedConnection, ManagedDatabase, ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
 use sutura_adbc::parameter_batch;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
@@ -176,6 +181,9 @@ pub enum DuckDbError {
         #[source]
         cause: CountsNotRead,
     },
+    /// The deadline ran out: spent before the statement started, or the watchdog interrupted it.
+    #[error("the deadline for this answer ran out")]
+    DeadlineExceeded,
     /// The plan could not be rendered as SQL.
     #[error("the plan could not be rendered for DuckDB")]
     Render {
@@ -236,6 +244,9 @@ pub enum DuckDbError {
     },
 }
 
+/// A connection and the prepared statement on it.
+type Connected = (ManagedConnection, ManagedStatement);
+
 /// A `DuckDB` database, behind the [`Warehouse`] port.
 pub struct DuckDbWarehouse {
     source: sutura_domain::model::SourceName,
@@ -295,10 +306,15 @@ fn database(path: &Path, options: &[(&str, &str)]) -> Result<ManagedDatabase, Du
 
 /// One connection on `database`, and a statement over `sql` the driver has prepared.
 fn prepared(database: &ManagedDatabase, sql: &str) -> Result<ManagedStatement, DuckDbError> {
+    connected(database, sql).map(|(_connection, statement)| statement)
+}
+
+/// [`prepared`] and the connection it runs on, which a watchdog cancels.
+fn connected(database: &ManagedDatabase, sql: &str) -> Result<Connected, DuckDbError> {
     let mut connection = database.new_connection().map_err(|cause| DuckDbError::Connect { cause })?;
     let mut statement = connection.new_statement().map_err(|cause| DuckDbError::Prepare { cause })?;
     statement.set_sql_query(sql).map_err(|cause| DuckDbError::Prepare { cause })?;
-    Ok(statement)
+    Ok((connection, statement))
 }
 
 /// Writes a database file holding one table per CSV, for a fixture to [`DuckDbWarehouse::open`].
@@ -502,13 +518,56 @@ impl DuckDbWarehouse {
     }
 
     /// Runs a statement and reads its stream against the materialisation budget, stopping once
-    /// `stop` rows are in.
+    /// `stop` rows are in, and cancelling the connection when `deadline` is spent.
     ///
     /// Read whole before the connection is dropped, and refused at the batch that crosses the budget
     /// rather than after every batch is held - see [`Accumulating`]. The driver hands a stream one
     /// `DuckDB` chunk at a time, so that is the granularity both bounds work at.
-    fn answered(&self, query: &GeneratedQuery, stop: Option<usize>) -> Result<ResultBatches, DuckDbError> {
-        let mut statement = self.statement(query.sql())?;
+    ///
+    /// **The connection is cancelled, not the statement**: the driver manager holds a statement's
+    /// lock for the whole `execute`, so a statement cancel waits for the very call it should stop.
+    fn answered(
+        &self,
+        query: &GeneratedQuery,
+        stop: Option<usize>,
+        deadline: Option<Deadline>,
+    ) -> Result<ResultBatches, DuckDbError> {
+        let (mut connection, statement) = connected(&self.database, query.sql())?;
+        let Some(deadline) = deadline else {
+            return self.read(statement, query, stop);
+        };
+        let left = deadline.remaining_at(Instant::now()).ok_or(DuckDbError::DeadlineExceeded)?;
+        let (finished, watched) = mpsc::channel::<()>();
+        let fired = AtomicBool::new(false);
+        let fired = &fired;
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                if watched.recv_timeout(left) == Err(RecvTimeoutError::Timeout) {
+                    fired.store(true, Ordering::Release);
+                    // A failed cancel leaves the statement to finish; the read then answers as it would.
+                    drop(connection.cancel());
+                }
+            });
+            let outcome = self.read(statement, query, stop);
+            drop(finished);
+            outcome.map_err(|error| match error {
+                DuckDbError::Execute { ref cause } if fired.load(Ordering::Acquire) && interrupted(cause) => {
+                    DuckDbError::DeadlineExceeded
+                }
+                DuckDbError::Batch { ref cause } if fired.load(Ordering::Acquire) && cause.to_string().contains("Interrupt") => {
+                    DuckDbError::DeadlineExceeded
+                }
+                other => other,
+            })
+        })
+    }
+
+    fn read(
+        &self,
+        mut statement: ManagedStatement,
+        query: &GeneratedQuery,
+        stop: Option<usize>,
+    ) -> Result<ResultBatches, DuckDbError> {
         if let Some(bound) = parameter_batch(query.params()).map_err(|cause| DuckDbError::Parameters { cause })? {
             statement.bind(bound).map_err(|cause| DuckDbError::Execute { cause })?;
         }
@@ -548,7 +607,7 @@ impl DuckDbWarehouse {
 
     /// A boot-path statement's rows, read by the domain's one decode.
     fn run(&self, query: &GeneratedQuery) -> Result<RowSet, DuckDbError> {
-        self.answered(query, None)?
+        self.answered(query, None, None)?
             .to_rows()
             .map_err(|cause| DuckDbError::Unreadable { cause })
     }
@@ -588,7 +647,8 @@ impl Warehouse for DuckDbWarehouse {
     /// `estimated_bytes` is `None`: preparing reads no plan statistics that would price bytes
     /// touched (`docs/adr/0030`).
     ///
-    /// **The deadline is carried, not enforced here; see `docs/adr/0029`** and this crate's limits.
+    /// **The deadline is carried, not enforced here**: preparing is not the long step, and
+    /// [`Self::execute`] holds the watchdog (`docs/adr/0029`).
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
@@ -596,16 +656,16 @@ impl Warehouse for DuckDbWarehouse {
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
-    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
+    /// Under a watchdog that cancels the connection at the deadline; `docs/adr/0029`.
     fn execute(
         &self,
         executable: Executable<'_>,
         presented: &Presented,
-        _deadline: Deadline,
+        deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.answered(&query, executable.row_limit())
+        self.answered(&query, executable.row_limit(), Some(deadline))
     }
 
     /// Re-runs an anchor's plan, under the one identity this database was opened with.
@@ -631,10 +691,14 @@ impl Warehouse for DuckDbWarehouse {
     /// `None` on a database [`DuckDbWarehouse::in_memory`] opened: it was opened writable, for
     /// fixtures, and a caller's text never runs on one.
     ///
-    /// **Carried, not enforced** until `telekom/sutura#1236` lands (`docs/adr/0029`): a statement runs
+    /// **Carried, not enforced** (`docs/adr/0029`): unlike [`Self::execute`], a raw statement runs
     /// until it ends, and only a budget spent before the call is refused, by the application layer.
     fn execute_raw(&self, statement: &RawStatement, presented: &Presented, _deadline: Deadline) -> RawExecution<Self::Error> {
         self.read_only.then(|| self.raw(statement, presented))
+    }
+
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(*error, DuckDbError::DeadlineExceeded)
     }
 
     /// The MATERIALISATION BUDGET alone: a result refused for crossing it is a governance outcome a
@@ -642,6 +706,15 @@ impl Warehouse for DuckDbWarehouse {
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         matches!(*error, DuckDbError::OverBudget { .. })
     }
+}
+
+/// Whether the engine stopped a statement because it was interrupted.
+fn interrupted(cause: &CoreError) -> bool {
+    cause
+        .details
+        .iter()
+        .flatten()
+        .any(|(key, value)| key == "duckdb:error_type" && value == b"Interrupt")
 }
 
 /// The `types` argument for [`DuckDbWarehouse::attach_fixture_csv`].

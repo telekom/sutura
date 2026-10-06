@@ -36,9 +36,11 @@ place the habit started.
 
 ## Limits
 
-- **The deadline is carried, not enforced** (`docs/adr/0029`), on the raw path too: the driver's
-  `ConnectionCancel` interrupts a running statement, and honouring the deadline needs a watchdog
-  per call (`telekom/sutura#1236`). Until that lands, a raw statement runs until it ends.
+- **The deadline is a watchdog per `execute`** (`docs/adr/0029`, sixth amendment): a thread
+  calls the driver's `ConnectionCancel` when the budget is spent, the engine answers `Interrupt`,
+  and that is read as the deadline. Granularity is the engine's own interrupt check, so a
+  statement is stopped at its next one rather than the instant; `dry_run` only prepares and
+  carries the deadline, and so does the raw path, where a statement runs until it ends.
 - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; `READ_ONLY` and
   `THEN_LOCKED` are what each of them runs under.
@@ -82,6 +84,7 @@ Why this data system could not answer.
   projects two aggregates over no group, so one row of two integers is the only shape it can
   have. It travels as an `Err` from the port, which the boot path reads as *this declaration
   went unchecked* rather than as a violated one.
+- `DeadlineExceeded` - The deadline ran out: spent before the statement started, or the watchdog interrupted it.
 - `Render` - The plan could not be rendered as SQL.
 - `FixtureRead` - The fixture CSV could not be read to name its column types.
 - `FixtureSchema` - The fixture CSV did not satisfy the shared schema boundary.
