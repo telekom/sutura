@@ -4,10 +4,27 @@
 //! The seam is the dependency graph rather than the source: these rows read manifests, lockfiles
 //! and nix, and a change to them is a supply-chain change rather than a refactor.
 
-use crate::registry::{Falsifier, Kind, Reads, Task};
+use crate::registry::{Edit, Falsifier, Kind, Paired, Reads, Task};
 use crate::{
     arrow_major, check_lock_coverage, default_feature_tests, default_features, feature_remedies, nix_platform, pins, shipped,
     unused_deps, vendor_count, warm_start,
+};
+
+/// `decide`'s own rule: the consumer builds into a directory the warmer never fills. The inputs
+/// are every file the arms read.
+const CHECK_WARM_START_PAIRED: Paired = Paired {
+    inputs: &[
+        "flake.nix",
+        "nix",
+        "xtask/src/causality.rs",
+        "xtask/src/default_features.rs",
+        "xtask/src/default_feature_tests.rs",
+    ],
+    violation: &[Edit {
+        path: "xtask/src/causality.rs",
+        find: "join(\"causality-target\")",
+        replace: "join(\"causality-target-paired\")",
+    }],
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -25,6 +42,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("Cargo.lock", "# locked\n"),
             ],
             in_scope: Some("fuzz/Cargo.lock"),
+            paired: None,
         },
         run: check_lock_coverage::run,
     },
@@ -38,6 +56,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("pixi.toml", "[dependencies]\nzizmor = \"1.0\"\n"),
             ],
             in_scope: Some("pixi.toml"),
+            paired: None,
         },
         run: pins::run,
     },
@@ -52,6 +71,7 @@ pub(crate) const TASKS: &[Task] = &[
         falsifier: Falsifier {
             seeds: &[],
             in_scope: Some("nix/platform.nix"),
+            paired: None,
         },
         run: nix_platform::run,
     },
@@ -61,7 +81,7 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-warm-start",
         description: "the warm start's directory, stamp, profile and sweep agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier::paired(&CHECK_WARM_START_PAIRED),
         run: warm_start::run,
     },
     Task {
@@ -81,6 +101,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("bogus/src/lib.rs", "pub fn nothing() {}\n"),
             ],
             in_scope: Some("bogus/src/lib.rs"),
+            paired: None,
         },
         run: unused_deps::run,
     },
@@ -97,6 +118,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("devco/arrow-majors-allow", "59 2026-09-27 engine major\n"),
             ],
             in_scope: Some("Cargo.lock"),
+            paired: None,
         },
         run: arrow_major::run,
     },
@@ -130,6 +152,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("REUSE.toml", "# two local changes\n"),
             ],
             in_scope: Some("VENDOR.md"),
+            paired: None,
         },
         run: vendor_count::run,
     },
@@ -170,6 +193,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some(".github/workflows/release.yml"),
+            paired: None,
         },
         run: shipped::run,
     },
@@ -215,6 +239,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("crates/thing/Cargo.toml", "[features]\ntls = []\n"),
             ],
             in_scope: Some("crates/thing/src/lib.rs"),
+            paired: None,
         },
         run: feature_remedies::run,
     },

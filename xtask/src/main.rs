@@ -179,7 +179,7 @@ fn usage() {
         "{} of {} hygiene gate(s) have a written own-rule falsifier; the rest await the per-gate \
          seed programme (`telekom/sutura#371`)",
         tasks()
-            .filter(|t| matches!(t.kind, Kind::Hygiene(_)) && t.falsifier.in_scope.is_some())
+            .filter(|t| matches!(t.kind, Kind::Hygiene(_)) && (t.falsifier.in_scope.is_some() || t.falsifier.paired.is_some()))
             .count(),
         tasks().filter(|t| matches!(t.kind, Kind::Hygiene(_))).count()
     );

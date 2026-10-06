@@ -50,8 +50,12 @@
 //!
 //! What the mechanism does NOT hold is the `sutura/invariants` row's third column; the short form
 //! is that a refusal says nothing about WHY.
+//!
+//! [`crate::registry::Paired`] covers a gate no synthetic tree can isolate: its real inputs must
+//! pass (the control), then one own-rule edit must fail. Limit: nothing here holds that the edit
+//! trips ONLY the own rule - the hand mutation table in the commit that added it showed that.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A repository root that is not this repository, seeded to be adversarial to every gate.
 ///
@@ -126,9 +130,102 @@ pub(crate) fn apply_seeds(root: &std::path::Path, falsifier: &crate::registry::F
     }
 }
 
+/// A fresh scratch tree holding the real repository's published files under `paired.inputs`, plus
+/// both root markers. Keyed on the pid and removed first, like [`falsifier_tree`].
+pub(crate) fn paired_tree(paired: &crate::registry::Paired) -> PathBuf {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits under the repo root");
+    let root = std::env::temp_dir().join(format!("sutura-paired-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&root));
+    for rel in published(repo_root) {
+        let wanted = rel == "flake.nix"
+            || rel == "Cargo.toml"
+            || paired
+                .inputs
+                .iter()
+                .any(|input| *input == "." || rel == *input || rel.strip_prefix(input).is_some_and(|rest| rest.starts_with('/')));
+        if wanted {
+            copy(&repo_root.join(&rel), &root.join(&rel));
+        }
+    }
+    root
+}
+
+/// The set `repo::all_files` judges: git's tracked-plus-unignored listing on a checkout, the walk
+/// where there is no `.git` (the nix sandbox).
+fn published(repo_root: &Path) -> Vec<String> {
+    let mut git = std::process::Command::new("git");
+    crate::repo::strip_git_env(&mut git);
+    match git
+        .args(["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(out) if out.status.success() => out
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| String::from_utf8_lossy(raw).into_owned())
+            .filter(|rel| repo_root.join(rel).symlink_metadata().is_ok())
+            .collect(),
+        _ => {
+            let mut found = Vec::new();
+            walk_published(repo_root, repo_root, &mut found);
+            found
+        }
+    }
+}
+
+/// Every file and symlink under `dir`, repo-relative, never descending into a `repo::SKIP_DIRS` name.
+fn walk_published(repo_root: &Path, dir: &Path, found: &mut Vec<String>) {
+    for entry in std::fs::read_dir(dir).expect("a directory to walk") {
+        let path = entry.expect("a directory entry").path();
+        let rel = crate::repo::relative(repo_root, &path).expect("a walked path under the root");
+        if crate::repo::skip_dir_crossed(&rel).is_some() {
+            continue;
+        }
+        if path.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+            walk_published(repo_root, &path, found);
+        } else {
+            found.push(rel);
+        }
+    }
+}
+
+/// Copy one file, recreating a symlink as a symlink rather than following it.
+fn copy(source: &Path, dest: &Path) {
+    std::fs::create_dir_all(dest.parent().expect("a copied path has a parent")).expect("a paired copy's parent");
+    if source.symlink_metadata().is_ok_and(|meta| meta.file_type().is_symlink()) {
+        let target = std::fs::read_link(source).expect("a paired symlink's target");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, dest).expect("a paired symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&target, dest).expect("a paired symlink");
+        return;
+    }
+    std::fs::copy(source, dest).expect("a paired input copy");
+}
+
+/// Apply a paired gate's own-rule violation. Each `find` must occur exactly once, so an edit that
+/// cannot land panics rather than handing the gate an unchanged tree.
+pub(crate) fn apply_violation(root: &Path, paired: &crate::registry::Paired) {
+    for edit in paired.violation {
+        let path = root.join(edit.path);
+        let text = std::fs::read_to_string(&path).expect("a violation's file to read");
+        let count = text.matches(edit.find).count();
+        assert_eq!(
+            count, 1,
+            "violation {:?} matched {count} time(s) in {}, expected once",
+            edit.find, edit.path
+        );
+        std::fs::write(&path, text.replace(edit.find, edit.replace)).expect("a violation to write");
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{apply_seeds, falsifier_tree};
+    use super::{apply_seeds, apply_violation, falsifier_tree, paired_tree};
 
     #[test]
     fn a_stale_tree_from_an_earlier_run_is_not_inherited() {
@@ -265,6 +362,45 @@ mod tests {
              whose absence makes its other rules vacuous.",
             attested.len(),
             registered.len()
+        );
+    }
+
+    #[test]
+    fn every_paired_gate_passes_its_real_inputs_and_refuses_one_violation() {
+        // The control is a pass over the real inputs, so the one-edit violation's fail is the own
+        // rule firing at `task.run`. Moves the cwd, hence the sweep's NEXTEST guard.
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this test moves the process's current directory: run it under `just test`"
+        );
+        let original = std::env::current_dir().expect("a current directory");
+        let run_in = |tree: &std::path::Path, task: &crate::registry::Task| {
+            std::env::set_current_dir(tree).expect("point the process at the paired tree");
+            let verdict = (task.run)(&[]);
+            std::env::set_current_dir(&original).expect("restore the cwd");
+            verdict
+        };
+        let mut paired_gates = Vec::new();
+        for task in crate::tasks() {
+            let Some(paired) = task.falsifier.paired else { continue };
+            let tree = paired_tree(paired);
+            let control = run_in(&tree, task);
+            apply_violation(&tree, paired);
+            let violated = run_in(&tree, task);
+            drop(std::fs::remove_dir_all(&tree));
+            assert_eq!(
+                (control, violated),
+                (crate::Verdict::Pass, crate::Verdict::Fail),
+                "`{}` must pass its real inputs and fail one own-rule edit of them",
+                task.name
+            );
+            paired_gates.push(task.name);
+        }
+        paired_gates.sort_unstable();
+        assert_eq!(
+            paired_gates,
+            ["check-boundaries", "check-guidance", "check-venues", "check-warm-start"],
+            "the paired set changed: a gate gained or lost `Falsifier::paired`"
         );
     }
 }

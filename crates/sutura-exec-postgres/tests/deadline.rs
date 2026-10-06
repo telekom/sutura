@@ -41,6 +41,18 @@ mod deadline {
 
     const SERVICE: &str = "postgres";
 
+    /// The `pg_sleep` a 300ms-budget cell is stopped inside, under the 15s connect-time ceiling.
+    const SLOW_SECS: u64 = 10;
+
+    /// What a stopped `pg_sleep` cell may take, in every venue. Under `SLOW_SECS`, so a deadline
+    /// firing 9s late still fails it; as wide as that allows, so only connect plus setup past 8s
+    /// reads as a red. One number for both venues: a stopped run takes ~300ms either way.
+    const STOPPED_WITHIN: Duration = Duration::from_secs(8);
+
+    /// The per-statement cells' budget: under the 15s ceiling, not a round number a display format
+    /// could coincide with, and wide enough that connect plus setup does not spend it first.
+    const BUDGET_MS: i64 = 12_345;
+
     /// The tier's connection string into `schema`, or `None` (and a `NOT RUN` line) without a tier.
     fn conninfo(case: &str, schema: &str) -> Option<Conninfo> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
@@ -151,12 +163,12 @@ mod deadline {
         range_over(day, day_after, table)
     }
 
-    /// **The cancellation proof.** A view that cross-joins the loaded corpus table with `pg_sleep(2)`
-    /// (see this file's header for why a FROM-clause function and not a projected column) always
-    /// takes at least two seconds to read, independent of how many corpus rows exist. A certified
-    /// `execute` under a 300 ms budget must be stopped well inside it, not after the full two
-    /// seconds and not after the connect-time ceiling (15 s by default, and this test does not touch
-    /// it): before this change, the same call ran for the full 2 s and answered rows.
+    /// **The cancellation proof.** A view that cross-joins the loaded corpus table with
+    /// `pg_sleep(SLOW_SECS)` (see this file's header for why a FROM-clause function and not a
+    /// projected column) always takes at least that long to read, independent of how many corpus
+    /// rows exist. A certified `execute` under a 300 ms budget must be stopped well inside it, not
+    /// after the full sleep and not after the connect-time ceiling (15 s by default, and this test
+    /// does not touch it).
     #[test]
     fn a_certified_question_over_its_budget_is_stopped_at_the_data_system() {
         let Some((warehouse, schema)) = open("cancel") else { return };
@@ -166,7 +178,7 @@ mod deadline {
         create_view(
             &schema,
             &format!(
-                "CREATE VIEW slow_events AS SELECT t.* FROM \"{table}\" AS t, pg_sleep(2)",
+                "CREATE VIEW slow_events AS SELECT t.* FROM \"{table}\" AS t, pg_sleep({SLOW_SECS})",
                 table = corpus::table()
             ),
         );
@@ -175,7 +187,7 @@ mod deadline {
         // A wide window rather than the corpus's own exact dates (private to `sutura-conformance`'s
         // `corpus` module) - it only has to include whatever the fixture's rows actually are, not
         // name them, and a nonempty result is not the point of this test: the cross-joined
-        // `pg_sleep(2)` runs once regardless.
+        // `pg_sleep` runs once regardless.
         let (range, bindings) = range_over(
             Date::new(2000, 1, 1).expect("year 2000 is in range"),
             Date::new(2099, 12, 31).expect("year 2099 is in range"),
@@ -211,13 +223,9 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
-        // CI's own margin, or a wider one on a shared machine - see `sutura_dev::tolerance`. Both
-        // stay well under the 2s `pg_sleep` and the 15s connect-time ceiling this cell must land
-        // inside of, not merely inside of *a* number.
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
         assert!(
-            elapsed < ceiling,
-            "stopped at ~300ms plus tolerance, not run to completion (2s) or to the 15s ceiling: {elapsed:?}"
+            elapsed < STOPPED_WITHIN,
+            "stopped at ~300ms plus setup, not run to completion ({SLOW_SECS}s) or to the 15s ceiling: {elapsed:?}"
         );
     }
 
@@ -267,10 +275,10 @@ mod deadline {
 
     /// **The raw path's own per-request narrowing, `telekom/sutura#1144`'s own cell.** The sibling
     /// of `a_certified_question_over_its_budget_is_stopped_at_the_data_system`: a raw statement that
-    /// would otherwise run for the full 2s `pg_sleep` is stopped at its own 300ms budget, well short
-    /// of both the statement's own runtime and the 15s connect-time ceiling - proving `SET LOCAL
-    /// statement_timeout` narrows the raw path's session the same way it narrows the certified one,
-    /// rather than the raw path being bounded only by the ceiling as it was before this change.
+    /// would otherwise run for the full `SLOW_SECS` `pg_sleep` is stopped at its own 300ms budget,
+    /// well short of both the statement's own runtime and the 15s connect-time ceiling - proving `SET
+    /// LOCAL statement_timeout` narrows the raw path's session the same way it narrows the certified
+    /// one, rather than the raw path being bounded only by the ceiling as it was before this change.
     #[test]
     fn a_raw_statement_over_its_own_budget_is_stopped_before_the_ceiling() {
         let Some((warehouse, _schema)) = open("rawbudget") else {
@@ -282,7 +290,11 @@ mod deadline {
         );
 
         let started = Instant::now();
-        let outcome = warehouse.execute_raw(&statement("select pg_sleep(2)"), &corpus::presented(), deadline);
+        let outcome = warehouse.execute_raw(
+            &statement(&format!("select pg_sleep({SLOW_SECS})")),
+            &corpus::presented(),
+            deadline,
+        );
         let elapsed = started.elapsed();
 
         let error = outcome
@@ -292,10 +304,9 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error:?}"
         );
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
         assert!(
-            elapsed < ceiling,
-            "stopped at ~300ms plus tolerance, not run to completion (2s) or to the 15s ceiling: {elapsed:?}"
+            elapsed < STOPPED_WITHIN,
+            "stopped at ~300ms plus setup, not run to completion ({SLOW_SECS}s) or to the 15s ceiling: {elapsed:?}"
         );
     }
 
@@ -308,11 +319,10 @@ mod deadline {
         let Some((warehouse, _schema)) = open("rawshowtimeout") else {
             return;
         };
-        // Comfortably inside the default 15s ceiling, and not a round number a Postgres display
-        // format could coincide with - the same value the certified sibling cell uses.
+        let opened = Instant::now();
         let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+            opened,
+            Budget::parse(Duration::from_millis(BUDGET_MS.unsigned_abs())).expect("BUDGET_MS is a budget"),
         );
 
         let outcome = warehouse
@@ -323,6 +333,7 @@ mod deadline {
             )
             .expect("this adapter accepts a raw statement")
             .expect("well inside every timeout, this call must answer");
+        let spent_ms = i64::try_from(opened.elapsed().as_millis()).expect("a test's milliseconds fit an i64");
         let seen_ms = match outcome.rows().first().and_then(|row| row.first()) {
             Some(Value::Integer(ms)) => *ms,
             other => panic!("expected exactly one integer cell, got {other:?}"),
@@ -331,18 +342,19 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // Never above the budget: `SET LOCAL` cannot see a LARGER one than the deadline was opened
         // with, the same exact arithmetic the certified sibling cell checks.
         assert!(
-            seen_ms <= 4321,
+            seen_ms <= BUDGET_MS,
             "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
         );
-        let slack_ms = Tolerance::from_env().ceiling(Duration::from_millis(200), Duration::from_millis(1000));
-        let slack_ms = i64::try_from(slack_ms.as_millis()).expect("a millisecond slack of a few seconds fits an i64");
+        // The lower bound with no clock in it: what is left at send is the budget less what was
+        // spent before it (at most `spent_ms`), truncated by at most 1ms - true at any load.
         assert!(
-            seen_ms >= 4321 - slack_ms,
-            "expected close to the 4321ms budget within {slack_ms}ms, saw {seen_ms}ms"
+            seen_ms + spent_ms + 1 >= BUDGET_MS,
+            "the per-statement value must be what was left of the budget: saw {seen_ms}ms after {spent_ms}ms spent"
         );
+        assert!(seen_ms > 0, "zero reads as no timeout at all: saw {seen_ms}ms");
     }
 
     /// **The per-statement proof.** `pg_settings.setting` for `statement_timeout` is the RAW stored
@@ -379,16 +391,17 @@ mod deadline {
             bindings,
             range,
         );
-        // Comfortably inside the default 15s ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` unset by
-        // this test), and not a round number a Postgres display format could coincide with.
+        // `SUTURA_DEV_STATEMENT_TIMEOUT_MS` is unset by this test, so the ceiling is the 15s default.
+        let opened = Instant::now();
         let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+            opened,
+            Budget::parse(Duration::from_millis(BUDGET_MS.unsigned_abs())).expect("BUDGET_MS is a budget"),
         );
 
         let rows = warehouse
             .execute(Executable::Query(&plan), &corpus::presented(), deadline)
             .expect("well inside every timeout, this call must answer");
+        let spent_ms = i64::try_from(opened.elapsed().as_millis()).expect("a test's milliseconds fit an i64");
         // `[bucket, measure]` per row - no keys on this plan - so the `timeout_ms` aggregate is the
         // SECOND cell, not the first: that one is the `day` bucket every case in this corpus
         // projects ahead of its measure (`mean_by_day`'s own expected rows show the same order).
@@ -401,27 +414,20 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // Never above the budget: `SET LOCAL` cannot see a LARGER one than the deadline was opened
         // with, which is exact arithmetic and not a margin - true at any load, so it needs no
         // venue to pick a number for it.
         assert!(
-            seen_ms <= 4321,
+            seen_ms <= BUDGET_MS,
             "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
         );
-        // How far BELOW 4321 is the actual margin, and it IS a margin: the round trip between
-        // opening the deadline and the statement reaching the server takes real time, and a
-        // 200ms allowance for it reddened under load (`telekom/sutura#140`'s comment thread: `saw
-        // 4051ms` against a 4121ms floor). CI keeps the original 200ms; a shared machine gets
-        // 1000ms - see `sutura_dev::tolerance`. The exact-value claim this slack used to be the
-        // only proof of is held by `tests::deadline_statement_timeout` in `src/tests.rs`, hermetic
-        // and load-independent, so this window is checking the WIRING reaches the real server
-        // close to the budget, not re-proving the arithmetic.
-        let slack_ms = Tolerance::from_env().ceiling(Duration::from_millis(200), Duration::from_millis(1000));
-        let slack_ms = i64::try_from(slack_ms.as_millis()).expect("a millisecond slack of a few seconds fits an i64");
+        // The lower bound with no clock in it: what is left at send is the budget less what was
+        // spent before it (at most `spent_ms`), truncated by at most 1ms - true at any load.
         assert!(
-            seen_ms >= 4321 - slack_ms,
-            "expected close to the 4321ms budget within {slack_ms}ms, saw {seen_ms}ms"
+            seen_ms + spent_ms + 1 >= BUDGET_MS,
+            "the per-statement value must be what was left of the budget: saw {seen_ms}ms after {spent_ms}ms spent"
         );
+        assert!(seen_ms > 0, "zero reads as no timeout at all: saw {seen_ms}ms");
     }
 
     /// **The `Prepare` arm.** `SET LOCAL statement_timeout` is sent before the `PREPARE`
@@ -481,13 +487,11 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a PREPARE stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
-        // 3s stays far short of the ~15s a disabled per-statement narrowing measures here (this
-        // file's own mutation table), so either number still tells a stopped `PREPARE` apart from
-        // one left blocked on the lock.
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_secs(3));
+        // The work's own bound, in every venue: a `PREPARE` left blocked on the lock runs to the
+        // ~15s ceiling, so 12s still fails that and only connect plus setup past 12s reads as a red.
         assert!(
-            elapsed < ceiling,
-            "stopped at ~300ms plus tolerance, not left blocked on the lock: {elapsed:?}"
+            elapsed < Duration::from_secs(12),
+            "stopped at ~300ms plus setup, not left blocked on the lock: {elapsed:?}"
         );
     }
 }
