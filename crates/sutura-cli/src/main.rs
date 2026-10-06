@@ -280,8 +280,36 @@ enum Requested<'a> {
 }
 
 fn main() -> ExitCode {
+    exit_quietly_on_broken_pipe();
     let args: Vec<String> = std::env::args().skip(1).collect();
     dispatch(&args)
+}
+
+/// `sutura catalog | head` closes stdout early. `println!` reports that as a panic, which prints a
+/// backtrace hint and aborts; a reader that stopped reading asked for no more output, so the process
+/// exits `0` instead. Any other panic keeps the previous hook.
+///
+/// A hook rather than a `SIGPIPE` reset, because restoring the signal disposition is `unsafe` and
+/// `check-unsafe` sanctions exactly one site. Limit: it keys on the panic message std produces for a
+/// failed `println!`, and it covers `print!` family writes only, not a `write!` to a locked stdout.
+fn exit_quietly_on_broken_pipe() {
+    let previous = std::panic::take_hook();
+    #[expect(
+        clippy::exit,
+        reason = "a panic hook cannot return an ExitCode, and the process must end here"
+    )]
+    let hook = move |info: &std::panic::PanicHookInfo<'_>| {
+        let message = info
+            .payload()
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| info.payload().downcast_ref::<&str>().copied());
+        if message.is_some_and(|m| m.starts_with("failed printing to stdout") && m.contains("Broken pipe")) {
+            std::process::exit(0);
+        }
+        previous(info);
+    };
+    std::panic::set_hook(Box::new(hook));
 }
 
 /// Reads an argument vector and does what it asked for.
