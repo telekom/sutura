@@ -87,6 +87,7 @@ success-output = "immediate"
 # 73s for the family against 23s unconstrained.
 [test-groups]
 real-cargo = { max-threads = 2 }
+entry-cap = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::bin/xtask) & (test(/^causality::gas_tests::/) | test(/^causality::tests::/) | test(/^causality::rot::tests::the_kill_half_/))"
@@ -122,3 +123,26 @@ slow-timeout = { period = "60s", terminate-after = 2 }
 # 120s is about 8x the live measurement. Limit: that is one live run and one offline run.
 filter = "package(sutura-app) & test(=tests::leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused)"
 slow-timeout = { period = "60s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+# STOPGAP for a load flake that reds every local commit hook (pre-commit runs the full nextest).
+# `every_paired_gate_passes_its_real_inputs_and_refuses_one_violation` ran into the 300s ceiling
+# (300.04s, 300.08s and 300.02s in three separate commit-hook runs on 10-06, five lanes sharing
+# the host), and its sibling paired-gate cells measured 99-222s in a four-cell run under load.
+# Doubling the ceiling to 600s only MOVES the threshold: a host slow enough still reds it. The
+# fix is the "bounded by work" change in the coming area-d PR, which renames this cell, so that PR
+# must update or remove this override.
+filter = "binary_id(xtask::bin/xtask) & test(=falsifier::tests::every_paired_gate_passes_its_real_inputs_and_refuses_one_violation)"
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# STOPGAP, same flake family: the four 10,000-entry cap cells each write 10,001 files, so they are
+# bound by file I/O (and by the endpoint scanner, which reads every new file), not by CPU. One lane
+# alone measured the two sutura-bounded-read cells at 89.4s each when run together; under disk
+# contention from several lanes the four reach 180-300s and hit the default ceiling. The group runs
+# them one at a time and the override gives each 600s. Limits: serialising does not remove their
+# I/O or the scan, and a wider ceiling only MOVES the threshold - a host slow enough still reds
+# it. The real fix is the area-d change that bounds these cells by work rather than by wall clock.
+[[profile.default.overrides]]
+filter = "(binary_id(sutura-bounded-read) & test(/^walk::walk_entry_cap_tests::(a_tree_with_more_entries_than_the_cap_is_refused|a_tree_at_exactly_the_cap_is_walked)$/)) | (binary_id(sutura-catalog-okf::refusals) & test(=tests::a_directory_with_more_than_max_entries_is_refused)) | (binary_id(sutura-catalog-datacontract::refusals) & test(=tests::a_directory_with_more_than_ten_thousand_entries_is_refused))"
+test-group = "entry-cap"
+slow-timeout = { period = "60s", terminate-after = 10 }
