@@ -619,3 +619,158 @@ async fn the_agent_route_needs_the_deployment_token_wherever_the_versioned_surfa
         );
     }
 }
+
+/// With no credential configured the loopback bind is the whole perimeter, so `/v1/*`, `/docs` and
+/// `/openapi.json` answer only a loopback `Host` - the names `/mcp`'s transport used to accept alone.
+#[tokio::test]
+async fn a_deployment_with_no_credential_answers_only_a_loopback_host() {
+    let app = app("", None);
+    for path in [
+        "/v1/catalog",
+        crate::constants::OPENAPI_JSON_PATH,
+        crate::constants::SWAGGER_UI_PATH,
+    ] {
+        for host in ["other.example.com", "other.example.com:8080", "127.0.0.1.example.com"] {
+            assert_eq!(
+                status_of(&app, ("GET", path), None, None, Some(host)).await,
+                StatusCode::FORBIDDEN,
+                "{path} with Host {host}"
+            );
+        }
+        for host in [
+            "localhost",
+            "localhost:8080",
+            "LOCALHOST:8080",
+            "127.0.0.1:8080",
+            "[::1]:8080",
+        ] {
+            assert_ne!(
+                status_of(&app, ("GET", path), None, None, Some(host)).await,
+                StatusCode::FORBIDDEN,
+                "{path} with Host {host}"
+            );
+        }
+    }
+    let refused = asked_with_host(&app, "/v1/catalog", "other.example.com").await;
+    assert!(refused.contains(r#""code":"host_not_allowed""#), "{refused}");
+}
+
+/// A request that names no host at all is answered, not refused: an HTTP/1.1 client always sends a
+/// `Host`, so the check is for a client that names one.
+#[tokio::test]
+async fn a_request_with_no_host_is_answered() {
+    let app = app("", None);
+    assert_eq!(
+        status_of(&app, ("GET", "/v1/catalog"), None, None, None).await,
+        StatusCode::OK
+    );
+}
+
+/// The body of one GET carrying `host`.
+async fn asked_with_host(app: &axum::Router, path: &str, host: &str) -> String {
+    use tower::ServiceExt as _;
+
+    let mut request = request("GET", path, None, axum::body::Body::empty());
+    let _previous = request.headers_mut().insert(
+        axum::http::header::HOST,
+        axum::http::HeaderValue::from_str(host).expect("a test Host is a header value"),
+    );
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("the router is infallible as a service");
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("the body reads");
+    String::from_utf8_lossy(&body).into_owned()
+}
+
+/// `/mcp` answers the hosts `/v1` does on a loopback deployment: a foreign name is a `403` on both.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_agent_route_answers_only_a_loopback_host_where_the_versioned_surface_does() {
+    let issuer = an_issuer();
+    let app = with_agent_mount(&direct_overlay(&issuer, UNREAD), &issuer);
+    let token = granting(&issuer, "sutura:catalog.read");
+    for route in [("GET", "/v1/catalog"), ("POST", crate::constants::AGENT_MOUNT_PATH)] {
+        assert_eq!(
+            status_of(&app, route, Some(&token), None, Some("other.example.com")).await,
+            StatusCode::FORBIDDEN,
+            "{route:?} with a foreign Host"
+        );
+        assert_eq!(
+            status_of(&app, route, Some(&token), None, Some("localhost:8080")).await,
+            StatusCode::OK,
+            "{route:?} with a loopback Host"
+        );
+    }
+}
+
+/// The settings overlay for a gateway deployment bound off the loopback, with `allowed_hosts` as
+/// given (a YAML flow list, or nothing).
+fn off_host(issuer: &MockIssuer, allowed_hosts: Option<&str>) -> String {
+    let declared = allowed_hosts.map_or_else(String::new, |hosts| format!("  allowed_hosts: {hosts}\n"));
+    format!(
+        "server:\n  host: \"0.0.0.0\"\n{declared}{}  tls_termination: \"ingress\"\n  \
+         metrics_token: \"0123456789abcdef0123456789abcdf0\"\nrate_limit:\n  enabled: true\n",
+        gateway_overlay(issuer)
+    )
+}
+
+/// A deployment off the loopback that declares the host its operator put in front of it answers that
+/// host on `/v1` and on `/mcp`, and refuses a name nothing declared on both.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn a_declared_host_is_answered_on_every_route_and_an_undeclared_one_is_not() {
+    let issuer = an_issuer();
+    let app = with_agent_mount(&off_host(&issuer, Some("[\"declared.example.org\"]")), &issuer);
+    let assertion = assertion_from(&issuer, "someone@example.com");
+    for route in [("GET", "/v1/catalog"), ("POST", crate::constants::AGENT_MOUNT_PATH)] {
+        for host in ["declared.example.org", "Declared.Example.org:8443"] {
+            assert_eq!(
+                status_of(&app, route, None, Some(&assertion), Some(host)).await,
+                StatusCode::OK,
+                "{route:?} with Host {host}"
+            );
+        }
+        assert_eq!(
+            status_of(&app, route, None, Some(&assertion), Some("undeclared.example.org")).await,
+            StatusCode::FORBIDDEN,
+            "{route:?} with an undeclared Host"
+        );
+    }
+}
+
+/// Off the loopback with nothing declared, the deployment answers every `Host` and says so at boot,
+/// naming the key that would restrict it: its callers already present a credential.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn an_off_host_deployment_declaring_no_host_warns_and_answers_every_host() {
+    let issuer = an_issuer();
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let app = tracing::subscriber::with_default(subscriber, || with_agent_mount(&off_host(&issuer, None), &issuer));
+    let rendered = sink.contents();
+    let warning = rendered
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|line| line["level"] == 40 && line.to_string().contains("server.allowed_hosts"))
+        .unwrap_or_else(|| panic!("no boot warning names `server.allowed_hosts`: {rendered}"));
+    assert!(warning.to_string().contains("answers every Host"), "{warning}");
+    let assertion = assertion_from(&issuer, "someone@example.com");
+    for route in [("GET", "/v1/catalog"), ("POST", crate::constants::AGENT_MOUNT_PATH)] {
+        assert_eq!(
+            status_of(&app, route, None, Some(&assertion), Some("anything.example.net")).await,
+            StatusCode::OK,
+            "{route:?} with an arbitrary Host"
+        );
+    }
+}

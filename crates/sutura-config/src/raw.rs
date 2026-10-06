@@ -312,6 +312,9 @@ pub(crate) struct RawServer {
     /// caller reachable there.
     #[serde(default)]
     pub(crate) agent_surface: RawAgentSurface,
+    /// External hosts this deployment answers, beyond the loopback names and its own resource host.
+    #[serde(default)]
+    pub(crate) allowed_hosts: Vec<String>,
 }
 
 /// Whether the agent surface is mounted, with the safe default being off.

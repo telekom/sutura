@@ -607,6 +607,13 @@ impl ResourceIdentifier {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The host this identifier names, in the form a declared `Host` takes.
+    #[must_use]
+    pub fn host(&self) -> Option<crate::server::AllowedHost> {
+        let parsed = url::Url::parse(&self.0).ok()?;
+        crate::server::AllowedHost::parse(parsed.host_str()?).ok()
+    }
 }
 
 impl TryFrom<String> for ResourceIdentifier {

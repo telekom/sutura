@@ -69,6 +69,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 use crate::client_address::ClientAddress;
 use crate::constants::{API_V1_PREFIX, OPENAPI_JSON_PATH, SWAGGER_UI_PATH};
+use crate::host::{self, HostAllowlist};
 use crate::middleware::{self, LimiterHandle, LimiterNotBuilt};
 use crate::routes;
 use crate::state::ServiceState;
@@ -334,6 +335,8 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     let key = ClientAddress::from_settings(limits);
     announce_rate_limiting(settings.environment(), limits.enabled());
     announce_keying(limits);
+    let hosts = HostAllowlist::of(&settings);
+    host::announce(hosts.as_ref());
     let mut limiters = Vec::new();
 
     // The versioned API. Nested before the layers are applied, so the token gate and the limiter
@@ -373,6 +376,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // Then the token gate, and only THEN the limiter - so the limiter is outside the gate and a
     // wrong-token attempt costs a cell. See the module documentation.
     let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
+    let versioned = host_checked(versioned, hosts.as_ref());
     let versioned = if limits.enabled() {
         let (layer, handle) = middleware::api_rate_limit_layer(state.metrics(), limits.api(), key.clone()).map_err(limiter)?;
         limiters.push(handle);
@@ -434,7 +438,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         metrics.layer(middleware::disabled_rate_limit_layer())
     };
 
-    let (documentation, documentation_limiter) = documentation(state, &settings, &key)?;
+    let (documentation, documentation_limiter) = documentation(state, &settings, &key, hosts.as_ref())?;
     limiters.extend(documentation_limiter);
 
     // The agent surface. Mounted at `/mcp` only when this build and deployment carry one, and only
@@ -463,7 +467,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     #[cfg(feature = "agent")]
     {
         let mut ungoverned: Vec<&'static str> = Vec::new();
-        if let Some(mount) = agent_subtree(state, settings.security().inbound(), &key, &mut limiters)? {
+        if let Some(mount) = agent_subtree(state, settings.security().inbound(), &key, hosts.as_ref(), &mut limiters)? {
             // `merge_into`, and never a bare `merge`: it is the one call that both merges this
             // subtree and records its path, so a merged ungoverned route always reaches
             // `check_ungoverned` below.
@@ -692,6 +696,7 @@ fn agent_subtree(
     state: &ServiceState,
     declared: Option<&sutura_config::InboundIdentity>,
     key: &ClientAddress,
+    hosts: Option<&HostAllowlist>,
     limiters: &mut Vec<LimiterHandle>,
 ) -> Result<Option<Ungoverned>, RouterNotBuilt> {
     let Some(mount) = state.agent_surface() else {
@@ -721,6 +726,7 @@ fn agent_subtree(
     let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
     let mount = mount
         .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)));
+    let mount = mount.layered(|router| host_checked(router, hosts));
     // `route_layer` like every layer here, so only `/mcp` itself is charged: a `layer` would also wrap
     // this subtree's fallback, which the final merge makes the whole router's.
     let limits = state.settings().rate_limit();
@@ -734,6 +740,17 @@ fn agent_subtree(
     Ok(Some(mount.layered(|router| router.route_layer(layer))))
 }
 
+/// `router` behind the `Host` check, where this deployment enforces one.
+///
+/// A `route_layer`, so only a route that resolves is checked and the router's fallback is untouched,
+/// and placed just inside the limiter at every call site: a refused `Host` still costs a cell.
+fn host_checked(router: Router, hosts: Option<&HostAllowlist>) -> Router {
+    match hosts {
+        Some(hosts) => router.route_layer(axum::middleware::from_fn_with_state(hosts.clone(), host::require_host)),
+        None => router,
+    }
+}
+
 /// The generated document and the browser interface over it, or an empty router.
 ///
 /// **Two routers, one of them possibly empty, always merged.** The alternative is an
@@ -742,7 +759,12 @@ fn agent_subtree(
 ///
 /// Behind the token gate when a token is configured, and behind the limiter *outside* that gate for
 /// the same reason the versioned API is: a document behind a secret is a secret worth guessing at.
-fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress) -> DocumentationRouter {
+fn documentation(
+    state: &ServiceState,
+    settings: &Settings,
+    key: &ClientAddress,
+    hosts: Option<&HostAllowlist>,
+) -> DocumentationRouter {
     if !settings.api().docs_enabled() {
         return Ok((Router::new(), None));
     }
@@ -782,6 +804,7 @@ fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress)
         );
     let limits = settings.rate_limit();
     let served = served.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
+    let served = host_checked(served, hosts);
     if limits.enabled() {
         let (layer, handle) =
             middleware::probe_rate_limit_layer(state.metrics(), limits.probe(), key.clone()).map_err(limiter)?;
@@ -922,7 +945,7 @@ mod tests {
         );
         let state = state.with_agent_surface(mount);
         let key = crate::client_address::ClientAddress::from_settings(state.settings().rate_limit());
-        let refused = super::agent_subtree(&state, None, &key, &mut Vec::new())
+        let refused = super::agent_subtree(&state, None, &key, None, &mut Vec::new())
             .expect_err("a mount with no inbound identity assembles no subtree");
         assert!(
             matches!(refused, RouterNotBuilt::AgentSurfaceWithoutInboundIdentity),

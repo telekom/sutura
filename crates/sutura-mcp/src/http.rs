@@ -61,10 +61,11 @@
 //!   `if use_session {}` statement, not nested inside it) - which serves EVERY message type
 //!   one-shot, `initialize` included. [`crate::http::config`]'s pin selects the second; the cells in this
 //!   module exercise it directly rather than trust this paragraph.
-//! - **`allowed_hosts`/`allowed_origins` are left at the SDK's own defaults**
-//!   (`["localhost", "127.0.0.1", "::1"]`, no origin check) - a composition root serving this
-//!   outside loopback must override them, or the transport refuses every request with a `Host`
-//!   header it does not recognise. PR4's job to state, not this module's.
+//! - **`allowed_hosts` is switched off here, and the router in front checks `Host`.** The transport's
+//!   own list is the loopback names alone, which refuses a deployment reached by any other name;
+//!   `sutura_http::host` holds the one list for every route, `/mcp` included, so a composition
+//!   root that mounts this service anywhere else has no `Host` check until it adds one.
+//!   `allowed_origins` stays at the SDK's default (no origin check).
 //! - **The exact SEP-2243 header-validation helpers this module's tests exercise
 //!   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
 //!   no-op conditions on a plain, non-`stateless_protocol_metadata_required` request and not
@@ -91,25 +92,24 @@ use crate::{AgentSurface, Asking};
 /// `CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
 ///
 /// **The limit the pins carry, stated rather than assumed contractually:** only
-/// `legacy_session_mode`, `json_response` and the body bound below are set here; the other seven
-/// fields are inherited
-/// from the SDK's `Default` through the builder and are not pinned - a future field with an unsafe
-/// default would arrive silently, and `allowed_hosts` stays loopback-only, so a composition root
-/// serving outside loopback must override it (the transport refuses every unrecognised `Host`, see
-/// the module documentation). And [`service`] still constructs a [`LocalSessionManager`]; that
+/// `legacy_session_mode`, `json_response`, the body bound and `allowed_hosts` below are set here; the
+/// other six fields are inherited from the SDK's `Default` through the builder and are not pinned - a
+/// future field with an unsafe default would arrive silently. And [`service`] still constructs a [`LocalSessionManager`]; that
 /// manager is kept idle by `legacy_session_mode: false` alone. Nothing here binds a session to a
 /// caller, and the SDK's own `create_session` takes no identity argument regardless - the caller is
 /// re-resolved per request out of each request's `Asked`, never out of a session.
 ///
 /// **And `max_request_body_bytes` is the deployment's `server.max_body_bytes`**, the bound `/v1`
 /// reads under, rather than the SDK's own 4 MiB: the transport reads its own body, so an `axum`
-/// `DefaultBodyLimit` in front of it would bind nothing.
+/// `DefaultBodyLimit` in front of it would bind nothing. **`allowed_hosts` is switched off**: the
+/// router in front checks `Host` against the deployment's one list, see the module documentation.
 #[must_use]
 pub fn config(max_body: BodyLimit) -> StreamableHttpServerConfig {
     StreamableHttpServerConfig::default()
         .with_legacy_session_mode(false)
         .with_json_response(true)
         .with_max_request_body_bytes(max_body.bytes())
+        .disable_allowed_hosts()
 }
 
 /// Builds the streamable-HTTP transport over one [`Surface`], as a plain `tower_service::Service`
@@ -451,16 +451,18 @@ mod tests {
     /// wrong signal for THIS property; asserting the field directly names the actual thing that
     /// changed.
     ///
-    /// **Only these two fields are contractual here**: `StreamableHttpServerConfig` has ten fields, the
-    /// body bound has its own served cell and the rest are inherited from the SDK's `Default` through the builder ([`config`] applies
-    /// both pins through the builder precisely because the struct is `#[non_exhaustive]`), and this
-    /// cell asserts exactly what this module decides - `legacy_session_mode` (stateless sessions)
-    /// and `json_response` - and nothing it merely inherits.
+    /// **Only three fields are contractual here**: `StreamableHttpServerConfig` has ten fields, the
+    /// body bound has its own served cell and the rest are inherited from the SDK's `Default` through
+    /// the builder ([`config`] applies the pins through the builder precisely because the struct is
+    /// `#[non_exhaustive]`). This cell asserts what this module decides - `legacy_session_mode`
+    /// (stateless sessions), `json_response` and no transport-level `allowed_hosts` - and nothing it
+    /// merely inherits.
     #[test]
     fn the_streamable_http_config_pins_stateless_sessions() {
         let config = super::config(settings().server().max_body());
         assert!(!config.legacy_session_mode, "{config:?}");
         assert!(config.json_response, "{config:?}");
+        assert!(config.allowed_hosts.is_empty(), "{config:?}");
     }
 
     /// The `instructions` an `initialize` result carries.

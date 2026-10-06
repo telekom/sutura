@@ -189,3 +189,29 @@ fn the_agent_route_reads_no_more_body_than_the_versioned_surface() {
     assert_eq!(under.status, 200, "{}", under.body);
     assert!(!tool_names(&under).is_empty(), "{}", under.body);
 }
+
+/// Behind the real transport, `/mcp` and `/v1` answer the same hosts: the host of the deployment's
+/// own resource identifier is accepted on both, and a name nothing declared is a `403` on both.
+#[cfg(feature = "agent")]
+#[test]
+fn the_agent_route_answers_the_same_hosts_as_the_versioned_surface() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-host").expect("the key set publishes");
+    let served = start_configured(
+        "agent-host",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("asker@example.com"))
+        .expect("the issuer mints a token");
+    for host in ["sutura.example.com", "Sutura.Example.com:443"] {
+        let versioned = served.get_as_host(host, "/v1/catalog", Some(&token));
+        assert_eq!(versioned.status, 200, "/v1/catalog with Host {host}: {}", versioned.body);
+        let agent = served.mcp_as_host(host, Some(&token), &tools_list(1));
+        assert_eq!(agent.status, 200, "/mcp with Host {host}: {}", agent.body);
+    }
+    let versioned = served.get_as_host("undeclared.example.com", "/v1/catalog", Some(&token));
+    assert_eq!(versioned.status, 403, "{}", versioned.body);
+    let agent = served.mcp_as_host("undeclared.example.com", Some(&token), &tools_list(1));
+    assert_eq!(agent.status, 403, "{}", agent.body);
+}

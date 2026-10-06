@@ -170,6 +170,18 @@ fn a_resource_identifier_is_stored_exactly_as_written_and_nothing_is_normalised(
 }
 
 #[test]
+fn a_resource_identifier_names_the_host_a_request_for_it_carries() {
+    for (written, host) in [
+        ("https://Sutura.Example.com:8443/v1", "sutura.example.com"),
+        ("https://sutura.example.com", "sutura.example.com"),
+        ("https://[::1]:8443/", "::1"),
+    ] {
+        let identifier = ResourceIdentifier::parse(written).expect(written);
+        assert_eq!(identifier.host().expect(written).as_str(), host, "{written}");
+    }
+}
+
+#[test]
 fn a_cleartext_issuer_and_a_query_or_fragment_are_both_refused_and_say_which() {
     // `http://` is an issuer whose signing keys an active network attacker chooses.
     assert_eq!(
