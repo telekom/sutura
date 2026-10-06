@@ -1,8 +1,11 @@
 #![forbid(unsafe_code)]
 //! `check-fuzz` over a fixture tree, driven through the real binary.
 //!
-//! The fixture holds no `.pre-commit-config.yaml`: the fuzz replay is CI-only, so the gate reads no
-//! hook file and a tree without one must pass.
+//! The fixture holds no `.pre-commit-config.yaml`: no commit hook replays the seeds, so the gate
+//! reads no hook file and a tree without one must pass. A target's imports are checked against the
+//! "fuzzed tree" surface instead (`github.com/telekom/sutura#867`): `SURFACES` is compiled into the
+//! binary, not fixture-controllable, so the only crate name guaranteed absent from it - on this
+//! fixture and on the real repo alike - is one nobody has registered.
 
 #![cfg(test)]
 
@@ -20,6 +23,9 @@
 mod scratch_tree;
 
 use std::process::Command;
+
+/// A crate name no real target imports and no surface will ever list.
+const UNLISTED_CRATE: &str = "sutura_unlisted_by_the_fuzzed_tree_surface";
 
 const FUZZ_YAML: &str =
     "on:\n  workflow_dispatch: {}\njobs:\n  fuzz:\n    strategy:\n      matrix:\n        target:\n          - probe\n";
@@ -65,6 +71,21 @@ fn observe(case: &str, target_crate: &str, root_lock: &str, fuzz_lock: &str) -> 
         .expect("execute the real xtask binary");
     drop(tree);
     output
+}
+
+#[test]
+fn a_target_importing_a_crate_the_fuzzed_tree_surface_misses_is_refused() {
+    let output = observe("unlisted", UNLISTED_CRATE, "", "");
+    let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains(&UNLISTED_CRATE.replace('_', "-")),
+        "the refusal must name the uncovered crate: {stderr}"
+    );
+    assert!(
+        stderr.contains("`fuzzed tree` row in xtask/src/hook_coverage/surfaces.rs never names"),
+        "the surface gap must be reported: {stderr}"
+    );
 }
 
 #[test]

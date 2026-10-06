@@ -57,10 +57,12 @@ bypassable with `--no-verify`, so this is a tier policy rather than an invariant
 | `pre-push`   | the whole-tree secret scan and the supply-chain gate, nothing else                             | anything that compiles                                       |
 | `commit-msg` | the conventional-commit subject                                                                |                                                              |
 
-The suite, the doctests and the CRAP score run in `just validate` and in CI; `just ship-check`
-also runs CRAP for a diff that reaches the scored crate. The fuzz replay runs only in
-`.github/workflows/fuzz.yml`. So a local commit can hold a failing test until `just validate` or CI
-runs it, and CRAP runs where `ship-check` runs.
+The suite, the doctests and the CRAP score run in `just validate` and in CI. `just ship-check` also
+runs CRAP for a diff that reaches the scored crate, and the fuzz replay (`just fuzz-smoke`) for a diff
+that touches the fuzzed tree; no pull request or merge-queue run replays the seeds, and
+`.github/workflows/fuzz.yml` does on a release tag and a manual dispatch. So a local commit can hold
+a failing test until `just validate` or CI runs it, and CRAP and the replay run only where
+`ship-check` runs.
 
 Run it before your first commit, because **an uninstalled hook does not complain - it silently never
 fires.** This repo spent a whole session believing hooks ran that had never run: `core.hooksPath`

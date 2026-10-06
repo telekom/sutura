@@ -42,6 +42,7 @@
 use std::collections::BTreeSet;
 
 mod deny_wiring;
+mod hook_paths;
 mod lock_drift;
 
 use crate::Verdict;
@@ -388,6 +389,34 @@ fn unparseable_entries(dictionary: &str) -> Vec<usize> {
         .collect()
 }
 
+/// `github.com/telekom/sutura#867`: every crate a target's source names must be reachable through
+/// the "fuzzed tree" surface, the one pattern that decides whether `just ship-check` replays the
+/// seeds for a diff. Fails closed if no surface is reached by `fuzz-smoke`.
+fn surface_crate_gaps(root: &std::path::Path, sources: &BTreeSet<String>) -> Result<Vec<String>, String> {
+    let surface_paths = crate::hook_coverage::SURFACES
+        .iter()
+        .find(|surface| surface.reached_by == "fuzz-smoke")
+        .map(|surface| surface.paths)
+        .ok_or_else(|| String::from("no surface in xtask/src/hook_coverage/surfaces.rs is reached by `fuzz-smoke`"))?;
+
+    let mut gaps = Vec::new();
+    for name in sources {
+        let Ok(source) = std::fs::read_to_string(root.join(TARGETS_DIR).join(format!("{name}.rs"))) else {
+            continue;
+        };
+        for crate_dir in hook_paths::target_crates(&source) {
+            if hook_paths::missing_from_surface(&crate_dir, surface_paths) {
+                gaps.push(format!(
+                    "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which the `fuzzed tree` row in \
+                     xtask/src/hook_coverage/surfaces.rs never names - a change there makes \
+                     `just ship-check` skip the seed replay"
+                ));
+            }
+        }
+    }
+    Ok(gaps)
+}
+
 /// The verdict, given everything read off the tree.
 fn report(
     sources: &BTreeSet<String>,
@@ -569,7 +598,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     let in_release = release_invocations(&release);
-    let mut gaps = Vec::new();
+    let mut gaps = match surface_crate_gaps(&root, &sources) {
+        Ok(gaps) => gaps,
+        Err(message) => {
+            eprintln!("xtask check-fuzz: {message}");
+            return Verdict::Fail;
+        }
+    };
     let Ok(root_manifest) = std::fs::read_to_string(root.join(ROOT_MANIFEST)) else {
         eprintln!("xtask check-fuzz: {ROOT_MANIFEST} is unreadable - the workspace version could not be checked");
         return Verdict::Fail;

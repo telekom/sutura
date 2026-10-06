@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
-//! The commit stage's tier policy and the CRAP row, driven through the real binary.
+//! The commit stage's tier policy and the CRAP and fuzz rows, driven through the real binary.
 //!
 //! `check-hook-tiers` refuses a commit hook that runs the suite, the doctests, the CRAP score or the
 //! fuzz replay, and `hook-coverage --surface-tasks` names `crap` for a diff that reaches the scored
-//! crate, which is the only thing that makes `just ship-check` run it. Both rules live in files that
-//! also hold their own unit tests, which the causality gate cannot run against base; a separate
-//! target can be.
+//! crate and `fuzz-smoke` for one that touches the fuzzed tree, which is the only thing that makes
+//! `just ship-check` run them. These rules live in files that also hold their own unit tests, which
+//! the causality gate cannot run against base; a separate target can be.
 
 #![cfg(test)]
 
@@ -140,4 +140,21 @@ fn a_diff_reaching_the_scored_crate_surfaces_the_crap_task_and_one_elsewhere_doe
     // A crate outside the scored scope pays for no coverage build; the row is not a blanket.
     let elsewhere = surface_tasks("hook-surface-elsewhere", "crates/sutura-http/src/lib.rs");
     assert!(!elsewhere.iter().any(|task| task == "crap"), "another crate: {elsewhere:?}");
+}
+
+#[test]
+fn a_diff_reaching_the_fuzzed_tree_surfaces_the_replay_and_one_outside_it_skips_it() {
+    let inside = surface_tasks("hook-surface-fuzzed", "crates/sutura-sql/src/lib.rs");
+    assert!(inside.iter().any(|task| task == "fuzz-smoke"), "a fuzzed crate: {inside:?}");
+    let harness = surface_tasks("hook-surface-harness", "fuzz/fuzz_targets/probe.rs");
+    assert!(
+        harness.iter().any(|task| task == "fuzz-smoke"),
+        "the harness tree: {harness:?}"
+    );
+    // The replay is git-delta: a crate no target imports pays for no fuzz build.
+    let outside = surface_tasks("hook-surface-unfuzzed", "crates/sutura-cli/src/lib.rs");
+    assert!(
+        !outside.iter().any(|task| task == "fuzz-smoke"),
+        "an unfuzzed crate: {outside:?}"
+    );
 }

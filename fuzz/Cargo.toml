@@ -50,10 +50,11 @@
 # this file. `cargo xtask check-fuzz` (the hygiene-sweep gate, on every pull request) verifies this
 # manifest's WIRING - a `[[bin]]` entry, a seed directory, a matrix line - and compiles nothing; the
 # only things that ever compile these five targets are a release-tag or manual-dispatch run of
-# `.github/workflows/fuzz.yml`. No commit hook replays them. So a change to first-party API surface these targets bind to - `LocalCatalog::new`/`root`/
-# `load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`, and the sibling targets' own
-# signatures - that breaks a target merges green on `ci` and is found at the
-# next tag or manual dispatch.
+# `.github/workflows/fuzz.yml` and a developer's `just ship-check` over a diff in the fuzzed tree. No
+# commit hook replays them. So a change to first-party API surface these targets bind to -
+# `LocalCatalog::new`/`root`/`load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`, and
+# the sibling targets' own signatures - that breaks a target merges green on `ci` and is found at
+# the next tag or manual dispatch, unless its author ran `ship-check`.
 
 # An empty table, which is what makes this directory a workspace root of its own. Without it cargo
 # refuses outright: "current package believes it's in a workspace when it's not".

@@ -29,8 +29,8 @@
 //!   that builds the tree (`cargo clippy`, `cargo check`, `cargo build`, `cargo nextest`,
 //!   `cargo test`). Security checks parse or scan; they do not compile.
 //! * **the commit stage runs no test suite, no CRAP score and no fuzz replay** - by owner
-//!   decision they run in `just validate`, in CI and (CRAP only) in `just ship-check`, never in a
-//!   commit hook. See [`SLOW_AT_COMMIT`] for what it matches and what it cannot see.
+//!   decision they run in `just validate`, in CI and (CRAP and the replay, each for a diff that
+//!   reaches its surface) in `just ship-check`, never in a commit hook. See [`SLOW_AT_COMMIT`] for what it matches and what it cannot see.
 //!
 //! HOW IT READS THEM. Text, for the reason `pins.rs` gives - `xtask` has two dependencies and no
 //! YAML parser, and this has to run on a host with no nix. It resolves the two YAML features this
@@ -127,7 +127,7 @@ const COMPILES: &[&str] = &["cargo clippy", "cargo check", "cargo build", "cargo
 
 /// Commands a COMMIT-stage hook must not run: the suite, the doctests, the CRAP score and the fuzz
 /// replay. Owner decision: they are too slow for a commit, so they run in `just validate` and CI,
-/// and CRAP also in `just ship-check`.
+/// and CRAP and the replay also in `just ship-check`, scoped to a diff that reaches them.
 ///
 /// Substring matches over the RESOLVED `entry:`, so an alias or a folded scalar cannot hide one.
 /// What it cannot see: a script that a hook calls, which runs one of these inside - the gate reads

@@ -82,9 +82,10 @@ repos:
       # NO TEST SUITE, NO DOCTESTS, NO CRAP SCORE AND NO FUZZ REPLAY ON COMMIT, by owner decision:
       # a commit may hold a failing test until `just validate` or CI runs it. The suite and the
       # doctests run in `just validate` and CI; CRAP runs in `just validate`, in CI and, scoped to
-      # a diff that reaches it, in `just ship-check`; the fuzz replay runs in
-      # `.github/workflows/fuzz.yml` only. `cargo xtask check-hook-tiers` refuses any of them back
-      # on the commit stage, and `check-fuzz` still holds the harness itself on every pull request.
+      # a diff that reaches it, in `just ship-check`; the fuzz replay runs in `just ship-check` for
+      # a diff that touches the fuzzed tree, and in `.github/workflows/fuzz.yml`. `cargo xtask
+      # check-hook-tiers` refuses any of them back on the commit stage, and `check-fuzz` still
+      # holds the harness itself on every pull request.
 
       # The jscpd copy/paste gate (issue #474). Scoped by `files:` to every tracked `.rs` plus
       # the things that decide the verdict - the allowlist, the gate, and the nix provisioning.

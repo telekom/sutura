@@ -34,9 +34,9 @@
 # time-budgeted libFuzzer run over MUTATED input - now happens at a release and on a manual
 # dispatch, and nowhere else. There is no periodic search. REGRESSION CHECKING continues on the
 # commits that touch the surface: `just fuzz-smoke` replays every committed seed at `-runs=0` with
-# no mutation, in the `smoke` job here and nowhere else - no commit hook runs it - which is what
-# keeps the quarantined `unclosed-paren-*` artifacts from coming back, and `cargo xtask check-fuzz`
-# holds the harness itself on every pull request.
+# no mutation, in the `smoke` job here and in `just ship-check` for a diff that touches the fuzzed
+# tree - no commit hook runs it - which is what keeps the quarantined `unclosed-paren-*` artifacts
+# from coming back, and `cargo xtask check-fuzz` holds the harness itself on every pull request.
 #
 # So, plainly: THIS REPOSITORY STOPS SEARCHING FOR NEW DEFECTS BETWEEN RELEASES, AND KEEPS
 # CHECKING THAT KNOWN ONES STAY FIXED. A quiet fuzz surface here means nobody is searching - not

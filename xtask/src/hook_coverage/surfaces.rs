@@ -19,11 +19,12 @@ pub(crate) struct Surface {
     /// The hook IDs that claim it. **EMPTY is the sharp case**: nothing a diff-scoped hook run
     /// invokes reaches this surface at all.
     ///
+    pub(super) hooks: &'static [&'static str],
+    /// The `just` task that reaches it when no hook did.
+    ///
     /// `pub(crate)` for the same reason `paths` is - it is how `crate::fuzz` finds the "fuzzed
     /// tree" row rather than matching on its label text.
-    pub(crate) hooks: &'static [&'static str],
-    /// The `just` task that reaches it when no hook did.
-    pub(super) reached_by: &'static str,
+    pub(crate) reached_by: &'static str,
 }
 
 /// Every surface, and the reason each row is where it is.
@@ -106,6 +107,48 @@ pub(crate) const SURFACES: &[Surface] = &[
         paths: &["devenv.nix"],
         hooks: &[],
         reached_by: "devenv-linter",
+    },
+    Surface {
+        // NO HOOK, by owner decision: the fuzz replay left the commit stage, and `just ship-check`
+        // runs `just fuzz-smoke` only for a diff that matches THIS row - the `fuzz/` harness tree
+        // plus the crates the targets' headers name. It is the one place the pattern lives:
+        // `check-fuzz` holds that every crate a target imports is reachable through it, so a
+        // target that outgrows the row is refused rather than silently skipped. The replay runs
+        // every target, not only the ones a diff reaches - the row maps paths, not targets.
+        //
+        // The limit: it runs only where `ship-check` does, and a push that skips `ship-check` is
+        // not fuzzed. No pull request or merge-queue run replays the seeds; `fuzz.yml` does, on a
+        // release tag and a manual dispatch.
+        label: "fuzzed tree",
+        paths: &[
+            "fuzz/**",
+            "nix/fuzz.nix",
+            "nix/run-fuzz.sh",
+            "crates/sutura-domain/src/query.rs",
+            "crates/sutura-domain/src/model/**",
+            "crates/sutura-domain/src/identity.rs",
+            "crates/sutura-domain/src/identity/**",
+            "crates/sutura-domain/src/catalog.rs",
+            "crates/sutura-domain/src/catalog/**",
+            "crates/sutura-domain/src/knowledge.rs",
+            "crates/sutura-domain/src/knowledge/**",
+            "crates/sutura-domain/src/pinned.rs",
+            "crates/sutura-domain/src/pinned/**",
+            "crates/sutura-http/src/wire.rs",
+            "crates/sutura-http/src/wire/**",
+            "crates/sutura-http/src/inbound/token.rs",
+            "crates/sutura-http/src/inbound/keys.rs",
+            "crates/sutura-http/src/inbound/keys/**",
+            "crates/sutura-exec-bigquery/src/wire.rs",
+            "crates/sutura-exec-bigquery/src/wire/document.rs",
+            "crates/sutura-config/src/inbound.rs",
+            "crates/sutura-config/src/inbound/**",
+            "crates/sutura-catalog-local/**",
+            "crates/sutura-sql/**",
+            "crates/sutura-semantic/**",
+        ],
+        hooks: &[],
+        reached_by: "fuzz-smoke",
     },
     Surface {
         // NO HOOK, by owner decision: the CRAP score left the commit stage, and `just ship-check`
@@ -234,6 +277,7 @@ mod tests {
                 "Rust source (default-feature lane)",
                 "composite-action shell",
                 "devenv script shell",
+                "fuzzed tree",
                 "CRAP scope",
             ]
         );
