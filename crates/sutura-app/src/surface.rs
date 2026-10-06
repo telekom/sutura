@@ -677,14 +677,12 @@ mod tests {
         // The other half of the fixture above, over the directory `examples/authored-sql` and the
         // README under it actually claim about: not a hand-built bundle, but
         // `LocalCatalog::load` through the real composition path `sutura query`, `sutura mcp` and
-        // `sutura serve` all take. `LocalCatalog::capabilities()` is `everything()`
-        // (`crates/sutura-catalog-local/src/lib.rs`), so composing this directory first requires the
-        // example to carry every kind that declares: a second model, a relationship, a dimension
-        // reached through it, a required filter, an anchor, and the four knowledge documents. Red
-        // before those existed, at `CompositionError::Unfaithful` - a one-model, one-metric catalog
-        // does not compose, which a review of this checkpoint found before the example carried
-        // enough to reach the authored check at all. The compiled mutation is the same as the test
-        // above.
+        // `sutura serve` all take. The example carries a second model, a relationship, a dimension
+        // reached through it, a required filter, an anchor and the four knowledge documents because
+        // `LocalCatalog` once recorded every kind its format declares, so a one-model, one-metric
+        // catalog failed at `CompositionError::Unfaithful` before the authored check. Since
+        // `github.com/telekom/sutura#1278` it records what the tree carries, and that smaller
+        // catalog no longer fails there. The compiled mutation is the same as the test above.
         use std::path::Path;
 
         use sutura_catalog_local::LocalCatalog;

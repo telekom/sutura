@@ -623,14 +623,16 @@ impl SemanticCatalog for LocalCatalog {
     /// `MetadataCapabilities::of` with two explicit lists, so a new kind leaves its declaration
     /// alone rather than silently widening it.
     ///
-    /// **The limit, next to the claim.** Declaring every kind unconditionally (all but the two
-    /// above) says nothing about the directory: a tree with no relationships in it produces a
-    /// bundle with none, and this declaration is what tells a reader that the emptiness is the
-    /// corpus's rather than the format's. `sutura-app`'s golden suite checks the pair over the
-    /// example catalog, which carries every kind including the two conditional ones - so a claim
-    /// wider than what this adapter can actually read still fails there, and the two examples this
-    /// issue's own corpus edits carry a typed, described column specifically so that check keeps
-    /// proving something.
+    /// **The limit, next to the claim: this is the FORMAT's declaration, and a deployment does not
+    /// record it.** [`Self::load`] stamps `recorded`, this declaration less every kind the loaded
+    /// tree carries nothing of and may not lawfully omit: a tree `sutura import wren` wrote holds no
+    /// cardinality and no knowledge, and recording this one over it made the deployment's own
+    /// fidelity check refuse it (`github.com/telekom/sutura#1278`). So only this declaration says an
+    /// empty kind is the corpus's rather than the format's. `sutura-app`'s golden suite checks it
+    /// over the example catalog, which carries every kind including
+    /// the two conditional ones - so a claim wider than what this adapter can actually read still
+    /// fails there, and the two examples this issue's own corpus edits carry a typed, described
+    /// column specifically so that check keeps proving something.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
             DefinitionCapabilities::all().and_may_provide([DefinitionKind::ColumnTypes, DefinitionKind::ColumnDescriptions]),
@@ -647,16 +649,43 @@ impl SemanticCatalog for LocalCatalog {
         // goes under the same digest, because a glossary decides which metric a question is about,
         // and so does the contribution manifest, because a bundle's digest has to cover which source
         // composed it. A single-source deployment carries a one-entry manifest - `docs/adr/0011`'s
-        // shape - and this adapter stamps its own declared name and its own capability declaration,
-        // which is the one piece of composition knowledge a single source has.
+        // shape - and this adapter stamps its own declared name and what its declaration holds of
+        // THIS tree, which is the one piece of composition knowledge a single source has.
+        let declared = recorded(&MetadataCapabilities::produced(&definitions, &knowledge));
         PinnedDefinitions::pin(
             self.version.clone(),
             definitions,
             knowledge,
-            ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+            ContributionManifest::single(self.name.clone(), Contribution::of(declared)),
         )
         .map_err(|cause| LocalCatalogError::Digest { cause })
     }
+}
+
+/// [`LocalCatalog`]'s declaration, narrowed to the bundle it loaded: a kind stays when the bundle
+/// carries it or when the declaration marks it may-provide, and goes otherwise.
+///
+/// **Narrowed, never widened**, so a bundle carrying a kind the format does not declare still
+/// fails `sutura_app::assemble`'s fidelity check as undeclared - vacuous while the format declares
+/// every kind, so nothing tests that half. The may-provide kinds stay because
+/// absent is lawful for them, and keeping them keeps every tree that composed before this
+/// recording the same manifest digest.
+fn recorded(produced: &MetadataCapabilities) -> MetadataCapabilities {
+    let declared = <LocalCatalog as SemanticCatalog>::capabilities();
+    let definitions = declared.definitions();
+    let kinds = || definitions.declared().iter().copied();
+    MetadataCapabilities::of(
+        DefinitionCapabilities::of(kinds().filter(|kind| produced.definitions().declares(*kind)))
+            .and_may_provide(kinds().filter(|kind| definitions.is_conditional(*kind))),
+        KnowledgeCapabilities::of(
+            declared
+                .knowledge()
+                .declared()
+                .iter()
+                .copied()
+                .filter(|capability| produced.knowledge().declares(*capability)),
+        ),
+    )
 }
 
 #[cfg(test)]

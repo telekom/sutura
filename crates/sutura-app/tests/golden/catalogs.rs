@@ -100,6 +100,12 @@ where
 /// formality: `sutura-catalog-local` declares every kind there is, so passing this asserts the
 /// example corpus really carries all fifteen of them. A corpus trimmed to fourteen would take a
 /// declared capability with it and nothing else in this suite would notice.
+///
+/// **And the declaration the bundle RECORDS is held too**, because that is the one a deployment
+/// has: `sutura_app::assemble` checks each manifest entry, never the type's associated function.
+/// The two differ for a catalog that narrows per load - the wren row's tree is read by
+/// `LocalCatalog`, whose type declares every kind while the tree holds no cardinality
+/// (`github.com/telekom/sutura#1278`).
 fn provides_exactly_what_it_declares<C>()
 where
     C: CatalogUnderTest,
@@ -112,6 +118,14 @@ where
         "the {} catalog's declaration and its bundle disagree",
         C::NAME
     );
+    for (source, recorded) in pinned.manifest().entries() {
+        assert_eq!(
+            recorded.capabilities().checked_against(&produced),
+            Ok(()),
+            "the {} catalog records a declaration for {source} that its bundle does not hold",
+            C::NAME
+        );
+    }
 }
 
 /// **Repeat-load determinism, and that is all it is.**
@@ -294,8 +308,8 @@ impl GoldenCatalog for sutura_catalog_local::LocalCatalog {}
 /// Here rather than in `adapters.rs` for [`GoldenCatalog`]'s reason: only this target expands the
 /// `catalogs:` arm. A wrapper because `LocalCatalog` is already registered as `markdown`. It is
 /// `declaring`: the corpus is not the golden catalog, so it is measured against what the importer
-/// can write, which is what its `capabilities` below states. That declaration is this test's: the
-/// deployed `LocalCatalog` still records its own in the bundle's contribution manifest.
+/// can write, which is what its `capabilities` below states. That declaration is this test's; the
+/// one the deployed `LocalCatalog` records in the manifest is held by the same cell.
 pub(crate) struct WrenImport(sutura_catalog_local::LocalCatalog);
 
 impl SemanticCatalog for WrenImport {
