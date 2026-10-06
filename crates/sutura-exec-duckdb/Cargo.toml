@@ -40,5 +40,9 @@ fixtures = ["sutura-domain/fixtures"]
 name = "conformance"
 required-features = ["fixtures"]
 
+[[test]]
+name = "raw"
+required-features = ["fixtures"]
+
 [lints]
 workspace = true
