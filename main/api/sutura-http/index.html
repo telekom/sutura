@@ -4871,7 +4871,7 @@ fn _reachable(</em>: sutura_http::ReplicaSpendGauge) {}
 </span><span id="__span-144-59"><a id="__codelineno-144-59" name="__codelineno-144-59" href="#__codelineno-144-59"></a>
 </span><span id="__span-144-60"><a id="__codelineno-144-60" name="__codelineno-144-60" href="#__codelineno-144-60"></a>**Dependency count.** `tokio-rustls` is the *only* new crate in the graph: `rustls`,
 </span><span id="__span-144-61"><a id="__codelineno-144-61" name="__codelineno-144-61" href="#__codelineno-144-61"></a>`rustls-pki-types`, `rustls-webpki`, `ring` and `untrusted` are already resolved, because
-</span><span id="__span-144-62"><a id="__codelineno-144-62" name="__codelineno-144-62" href="#__codelineno-144-62"></a>`libduckdb-sys` carries `ureq` and `ureq` carries a TLS stack. `axum-server` would have added
+</span><span id="__span-144-62"><a id="__codelineno-144-62" name="__codelineno-144-62" href="#__codelineno-144-62"></a>`ureq` carries a TLS stack. `axum-server` would have added
 </span><span id="__span-144-63"><a id="__codelineno-144-63" name="__codelineno-144-63" href="#__codelineno-144-63"></a>itself, `hyper-util`, `rustls-pemfile` and `arc-swap` on top of the same rustls.
 </span><span id="__span-144-64"><a id="__codelineno-144-64" name="__codelineno-144-64" href="#__codelineno-144-64"></a>
 </span><span id="__span-144-65"><a id="__codelineno-144-65" name="__codelineno-144-65" href="#__codelineno-144-65"></a>**Graceful shutdown.** This is the heavier reason. `crate::server` has a *bounded* drain - the

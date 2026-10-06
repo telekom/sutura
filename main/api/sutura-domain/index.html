@@ -7739,7 +7739,7 @@ placeholder that names its value, and they are not one case: Postgres writes <co
 writes <code>:n</code>, and <code>$1</code> sent to Oracle is not a placeholder at all. The renderer emits predicates
 in filter order and a positional adapter binds the list in list order, so those two agree only
 while the indices run <code>0, 1, .. n-1</code> down the filters. Read off the shipped adapters rather
-than reasoned about: <code>sutura_exec_duckdb::bind</code> maps
+than reasoned about: <code>sutura_exec_duckdb</code> binds
 <code>QueryPlan::params</code> in list order against <code>?</code>,
 <code>sutura_exec_bigquery</code> sends the same list as an ordered array under a positional parameter
 mode, and <code>sutura_sql</code>'s <code>?</code> placeholder ignores the position it is given. <code>ClickHouse</code> is the

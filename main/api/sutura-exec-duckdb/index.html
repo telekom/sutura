@@ -1657,6 +1657,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#enum-duckdberror" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1712,17 +1723,6 @@
     <span class="md-ellipsis">
       
         Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
       
     </span>
   </a>
@@ -2233,6 +2233,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#enum-duckdberror" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2294,17 +2305,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2337,11 +2337,17 @@
 
 <h1 id="sutura-exec-duckdb">sutura-exec-duckdb<a class="headerlink" href="#sutura-exec-duckdb" title="Permanent link">&para;</a></h1>
 <p>The public API of <code>sutura-exec-duckdb</code>, rendered from rustdoc JSON.</p>
-<p>A <code>Warehouse</code> adapter over <code>DuckDB</code>, for local development and single-file work.</p>
+<p>A <code>Warehouse</code> adapter over <code>DuckDB</code>, through its ADBC driver, for local development and
+single-file work.</p>
 <p><code>DuckDB</code> is the case where the data is a file and there is no server to authenticate against, so
 the single-player credential is the process's own access. That is stated rather than hidden: this
 adapter is not a stand-in for a data system with grants, and it is the one place in the design
 where "run as the calling subject" is trivially satisfied because there is nobody else to be.</p>
+<p><strong>ADBC is the only transport</strong> (<code>telekom/sutura#913</code>). <code>DuckDB</code> is its own ADBC driver - the
+engine library defines <code>duckdb_adbc_init</code> - so the driver is the archive this artefact links
+(<code>nix/duckdb-adbc.nix</code>, both musl triples) or the <code>libduckdb</code> <code>MOUNTED_DRIVER</code> names. A result
+arrives as Arrow batches and is handed on as the driver typed it: which types answer is decided
+once, by the domain's reader (<code>ResultBatches::to_rows</code>), for every Arrow adapter alike.</p>
 <p>Two things this adapter deliberately does not offer:</p>
 <p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes an <code>Executable</code> and renders
 the statement itself, into a <code>GeneratedQuery</code> that carries its parameters separately. There is
@@ -2350,90 +2356,63 @@ be the shortest path around every check upstream of here.</p>
 <p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and
 although this adapter has no row-level security to leak through, adding a cache here would be the
 place the habit started.</p>
+<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The deadline is carried, not enforced</strong> (<code>docs/adr/0029</code>): the driver's <code>ConnectionCancel</code>
+  interrupts a running statement, and honouring the deadline needs a watchdog per call
+  (<code>telekom/sutura#1236</code>).</li>
+<li><strong>The driver runs every statement of a string but the last at <code>set_sql_query</code></strong>, and prepares
+  the last (the pinned <code>StatementSetSqlQuery</code>). Only rendered statements and this crate's own
+  <code>attach_*</code> views reach it, each one statement.</li>
+<li><strong>A certified answer is handed on unread</strong>, so a <code>REAL</code>, a non-finite <code>DOUBLE</code> or an unmapped
+  type is refused by the domain's reader downstream rather than as a <code>DuckDbError</code>.</li>
+</ul>
 <h2 id="enum-duckdberror"><code>enum DuckDbError</code><a class="headerlink" href="#enum-duckdberror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DuckDbError</span>
 </span></code></pre></div>
 <p>Why this data system could not answer.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
+<li><code>NoDriver</code></li>
+<li><code>Load</code> - The driver did not load or initialise, by either route - a relative mounted path included.</li>
 <li><code>Open</code></li>
+<li><code>Connect</code></li>
 <li><code>Prepare</code></li>
 <li><code>Execute</code></li>
-<li><code>Poisoned</code> - The connection's guard was poisoned by a panic. Under <code>panic = "abort"</code> this is unshakeable; in unwind test builds refusing it as a typed error keeps a poisoned connection from being handed to anything else.</li>
-<li><code>UnsupportedType</code> - A column came back as a type this adapter does not map.</li>
+<li><code>Batch</code></li>
+<li><code>Parameters</code></li>
+<li><code>Unannounced</code></li>
+<li><code>OverBudget</code> - The collected result would cost more than this adapter's materialisation budget to hold.</li>
 </ul>
-<p>An error rather than a stringified fallback. A <code>LIST</code> or a <code>STRUCT</code> rendered with <code>Debug</code>
-  would flow into an answer looking like data, and an anchor comparison against it would pass
-  or fail for reasons nobody could read.</p>
-<p>The column is named by its LABEL rather than by its position, which is also what the engine
-  does. The two adapters answer one plan, so an error from either has to be readable against the
-  same projection, and "column 1" is a fact about a result set nobody has in front of them.
-- <code>NotFinite</code> - A floating-point column came back as a value that is not a number.</p>
-<p><strong>What <code>zero_denominator: fails</code> actually produces.</strong> The generator emits that ratio's
-  division unguarded and casts the numerator to <code>DOUBLE</code> first, so the division is IEEE float
-  division: <code>CAST(3 AS DOUBLE) / 0</code> is <code>inf</code> here rather than an error, and <code>0 / 0</code> is <code>NaN</code>.
-  <code>Real</code> refuses all three, so the word <code>fails</code> is true of the metric that chose it instead of
-  answering the string <code>inf</code> under a certified name.</p>
-<p>The cause names which of the three it was; this variant names the column.
-- <code>NotADate</code> - A day number came back that is not a date this build can represent.</p>
-<p>The cause is kept rather than discarded: "not a date" and "a date in the year 40 000" send a
-  reader to different places.
-- <code>Shape</code>
-- <code>OverBudget</code> - The collected result would cost more than this adapter's materialisation budget to hold.</p>
-<p>The sibling of <code>Self::Shape</code> for the byte budget the port's
+<p>The byte budget the port's
   <code>result_did_not_fit</code> reads: a
   result refused for crossing it is <em>the result did not fit</em>, never a data-system failure,
   so a caller is refused rather than told to retry.
+- <code>Unreadable</code> - A boot-path result the domain's reader refused - the type, or the value, names the column.
 - <code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</p>
-<p>A defect in the rendering or in this adapter's value mapping, never anything about the data:
-  the probe projects two aggregates over no group, so one row of two integers is the only shape
-  it can have. It travels as an <code>Err</code> from the port, which the boot path reads as <em>this
-  declaration went unchecked</em> rather than as a violated one.
-- <code>NoSchema</code> - The driver handed back a result set with no statement behind it, so there are no column labels to read.</p>
-<p><strong>An error rather than an empty projection, and the empty projection was the bug.</strong> This was
-  <code>unwrap_or_default()</code>, which turns a missing schema into a zero-column result - and a
-  <code>RowSet</code> with no columns and N rows is a shape <code>RowSet::new</code> ACCEPTS, because every row
-  then has no cells either and the thing is rectangular. So a question would have been answered
-  with a result set that had silently lost its projection, under a certified name and with
-  provenance attached. Refusal beats degradation on a shape check: nothing downstream can tell
-  "this metric has no columns" from "this driver told us nothing".</p>
-<p>No <code>#[source]</code>, because there is nothing to preserve: the handle is an <code>Option</code> and the
-  absent case carries no cause. That is the whole of what the driver said.
-- <code>Render</code> - The plan could not be rendered as SQL.</p>
-<p>This adapter speaks SQL, so it asks the compiler to render the plan for its own dialect. An
-  adapter that executes a plan directly - the in-process engine - never reaches this.
-- <code>FixtureRead</code> - The fixture CSV could not be read to name its column types.</p>
-<p><code>attach_fixture_csv</code> reads the bytes to type the
-  columns before the query; a file that cannot be read is a fixture defect, not a number to
-  answer.
+<p>A defect in the rendering or in the value mapping, never anything about the data: the probe
+  projects two aggregates over no group, so one row of two integers is the only shape it can
+  have. It travels as an <code>Err</code> from the port, which the boot path reads as <em>this declaration
+  went unchecked</em> rather than as a violated one.
+- <code>Render</code> - The plan could not be rendered as SQL.
+- <code>FixtureRead</code> - The fixture CSV could not be read to name its column types.
 - <code>FixtureSchema</code> - The fixture CSV did not satisfy the shared schema boundary.
 - <code>Attach</code>
-- <code>NoPlaceForASubject</code> - One leg of a federated answer, rendered here and assembled above by the combiner.</p>
-<p><strong>Not a refusal and not a default body.</strong> <code>Warehouse::execute</code> takes an
-  <code>Executable</code>, so this adapter's match over what it can be handed is exhaustive. A
-  <code>LegPlan</code> renders through <code>generate_leg</code> and runs like any
-  other statement; it carries no row cap, because a leg is not an answer - the combiner above
-  it applies <code>MAX_ROWS</code>.</p>
-<p>The credential broker handed this adapter subject material it has nowhere to put.</p>
+- <code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</p>
 <p><strong>An <code>Err</code> and never a refusal.</strong> Nothing about the question was wrong: it is a wiring defect
   between the broker and the source declaration, and a refusal would invite a client to retry a
   deployment bug. <code>docs/adr/0008</code> part 4 is the decision, and the same variant exists on the
   engine adapter for the same reason - two implementors of one port, each answering for what it
   was handed, because neither may reach into the other for a shared check.</p>
-<p>One process holding one connection under one operating-system identity, which is what
+<p>One process holding one database under one operating-system identity, which is what
   <code>Warehouse::IMPERSONATION</code> declares here, so the only shape this can be handed is the
   deployment's own identity for that source.
 - <code>PresentedDisagreesWithPosture</code> - The broker presented a leg that does not agree with how this source was DECLARED.</p>
-<p><strong>A different question from the variant above, and a review found that only the first was
-  being asked.</strong> <code>NoPlaceForASubject</code> compares what arrived against what this CODE can carry -
-  the <code>Warehouse::IMPERSONATION</code> constant - and reads <code>posture</code> not at all. So a shared leg
-  carrying a <em>different</em> operator acknowledgement matched the variant this adapter accepts and
-  was executed, while provenance, which is read off <code>posture</code>, reported this adapter's own
-  declaration instead.</p>
-<p>The two values compared are genuinely independent: the broker reads the settings tree and this
-  adapter holds what the composition root handed it. An <code>Err</code> rather than a refusal, for the
-  reason the variant above is one. The same variant exists on the engine adapter, because neither
-  implementor of this port may reach into the other for a shared check.</p>
+<p><strong>A different question from the variant above.</strong> <code>NoPlaceForASubject</code> compares what arrived
+  against what this CODE can carry - the <code>Warehouse::IMPERSONATION</code> constant - and reads
+  <code>posture</code> not at all. So a shared leg carrying a <em>different</em> operator acknowledgement matched
+  the variant this adapter accepts, while provenance, which is read off <code>posture</code>, reported this
+  adapter's own declaration instead. An <code>Err</code> rather than a refusal, for the reason above.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-duckdbwarehouse"><code>struct DuckDbWarehouse</code><a class="headerlink" href="#struct-duckdbwarehouse" title="Permanent link">&para;</a></h2>
@@ -2448,27 +2427,40 @@ place the habit started.</p>
 adapter usually grows and would make every check upstream of here optional. The table name is
 a <code>TableName</code>, so it cannot carry a quote; the path is a string, so it is escaped the only
 way a SQL string literal can be, by doubling every quote.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>DuckDbError::Attach</code> where the driver refused the view, a CSV it cannot read included.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Exposes a conformance fixture CSV with shared column typing.</p>
 <p>The columns are typed before the read, and the typing comes from
 <code>sutura_domain::warehouse::csv</code> - the one classification every adapter shares. Naming the
 complete map keeps decimals exact and prevents <code>DuckDB</code>'s boolean and wide-integer inference
-from drifting from the other fixture adapters. Use <code>Self::attach_csv</code> for CSVs outside the
-deliberately simple fixture format. Available only with the default-off <code>fixtures</code> feature.</p>
+from drifting from the other fixture adapters. Available only with the default-off <code>fixtures</code>
+feature.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>DuckDbError::FixtureRead</code>, <code>DuckDbError::FixtureSchema</code>, or <code>DuckDbError::Attach</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_memory</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Opens a database that exists only for this process.</p>
 <p>What the golden suite uses: a fixture that is built from a committed CSV every run cannot
 drift from the CSV, and a database file in the repository would be a binary nobody reviews.
 <strong>The posture is a parameter and has no default</strong>, for the reason the port gives: a defaulted
-posture would be a claim about who a query runs as that nobody made. The budget likewise has
-no default, for the same reason the field does - a call site with no budget does not compile.</p>
+posture would be a claim about who a query runs as that nobody made.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p>As <code>Self::open</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Opens a database file.</p>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
+<p><code>DuckDbError::NoDriver</code> or <code>DuckDbError::Load</code> where there is no driver, and
+<code>DuckDbError::Open</code> where the database does not open - a path that is not UTF-8 included,
+refused rather than converted lossily into a path that names another file.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="constant-mounted_driver"><code>constant MOUNTED_DRIVER</code><a class="headerlink" href="#constant-mounted_driver" title="Permanent link">&para;</a></h2>
+<p>The variable a host that links no driver names a mounted <code>libduckdb</code> with.</p>
+<p><strong>Not a settings key</strong>, for <code>sutura-adbc-postgres</code>'s <code>MOUNTED_DRIVER</code> reason: which driver file a
+host carries is a property of the host, and a build that links one never reads this.</p>
 
 
 
