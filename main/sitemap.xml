@@ -200,4 +200,12 @@
          <loc>https://telekom.github.io/sutura/main/api/sutura-tls/</loc>
          <lastmod>2026-10-06</lastmod>
     </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/examples/</loc>
+         <lastmod>2026-10-06</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/examples/single-player/</loc>
+         <lastmod>2026-10-06</lastmod>
+    </url>
 </urlset>

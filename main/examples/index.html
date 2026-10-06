@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="Complete sutura setups you can run, each with its configuration and the commands to use it.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-semantic/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/examples/">
       
       
-        <link rel="prev" href="../sutura-catalog-wren/">
+        <link rel="prev" href="../agent-prompt/">
       
       
-        <link rel="next" href="../sutura-sql/">
+        <link rel="next" href="single-player/">
       
       
         
       
       
-      <link rel="icon" href="../../assets/favicon.svg">
+      <link rel="icon" href="../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>sutura-semantic - sutura</title>
+        <title>Examples - sutura</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../../css/telekom.css">
+      <link rel="stylesheet" href="../css/telekom.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura-semantic" class="md-skip">
+        <a href="#examples" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../../assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              sutura-semantic
+              Examples
             
           </span>
         </div>
@@ -241,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../../assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -301,7 +301,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../.." class="md-nav__link ">
+            <a href=".." class="md-nav__link ">
               
   
   
@@ -345,7 +345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/" class="md-nav__link">
+      <a href="../concepts/" class="md-nav__link">
         
   
   
@@ -373,7 +373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -401,7 +401,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../qa/" class="md-nav__link">
+      <a href="../qa/" class="md-nav__link">
         
   
   
@@ -429,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../agent-prompt/" class="md-nav__link">
+      <a href="../agent-prompt/" class="md-nav__link">
         
   
   
@@ -461,6 +461,8 @@
       
   
   
+    
+  
   
   
     
@@ -481,15 +483,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../examples/" class="md-nav__link ">
+            <a href="./" class="md-nav__link md-nav__link--active">
               
   
   
@@ -507,13 +509,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+              <label class="md-nav__link md-nav__link--active" for="__nav_2" id="__nav_2_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -533,7 +535,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/single-player/" class="md-nav__link">
+      <a href="single-player/" class="md-nav__link">
         
   
   
@@ -646,7 +648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../serving/" class="md-nav__link">
+      <a href="../serving/" class="md-nav__link">
         
   
   
@@ -674,7 +676,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../verifying-a-release/" class="md-nav__link">
+      <a href="../verifying-a-release/" class="md-nav__link">
         
   
   
@@ -702,7 +704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../demo/" class="md-nav__link">
+      <a href="../demo/" class="md-nav__link">
         
   
   
@@ -730,7 +732,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../integrations/" class="md-nav__link">
+      <a href="../integrations/" class="md-nav__link">
         
   
   
@@ -758,7 +760,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../where-identity-is-proven/" class="md-nav__link">
+      <a href="../where-identity-is-proven/" class="md-nav__link">
         
   
   
@@ -786,7 +788,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-a-join-key-is-compared/" class="md-nav__link">
+      <a href="../how-a-join-key-is-compared/" class="md-nav__link">
         
   
   
@@ -814,7 +816,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
+      <a href="../rdbms-catalog-guidance/" class="md-nav__link">
         
   
   
@@ -842,7 +844,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../what-agent-identity-can-carry/" class="md-nav__link">
+      <a href="../what-agent-identity-can-carry/" class="md-nav__link">
         
   
   
@@ -870,7 +872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../what-okf-can-carry/" class="md-nav__link">
+      <a href="../what-okf-can-carry/" class="md-nav__link">
         
   
   
@@ -898,7 +900,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../what-openmetadata-can-carry/" class="md-nav__link">
+      <a href="../what-openmetadata-can-carry/" class="md-nav__link">
         
   
   
@@ -926,7 +928,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../what-a-data-contract-can-carry/" class="md-nav__link">
+      <a href="../what-a-data-contract-can-carry/" class="md-nav__link">
         
   
   
@@ -954,7 +956,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -986,10 +988,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -1012,11 +1012,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -1037,7 +1037,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1055,7 +1055,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -1083,7 +1083,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/" class="md-nav__link">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -1111,7 +1111,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../enterprise-mirrors/" class="md-nav__link">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -1139,7 +1139,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../publishing/" class="md-nav__link">
+      <a href="../publishing/" class="md-nav__link">
         
   
   
@@ -1164,8 +1164,6 @@
                 
   
   
-    
-  
   
   
     
@@ -1237,15 +1235,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -1269,7 +1267,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1289,7 +1287,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-domain/" class="md-nav__link">
+      <a href="../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1317,7 +1315,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-local/" class="md-nav__link">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1345,7 +1343,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
         
   
   
@@ -1373,7 +1371,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-okf/" class="md-nav__link">
+      <a href="../api/sutura-catalog-okf/" class="md-nav__link">
         
   
   
@@ -1401,7 +1399,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-datacontract/" class="md-nav__link">
+      <a href="../api/sutura-catalog-datacontract/" class="md-nav__link">
         
   
   
@@ -1429,7 +1427,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-openmetadata/" class="md-nav__link">
+      <a href="../api/sutura-catalog-openmetadata/" class="md-nav__link">
         
   
   
@@ -1457,7 +1455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
+      <a href="../api/sutura-catalog-rdbms/" class="md-nav__link">
         
   
   
@@ -1485,7 +1483,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-catalog-wren/" class="md-nav__link">
+      <a href="../api/sutura-catalog-wren/" class="md-nav__link">
         
   
   
@@ -1510,37 +1508,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-semantic
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1556,214 +1527,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compiled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum Compiled
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum Compiled">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compilefailure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum CompileFailure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum CompileFailure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fn-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fn compile
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-bundleinconsistent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use BundleInconsistent
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-federatedplan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use FederatedPlan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-queryplan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use QueryPlan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planfilter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanFilter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planmeasure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanMeasure
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planpredicate" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanPredicate
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planterm" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanTerm
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-predicateorigin" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PredicateOrigin
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1776,7 +1539,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-sql/" class="md-nav__link">
+      <a href="../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1804,7 +1567,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1832,7 +1595,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1860,7 +1623,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -1888,7 +1651,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-exec-postgres/" class="md-nav__link">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -1916,7 +1679,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
+      <a href="../api/sutura-exec-clickhouse/" class="md-nav__link">
         
   
   
@@ -1944,7 +1707,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-exec-oracle/" class="md-nav__link">
+      <a href="../api/sutura-exec-oracle/" class="md-nav__link">
         
   
   
@@ -1972,7 +1735,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-adbc/" class="md-nav__link">
+      <a href="../api/sutura-adbc/" class="md-nav__link">
         
   
   
@@ -2000,7 +1763,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-adbc-postgres/" class="md-nav__link">
+      <a href="../api/sutura-adbc-postgres/" class="md-nav__link">
         
   
   
@@ -2028,7 +1791,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-tls/" class="md-nav__link">
+      <a href="../api/sutura-tls/" class="md-nav__link">
         
   
   
@@ -2056,7 +1819,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-http-client/" class="md-nav__link">
+      <a href="../api/sutura-http-client/" class="md-nav__link">
         
   
   
@@ -2084,7 +1847,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-bounded-read/" class="md-nav__link">
+      <a href="../api/sutura-bounded-read/" class="md-nav__link">
         
   
   
@@ -2112,7 +1875,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-app/" class="md-nav__link">
+      <a href="../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -2140,7 +1903,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-config/" class="md-nav__link">
+      <a href="../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -2168,7 +1931,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-runtime/" class="md-nav__link">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -2196,7 +1959,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-http/" class="md-nav__link">
+      <a href="../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -2224,7 +1987,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-mcp/" class="md-nav__link">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
         
   
   
@@ -2252,7 +2015,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-conformance/" class="md-nav__link">
+      <a href="../api/sutura-conformance/" class="md-nav__link">
         
   
   
@@ -2280,7 +2043,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sutura-dev/" class="md-nav__link">
+      <a href="../api/sutura-dev/" class="md-nav__link">
         
   
   
@@ -2336,202 +2099,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compiled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum Compiled
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum Compiled">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-compilefailure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum CompileFailure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum CompileFailure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fn-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fn compile
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-bundleinconsistent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use BundleInconsistent
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-federatedplan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use FederatedPlan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-queryplan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use QueryPlan
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planfilter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanFilter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planmeasure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanMeasure
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planpredicate" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanPredicate
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-planterm" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PlanTerm
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-predicateorigin" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use PredicateOrigin
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -2550,171 +2117,37 @@
   
 
 
-<!-- GENERATED FILE - do not edit.
-     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
-     Edit the doc comments in the crate source instead, then regenerate.
-     The commands are on the API reference landing page. -->
-
-<h1 id="sutura-semantic">sutura-semantic<a class="headerlink" href="#sutura-semantic" title="Permanent link">&para;</a></h1>
-<p>The public API of <code>sutura-semantic</code>, rendered from rustdoc JSON.</p>
-<p>The semantic compiler: a modelled question becomes one plan for one data system.</p>
-<p>Two stages, in two modules, and the split is the design rather than tidiness:</p>
-<ol>
-<li><strong>Resolve</strong> looks every name up in the caller's <code>ScopedView</code>
-   of the pinned snapshot. Its only outputs are references into that bundle and refusals naming
-   the argument that failed. It cannot reach a live catalog, because it is handed the view and
-   nothing else - and a metric outside that view resolves as unknown, not merely undescribed.</li>
-<li><strong>Plan</strong> settles what nothing else may settle: which single data
-   system the statement runs against, and which values become bind parameters. It holds no SQL,
-   and its serialized form is what a golden snapshot pins.</li>
-</ol>
-<p><strong><code>compile</code> runs both, and stops. There is no third stage in this crate.</strong> The <code>Warehouse</code>
-port takes a plan: an adapter that executes over Arrow renders nothing, and a SQL-speaking
-adapter renders for the dialect it alone knows. Whoever wants SQL calls <code>sutura_sql::generate</code>
-and names the dialect there.</p>
-<p><strong><code>sutura-sql</code> is a separate crate, and this crate does not depend on it.</strong> Rendering used to be
-a <code>pub</code> module here - <code>generate</code> and <code>dialect</code> - which put <code>polyglot-sql</code> in the transitive
-closure of every consumer of the core, the network binary included: it links the engine, renders
-nothing, and could reach no line of that code. Moving the two modules out drops the generator
-from this crate's tree, and <code>cargo xtask check-boundaries</code> fails if either edge comes back, so
-the direction is a gate rather than a sentence in this comment.</p>
-<p><code>compile</code> returns a <code>Compiled</code> rather than a <code>Result</code> of a plan, because a refusal is an
-answer: a caller must not be able to mistake "you may not ask that" for a transport failure and
-retry until something works.</p>
-<p><strong>Nothing here emits SQL, parses SQL, or names a dialect.</strong> After the split that is a fact about
-the dependency list rather than a discipline: there is no SQL generator in this crate's tree to
-call.</p>
-<h2 id="enum-compiled"><code>enum Compiled</code><a class="headerlink" href="#enum-compiled" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Compiled</span>
-</span></code></pre></div>
-<p>What compiling a question produced.</p>
-<p>A refusal is a variant here rather than an <code>Err</code>, which is the same choice
-<code>sutura_domain::query::ToolOutcome</code> makes and for the same reason.</p>
-<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>Planned</code> - The question resolved to one data system, and this is what we decided to execute.</li>
-</ul>
-<p>The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
-  set by its rarest variant makes every refusal carry the cost of an answer.
-- <code>Federated</code> - The question resolved to two data systems, split into a fact leg and a lookup leg.</p>
-<p>The two legs execute against their own sources and the combiner behind
-  <code>FederationCombiner</code> turns the batches
-  back into one answer above them.
-- <code>Refused</code> - The question was refused, and this is why.</p>
-<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">DomainPlan</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The plan, if the question resolved to one data system.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">RefusalReason</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The refusal, if there was one.</p>
-<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code></p>
-<h2 id="enum-compilefailure"><code>enum CompileFailure</code><a class="headerlink" href="#enum-compilefailure" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CompileFailure</span>
-</span></code></pre></div>
-<p>Why compiling failed, which is never why a question was refused.</p>
-<p><strong>Several arms rather than one bundle error, and <code>telekom/sutura#338</code> is the report.</strong> A question
-the deployment declines comes back as <code>Compiled::Refused</code>; what reaches this type is our own
-side being wrong. Each arm below is one way that can happen: the pinned bundle names something it
-does not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, the
-splitter built a two-source plan that
-<code>FederatedPlan::new</code> then rejected, a producer
-built a plan whose predicates and parameters did not resolve each other, the splitter ran with no
-remote dimension, and a chain reached the plan stage having left the metric's data system.
-<code>NotAssembled</code> used to
-be flattened into <code>RefusalReason::FederationNotExecutable</code>, which is what a build whose adapter
-type does not declare <code>Warehouse::EXECUTES_LEGS</code> is told - so a wiring defect and a statement
-about the build's own capability arrived as one value, and a caller could not tell which it had.</p>
-<p>The arms are deliberately NOT counted in this prose: a number here is a second thing to keep
-true, and it had already stopped being true once - it said four while the enum held five.</p>
-<p><strong>The limit, next to the claim:</strong> nothing provokes <code>NotAssembled</code>
-or <code>NotBound</code> today. Every <code>FederatedPlanError</code> variant is
-structurally unreachable from the splitter as it stands, and every
-<code>IncoherentBindings</code> variant is unreachable from the
-two functions that build a binding set, because both mint each parameter index from the position
-the value was pushed to - <code>crate::plan::PlanError</code> enumerates why, one variant at a time - so what
-these arms buy is that a future edit which makes one reachable surfaces as a failure rather than
-as a refusal a caller would retry.</p>
-<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>Bundle</code> - The pinned bundle names a model or a relationship it does not hold.</li>
-<li><code>AuthoredSqlNotPlanned</code> - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.</li>
-<li><code>NotAssembled</code> - A two-source plan this workspace compiled and could not then assemble.</li>
-<li><code>NotBound</code> - A plan this workspace compiled whose predicates and parameters did not resolve each other.</li>
-<li><code>NoRemoteJoin</code> - A2: the splitter ran with no remote dimension to join the fact leg through.</li>
-</ul>
-<p>Same limit as <code>NotAssembled</code> and <code>NotBound</code>: <code>plan</code> calls the splitter only when exactly one
-  remote source exists and a remote dimension has a join by construction, so nothing provokes
-  this either. It replaces a fabricated <code>RefusalReason::PlanSpansTooManySources { sources: 1,
-  limit: 2 }</code> a caller could not have narrowed their way out of.
-- <code>ChainLeavesItsSource</code> - A chain that leaves the metric's data system after its first hop reached the plan stage.</p>
-<p>The bundle should not have assembled: <code>sutura_domain::catalog</code> refuses such a chain at load,
-  naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
-  buys is the thing the load check alone did not have - a second reader of the same rule, on
-  the path where getting it wrong renders another data system's table into one statement under
-  a certified metric name. <code>crate::plan::PlanError::ChainLeavesItsSource</code> carries the report.
-- <code>NoSecondFactModel</code> - The splitter carried a cross-model ratio's second-fact leaves with no second fact model or calendar model resolved for them. Same limit as <code>NoRemoteJoin</code>: <code>plan</code> dispatches such a ratio only once <code>resolve</code> has already looked up both, so nothing provokes this either - see <code>crate::plan::PlanError::NoSecondFactModel</code>'s own doc for the construction that holds it.</p>
-<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">compile</span><span class="p">(</span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">Query</span><span class="p">,</span><span class="w"> </span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">view</span><span class="p">::</span><span class="n">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">row_ceiling</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">RowCeiling</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Compiled</span><span class="p">,</span><span class="w"> </span><span class="n">CompileFailure</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Resolves and plans. It does not render.</p>
-<p><strong>The dialect used to be an argument here, and that was a parameter that could lie.</strong> Compiling
-rendered a statement alongside the plan, and the one caller that answers questions threw the
-statement away - because the port takes a plan, and a SQL-speaking adapter renders its own. So the
-dialect decided nothing, while a caller could hand this <code>Postgres</code> and a <code>DuckDB</code> warehouse and
-nothing anywhere would notice the disagreement.</p>
-<p>Rendering now lives where the dialect is actually known: <code>sutura_sql::generate</code>, in its own
-crate, called by the adapter that speaks that dialect. Whoever wants SQL asks for it, and
-linking this crate no longer links a SQL generator.</p>
-<p>The error type is <code>CompileFailure</code> and a refused question is not one of its arms: a refusal is
-an answer and comes back as <code>Compiled</code>.</p>
-<p><strong>A broken bundle is no longer the only way this can fail</strong>, which is the change
-<code>telekom/sutura#338</code> asked for and the one thing about it a test can hold:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>use sutura_domain::pinned::PinnedDefinitions;
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>use sutura_domain::pinned::view::ScopedView;
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>use sutura_domain::query::Query;
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>use sutura_semantic::{BundleInconsistent, compile};
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>fn _only_a_broken_bundle(query: &amp;Query, pinned: &amp;PinnedDefinitions) -&gt; Option&lt;BundleInconsistent&gt; {
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    compile(query, &amp;ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>}
-</span></code></pre></div>
-<p>And the twin, so a rename cannot make that block pass vacuously:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>use sutura_domain::pinned::PinnedDefinitions;
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>use sutura_domain::pinned::view::ScopedView;
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>use sutura_domain::query::Query;
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>use sutura_semantic::{CompileFailure, compile};
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>fn _either_way(query: &amp;Query, pinned: &amp;PinnedDefinitions) -&gt; Option&lt;CompileFailure&gt; {
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    compile(query, &amp;ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>}
-</span></code></pre></div>
-<h2 id="use-bundleinconsistent"><code>use BundleInconsistent</code><a class="headerlink" href="#use-bundleinconsistent" title="Permanent link">&para;</a></h2>
-<p>Why resolution did not produce a resolution.</p>
-<p>Two shapes, deliberately separated. A <code>RefusalReason</code> is an answer to the caller: the question
-named something that is not there, or not permitted. An absence is a broken bundle, which the
-caller did nothing to cause and can do nothing about, so it must not be dressed up as a refusal
-they might retry differently.</p>
-<p>The absence variants should be unreachable: <code>Definitions::assemble</code> checks every one of these
-cross-references before a bundle exists. They are written out rather than reached with an
-<code>expect</code> because a panic path here is reachable from a catalog file, and the no-panic ban is not
-conditional on another check having been right.</p>
-<h2 id="use-federatedplan"><code>use FederatedPlan</code><a class="headerlink" href="#use-federatedplan" title="Permanent link">&para;</a></h2>
-<h2 id="use-queryplan"><code>use QueryPlan</code><a class="headerlink" href="#use-queryplan" title="Permanent link">&para;</a></h2>
-<h2 id="use-planfilter"><code>use PlanFilter</code><a class="headerlink" href="#use-planfilter" title="Permanent link">&para;</a></h2>
-<h2 id="use-planmeasure"><code>use PlanMeasure</code><a class="headerlink" href="#use-planmeasure" title="Permanent link">&para;</a></h2>
-<h2 id="use-planpredicate"><code>use PlanPredicate</code><a class="headerlink" href="#use-planpredicate" title="Permanent link">&para;</a></h2>
-<h2 id="use-planterm"><code>use PlanTerm</code><a class="headerlink" href="#use-planterm" title="Permanent link">&para;</a></h2>
-<h2 id="use-predicateorigin"><code>use PredicateOrigin</code><a class="headerlink" href="#use-predicateorigin" title="Permanent link">&para;</a></h2>
+<h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h1>
+<p>Each example is a directory in
+<a href="https://github.com/telekom/sutura/tree/main/examples"><code>examples/</code></a> with a catalog, data and the
+configuration to serve it. CI runs the commands on these pages.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Metadata</th>
+<th>Data</th>
+<th>Identity</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="single-player/">Single player</a></td>
+<td>Markdown catalog</td>
+<td>Local CSV files</td>
+<td>One user, shared service user</td>
+</tr>
+</tbody>
+</table>
 
 
 
 
 
 
+
+  
+  
 
 
 
@@ -2780,10 +2213,10 @@ conditional on another check having been right.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

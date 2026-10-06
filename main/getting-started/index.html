@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Download the published binary, verify it, take the corpus, and ask one certified question - no clone and no Rust toolchain.">
+        <meta name="description" content="Install sutura with Docker Compose, a Linux binary or Nix, and ask one question.">
       
       
       
@@ -435,10 +435,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#rather-run-it-as-a-service" class="md-nav__link">
+  <a href="#set-the-version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Rather run it as a service?
+        Set the version
       
     </span>
   </a>
@@ -446,10 +446,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-a-release-publishes-and-for-which-platforms" class="md-nav__link">
+  <a href="#get-the-example-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What a release publishes, and for which platforms
+        Get the example data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-it-with-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run it with Docker Compose
       
     </span>
   </a>
@@ -468,10 +479,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-corpus" class="md-nav__link">
+  <a href="#install-it-with-nix" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The corpus
+        Install it with Nix
       
     </span>
   </a>
@@ -479,10 +490,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-a-catalogue-says" class="md-nav__link">
+  <a href="#ask-a-question" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What a catalogue says
+        Ask a question
       
     </span>
   </a>
@@ -490,10 +501,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#asking" class="md-nav__link">
+  <a href="#be-refused" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Asking
+        Be refused
       
     </span>
   </a>
@@ -501,32 +512,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#being-refused" class="md-nav__link">
+  <a href="#write-your-own-catalog" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Being refused
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#your-own-catalogue" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Your own catalogue
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building-from-source" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building from source
+        Write your own catalog
       
     </span>
   </a>
@@ -615,6 +604,110 @@
     
       
         
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/single-player/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single player
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
       
         
       
@@ -651,10 +744,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
@@ -672,8 +765,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1058,10 +1151,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -1079,8 +1172,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1281,7 +1374,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1303,14 +1396,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2148,10 +2241,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#rather-run-it-as-a-service" class="md-nav__link">
+  <a href="#set-the-version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Rather run it as a service?
+        Set the version
       
     </span>
   </a>
@@ -2159,10 +2252,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-a-release-publishes-and-for-which-platforms" class="md-nav__link">
+  <a href="#get-the-example-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What a release publishes, and for which platforms
+        Get the example data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-it-with-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run it with Docker Compose
       
     </span>
   </a>
@@ -2181,10 +2285,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-corpus" class="md-nav__link">
+  <a href="#install-it-with-nix" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The corpus
+        Install it with Nix
       
     </span>
   </a>
@@ -2192,10 +2296,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-a-catalogue-says" class="md-nav__link">
+  <a href="#ask-a-question" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What a catalogue says
+        Ask a question
       
     </span>
   </a>
@@ -2203,10 +2307,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#asking" class="md-nav__link">
+  <a href="#be-refused" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Asking
+        Be refused
       
     </span>
   </a>
@@ -2214,32 +2318,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#being-refused" class="md-nav__link">
+  <a href="#write-your-own-catalog" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Being refused
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#your-own-catalogue" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Your own catalogue
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building-from-source" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building from source
+        Write your own catalog
       
     </span>
   </a>
@@ -2267,485 +2349,208 @@
 
 
 <h1 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
-<p>Download the binary, verify it, take the corpus, ask a question. <strong>No Rust toolchain and no
-clone</strong>, and nothing to provision on the data side either: the engine is compiled into the binary
-and reads CSV and Parquet files where they lie.</p>
-<p><strong>What you need</strong> is a Linux host on x86_64 or aarch64, and an authenticated <code>gh</code>. Every command
-below goes through it: it is how the release assets and the corpus tarball are fetched, and
-<code>gh attestation verify</code> is one of the two checks the install step runs.</p>
+<p>This page installs sutura and asks one question about the example data. The
+<a href="../examples/single-player/">single-player example</a> then shows the HTTP API and MCP.</p>
+<h2 id="set-the-version">Set the version<a class="headerlink" href="#set-the-version" title="Permanent link">&para;</a></h2>
+<p>Set the version one time. All commands on this page use it.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">SUTURA_VERSION</span><span class="o">=</span><span class="m">0</span>.6.1
+</span></code></pre></div>
+<p>The <a href="https://github.com/telekom/sutura/releases">release page</a> lists all versions.</p>
+<h2 id="get-the-example-data">Get the example data<a class="headerlink" href="#get-the-example-data" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span><span class="s2">"https://github.com/telekom/sutura/archive/refs/tags/v</span><span class="si">${</span><span class="nv">SUTURA_VERSION</span><span class="si">}</span><span class="s2">.tar.gz"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tar<span class="w"> </span>-xz
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span><span class="s2">"sutura-</span><span class="si">${</span><span class="nv">SUTURA_VERSION</span><span class="si">}</span><span class="s2">"</span>
+</span></code></pre></div>
+<p>Run all commands on this page from this directory. All data is synthetic.</p>
+<h2 id="run-it-with-docker-compose">Run it with Docker Compose<a class="headerlink" href="#run-it-with-docker-compose" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>examples/single-player/compose.yaml<span class="w"> </span>up<span class="w"> </span>-d
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>examples/single-player/compose.yaml<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>sutura<span class="w"> </span>sutura<span class="w"> </span>doctor
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>curl<span class="w"> </span>http://127.0.0.1:8080/health
+</span></code></pre></div>
+<p><code>doctor</code> shows how the binary was built: profile, engine and linked data systems. <code>/health</code> returns
+<code>{"status":"ok"}</code>.</p>
+<p><code>compose.yaml</code> uses the image <code>ghcr.io/telekom/sutura:${SUTURA_VERSION}</code>. If <code>SUTURA_VERSION</code> is not
+set, it uses <code>latest</code>. In version 0.6.1 and earlier, <code>compose.yaml</code> always uses <code>latest</code>.</p>
 <div class="admonition note">
-<p class="admonition-title">The artefacts need read access to the repository, for now</p>
-<p>This page is published and the repository is not yet, so the release assets, the corpus tarball
-and the <code>ghcr.io</code> tags all refuse a reader who cannot read <code>telekom/sutura</code> - the image route
-below for macOS and Windows included. <code>gh auth login</code> under an account that can is the way in
-today, and <strong>this note is what to delete when the repository becomes public</strong>, because the
-commands themselves do not change.</p>
+<p class="admonition-title">Docker Desktop on macOS and Windows</p>
+<p>The container uses the host network. Turn it on in <strong>Settings &gt; Resources &gt; Network &gt; Enable
+host networking</strong>. If it is off, <code>/health</code> does not answer.</p>
 </div>
-<h2 id="rather-run-it-as-a-service">Rather run it as a service?<a class="headerlink" href="#rather-run-it-as-a-service" title="Permanent link">&para;</a></h2>
-<p>Everything below is the one-shot CLI path: install once, ask a question from the command line, be
-refused. If you would rather bring the published image up over HTTP and ask the same questions
-against a running server, <code>examples/single-player/compose.yaml</code> does that with the corpus mapped
-read-only and no install step of its own - <code>examples/single-player/README.md</code>'s "Run it over
-compose" section is the quickstart, and <a href="../serving/">Serving over HTTP</a> is the full reference:
-the token, the postures, and every refusal's documented status. The <code>ghcr.io</code> tag it pulls needs
-the same repository read access the note above states, until the repository is public.</p>
-<h2 id="what-a-release-publishes-and-for-which-platforms">What a release publishes, and for which platforms<a class="headerlink" href="#what-a-release-publishes-and-for-which-platforms" title="Permanent link">&para;</a></h2>
-<p><strong>Four triples, and all four are Linux.</strong> There is no macOS binary and no Windows binary - that is
-what a release builds rather than a note about what has not been tried yet, and <code>nix/shipped.nix</code>
-is where the set is declared:</p>
+<p>To stop the server:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>examples/single-player/compose.yaml<span class="w"> </span>down
+</span></code></pre></div>
+<h2 id="install-it">Install it<a class="headerlink" href="#install-it" title="Permanent link">&para;</a></h2>
+<p>On Linux, you can install the binary and use the CLI without Docker. Each release has four assets.
+Each asset contains one file: the <code>sutura</code> executable.</p>
 <table>
 <thead>
 <tr>
 <th>Asset</th>
-<th>libc</th>
+<th>Platform</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>sutura-x86_64-unknown-linux-gnu.tar.gz</code></td>
-<td>glibc, so a host no older than the builder's</td>
-</tr>
-<tr>
-<td><code>sutura-aarch64-unknown-linux-gnu.tar.gz</code></td>
-<td>glibc, same floor</td>
-</tr>
-<tr>
 <td><code>sutura-x86_64-unknown-linux-musl.tar.gz</code></td>
-<td>none - statically linked, no dynamic loader and no version floor</td>
+<td>x86_64, static. Use this one if you are not sure</td>
 </tr>
 <tr>
 <td><code>sutura-aarch64-unknown-linux-musl.tar.gz</code></td>
-<td>none, same</td>
+<td>aarch64, static</td>
+</tr>
+<tr>
+<td><code>sutura-x86_64-unknown-linux-gnu.tar.gz</code></td>
+<td>x86_64, glibc</td>
+</tr>
+<tr>
+<td><code>sutura-aarch64-unknown-linux-gnu.tar.gz</code></td>
+<td>aarch64, glibc</td>
 </tr>
 </tbody>
 </table>
-<p>Take a musl one unless you have a reason not to: it has nothing to resolve at load time, so the
-only question it can fail on is the architecture. Each tarball holds one file, the executable, at
-its root.</p>
-<p><strong>On macOS or Windows there is no binary to download</strong>, and the two ways in are the image and a
-source build. The unsuffixed image tags at <code>ghcr.io/telekom/sutura</code> are this command-line tool -
-<a href="../verifying-a-release/">verifying a release</a> is the tag table, and <a href="../serving/">serving over HTTP</a> is the shape for the server, whose tags are the <code>-serve</code> ones.
-<a href="#building-from-source">Building from source</a> is at the bottom of this page.</p>
-<p><strong>The published binary carries every optional adapter</strong>, since <code>github.com/telekom/sutura#685</code>
-step 5 - <code>sutura doctor</code>'s <code>data systems</code> line reads <code>bigquery, over ADBC</code>, and reaching a
-Postgres or DataHub source needs no separate build either. Nothing below relies on that, though:
-reading local files is enough for every command in this tutorial, up to and including a certified
-answer with its anchors re-executed. <code>just shipped</code> is what asserts what a release carries, out of
-the shipped binary's own embedded dependency list rather than out of a manifest.</p>
-<h2 id="install-it">Install it<a class="headerlink" href="#install-it" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>gh<span class="w"> </span>release<span class="w"> </span>download<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--pattern<span class="w"> </span><span class="s1">'sutura-x86_64-unknown-linux-musl.tar.gz'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--pattern<span class="w"> </span><span class="s1">'sutura-x86_64-unknown-linux-musl.tar.gz.sha256'</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>sha256sum<span class="w"> </span>-c<span class="w"> </span>sutura-x86_64-unknown-linux-musl.tar.gz.sha256
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>sutura-x86_64-unknown-linux-musl.tar.gz<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-x86_64-unknown-linux-musl.tar.gz
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.local/bin
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>install<span class="w"> </span>-m755<span class="w"> </span>sutura<span class="w"> </span>~/.local/bin/sutura
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>gh<span class="w"> </span>release<span class="w"> </span>download<span class="w"> </span><span class="s2">"v</span><span class="si">${</span><span class="nv">SUTURA_VERSION</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span>--repo<span class="w"> </span>telekom/sutura<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--pattern<span class="w"> </span><span class="s1">'sutura-x86_64-unknown-linux-musl.tar.gz'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--pattern<span class="w"> </span><span class="s1">'sutura-x86_64-unknown-linux-musl.tar.gz.sha256'</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>sha256sum<span class="w"> </span>-c<span class="w"> </span>sutura-x86_64-unknown-linux-musl.tar.gz.sha256
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>sutura-x86_64-unknown-linux-musl.tar.gz<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-x86_64-unknown-linux-musl.tar.gz
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>install<span class="w"> </span>-m755<span class="w"> </span>sutura<span class="w"> </span>~/.local/bin/sutura
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>sutura<span class="w"> </span>doctor
 </span></code></pre></div>
-<p>No tag on the first command takes the latest release; <code>gh release download &lt;tag&gt;</code> pins one.
-Anywhere on your <code>PATH</code> will do instead of <code>~/.local/bin</code>, and <code>sutura</code> with no arguments lists the
-commands.</p>
-<p><strong>The two checks answer different questions and neither answers the other's.</strong> <code>sha256sum -c</code> says
-the bytes match the digest published beside them, which catches a truncated or corrupted download
-and nothing else. <code>gh attestation verify</code> says these bytes are what this repository's release
-workflow emitted at a tag - so a substituted file fails it, and it exits non-zero on a single
-changed byte. What neither of them says is that the release is fit for what you want to do with
-it; <a href="../verifying-a-release/">verifying a release</a> is that page, and its last section is the list of
-things a green verification does <strong>not</strong> establish.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sutura<span class="w"> </span>doctor
+<p><code>sha256sum -c</code> makes sure that the file is complete. <code>gh attestation verify</code> makes sure that the
+release workflow of this repository built the file. <a href="../verifying-a-release/">Verifying a release</a>
+tells what these checks do not prove.</p>
+<p>There is no binary for macOS or Windows. Use Docker Compose or Nix.</p>
+<h2 id="install-it-with-nix">Install it with Nix<a class="headerlink" href="#install-it-with-nix" title="Permanent link">&para;</a></h2>
+<p>Nix builds sutura and its drivers from source. Nix must have the <code>nix-command</code> and <code>flakes</code>
+features. The first build takes a long time. On macOS, the Nix build does not include the BigQuery
+driver.</p>
+<p>Install a release:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>nix<span class="w"> </span>profile<span class="w"> </span>install<span class="w"> </span><span class="s2">"github:telekom/sutura/v</span><span class="si">${</span><span class="nv">SUTURA_VERSION</span><span class="si">}</span><span class="s2">"</span>
 </span></code></pre></div>
-<p>That prints what the binary in your hand was built with - profile, allocator, engine, the
-<code>data systems</code> line above, and a redaction probe that proves a secret still renders as one in the
-shipped build rather than only under test.</p>
-<h2 id="the-corpus">The corpus<a class="headerlink" href="#the-corpus" title="Permanent link">&para;</a></h2>
-<p>There is a catalogue, the data behind it and a directory of questions in this repository already:
-<code>examples/single-player</code>, the one corpus both test suites run on. Take it as a tarball.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">TAG</span><span class="o">=</span><span class="k">$(</span>gh<span class="w"> </span>release<span class="w"> </span>view<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura<span class="w"> </span>--json<span class="w"> </span>tagName<span class="w"> </span>--jq<span class="w"> </span>.tagName<span class="k">)</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>sutura-corpus
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>gh<span class="w"> </span>api<span class="w"> </span><span class="s2">"/repos/telekom/sutura/tarball/</span><span class="nv">$TAG</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tar<span class="w"> </span>-xz<span class="w"> </span>-C<span class="w"> </span>sutura-corpus<span class="w"> </span>--strip-components<span class="o">=</span><span class="m">1</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">cd</span><span class="w"> </span>sutura-corpus
+<p>Install the dev version, the <code>main</code> branch:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>nix<span class="w"> </span>profile<span class="w"> </span>install<span class="w"> </span>github:telekom/sutura
 </span></code></pre></div>
-<p><strong><code>gh release view</code> takes no tag, so <code>TAG</code> is the LATEST release</strong> - the same one <code>gh release
-download</code> with no tag gave you. If you pinned a tag above, set <code>TAG</code> to that tag instead. A corpus
-and a binary from two different releases is not an error and nothing refuses it: the definitions
-digest under <a href="#asking"><code>query</code></a> is where the difference surfaces, as a different number rather than
-as a complaint.</p>
-<p><strong>The corpus is deliberately not a release asset.</strong> A published asset is signed, attested,
-inventoried by an SBOM and named in the release notes, once per binary per triple; <code>nix/shipped.nix</code>
-is where that set is declared and it declares executables. Sample data does not earn that
-machinery, and adding it would make every release carry a second thing to sign in order to ship
-360 KB of sample definitions and CSV. So the corpus stays in the repository, and the way to it is a
-<strong>download rather than a clone</strong> - no git, no toolchain, one request. Our own release smoke test
-takes it the same way: <code>.github/serve-smoke.sh</code> mounts a checkout's <code>examples/single-player</code> into
-the image it tests.</p>
-<p><strong>The limit, next to the claim.</strong> That tarball is not signed, carries no provenance and has no
-published checksum - the signed artefact is the binary. Treat the corpus as what it is, sample data
-you are about to read, and note that nothing on this page writes to it.</p>
-<p>Every path below is relative to <code>sutura-corpus/</code>, which is the repository's own layout - which is
-why the same commands run unchanged in a clone, and why <code>just documented</code> can run every one of them
-in CI.</p>
-<h2 id="what-a-catalogue-says">What a catalogue says<a class="headerlink" href="#what-a-catalogue-says" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sutura<span class="w"> </span>catalog<span class="w"> </span>examples/single-player/catalog
+<h2 id="ask-a-question">Ask a question<a class="headerlink" href="#ask-a-question" title="Permanent link">&para;</a></h2>
+<p>With Docker, set this alias first:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">alias</span><span class="w"> </span><span class="nv">sutura</span><span class="o">=</span><span class="s1">'docker run --rm -v "$PWD:/w:ro" -w /w ghcr.io/telekom/sutura:${SUTURA_VERSION}'</span>
 </span></code></pre></div>
-<p>Eleven metrics; five of them below, and the elision is this page's rather than the command's:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>version local-working-tree
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>digest  fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>active_subscriptions
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  measure    count_distinct(subscription_key)
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  filters    status = "active"
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  grains     month
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  dimensions product_family, region, segment
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>  anchor     "59" over [2026-06-01, 2026-07-01)
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>churn_rate
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>  measure    count_if(churned_in_month) / count_distinct(subscription_key), zero denominator yields_null
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>  filters    none
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>  grains     month
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>  dimensions product_family, region, segment
-</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>  anchor     "0.04838709677419355" over [2026-06-01, 2026-07-01)
-</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>recurring_revenue
-</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>  measure    sum(mrr_cents)
-</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>  filters    status = "active"
-</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>  grains     month
-</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>  dimensions contract_term, product_family, product_name, region, sales_area, segment
-</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>  anchor     "202121" over [2026-06-01, 2026-07-01)
-</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>revenue_per_churned_subscription
-</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>  measure    sum(mrr_cents) / count_if(churned_in_month), zero denominator fails
-</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>  filters    none
-</span><span id="__span-4-25"><a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>  grains     month
-</span><span id="__span-4-26"><a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>  dimensions none
-</span><span id="__span-4-27"><a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a>  anchor     none
-</span><span id="__span-4-28"><a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a>subscription_base
-</span><span id="__span-4-29"><a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a>  measure    count_distinct(subscription_key)
-</span><span id="__span-4-30"><a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a>  filters    none
-</span><span id="__span-4-31"><a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a>  grains     month
-</span><span id="__span-4-32"><a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a>  dimensions product_family, region, segment
-</span><span id="__span-4-33"><a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a>  anchor     "62" over [2026-06-01, 2026-07-01)
+<p>List the metrics in the catalog:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sutura<span class="w"> </span>catalog<span class="w"> </span>examples/single-player/catalog
 </span></code></pre></div>
-<p>The digest is over the canonical form of the parsed definitions, so reformatting a document does not
-move it and changing what a metric means does. It travels with every answer. <code>local-working-tree</code> is
-the version a directory of markdown gets when nobody said otherwise - a deployment passes a commit
-id, and the digest is what says what the content actually is.</p>
-<p>Two of those five are worth reading together. <code>active_subscriptions</code> and <code>subscription_base</code> are the
-same count over the same rows in the same month, with one definitional predicate between them, and
-their anchors are 59 and 62 - which is what a required filter buys, shown as two numbers rather than
-asserted in a sentence.</p>
-<p><code>describe</code> prints one metric in full, including the prose from the body of its document - which is
-what the markdown half of the format is for.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sutura<span class="w"> </span>describe<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>recurring_revenue
+<p>A question is a YAML file. It names metrics, a grain, a date range and, optionally, dimensions and
+filters. It has no field for SQL.</p>
+<div class="language-yaml highlight"><span class="filename">examples/single-player/questions/recurring-revenue-by-region.yaml</span><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">metrics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">recurring_revenue</span><span class="p p-Indicator">]</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nt">grain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">month</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nt">range</span><span class="p">:</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-06-01</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">end</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-07-01</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nt">dimensions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">region</span><span class="p p-Indicator">]</span>
 </span></code></pre></div>
-<h2 id="asking">Asking<a class="headerlink" href="#asking" title="Permanent link">&para;</a></h2>
-<p>A question is a small file. There is no field in it for SQL, a table, a predicate or a list of row
-ids, so an uncertified question is not something you can write down:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">metrics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">recurring_revenue</span><span class="p p-Indicator">]</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nt">grain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">month</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nt">range</span><span class="p">:</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-06-01</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">end</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-07-01</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nt">dimensions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">region</span><span class="p p-Indicator">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/questions/recurring-revenue-by-region.yaml<span class="w"> </span>examples/single-player/data
 </span></code></pre></div>
-<p><code>compile</code> turns it into a statement and stops. No data system is involved, which makes it the
-command to reach for when the question is what we would have run:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sutura<span class="w"> </span>compile<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">               </span>examples/single-player/questions/recurring-revenue-by-region.yaml
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>region  period  recurring_revenue
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>central 2026-06-01  51739
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>east    2026-06-01  32598
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>north   2026-06-01  42157
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>south   2026-06-01  21203
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>west    2026-06-01  49425
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>null    2026-06-01  4999
 </span></code></pre></div>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1">-- dialect duckdb</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">SELECT</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"region"</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"region"</span><span class="p">,</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">       </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"period"</span><span class="p">,</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">       </span><span class="k">SUM</span><span class="p">(</span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"mrr_cents"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"recurring_revenue"</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="k">FROM</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">     </span><span class="k">LEFT</span><span class="w"> </span><span class="k">JOIN</span><span class="w"> </span><span class="ss">"dim_customer"</span>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">       </span><span class="k">ON</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"customer_key"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"customer_key"</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="k">WHERE</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="o">?</span>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="o">?</span>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"status"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"region"</span><span class="p">,</span><span class="w"> </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span>
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"region"</span><span class="p">,</span><span class="w"> </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span>
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10001</span>
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>
-</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="c1">-- $1 = 2026-06-01</span>
-</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="c1">-- $2 = 2026-07-01</span>
-</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="c1">-- $3 = "active"</span>
+<p>The first line names the catalog version and the digest of its definitions. The <code>null</code> row is one
+subscription with a customer that <code>dim_customer.csv</code> does not contain. Its revenue stays in the
+total.</p>
+<p><code>compile</code> shows the SQL statement. It does not read data:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sutura<span class="w"> </span>compile<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/questions/recurring-revenue-by-region.yaml
 </span></code></pre></div>
-<p>(printed on one line; wrapped here to read). The plan behind the statement is printed after it. Pass
-a dialect as a third argument - <code>duckdb</code>, <code>postgres</code> or <code>clickhouse</code> - to see the same plan rendered
-for another data system: <code>ClickHouse</code> gets <code>dateTrunc</code> and <code>sum</code>, Postgres gets <code>$1</code> and <code>$2</code>
-instead of <code>?</code>.</p>
-<p>Three details are deliberate and easy to misread. <strong>Every value is a bind parameter, including
-<code>$3</code></strong> - that one is not something the caller sent, it is <code>recurring_revenue</code>'s own
-<code>status = "active"</code>, and it is bound rather than written into the statement so that there is one
-path for values and not two. The join is a <strong><code>LEFT JOIN</code></strong>, because an inner one drops fact rows
-that have no matching dimension row and so silently changes the measure it was only asked to break
-down. And the limit is <strong><code>10001</code>, not <code>10000</code></strong>: the cap is ten thousand rows, and asking for one
-more is how a result that <em>reached</em> the cap is told apart from one the cap <em>cut off</em>. If that extra
-row comes back, the question is refused as too wide to certify rather than answered with a total
-that is quietly missing its tail.</p>
-<p><code>query</code> answers it. It checks every declared anchor first, and will not serve a bundle whose anchors
-did not all match:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">             </span>examples/single-player/questions/recurring-revenue-by-region.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">             </span>examples/single-player/data
+<h2 id="be-refused">Be refused<a class="headerlink" href="#be-refused" title="Permanent link">&para;</a></h2>
+<p>Sutura refuses a question that the catalog does not permit. Here, <code>region</code> has a value that the
+metric does not declare:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/questions/refused-value-not-allowed.yaml<span class="w"> </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>region  period  recurring_revenue
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>central 2026-06-01  51739
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>east    2026-06-01  32598
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>north   2026-06-01  42157
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>south   2026-06-01  21203
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>west    2026-06-01  49425
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>null    2026-06-01  4999
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>refused: DimensionValueNotAllowed
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>  the value is not one the definitions declare for that dimension
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>  metric: recurring_revenue
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>  dimension: region
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>  remedy: Use a value from that dimension's list below - the refusal will not repeat yours back.
 </span></code></pre></div>
-<p>That last row is the <code>LEFT JOIN</code> above, visible. One subscription in the data names a customer the
-customer table does not hold, so its revenue groups under a null region instead of vanishing: the six
-rows sum to 202121, which is what <code>recurring_revenue</code> answers for June ungrouped and what its anchor
-declares. An inner join would have answered 197122 here and 202121 there, under one metric name, with
-nothing raising an error.</p>
-<h2 id="being-refused">Being refused<a class="headerlink" href="#being-refused" title="Permanent link">&para;</a></h2>
-<p>A refusal is a result, not an error, and the exit status says so. Ask for a region the catalogue does
-not declare a value for:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">             </span>examples/single-player/questions/refused-value-not-allowed.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">             </span>examples/single-player/data
+<p>A refusal is a result, so the CLI exits with <code>0</code>. The refusal does not repeat the value you sent.
+The other <code>questions/refused-*.yaml</code> files show the other refusals.</p>
+<h2 id="write-your-own-catalog">Write your own catalog<a class="headerlink" href="#write-your-own-catalog" title="Permanent link">&para;</a></h2>
+<p>A catalog is a directory of markdown files with YAML front matter. Each file declares its <code>kind</code>.
+The directory names are free.</p>
+<p>A model names a table, its source and its columns:</p>
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>---
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>kind: model
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>name: subscriptions
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>source: local
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>table: fct_subscription_monthly
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="gu">columns: [month, subscription_key, customer_key, status, mrr_cents]</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="gu">---</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>One row per subscription per month.
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>refused: DimensionValueNotAllowed
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>  the value is not one the definitions declare for that dimension
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>  metric: recurring_revenue
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>  dimension: region
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>  remedy: Use a value from that dimension's list below - the refusal will not repeat yours back.
+<p>A metric names a model, a measure, the grains and the dimensions:</p>
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>---
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>kind: metric
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>name: recurring_revenue
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>model: subscriptions
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>measure:
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>  simple: { aggregate: sum, column: mrr_cents }
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>required_filters:
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>equals: { column: status, value: active }
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>time_column: month
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>grains: [month]
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>dimensions:
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: contract_term
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a>    column: contract_term
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a>    values: [annual, monthly]
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="gu">audience: open</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="gu">---</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a>Recurring revenue in the month, in minor units, from active subscriptions only.
 </span></code></pre></div>
-<p>Note what the refusal does not say: the value you asked for. The remedy says outright that it will
-not repeat it back, because a rejected value echoed into a message reaches a log, a terminal and an
-agent's context - which is how a rejected value becomes somebody else's input.</p>
-<p>The variant is the machine-readable half and the two sentences are the human half, and they come
-from one table: <code>sutura_app::prompt::guidance</code> is what <code>sutura prompt</code> renders for an agent and what
-this terminal prints, so a person and an agent are told the same thing about the same refusal.</p>
-<p>The other question files under <code>examples/single-player/questions/</code> named <code>refused-*</code> reach the rest
-of the refusals, one per reason.</p>
-<h2 id="your-own-catalogue">Your own catalogue<a class="headerlink" href="#your-own-catalogue" title="Permanent link">&para;</a></h2>
-<p>A catalogue is a directory of markdown documents. Each one declares what it is, so a file in the
-wrong place is an error rather than a definition that was quietly never loaded.</p>
-<p>A model names a table and its columns:</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>---
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>kind: model
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>name: subscriptions
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>source: local
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>table: fct_subscription_monthly
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="gu">columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_month]</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="gu">---</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>One row per subscription per month. Money in minor units, so a total is exact.
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>measure</code></td>
+<td><code>simple</code> (one term) or <code>ratio</code> (two terms). A term is <code>aggregate</code> over a column, or <code>count_if</code>.</td>
+</tr>
+<tr>
+<td><code>required_filters</code></td>
+<td>Sutura adds these filters to each question. A caller cannot see or remove them.</td>
+</tr>
+<tr>
+<td><code>dimensions[].values</code></td>
+<td>The values a filter may use. A dimension without <code>values</code> is group-by only.</td>
+</tr>
+<tr>
+<td><code>anchor</code></td>
+<td>Optional. A date range and its certified value. Sutura checks it at startup.</td>
+</tr>
+</tbody>
+</table>
+<p>The data is one file for each model in the data directory: <code>&lt;table&gt;.parquet</code> or <code>&lt;table&gt;.csv</code>.</p>
+<p>To declare the source in a file instead of on the command line, write <code>conf/base.yaml</code> and set
+<code>SUTURA_CONFIG_DIR=conf</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">single-user</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nt">single_user_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">analyst,</span><span class="nv"> </span><span class="s">one</span><span class="nv"> </span><span class="s">laptop,</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">files</span><span class="nv"> </span><span class="s">they</span><span class="nv"> </span><span class="s">already</span><span class="nv"> </span><span class="s">have"</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">  </span><span class="nt">local</span><span class="p">:</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">files</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/absolute/path/to/data"</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared-service-user</span>
 </span></code></pre></div>
-<p>Each entry in <code>columns:</code> may be the bare name above, or a mapping when a column has something more
-to say - a type, a description or whether it may hold null. Both forms may mix in one list, and
-plainly naming a column is always enough:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">columns</span><span class="p">:</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">month</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mrr_cents</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NUMERIC</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Recurring revenue for the month, in minor units.</span>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="nt">nullable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="nt">primary_key</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">subscription_key</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">month</span><span class="p p-Indicator">]</span>
-</span></code></pre></div>
-<p>A type is text quoted from wherever the model's own source spells it - never a cast, and nothing
-here checks it against a data system. <code>primary_key:</code> is the same: evidence a source's own dictionary
-(or, here, an author) supplied, never checked against the data itself - a real primary key is
-whichever columns are actually unique together in the rows, and this repository has no way to
-check that from a catalogue alone.</p>
-<p><code>source:</code> is the data system this model's table lives in, and <code>local</code> above is not a keyword - it is
-the name of the one data system the <code>sutura</code> command declares for itself: a directory of CSV or
-Parquet files, the one you pass as the last argument, read as whoever ran the command. <strong>Any other
-name works, and it works by being declared.</strong> Put a configuration directory beside your catalogue:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># conf/base.yaml, reached with SUTURA_CONFIG_DIR=conf</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">single-user</span>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="nt">single_user_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">analyst,</span><span class="nv"> </span><span class="s">one</span><span class="nv"> </span><span class="s">laptop,</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">files</span><span class="nv"> </span><span class="s">they</span><span class="nv"> </span><span class="s">already</span><span class="nv"> </span><span class="s">have"</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
-</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">files</span>
-</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/absolute/path/to/data"</span>
-</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared-service-user</span>
-</span></code></pre></div>
-<p>Then <code>source: warehouse</code> is answered, and the data directory comes off that entry rather than off the
-command line - so <code>sutura query catalog/ question.yaml</code> takes no third argument. Passing one anyway is
-fine when it names the same directory the entry does, and refused when it names a different one: two
-answers that agree are one answer, and a disagreement is not something to resolve silently. It is the
-same <code>sources:</code> tree <a href="../serving/">the service</a> reads, which is the point: one declaration, whichever
-surface asks.</p>
-<p><strong>What a declaration does NOT say</strong>, and it is worth knowing before pointing one at a directory: it
-says where a data system is, never that the files there hold what your catalogue certifies. The only
-thing that checks the data is an <strong>anchor</strong> - a metric that declares one has its number re-executed
-before anything is served, and a metric that declares none is answered out of whatever is there,
-under the catalogue's real digest. That is true of the service too. Anchor the metrics you care
-about; <a href="#being-refused">Being refused</a> is what a mismatch looks like when one is declared.</p>
-<p><strong>A configuration that will not SERVE will not answer here either</strong>, and that is one door into the
-settings rather than two - <code>sutura prompt</code> goes through the same one, so the two cannot refuse
-differently. The consequence catches people out on a first run, because it reaches variables that
-have nothing to do with the question:</p>
-<ul>
-<li><code>SUTURA_ENVIRONMENT=production</code> with no access token configured stops this command, and the
-  refusal names the two variables that get you back to answering from the directory on the command
-  line.</li>
-<li><strong><code>SUTURA__SERVER__HOST</code> set off-loopback in your shell stops it too</strong>, on TLS termination, from a
-  command that binds no listener at all. Every settings key can be set as one <code>SUTURA__</code>-prefixed
-  variable, and this command reads the server's refusals; that one is the variable whose refusal
-  does not name it. Unset it. It is not the environment or the configuration directory, so the
-  remedy printed underneath will not point at it.</li>
-</ul>
-<p><code>kind: bigquery</code>, <code>kind: postgres</code> and <code>kind: clickhouse</code> are the network kinds the published binary carries, which
-<code>checks.shipped-features</code> reads out of each released binary's embedded dependency list rather than
-out of a manifest, and a release missing any of their adapter crates fails it by name. Nothing to
-build for any of them. <code>kind: oracle</code> is one more
-network kind and is <strong>not</strong> in any published binary - it needs a build carrying its own feature,
-and a build without it refuses that kind by name; see <a href="../integrations/#data-sources">Data sources</a>
-for what those adapters do and do not do yet. The BigQuery block below is the cloud
-variant; the Postgres declaration, verified and mutual TLS modes, and least-authority role grants
-are in <a href="../serving/#a-postgres-source-least-authority-and-its-channel">Serving</a>.</p>
-<p><strong>The <code>security:</code> block above is still required</strong> - the snippet below replaces the <code>sources:</code> block
-and nothing else. Any non-empty <code>sources:</code> with no <code>security.identity</code> is refused at startup, naming
-that key; it is the same refusal a deployment gets, which is the point of there being one settings
-tree.</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># conf/base.yaml - the `security:` block from above, plus:</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bigquery</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">    </span><span class="nt">billing_project</span><span class="p">:</span><span class="w"> </span><span class="s">"your-project"</span>
-</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">    </span><span class="nt">dataset</span><span class="p">:</span><span class="w"> </span><span class="s">"marts"</span>
-</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">    </span><span class="nt">credential_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/absolute/path/to/key.json"</span>
-</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">    </span><span class="nt">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1073741824</span>
-</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared-service-user</span>
-</span></code></pre></div>
-<p><code>posture: shared-service-user</code> is the honest declaration for a service-account key: one identity for
-everybody who asks. <code>impersonation-at-source</code> parses and is <strong>refused</strong> - the adapter can carry a
-subject's credential, and no binary attaches a broker that exchanges one, so serving it would read
-every row as the process while the declaration promised otherwise. <code>sutura doctor</code> says which build
-you have on its <code>data systems</code> line.</p>
-<p><strong>Two limits worth knowing before you rely on this.</strong> No automated test in this repository has ever
-run a query from this command against a real dataset - the furthest any of them reaches is reading
-the credential file, because the transport's host is a compile-time constant with no loopback to
-point at. What HAD been accepted by a real dataset is the corpus, through the (since-removed) <code>bigquery-acceptance</code> leg,
-on the adapter's own suite. And the job's deadline is the request's own: what is left of it is sent as the job's
-<code>jobTimeoutMs</code>, rounded up, and a spent one is refused before anything is sent. The service stops
-the job at <code>jobTimeoutMs</code>; this process also stops waiting at the deadline and asks the driver to
-cancel, which is best-effort - the cancel queues behind the driver's statement lock.</p>
-<p><code>table:</code> may also name where the table lives, when that is more than the connection's own default:</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>table: fct_subscription_monthly # the connection's default dataset
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>table: sales.fct_subscription_monthly # a named dataset, or schema
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>table: analytics-prod.sales.fct_subscription # a named project above a named dataset
-</span></code></pre></div>
-<p>Each part is parsed on its own and quoted on its own in the statement, so a path is never a string
-somebody assembled. <strong>How deep a path is usable depends on the data system</strong>: BigQuery resolves all
-three forms and a join across two of its projects is one native statement; Postgres and ClickHouse
-resolve a schema or a database; the in-process engine resolves neither, because it registers one file
-per model and has nothing above it - a qualified model there fails at startup rather than at query
-time. <code>docs/adr/0019</code> is the decision and states each dialect's arm.</p>
-<p>A metric names a model, what it measures, the grains it answers at and the dimensions it may be
-broken down by:</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>---
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>kind: metric
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>name: recurring_revenue
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>model: subscriptions
-</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>measure:
-</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>  simple: { aggregate: sum, column: mrr_cents }
-</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>required_filters:
-</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>equals: { column: status, value: active }
-</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>time_column: month
-</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a>grains: [month]
-</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a>dimensions:
-</span><span id="__span-18-12"><a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: contract_term
-</span><span id="__span-18-13"><a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a>    column: contract_term
-</span><span id="__span-18-14"><a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a>    values: [annual, monthly]
-</span><span id="__span-18-15"><a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a>anchor:
-</span><span id="__span-18-16"><a id="__codelineno-18-16" name="__codelineno-18-16" href="#__codelineno-18-16"></a>  range:
-</span><span id="__span-18-17"><a id="__codelineno-18-17" name="__codelineno-18-17" href="#__codelineno-18-17"></a>    start: 2026-06-01
-</span><span id="__span-18-18"><a id="__codelineno-18-18" name="__codelineno-18-18" href="#__codelineno-18-18"></a>    end: 2026-07-01
-</span><span id="__span-18-19"><a id="__codelineno-18-19" name="__codelineno-18-19" href="#__codelineno-18-19"></a>  value: 202121
-</span><span id="__span-18-20"><a id="__codelineno-18-20" name="__codelineno-18-20" href="#__codelineno-18-20"></a><span class="gu">audience: open</span>
-</span><span id="__span-18-21"><a id="__codelineno-18-21" name="__codelineno-18-21" href="#__codelineno-18-21"></a><span class="gu">---</span>
-</span><span id="__span-18-22"><a id="__codelineno-18-22" name="__codelineno-18-22" href="#__codelineno-18-22"></a>
-</span><span id="__span-18-23"><a id="__codelineno-18-23" name="__codelineno-18-23" href="#__codelineno-18-23"></a>Recurring revenue recognised in the month, in minor units, from active subscriptions only.
-</span></code></pre></div>
-<p><code>measure</code> has two levels. A <strong>term</strong> is what one number is computed from, and there are two of
-them: <code>aggregate</code> with a <code>column</code>, as above, or <code>count_if</code> over a boolean column. A <strong>shape</strong> says
-how terms combine, and there are two of those: <code>simple</code> is one term, <code>ratio</code> is one divided by
-another. Either term goes in either position:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># How many rows have a boolean column true. Its own term because COUNT(col) counts</span>
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="c1"># the false ones too, which is a wrong number that raises no error.</span>
-</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="nt">measure</span><span class="p">:</span>
-</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="nt">simple</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> count_if</span><span class="p">:</span><span class="w"> </span><span class="nv">churned_in_month</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span></code></pre></div>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># A ratio: one term divided by another, over possibly different columns.</span>
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="nt">measure</span><span class="p">:</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
-</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">sum</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">mrr_cents</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
-</span></code></pre></div>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># A conditional count as the numerator of a rate - the combination the vocabulary</span>
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="c1"># exists at two levels for. `examples/single-player` ships it as `churn_rate`.</span>
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="nt">measure</span><span class="p">:</span>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
-</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> count_if</span><span class="p">:</span><span class="w"> </span><span class="nv">churned_in_month</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">subscription_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
-</span></code></pre></div>
-<p>A metric may also carry <code>required_filters</code>, which are part of what it <em>means</em> rather than something
-a caller chooses:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nt">required_filters</span><span class="p">:</span>
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">equals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">status</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">active</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span></code></pre></div>
-<p>Four things matter before you write one:</p>
-<ul>
-<li><strong>A measure is a shape and terms from a closed vocabulary, not an expression.</strong> There is no field
-  for <code>sum(price * quantity)</code>, and <code>docs/adr/0002-a-closed-vocabulary-for-measures.md</code> argues why: a string field is an escape
-  hatch, and an escape hatch on the query path is the thing being defended against. What the
-  vocabulary cannot say can be declared under the explicitly named <code>authored_sql:</code> sibling, and
-  today that declaration loads and pins and nothing more: no published adapter compiles or executes
-  the fragment, so a bundle carrying one is refused at startup. <code>zero_denominator</code> is required
-  rather than defaulted, because "a rate over an empty period is null" and "is an error" are both
-  defensible and a definition should say which - which is also why it is a word (<code>yields_null</code> or
-  <code>fails</code>) rather than a boolean that records only that somebody thought about it.</li>
-<li><strong>A <code>required_filter</code> is definitional, and a caller can neither see it nor turn it off.</strong>
-  <code>recurring_revenue</code> <em>means</em> the active figure; a statement that left the predicate out would
-  return revenue including terminated subscriptions under a certified name. That is a wrong answer
-  arrived at by omission rather than by tampering, which is the more likely failure and the harder
-  one to notice. The modelling consequence: a metric with a required filter on <code>status</code> should not
-  also declare <code>status</code> as a dimension, or grouping by it would be a way to ask the metric for the
-  figure it excludes.</li>
-<li><strong><code>values</code> is what makes a dimension filterable.</strong> Without it the dimension can be grouped by and
-  not filtered on, because a filter needs an allowlist - the alternative is comparing against
-  whatever the caller sent. <code>recurring_revenue</code> declares <code>product_name</code> without one for exactly
-  that reason.</li>
-<li><strong>An <code>anchor</code> is a number this metric produced when somebody certified it.</strong> It is re-executed
-  before the bundle is served, so a definition that has stopped meaning what it claimed fails
-  readiness instead of answering. Declare one for any metric whose value you would act on.</li>
-</ul>
-<p>For the data, <code>query</code> expects one file per model, named after the model's table, in the directory you
-pass it - <code>&lt;table&gt;.parquet</code> if it is there, <code>&lt;table&gt;.csv</code> otherwise. Nothing is written and there is
-no database: the engine registers each file in process and reads it where it lies on every run, so
-the answer cannot drift from the files.</p>
-<h2 id="building-from-source">Building from source<a class="headerlink" href="#building-from-source" title="Permanent link">&para;</a></h2>
-<p><strong>This is the contributor's route, and it is the second half of this page rather than the first for
-a reason.</strong> Everything above runs on a published artefact, which is what a reader who wants an
-answer should be holding. A source build is for a change to this repository - the published binary
-already carries every optional adapter, so wanting one of them is no longer a reason to build.</p>
-<p>A clone and the toolchain the repository pins are what this needs -
-<a href="../contributing/">Contributing</a> is the setup, and <code>just</code> with no argument lists every task. Every
-command above then has a second spelling, which is the one this repository's own suites run:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">  </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">        </span>examples/single-player/questions/recurring-revenue-by-region.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">        </span>examples/single-player/data
-</span></code></pre></div>
-<p>No feature flag and nothing to install for that: the engine is compiled into the binary and reads
-the CSVs itself, so <code>query</code> works in a plain <code>cargo run</code>. A data system's driver is a development
-dependency here - present to prove the SQL we render actually runs, not to answer your questions.</p>
-<p>A source build can also carry FEWER adapters than the published binary, over <code>--features</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
-</span></code></pre></div>
-<p>builds a binary that can open BigQuery and nothing else network-shaped; plain <code>cargo build --release
--p sutura-cli</code> builds one that opens no data system at all, same as this repository's own <code>cargo run</code>
-above. <code>sutura doctor</code> says which adapters a given binary was built with, which is how you tell one
-build from another - published or not.</p>
+<p>Then <code>sutura query catalog/ question.yaml</code> takes no data directory. For BigQuery, Postgres and
+ClickHouse sources, refer to <a href="../serving/#sources">Serving over HTTP</a> and
+<a href="../integrations/#data-sources">Integrations</a>.</p>
 
 
 
