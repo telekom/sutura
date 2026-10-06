@@ -57,8 +57,9 @@ let
   # that does not exist. A darwin host has one: `nix/bigquery-adbc-drivers.nix` builds that host's
   # own driver natively, so `nix build .#sutura` on a Mac links it as a linux build does
   # (`telekom/sutura#1295`). A build whose triple has no driver here, and every `cargo` build,
-  # which reads none of this, takes the mounted route, and `sutura doctor` says so. `build.rs` refuses a directory holding no
-  # archive, so a wrong value here is a build failure and never a silent fallback.
+  # which reads none of this, takes the mounted route, and `sutura doctor` says so. `build.rs`
+  # refuses a directory holding no archive, so a wrong value here is a build failure and never a
+  # silent fallback.
   #
   # ON THE FINAL ATTRSET AND NEVER ON `args`, which is deliberate: `args` reaches
   # `buildDepsOnly`, and the deps derivation compiles third-party code that has no business

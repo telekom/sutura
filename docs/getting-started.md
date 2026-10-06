@@ -84,8 +84,8 @@ There is no binary for macOS or Windows. Use Docker Compose or Nix.
 ## Install it with Nix
 
 Nix builds sutura and its drivers from source. Nix must have the `nix-command` and `flakes`
-features. The first build takes a long time. On macOS, a Nix build of `main` includes the BigQuery
-driver. Earlier releases do not.
+features. The first build takes a long time. On Apple silicon (aarch64-darwin), a Nix build of
+`main` includes the BigQuery driver. Earlier releases do not.
 
 Install a release:
 

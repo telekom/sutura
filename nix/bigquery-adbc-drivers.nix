@@ -1,7 +1,7 @@
 # The ADBC BigQuery driver, built per release triple (telekom/sutura#913).
 #
-# This exposes both driver shapes for each of the four release triples as flake
-# packages: `lib/libadbc_driver_bigquery.so` for a deployment that mounts one, and
+# This exposes both driver shapes for each of the four release triples, and for a darwin
+# host its own, as flake packages: `lib/libadbc_driver_bigquery.so` for a deployment that mounts one, and
 # `lib/libadbc_driver_bigquery.a` - the `c-archive` - which `nix/shipped.nix` links
 # into the published artefact for every triple that has one.
 #
