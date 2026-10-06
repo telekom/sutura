@@ -21,13 +21,16 @@
 //! `--no-verify`, so this is not an invariant and `AGENTS.md` does not carry it as one; what it
 //! guarantees is that the documented tiers are the tiers the file declares.
 //!
-//! TWO RULES, over `.pre-commit-config.yaml` and nothing else:
+//! THREE RULES, over `.pre-commit-config.yaml` and nothing else:
 //!
 //! * **the pre-push stage runs ONLY the security checks** - every hook staged `pre-push` is one of
 //!   `secret-sweep` (`run-gate.sh secrets`) or `cargo-deny` (`run-gate.sh supply-chain`).
 //! * **none of it compiles first-party code** - no pre-push hook's entry runs a cargo subcommand
 //!   that builds the tree (`cargo clippy`, `cargo check`, `cargo build`, `cargo nextest`,
 //!   `cargo test`). Security checks parse or scan; they do not compile.
+//! * **the commit stage runs no test suite, no CRAP score and no fuzz replay** - by owner
+//!   decision they run in `just validate`, in CI and (CRAP only) in `just ship-check`, never in a
+//!   commit hook. See [`SLOW_AT_COMMIT`] for what it matches and what it cannot see.
 //!
 //! HOW IT READS THEM. Text, for the reason `pins.rs` gives - `xtask` has two dependencies and no
 //! YAML parser, and this has to run on a host with no nix. It resolves the two YAML features this
@@ -122,6 +125,22 @@ const DECLARED_HOOK_TYPES: &[&str] = &[COMMIT, PUSH, "commit-msg"];
 /// suite has certainly compiled the tree.
 const COMPILES: &[&str] = &["cargo clippy", "cargo check", "cargo build", "cargo nextest", "cargo test"];
 
+/// Commands a COMMIT-stage hook must not run: the suite, the doctests, the CRAP score and the fuzz
+/// replay. Owner decision: they are too slow for a commit, so they run in `just validate` and CI,
+/// and CRAP also in `just ship-check`.
+///
+/// Substring matches over the RESOLVED `entry:`, so an alias or a folded scalar cannot hide one.
+/// What it cannot see: a script that a hook calls, which runs one of these inside - the gate reads
+/// the entry, not what the entry's file does - and a hook with no `stages:` of its own inherits
+/// `default_stages`, which this reads the same way [`Hook::runs_at`] does.
+const SLOW_AT_COMMIT: &[&str] = &[
+    "run-gate.sh tests",
+    "run-gate.sh crap",
+    "run-fuzz.sh",
+    "cargo nextest",
+    "cargo test",
+];
+
 /// The ONLY commands a `pre-push` hook may run: the two whole-tree security checks. Each is
 /// written exactly as its `entry:` is resolved, so an allowed push hook's resolved entry matches
 /// one of these byte for byte.
@@ -159,13 +178,6 @@ pub(crate) struct Hook {
     /// both were claimed by a row, so the rule that reads only `always_run` passed over the same
     /// defect written the other way.
     pub(crate) filtered: bool,
-    /// The raw `files:` pattern, or empty if this hook declares none.
-    ///
-    /// `pub(crate)` because `crate::fuzz` reads it for a third question this file does not ask:
-    /// whether the fuzz hook's own filter reaches every crate a target actually names. Captured
-    /// as text rather than compiled, for the same reason nothing else here is - a second parser
-    /// of this file's regex syntax is not what this module exists to add.
-    pub(crate) files: String,
 }
 
 impl Hook {
@@ -306,6 +318,21 @@ fn decide(hooks: &[Hook]) -> Verdict {
         return Verdict::Fail;
     }
 
+    let on_commit = hooks.iter().filter(|hook| hook.runs_at(COMMIT));
+    if let Some(hook) = on_commit
+        .into_iter()
+        .find(|hook| SLOW_AT_COMMIT.iter().any(|needle| hook.entry.contains(needle)))
+    {
+        eprintln!("xtask check-hook-tiers: the pre-commit stage runs the suite, CRAP or the fuzz replay\n");
+        eprintln!("  {CONFIG}:{}: `{}` runs", hook.line, hook.id);
+        eprintln!("      {}", hook.entry);
+        eprintln!();
+        eprintln!("Those run in `just validate` and CI, and CRAP in `just ship-check`; a commit hook");
+        eprintln!("that runs one makes every commit pay for it, and a commit may hold a failing test");
+        eprintln!("until `just validate` or CI runs it - by decision.");
+        return Verdict::Fail;
+    }
+
     let pushed: Vec<&str> = on_push.iter().map(|hook| hook.id.as_str()).collect();
     println!(
         "xtask check-hook-tiers: ok - {} hook(s), the pre-push stage runs only {}",
@@ -343,7 +370,6 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
                 stages: defaults.clone(),
                 always_run: false,
                 filtered: false,
-                files: String::new(),
             });
             continue;
         }
@@ -358,12 +384,7 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
             hook.always_run = value.trim() == "true";
             continue;
         }
-        if let Some(value) = trimmed.strip_prefix("files:") {
-            hook.filtered = true;
-            value.trim().clone_into(&mut hook.files);
-            continue;
-        }
-        if trimmed.starts_with("types:") {
+        if trimmed.starts_with("files:") || trimmed.starts_with("types:") {
             hook.filtered = true;
             continue;
         }

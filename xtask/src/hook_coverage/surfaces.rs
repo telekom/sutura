@@ -31,12 +31,6 @@ pub(crate) const SURFACES: &[Surface] = &[
     Surface {
         // The extension, not a directory: `crates/`, `xtask/` and `examples/` all carry Rust, and
         // a directory list here is a list to forget the day a fourth appears.
-        // `rust-tests` and `rust-doctests` are NOT claimed, and their absence is the honest
-        // reading rather than an omission. Neither declares a `files:` or a `types:` filter, so
-        // prek runs both on every diff and their rows always appear - a claim on them can never
-        // report a gap, exactly as `hygiene`'s could not. They still run, and the exit code is
-        // what says whether they passed; what they cannot be is evidence about THIS diff, which is
-        // the only thing this module measures.
         label: "Rust source",
         paths: &["*.rs"],
         hooks: &["rust-fmt", "rust-clippy", "rust-check-changed", "jscpd"],
@@ -114,41 +108,28 @@ pub(crate) const SURFACES: &[Surface] = &[
         reached_by: "devenv-linter",
     },
     Surface {
-        // The surface the `fuzz` pre-commit hook claims: the `fuzz/` harness tree plus the crates
-        // the six targets' headers name. It is a separate row from "Rust source" on purpose - the
-        // hook's `files:` never inspects all `*.rs`, only this reach, so claiming the broader row
-        // would report a permanent gap there. A change at the boundary of both surfaces is covered
-        // when every hook claiming EACH ran, which is the same all-must-run rule.
-        label: "fuzzed tree",
+        // NO HOOK, by owner decision: the CRAP score left the commit stage, and `just ship-check`
+        // is where it runs now - this row is what makes it run there, because `--surface-tasks`
+        // prints a no-hook row's `reached_by` task for a diff that matches it. The paths are the
+        // scored crate plus everything that can move the verdict without touching it: the policy,
+        // the gate, the pin, and the manifests that decide what compiles. A diff elsewhere pays
+        // nothing, which is why this is a surface and not an unconditional ship-check step.
+        //
+        // The limit: it runs only where `ship-check` does, and `check-hook-tiers` keeps it off the
+        // push stage. `just validate` and CI run the same gate over every change regardless.
+        label: "CRAP scope",
         paths: &[
-            "fuzz/**",
-            "nix/fuzz.nix",
-            "nix/run-fuzz.sh",
-            "crates/sutura-domain/src/query.rs",
-            "crates/sutura-domain/src/model/**",
-            "crates/sutura-domain/src/identity.rs",
-            "crates/sutura-domain/src/identity/**",
-            "crates/sutura-domain/src/catalog.rs",
-            "crates/sutura-domain/src/catalog/**",
-            "crates/sutura-domain/src/knowledge.rs",
-            "crates/sutura-domain/src/knowledge/**",
-            "crates/sutura-domain/src/pinned.rs",
-            "crates/sutura-domain/src/pinned/**",
-            "crates/sutura-http/src/wire.rs",
-            "crates/sutura-http/src/wire/**",
-            "crates/sutura-http/src/inbound/token.rs",
-            "crates/sutura-http/src/inbound/keys.rs",
-            "crates/sutura-http/src/inbound/keys/**",
-            "crates/sutura-exec-bigquery/src/wire.rs",
-            "crates/sutura-exec-bigquery/src/wire/document.rs",
-            "crates/sutura-config/src/inbound.rs",
-            "crates/sutura-config/src/inbound/**",
-            "crates/sutura-catalog-local/**",
-            "crates/sutura-sql/**",
-            "crates/sutura-semantic/**",
+            "crates/sutura-domain/**",
+            ".cargo-crap.toml",
+            "xtask/src/crap.rs",
+            "nix/crap.nix",
+            "nix/run-gate.sh",
+            "rust-toolchain.toml",
+            "Cargo.toml",
+            "Cargo.lock",
         ],
-        hooks: &["fuzz"],
-        reached_by: "fuzz-smoke",
+        hooks: &[],
+        reached_by: "crap",
     },
     Surface {
         // The chart tree, whose own gate is `checks.helm-chart` - four legs nothing else here has:
@@ -174,7 +155,7 @@ pub(crate) const SURFACES: &[Surface] = &[
         // compose files and the maintenance scripts. `*.yml` and `*.yaml` OVERLAP the workflow row
         // above on purpose - `zizmor` reads a workflow for a template injection and `format-text`
         // reads it for its shape, so a workflow change is covered when both ran, which is the
-        // all-must-run rule the fuzzed-tree row relies on too.
+        // all-must-run rule.
         label: "text and manifests",
         paths: &["*.md", "*.yml", "*.yaml", "*.toml", "*.py"],
         hooks: &["format-text"],
@@ -253,6 +234,7 @@ mod tests {
                 "Rust source (default-feature lane)",
                 "composite-action shell",
                 "devenv script shell",
+                "CRAP scope",
             ]
         );
     }

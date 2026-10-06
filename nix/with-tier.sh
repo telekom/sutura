@@ -2,10 +2,11 @@
 # Bring the Postgres tier up for the command that follows, and tear down only what we brought up.
 #
 # ONE definition, sourced by every venue that runs the suite locally: `just test`, `just gates`,
-# `just causality` and `nix/run-gate.sh tests` (which the commit and push hooks both reach). The nix sandbox does not
-# source this - `checks.nextest` provisions the same script through `preCheck`/`postCheck`, which is
-# the arrangement `nix/postgres-tier.nix` documents - so there are two provisioners sharing one start
-# script, which is the rule this repository already applies to that pin.
+# `just causality` and `nix/run-gate.sh tests` (which no commit or push hook reaches any more).
+# The nix sandbox does not source this - `checks.nextest` provisions the same script through
+# `preCheck`/`postCheck`, which is the arrangement `nix/postgres-tier.nix` documents - so there are
+# two provisioners sharing one start script, which is the rule this repository already applies to
+# that pin.
 #
 # # Why it exists: five defects, each one a missing distinction
 #

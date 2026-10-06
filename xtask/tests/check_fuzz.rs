@@ -1,10 +1,8 @@
 #![forbid(unsafe_code)]
-//! `check-fuzz` must refuse a target whose imported crate reaches neither hook surface.
+//! `check-fuzz` over a fixture tree, driven through the real binary.
 //!
-//! `github.com/telekom/sutura#867`. Drives the real binary against a fixture tree rather than
-//! unit-testing the reader directly: `xtask/src/hook_coverage/surfaces.rs`'s `SURFACES` table is
-//! compiled into the binary, not fixture-controllable, so the only crate name guaranteed absent
-//! from it - on this fixture and on the real repo alike - is one nobody has registered.
+//! The fixture holds no `.pre-commit-config.yaml`: the fuzz replay is CI-only, so the gate reads no
+//! hook file and a tree without one must pass.
 
 #![cfg(test)]
 
@@ -23,9 +21,6 @@ mod scratch_tree;
 
 use std::process::Command;
 
-/// A crate name no real target imports and no hook surface will ever list.
-const UNLISTED_CRATE: &str = "sutura_unlisted_by_either_hook_surface";
-
 const FUZZ_YAML: &str =
     "on:\n  workflow_dispatch: {}\njobs:\n  fuzz:\n    strategy:\n      matrix:\n        target:\n          - probe\n";
 
@@ -33,12 +28,6 @@ const FUZZ_YAML: &str =
 const DENY: &[u8] = b"cargo deny --manifest-path fuzz/Cargo.toml check\n";
 
 const RELEASE_YAML: &str = "on:\n  push:\n    tags: [v*]\njobs:\n  build:\n    steps:\n      - run: echo nothing\n";
-
-fn precommit(files_pattern: &str) -> String {
-    format!(
-        "default_install_hook_types: [pre-commit, pre-push, commit-msg]\nrepos:\n  - repo: local\n    hooks:\n      - id: fuzz\n        name: fuzz (git delta)\n        entry: bash nix/run-fuzz.sh smoke\n        language: system\n        files: {files_pattern}\n        pass_filenames: false\n"
-    )
-}
 
 fn probe_source(crate_name: &str) -> String {
     format!(
@@ -48,14 +37,13 @@ fn probe_source(crate_name: &str) -> String {
 
 fn observe(case: &str, target_crate: &str, root_lock: &str, fuzz_lock: &str) -> std::process::Output {
     let tree = scratch_tree::Tree::of(
-        &format!("hook-paths-{case}"),
+        &format!("check-fuzz-{case}"),
         &[
             ("Cargo.toml", b"[workspace]\n" as &[u8]),
             ("Cargo.lock", root_lock.as_bytes()),
             ("flake.nix", DENY),
             ("justfile", DENY),
             ("nix/run-gate.sh", DENY),
-            (".pre-commit-config.yaml", precommit("^(fuzz/)").as_bytes()),
             (
                 "fuzz/Cargo.toml",
                 b"[package]\nname = \"fuzz\"\n\n[[bin]]\nname = \"probe\"\npath = \"fuzz_targets/probe.rs\"\n\n[profile.release]\npanic = \"abort\"\n",
@@ -80,30 +68,10 @@ fn observe(case: &str, target_crate: &str, root_lock: &str, fuzz_lock: &str) -> 
 }
 
 #[test]
-fn a_target_importing_a_crate_neither_hook_surface_claims_is_refused() {
-    let output = observe("unlisted", UNLISTED_CRATE, "", "");
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let stderr = String::from_utf8(output.stderr).expect("gate diagnostics");
-    assert!(
-        stderr.contains(&UNLISTED_CRATE.replace('_', "-")),
-        "the refusal must name the uncovered crate: {stderr}"
-    );
-    assert!(
-        stderr.contains("no row in xtask/src/hook_coverage/surfaces.rs claims"),
-        "the surfaces gap must be reported: {stderr}"
-    );
-    assert!(
-        stderr.contains("`files:` pattern"),
-        "the hook-files gap must be reported: {stderr}"
-    );
-}
-
-#[test]
-fn a_target_importing_no_crate_at_all_is_unaffected_by_the_correlation() {
+fn a_complete_fixture_passes_with_no_hook_config_in_the_tree() {
     let output = observe("no-import", "std", "", "");
-    // `std` never matches `sutura_[a-z_]+`, so there is nothing to correlate and every other
-    // requirement this fixture satisfies (declared, seeded, in the matrix, locked, aborting)
-    // carries the gate to a clean pass.
+    // Every requirement this fixture satisfies (declared, seeded, in the matrix, locked,
+    // aborting) carries the gate to a clean pass with no hook file in the tree.
     let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
     assert_eq!(output.status.code(), Some(0), "{stderr}");
 }
