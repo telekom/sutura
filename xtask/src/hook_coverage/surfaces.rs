@@ -139,8 +139,6 @@ pub(crate) const SURFACES: &[Surface] = &[
             "crates/sutura-http/src/inbound/token.rs",
             "crates/sutura-http/src/inbound/keys.rs",
             "crates/sutura-http/src/inbound/keys/**",
-            "crates/sutura-exec-bigquery/src/wire.rs",
-            "crates/sutura-exec-bigquery/src/wire/document.rs",
             "crates/sutura-config/src/inbound.rs",
             "crates/sutura-config/src/inbound/**",
             "crates/sutura-catalog-local/**",

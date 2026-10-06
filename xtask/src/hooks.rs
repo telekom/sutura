@@ -19,7 +19,7 @@
 //! stage is security-only. A mechanism that reads as enforcement and checks nothing is the shape
 //! this repo keeps deleting invariant rows over. Note the tier it guards is BYPASSABLE, with
 //! `--no-verify`, so this is not an invariant and `AGENTS.md` does not carry it as one; what it
-//! guarantees is that the documented tiers are the tiers the file declares.
+//! guarantees is that the file declares those tiers; no document is read, so a table can drift.
 //!
 //! THREE RULES, over `.pre-commit-config.yaml` and nothing else:
 //!
@@ -129,16 +129,27 @@ const COMPILES: &[&str] = &["cargo clippy", "cargo check", "cargo build", "cargo
 /// replay. Owner decision: they are too slow for a commit, so they run in `just validate` and CI,
 /// and CRAP and the replay also in `just ship-check`, scoped to a diff that reaches them.
 ///
-/// Substring matches over the RESOLVED `entry:`, so an alias or a folded scalar cannot hide one.
-/// What it cannot see: a script that a hook calls, which runs one of these inside - the gate reads
-/// the entry, not what the entry's file does - and a hook with no `stages:` of its own inherits
-/// `default_stages`, which this reads the same way [`Hook::runs_at`] does.
+/// Substring matches over the RESOLVED `entry:`, so an alias, a folded scalar or a `bash -c`
+/// wrapper cannot hide one. The spellings are the gate script, the `just` task, the `xtask`
+/// subcommand, `nix run .#crap` and the two cargo test runners - the ones a person re-adding a hook
+/// writes first.
+///
+/// What it cannot see: a spelling not listed, which passes, so this is a tripwire and not a closure;
+/// a script that a hook calls, which runs one of these inside - the gate reads the entry, not what
+/// the entry's file does; and a hook with no `stages:` of its own inherits `default_stages`, which
+/// this reads the same way [`Hook::runs_at`] does. `xtask -- crap` also matches `crap-delta`, which
+/// only reads files: a commit hook for it is refused until the needle is narrowed.
 const SLOW_AT_COMMIT: &[&str] = &[
     "run-gate.sh tests",
     "run-gate.sh crap",
     "run-fuzz.sh",
     "cargo nextest",
     "cargo test",
+    "just test",
+    "just crap",
+    "just fuzz-smoke",
+    "xtask -- crap",
+    "nix run .#crap",
 ];
 
 /// The ONLY commands a `pre-push` hook may run: the two whole-tree security checks. Each is

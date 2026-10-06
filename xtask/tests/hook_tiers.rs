@@ -97,6 +97,12 @@ fn a_commit_stage_that_runs_the_suite_crap_or_the_fuzz_replay_is_refused() {
         "bash -c 'exec cargo test --doc --workspace --all-features'",
         "bash nix/run-gate.sh crap",
         "bash nix/run-fuzz.sh smoke",
+        "bash -c 'exec cargo nextest run --workspace'",
+        "just test",
+        "just crap",
+        "just fuzz-smoke",
+        "cargo run -q -p xtask -- crap",
+        "bash -c 'exec nix run .#crap'",
     ];
     for (index, entry) in entries.iter().enumerate() {
         let commit = tree(&format!("hook-tiers-commit-{index}"), &config(entry, "pre-commit"), &[]);

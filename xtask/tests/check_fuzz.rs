@@ -88,6 +88,19 @@ fn a_target_importing_a_crate_the_fuzzed_tree_surface_misses_is_refused() {
     );
 }
 
+/// The row once named two `BigQuery` paths that no longer exist, and a prefix match on
+/// `crates/sutura-exec-bigquery/` let them cover an import of the crate.
+#[test]
+fn a_target_importing_the_bigquery_crate_is_refused_because_the_row_names_none_of_it() {
+    let output = observe("bigquery", "sutura_exec_bigquery", "", "");
+    let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("sutura-exec-bigquery"),
+        "the refusal must name the crate: {stderr}"
+    );
+}
+
 #[test]
 fn a_complete_fixture_passes_with_no_hook_config_in_the_tree() {
     let output = observe("no-import", "std", "", "");
