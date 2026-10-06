@@ -10,7 +10,7 @@
 #
 # NOT imported by devenv.nix, unlike the three modules above: the whole point of this one is that
 # `just api` reaches it with nothing but nix, from outside any dev shell.
-{ pkgs, toolchain, duckdb }:
+{ pkgs, toolchain }:
 
 # WRITES the committed API pages. `checks.api-docs` is the gate that fails when they fall
 # behind; this is the fix it names, and the two must agree byte for byte, so both get their
@@ -34,7 +34,7 @@ pkgs.writeShellApplication {
   # clang and lld because `.cargo/config.toml` selects them as the linker, and this app runs
   # outside the dev shell that would otherwise have them. Without them every build script
   # in the tree fails with "linker `clang` not found", which reads like a broken toolchain.
-  runtimeInputs = [ pkgs.python3 pkgs.clang pkgs.lld duckdb.package ];
+  runtimeInputs = [ pkgs.python3 pkgs.clang pkgs.lld ];
   text = ''
     if [ ! -f flake.nix ] || [ ! -f Cargo.toml ]; then
       echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
@@ -51,12 +51,6 @@ pkgs.writeShellApplication {
     # after writing six of nine pages. Nothing here needs a fast codegen backend: this app
     # emits rustdoc JSON and runs a Python renderer over it.
     unset CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
-    # `--all-features` reaches the adapters, and one of them links libduckdb. This app runs
-    # OUTSIDE the dev shell - that is the point of it - so the three variables have to be
-    # here too, from the same nix/duckdb.nix the shell and the checks read.
-    export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
-    export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
-    export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}"
 
     # DERIVED, not listed. `checks.api-docs` reads the library crates out of `cargo
     # metadata`, so a hardcoded list here is a list that goes stale silently: the gate would

@@ -320,7 +320,7 @@ the identifier is the canonical reference.\n\
 ## What it covers, and what it does not\n\
 \n\
 - **Every crate the workspace RESOLVES**, at all features, which is more than any one binary links:\n\
-  `sutura-cli` links the engine only, while `libduckdb-sys` and the BigQuery wire put `ureq`,\n\
+  `sutura-cli` links the engine only, while the BigQuery wire puts `ureq`,\n\
   rustls and `ring` into the resolve graph for a binary that links none of them. That error is\n\
   deliberate and it points the safe way - naming a crate that did not ship discharges an obligation\n\
   nobody had, and missing one that did ship is the failure this document exists to prevent. The\n\

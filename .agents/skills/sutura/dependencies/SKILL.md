@@ -45,9 +45,9 @@ Getting this backwards wastes a week in either direction.
 | **A type boundary** - first-party code holds a value from one major and hands it to something expecting the other | It does not compile; or, forced across FFI, it is undefined behaviour | Blocking. Nothing ships through it |
 
 **The test for which one you have is not the lock file - it is whether any first-party crate names
-the type.** The current Arrow split is a duplicate, because `sutura-exec-duckdb` declares no `arrow`
-dependency, names no Arrow type, and converts results into a neutral row type. `differential.rs`
-compares rows rather than batches for the same reason.
+the type.** The last Arrow split was a duplicate: the `duckdb` crate pulled 58 while
+`sutura-exec-duckdb` named no Arrow type, and it closed when that adapter moved onto ADBC
+(`telekom/sutura#913`) and the crate left the lock.
 
 ## The mechanism
 
@@ -116,9 +116,9 @@ those it is a question, not a decision.
 ## A requirement that encodes something else needs a tilde, not a caret
 
 A caret requirement is the right default, and there is one shape where it is actively wrong: **a
-crate whose version encodes the version of a native library it expects to find.** `duckdb`'s second
-semver component is the DuckDB C release, which is what `nix/duckdb.nix` supplies, and the crate's
-own README recommends a tilde for exactly this reason.
+crate whose version encodes the version of a native library it expects to find.** The `duckdb`
+crate's second semver component was the DuckDB C release, which is what `nix/duckdb.nix` supplied,
+and the crate's own README recommends a tilde for exactly this reason.
 
 Under a caret, `just update` may move the crate to a release expecting a newer native library than
 the sandbox provides. **It links and then fails at runtime on a missing symbol** - the worst shape
@@ -126,6 +126,6 @@ of failure available, because the build is green and the fault appears when the 
 dependency pins with `~`, and the reason goes next to the pin rather than in a commit message.
 
 `cargo xtask check-shared-client` is the related gate on the other side: it holds that the HTTP
-client stays *shared* with an existing resolution rather than adding packages to `Cargo.lock`, and
-that none of the two client crates `docs/adr/0023`'s no-client measurement forbids resolves in the
-lock at all.
+client resolves as ONE `ureq`, the version `docs/adr/0018`'s cost was measured against, and that
+none of the two client crates `docs/adr/0023`'s no-client measurement forbids resolves in the lock
+at all.

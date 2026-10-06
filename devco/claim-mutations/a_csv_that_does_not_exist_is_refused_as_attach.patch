@@ -1,17 +1,13 @@
 diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
-index 9143c7c64..29f9d1bf0 100644
+index 4c032a9fb..7013542bb 100644
 --- a/crates/sutura-exec-duckdb/src/lib.rs
 +++ b/crates/sutura-exec-duckdb/src/lib.rs
-@@ -319,11 +319,7 @@ impl DuckDbWarehouse {
-         );
-         self.connection()?
-             .execute_batch(&statement)
--            .map_err(|cause| DuckDbError::Attach {
--                table: String::from(table.as_str()),
--                path: path.display().to_string(),
--                cause,
--            })
-+            .map_err(|cause| DuckDbError::Prepare { cause })
-     }
- 
-     /// Exposes a conformance fixture CSV with shared column typing.
+@@ -358,7 +358,7 @@ impl DuckDbWarehouse {
+             cause,
+         };
+         let mut prepared = self.statement(statement).map_err(|error| match error {
+-            DuckDbError::Prepare { cause } => attach(cause),
++            DuckDbError::Prepare { cause } => DuckDbError::Prepare { cause },
+             other => other,
+         })?;
+         prepared.execute().map(drop).map_err(attach)

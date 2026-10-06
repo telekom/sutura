@@ -142,3 +142,7 @@ Why a named driver path is not one this process will open.
 ## `constant LINKS_POSTGRES_DRIVER`
 
 Whether this artefact's own link carries the PostgreSQL driver, asked without initialising it.
+
+## `constant LINKS_DUCKDB_DRIVER`
+
+Whether this artefact's own link carries the `DuckDB` driver, asked without initialising it.

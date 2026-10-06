@@ -15,16 +15,15 @@
 let
   # What cargo needs to LINK this workspace, outside a build sandbox, as shell lines.
   #
-  # The checks do not need this: crane puts `duckdb.package` in `buildInputs` and the nix
-  # builder sets the linker search path from it. An app is a plain shell script outside
-  # any build sandbox, so it inherits nothing and has to say so itself.
+  # The checks do not need this: crane carries `duckdb.env` in their derivation environment.
+  # An app is a plain shell script outside any build sandbox, so it inherits nothing and has to
+  # say so itself.
   #
   # Two separate omissions, found one after the other, both in `apps.causality`:
   #
-  #   - It exported only `PATH`, and `--all-features` pulls `sutura-exec-duckdb`, which
-  #     links `-lduckdb`: `ld.lld: error: unable to find library -lduckdb`. Only visible
-  #     after a disk fix let the gate run far enough to reach the linker, which is why a
-  #     pre-existing gap looked like a new regression.
+  #   - It exported only `PATH`, and `--all-features` pulled `sutura-exec-duckdb`, which then
+  #     linked `-lduckdb` and now opens the mounted driver `nix/duckdb.nix` names - so without the
+  #     export every DuckDB cell fails at its driver load, before its own assertion.
   #   - `.cargo/config.toml` sets `linker = "clang"` with `-fuse-ld=lld` and neither was on
   #     PATH. The dev shell's `runtimeInputs` comment says precisely what that looks like -
   #     "every build script fails with linker `clang` not found" - and the apps never got
@@ -35,9 +34,7 @@ let
   # One binding, so the next app that shells out to cargo cannot omit half of it.
   cargoLinkEnv = ''
     export PATH="${pkgs.clang}/bin:${pkgs.lld}/bin:$PATH"
-    export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
-    export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
-    export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export SUTURA_DUCKDB_ADBC_DRIVER="${duckdb.env.SUTURA_DUCKDB_ADBC_DRIVER}"
     # The third omission, and the one that only shows up where an app is easiest to try: the
     # cranelift backend is INHERITED from the dev shell, and it cannot build some of this tree
     # (see nix/api-docs.nix, which unsets the same two variables for the same reason and says so
