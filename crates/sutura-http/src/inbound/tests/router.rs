@@ -664,6 +664,13 @@ async fn a_request_with_no_host_is_answered() {
         status_of(&app, ("GET", "/v1/catalog"), None, None, None).await,
         StatusCode::OK
     );
+    for path in [crate::constants::OPENAPI_JSON_PATH, crate::constants::SWAGGER_UI_PATH] {
+        assert_ne!(
+            status_of(&app, ("GET", path), None, None, None).await,
+            StatusCode::FORBIDDEN,
+            "{path} with no Host"
+        );
+    }
 }
 
 /// The body of one GET carrying `host`.
