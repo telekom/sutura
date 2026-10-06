@@ -82,6 +82,8 @@ use crate::Verdict;
 pub(crate) use edges::{DOMAIN, Edges, FORBIDDEN_EDGES, reaches, transitive_names, violations};
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
+    // The halves below ask for the same `cargo metadata` seven times over; one run, one answer.
+    let _metadata = crate::MetadataRun::open();
     // Every half runs even when an earlier one fails. They are independent findings, and a gate
     // that stops early makes the second violation look like it appeared after the first fix.
     let direction = dependency_direction();
