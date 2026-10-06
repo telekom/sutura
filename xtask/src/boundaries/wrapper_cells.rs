@@ -12,8 +12,8 @@
 use super::edges::FORBIDDEN_EDGES;
 use super::shared_client::ROWS;
 use super::{
-    adapter_classes, answer_through_the_port, declared_ports, forbidden_edges, harness_reaches_no_adapter,
-    no_adapter_in_application, no_adapter_in_shared_client, typed_surface,
+    adapter_classes, answer_through_the_port, composition_root, declared_ports, forbidden_edges, harness_reaches_no_adapter,
+    no_adapter_in_application, no_adapter_in_shared_client, second_workspaces, typed_surface, ungoverned,
 };
 use crate::scratch_tree::Tree;
 use crate::{METADATA_RUN, MetadataRun, Verdict};
@@ -255,5 +255,87 @@ fn typed_surface_refuses_one_public_field() {
         ),
         (Verdict::Pass, Verdict::Fail),
         "a library struct with a `pub` field must be refused"
+    );
+}
+
+const CLI_LIB: &str = "crates/sutura-cli/src/lib.rs";
+const MOUNT_TREE: Files<'static> = &[
+    ("crates/sutura-http/src/lib.rs", "pub fn f() {}\n"),
+    (CLI_LIB, "pub fn g() {}\n"),
+];
+
+#[test]
+fn ungoverned_mounts_refuse_one_mount_outside_the_mechanism() {
+    assert_eq!(
+        over_repo(
+            "wrap-mounts",
+            MOUNT_TREE,
+            (CLI_LIB, "pub fn g() { let _ = app.fallback_service(x); }\n"),
+            ungoverned::check
+        ),
+        (Verdict::Pass, Verdict::Fail),
+        "a `.fallback_service(` outside `Ungoverned::mount` must be refused"
+    );
+}
+
+const COMPOSITION_TREE: Files<'static> = &[
+    (
+        "crates/sutura-cli/Cargo.toml",
+        "[package]\ndescription = \"The sutura binary. Composes adapters; contains no business logic.\"\n",
+    ),
+    ("crates/sutura-cli/src/import.rs", "pub fn import() {}\n"),
+    (
+        "crates/sutura-cli/src/serve/kind.rs",
+        "#[derive(Debug, Error)]\npub enum AnyWarehouseError {}\n",
+    ),
+];
+
+#[test]
+fn composition_root_refuses_one_error_definition() {
+    assert_eq!(
+        over_repo(
+            "wrap-root",
+            COMPOSITION_TREE,
+            ("crates/sutura-cli/src/import.rs", "#[derive(Debug, Error)]\nenum Stray {}\n"),
+            composition_root::check
+        ),
+        (Verdict::Pass, Verdict::Fail),
+        "an error defined in the composition root beside its declared wrapper must be refused"
+    );
+}
+
+/// One declared satellite (`fuzz`) with a real, offline-resolvable graph: it reaches only its one
+/// path dependency, a `sutura-domain` that has none.
+const SATELLITE_TREE: Files<'static> = &[
+    ("Cargo.toml", "[workspace]\nmembers = []\nexclude = [\"fuzz\", \"domain\"]\n"),
+    (
+        "fuzz/Cargo.toml",
+        "[package]\nname = \"fuzz\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
+         [dependencies]\nsutura-domain = { path = \"../domain\" }\n\n[workspace]\n",
+    ),
+    (
+        "fuzz/Cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"fuzz\"\nversion = \"0.0.0\"\n\
+         dependencies = [\n \"sutura-domain\",\n]\n\n[[package]]\nname = \"sutura-domain\"\nversion = \"0.0.0\"\n",
+    ),
+    ("fuzz/src/lib.rs", ""),
+    (
+        "domain/Cargo.toml",
+        "[package]\nname = \"sutura-domain\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    ),
+    ("domain/src/lib.rs", ""),
+];
+
+#[test]
+fn second_workspaces_refuse_one_undeclared_workspace() {
+    assert_eq!(
+        over_repo(
+            "wrap-satellite",
+            SATELLITE_TREE,
+            ("sidecar/Cargo.toml", "[workspace]\n"),
+            second_workspaces
+        ),
+        (Verdict::Pass, Verdict::Fail),
+        "a manifest declaring its own `[workspace]` outside DECLARED must be refused"
     );
 }
