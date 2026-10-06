@@ -554,4 +554,48 @@ mod tests {
             "the trailing comment on the single-quoted entry counts"
         );
     }
+
+    /// The `exclude` array's patterns, one per quoted line of the block.
+    fn excludes(text: &str) -> Vec<String> {
+        let block = text.lines().skip_while(|l| !l.trim().starts_with("exclude = [")).skip(1);
+        block
+            .take_while(|l| !l.trim().starts_with(']'))
+            .filter(|l| !l.trim().starts_with('#'))
+            .filter_map(super::quoted)
+            .collect()
+    }
+
+    fn rust_files_under_a_tests_dir(dir: &std::path::Path, inside: bool, found: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("readable dir").flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            if path.is_dir() {
+                rust_files_under_a_tests_dir(&path, inside || name == "tests", found);
+            } else if inside && path.extension().is_some_and(|e| e == "rs") {
+                found.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn every_nested_test_file_in_scope_is_excluded_from_scoring() {
+        // `cargo crap` scores any `.rs` the LCOV does not list as uncovered production code, and
+        // test-only helpers under `src/**/tests/` are never instrumented. The only rule that keeps
+        // them out is the `exclude` glob, so it is checked against the real tree, not a fixture.
+        let root = crate::repo::root().expect("repo root");
+        let text = std::fs::read_to_string(root.join(POLICY_FILE)).expect("the policy file exists");
+        let covers_tests_dirs = excludes(&text).iter().any(|glob| glob == "**/tests/**");
+        let mut files = Vec::new();
+        for package in crate::crap::SCOPE {
+            let dir = root.join("crates").join(package).join("src");
+            rust_files_under_a_tests_dir(&dir, false, &mut files);
+        }
+        assert!(!files.is_empty(), "the scope has no nested test file, so this proves nothing");
+        assert!(
+            covers_tests_dirs,
+            "{POLICY_FILE} `exclude` lacks `**/tests/**`; {} test file(s) would score as uncovered production code, e.g. {}",
+            files.len(),
+            files[0].display()
+        );
+    }
 }
