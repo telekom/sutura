@@ -120,7 +120,7 @@ pub const fn bounds(&self) -> DictionaryBounds
 
 ### Implements
 
-`Clone`, `Debug`, `DictionaryReader`
+`Debug`, `DictionaryReader`
 
 ## `trait DictionaryReader`
 
@@ -679,81 +679,6 @@ The documentation schema or the predicate column is not an identifier.
 
 `Clone`, `Debug`, `DictionaryReader`
 
-## Module `postgres_channel`
-
-The connection the live Postgres dictionary reader dials with.
-
-The `tokio-postgres` configuration for one declared connection, and the `rustls::ClientConfig`
-a `verified`/`mutual` channel verifies (and presents) with.
-
-**Here because this reader is the one `tokio-postgres` client left** (`telekom/sutura#913`):
-`sutura-exec-postgres` answers every source through ADBC, so the client and its channel live
-beside the reader that still uses them, until the reader moves to ADBC too.
-
-What fails here is what only a file and a TLS implementation can answer, each fail-closed and
-naming the path: anchors that cannot be read or parse to nothing, an identity half that cannot be
-read or holds the wrong kind (all `sutura_tls`'s reads), a certificate rustls cannot use as a
-root, and a key that does not match its certificate. An untrusted chain is the handshake's
-refusal, not this module's.
-
-### `enum UnusableChannel`
-
-```rust
-pub enum UnusableChannel
-```
-
-Why a declared channel could not become a client config.
-
-#### Variants
-
-- `Material`
-- `Root`
-- `Verifier`
-- `Identity`
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
-### `enum Target`
-
-```rust
-pub enum Target<'a>
-```
-
-The address the reader dials.
-
-#### Variants
-
-- `Host` - A TCP host name or address.
-- `UnixSocket` - A unix socket directory.
-
-#### Implements
-
-`Clone`, `Copy`
-
-### `fn config`
-
-```rust
-pub fn config(target: Target<'_>, port: u16, database: &str, user: &str, credential: &sutura_domain::identity::Secret) -> tokio_postgres::Config
-```
-
-The driver configuration for one declared connection. It selects no TLS; the reader makes a
-supplied client config mandatory.
-
-### `fn client_config`
-
-```rust
-pub fn client_config(anchors: &sutura_tls::Anchors, identity: Option<&sutura_tls::Identity>) -> Result<rustls::ClientConfig, UnusableChannel>
-```
-
-The `rustls::ClientConfig` a TLS channel verifies against `anchors` with, presenting `identity`.
-
-# Errors
-
-`UnusableChannel`: material `sutura_tls` cannot read, a root rustls cannot use, or a pair it
-will not present together.
-
 ## Module `postgres_reader`
 
 The live Postgres documentation-schema reader, behind the default-off `live` feature.
@@ -798,30 +723,35 @@ stated here. It is not an invented uniqueness assertion: single-column primary-k
 read per column (`is_primary_key`) and that alone is ever emitted; nothing in this reader
 fabricates a foreign key or a target-uniqueness claim on the reader's behalf.
 
-# Read-only, streamed, bounded
+# Read-only, bounded
 
-The read runs inside a single read-only transaction (`read_only`, `RepeatableRead`). Rows are
-streamed with `query_raw` - the driver's extended-protocol portal, which does not materialise
-the result set up front - and the row cap and byte cap are enforced **inline**, abandoning the
-stream the moment the declared ceiling is crossed. This bounds the streamed row payload;
-the converter's separate post-decode guard bounds the assembled dictionary. The driver still
-materialises one row before its size is checked. Neither bound limits elapsed read time.
+One read is one connection and one transaction: autocommit off (the driver issues `BEGIN` before
+the first statement), `TRANSACTION_MODE` as that first statement, the select, and a rollback
+whatever happened - nothing this reader sends commits. The select asks for one row past the row
+cap (`LIMIT`), so the server never sends more rows than the cap can refuse, and each Arrow batch
+is billed WHOLE against the byte cap (`RecordBatch::get_array_memory_size`) before its rows are
+counted against the row cap and decoded. The converter's separate post-decode guard bounds the
+assembled dictionary.
+
+**The limits.** With bound parameters the pinned driver (`apache-arrow-adbc-24`) executes through
+`PQexecPrepared` and hands the whole result back as one batch (`bind_stream.h`,
+`result_reader.cc`), so the byte cap refuses a result libpq already holds: what bounds the read
+itself is the `LIMIT`, in rows and not in bytes. Neither bound limits elapsed read time. That the
+driver's `BEGIN` precedes `TRANSACTION_MODE` is read off its source; `tests/provisioned.rs`
+observes the effect - a documentation view that writes is refused `25006`.
 
 # Connection and transport policy
 
-The reader uses the catalog's own declared connection and transport policy. Anchor/identity
-material is resolved by a composition root into a `rustls::ClientConfig` for `verified`/`mutual`
-channels, or `None` for `plaintext`. When a `ClientConfig` is supplied the reader forces
-`SslMode::Require` so a server declining TLS cannot silently downgrade the verifier to
-cleartext - the libpq `sslmode=verify-full` the Postgres data source's `Conninfo` writes holds
-the same line. There is no unconditional `NoTls`: plaintext is reached only through the
-declared `plaintext` mode, which the transport layer already refuses for a remote host.
+The reader dials the `Conninfo` a composition root built from the catalog's own declared
+connection, through the shared connector `sutura_adbc_postgres` - the one `sutura-exec-postgres`
+dials a source through, so both refuse the same declarations and libpq is told the same posture:
+`sslmode=verify-full` for a `verified` or `mutual` channel, `disable` only for a declared
+`plaintext` one, which the settings refuse for a remote host. A connection opens per read.
 
 # Feature gating
 
-This module is `#[cfg(feature = "live")]`. A build without the feature links no
-`tokio-postgres`/`tokio-postgres-rustls`/`rustls`/`ring` stack, and the composition root refuses
-the catalog by name.
+This module is `#[cfg(feature = "live")]`. A build without the feature links no ADBC stack, and
+the composition root refuses the catalog by name.
 
 ### `enum InvalidReaderConfig`
 
@@ -869,10 +799,12 @@ pub struct PostgresReader
 
 A live `crate::DictionaryReader` over a Postgres documentation schema.
 
-Owns the driver configuration and the optional TLS verifier, plus the environment key, the
-optional live-row predicate and the read bounds. The TLS `ClientConfig` is supplied by a
-composition root that resolved the declared `transport_mode`; `None` selects the `plaintext`
-channel. The read-only transaction, parameter binding and inline caps are all this reader's own.
+Owns the driver and the connection string a composition root built from the declared channel,
+plus the environment key, the optional live-row predicate and the read bounds. The read-only
+transaction, parameter binding and caps are all this reader's own.
+
+Not `Clone`: the connection string is a secret, and the one long-lived holder - the serve
+refresh loop - takes the opened catalog by value.
 
 #### Methods
 
@@ -881,17 +813,17 @@ pub const fn bounds(&self) -> DictionaryBounds
 ```
 
 ```rust
-pub fn new(config: tokio_postgres::Config, tls: Option<rustls::ClientConfig>, documentation_schema: String, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
+pub fn new(driver: PostgresDriver, conninfo: Conninfo, documentation_schema: String, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
 ```
 
-Builds the reader. `tls` is `Some(rustls::ClientConfig)` for a `verified`/`mutual` channel
-and `None` for a declared `plaintext` one. `documentation_schema` and `environment` are
-validated identifiers supplied by the composition root. An absent `row_cap`/`byte_cap`
-selects the reader's own documented defaults.
+Builds the reader over `driver` and `conninfo`, which already carries the declared channel.
+`documentation_schema` and `environment` are validated identifiers supplied by the
+composition root. An absent `row_cap`/`byte_cap` selects the reader's own documented
+defaults.
 
 #### Implements
 
-`Clone`, `Debug`, `DictionaryReader`
+`Debug`, `DictionaryReader`
 
 ### `constant DEFAULT_DOCUMENTATION_SCHEMA`
 

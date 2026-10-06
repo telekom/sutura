@@ -64,9 +64,9 @@ single `-> sutura-config` row above to the whole class.
 
 **`sutura-adbc-postgres` is the first shared CONNECTOR rather than a shared read: the libpq
 connection string and its TLS posture (`Conninfo`, `Channel`), the driver load and the one open
-(`PostgresDriver`)** - what `sutura-exec-postgres` currently dials a PostgreSQL source through, and what
-`sutura-catalog-rdbms`'s live reader will dial through in stage 3 of `telekom/sutura#913` (decided 10-02, `docs/adr/0018`'s
-eighteenth amendment). It cannot live in the exec adapter, because a catalog adapter may not reach
+(`PostgresDriver`)** - what `sutura-exec-postgres` dials a PostgreSQL source through and
+`sutura-catalog-rdbms`'s live reader dials its documentation schema through (`telekom/sutura#913`,
+`docs/adr/0018`'s eighteenth and nineteenth amendments). It cannot live in the exec adapter, because a catalog adapter may not reach
 `sutura-sql` and the exec adapter renders through it. `sutura-adbc` stays the generic loader. Two
 rows hold it, not the sentence: `FORBIDDEN_EDGES` `sutura-adbc-postgres -> sutura-sql`
 (`Edges::Every`), and the same `shared_client` row that sutura-http-client, sutura-bounded-read, sutura-adbc, and sutura-adbc-postgres carry. **The precedent it
