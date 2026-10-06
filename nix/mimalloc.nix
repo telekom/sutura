@@ -132,6 +132,8 @@ let
       # `[profile.ci.package."*"] opt-level = 0` - the point of that profile is compile
       # speed, so its allocator is compiled to match rather than shared with a shipped one.
       ci = "0";
+      # `[profile.fast-install.package."*"] opt-level = 0`.
+      fast-install = "0";
     }.${profile} or (throw "optLevelFor: no opt level declared for profile '${profile}'");
 in
 {

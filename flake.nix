@@ -276,7 +276,7 @@
           # up as derivations called `cargo-package-*` and makes a build log say nothing
           # about what it built.
           pname = "sutura";
-          version = "0.1.0";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
           strictDeps = true;
           # .cargo/config.toml routes EVERY target through clang + lld, the two apple ones included, and the
           # Nix sandbox has neither unless we say so: linking differently here than in the dev shell is the drift.

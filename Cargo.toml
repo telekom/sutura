@@ -989,10 +989,12 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-# For local installs of I/O-bound helpers: compile speed over runtime speed.
+# `packages.sutura-dev`, never a release; the last two keys undo `dev`'s opt-level 3 (see `[profile.ci]`).
 [profile.fast-install]
 inherits = "dev"
 opt-level = 0
 debug = false
 strip = true
 panic = "abort"
+package."*".opt-level = 0
+build-override.opt-level = 0
