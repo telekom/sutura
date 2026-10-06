@@ -153,10 +153,9 @@ mod tests {
             ),
             "shared-service-user",
         );
-        let error = open_engine(&bundle_naming("warehouse"), &registry, runtime(), timeout(), None, None)
-            .map(|_| ())
-            .expect_err("libpq's system store is not the host store sutura reads");
+        let opened = open_engine(&bundle_naming("warehouse"), &registry, runtime(), timeout(), None, None).map(|_| ());
         let _ignored = std::fs::remove_dir_all(&directory);
+        let error = opened.expect_err("libpq's system store is not the host store sutura reads");
         assert!(
             error.contains("transport_anchors: system"),
             "the refusal must name the key: {error}"

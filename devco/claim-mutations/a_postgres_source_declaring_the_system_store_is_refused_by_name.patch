@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/postgres.rs b/crates/sutura-cli/src/postgres.rs
+index 5b1e428d2..add21bfb4 100644
+--- a/crates/sutura-cli/src/postgres.rs
++++ b/crates/sutura-cli/src/postgres.rs
+@@ -104,7 +104,7 @@ pub(crate) fn build(source: &SourceName, configured: &sutura_config::ConfiguredS
+     };
+     let channel = match (declared.as_ref(), identity_pair.as_ref()) {
+         (None, _) => Channel::Plaintext,
+-        (Some(anchors), None) => Channel::Verified(anchors),
++        (Some(_), None) => Channel::Plaintext,
+         (Some(anchors), Some(pair)) => Channel::Mutual(anchors, pair),
+     };
+     let conninfo = Conninfo::new(source, target, port, database, user, &password, channel).map_err(|cause| render(&cause))?;

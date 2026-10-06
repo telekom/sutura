@@ -258,8 +258,9 @@ impl TableAccumulator {
     }
 }
 
-/// A row cap or byte cap was met mid-stream. The stream was abandoned, so the reader holds against
-/// the declared ceiling rather than against a post-decode row count.
+/// A row cap or byte cap was crossed. A row-by-row reader abandons its cursor at the crossing row.
+/// A batch reader refuses a batch that crosses the byte cap before it decodes any row of it, and
+/// the row that crosses the row cap while it decodes one.
 #[derive(Debug, thiserror::Error)]
 enum CapExceeded {
     #[error("the dictionary stream reached the declared maximum of {limit} rows")]
