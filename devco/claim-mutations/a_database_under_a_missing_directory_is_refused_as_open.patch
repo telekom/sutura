@@ -1,16 +1,13 @@
 diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
-index 9143c7c64..7e1310fc6 100644
+index 4c032a9fb..9577b2421 100644
 --- a/crates/sutura-exec-duckdb/src/lib.rs
 +++ b/crates/sutura-exec-duckdb/src/lib.rs
-@@ -263,10 +263,7 @@ impl DuckDbWarehouse {
-         path: &Path,
-         result_budget: sutura_domain::warehouse::ResultBudget,
-     ) -> Result<Self, DuckDbError> {
--        let connection = Connection::open(path).map_err(|cause| DuckDbError::Open {
--            path: path.display().to_string(),
--            cause,
--        })?;
-+        let connection = Connection::open(path).map_err(|cause| DuckDbError::Prepare { cause })?;
+@@ -255,7 +255,7 @@ impl DuckDbWarehouse {
+         };
+         let database = driver()?
+             .new_database_with_opts([(OptionDatabase::Other(String::from("path")), OptionValue::from(utf8))])
+-            .map_err(|cause| DuckDbError::Open { path: named, cause })?;
++            .map_err(|cause| DuckDbError::Prepare { cause })?;
          Ok(Self {
              source,
              posture,

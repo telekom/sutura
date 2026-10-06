@@ -7,14 +7,11 @@
 //! this crate was not allowed to name an Arrow type in. `docs/adr/0039` reverses exactly that, so
 //! the Arrow half of the table is now HERE and the engine has no `cell` of its own.
 //!
-//! What survives is the ONE-sided duplication against a source that does not speak Arrow:
+//! What is still written out twice is the EXPECTED column, not the mapping:
 //! `every_type_this_adapter_maps_answers_what_the_engine_answers` in
-//! `crates/sutura-exec-duckdb/src/tests.rs` maps a `duckdb::types::Value`, and that crate still may
-//! not name an Arrow type - the `duckdb` crate declares `arrow ^58` while this major is 59
-//! (`devco/arrow-majors-allow`). So the agreement between those two is asserted as the same
-//! expected column written out in both places, and the two test names quote each other, so a change
-//! made to one and not the other shows up as a failing assertion rather than as a disagreement
-//! nobody notices until an anchor stops reproducing.
+//! `crates/sutura-exec-duckdb/src/tests.rs` reads the driver's Arrow batches through this same
+//! reader and compares them with a `cases` list of its own. A changed expectation reddens only the
+//! cell that holds it, and a changed reader reddens both for any type both write out.
 //!
 //! The alternative - one test calling both adapters - already exists as `tests/differential.rs` in
 //! `sutura-app`, which runs one plan through both and compares the rows. It can only see the types a

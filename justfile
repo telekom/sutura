@@ -151,8 +151,9 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
-# The PAGES, run: `documented.rs` runs every invocation `docs/getting-started.md` and the example
-# README print and holds their refusal and provenance output. It exists because both pages drifted.
+# The PAGES, run: `documented.rs` runs every invocation `docs/getting-started.md` and
+# `docs/examples/single-player.md` print and holds their refusal and provenance output. It exists
+# because both pages drifted.
 
 # Run the suite that runs every command the documentation prints.
 documented:

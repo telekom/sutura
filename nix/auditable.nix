@@ -19,7 +19,7 @@
 #
 # It also closes the gap the alternative could not. `cargo cyclonedx` reads the RESOLVED graph, and
 # the resolved graph is not this binary's graph: `sutura-cli` links the engine only, while
-# `libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in the resolve for a binary
+# the BigQuery wire puts `ureq`, rustls and `ring` in the resolve for a binary
 # that links none of them - `deny.toml` has carried that argument for longer than this file has. A
 # workspace-wide document would name all of them and be wrong in the direction that matters, which
 # is overstating what ships.

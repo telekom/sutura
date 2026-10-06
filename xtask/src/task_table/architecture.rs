@@ -213,23 +213,20 @@ pub(crate) const TASKS: &[Task] = &[
     },
     Task {
         // Beside `check-arrow` because it is the same shape of gate for the same reason: a MEASUREMENT
-        // written into a record, checked against the lock it was taken from. `docs/adr/0018` says the
-        // BigQuery wire costs zero new packages because `libduckdb-sys` already resolves the same
-        // `ureq`; that record's own last consequence noted nothing gated it, which AGENTS.md calls a
-        // wish rather than a rule. `docs/adr/0023`'s no-client property was the same shape a step
-        // later: a measurement of one transport's feature closure held by review, with the record
-        // itself saying a `reqwest` arriving would not trip the gate. The third rule is that
-        // property, held against the lock now.
+        // written into a record, checked against the lock it was taken from. `docs/adr/0018` measures
+        // what the BigQuery wire's `ureq` costs the lock; the first rule holds that to ONE resolved
+        // version. `docs/adr/0023`'s no-client property was the same shape a step later: a measurement
+        // of one transport's feature closure held by review, with the record itself saying a `reqwest`
+        // arriving would not trip the gate. The second rule is that property, held against the lock now.
         name: "check-shared-client",
-        description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018), and neither client docs/adr/0023 forbids",
+        description: "one `ureq` in the lock (docs/adr/0018), and neither client docs/adr/0023 forbids",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
-            // Two `ureq` versions, with `libduckdb-sys` still depending on one: the two-versions
-            // rule is the ONLY arm this lock trips, so the refusal is that rule's.
+            // Two `ureq` versions: the two-versions rule is the ONLY arm this lock trips, so the
+            // refusal is that rule's.
             seeds: &[(
                 "Cargo.lock",
                 concat!(
-                    "[[package]]\nname = \"libduckdb-sys\"\nversion = \"1.0.0\"\ndependencies = [\n \"ureq\",\n]\n\n",
                     "[[package]]\nname = \"ureq\"\nversion = \"3.4.0\"\n\n",
                     "[[package]]\nname = \"ureq\"\nversion = \"4.0.0\"\n",
                 ),

@@ -423,3 +423,13 @@ it is. **Neither bound is a superset of the other remains true**, and for the sa
 sees operators and not results, the budget sees the result and not operators. What is still not
 counted is the `MemTable`s the legs are registered as, which are the caller's own already-budgeted
 batches.
+
+## Second amendment, 2026-10-06: the DuckDB adapter is Arrow-native, and the 58/59 split is closed
+
+The Arrow-native DuckDB adapter that this record forbade until `duckdb-rs` released its arrow-59 bump
+now exists. The reason is not that release: `sutura-exec-duckdb` no longer uses `duckdb-rs`. It answers over DuckDB's own
+ADBC driver (`docs/adr/0018`'s nineteenth amendment), which resolves the engine's `arrow 59` through
+`adbc_core`. It hands its batches on as the driver typed them, and the domain's one reader decodes
+them. The `duckdb` crate and its `arrow 58` left `Cargo.lock` in the same change, so there is no
+split left to tolerate, and `devco/arrow-majors-allow` names only `59`. The row-speaking adapters
+that still build batches from rows do so because of their own drivers, not because of an Arrow split.
