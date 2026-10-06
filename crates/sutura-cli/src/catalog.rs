@@ -785,4 +785,33 @@ mod tests {
             "the flattened message should name the undersupplied kind: {message}"
         );
     }
+
+    /// A tree's own `kind: declaration` document is held to its content at composition, so a
+    /// hand-written one cannot over-claim (`github.com/telekom/sutura#1278`).
+    #[test]
+    fn a_declaration_document_that_over_claims_does_not_compose() {
+        let root = scratch("over-claims");
+        std::fs::write(
+            root.join("model.md"),
+            "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents]\n---\n\
+             Orders, one row per order.\n",
+        )
+        .expect("a document is writable");
+        std::fs::write(
+            root.join("declaration.md"),
+            "---\nkind: declaration\ndefinitions: [structure, descriptions, relationships]\nknowledge: []\n---\n",
+        )
+        .expect("a document is writable");
+        let catalog = LocalCatalog::new(
+            SourceName::parse("test").expect("a test name is a name"),
+            root.clone(),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        );
+        let message = load_each(&[catalog]).expect_err("a tree declaring relationships it lacks does not compose");
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            message.contains("declares relationships, and the bundle carries none"),
+            "the refusal should name the over-claimed kind: {message}"
+        );
+    }
 }

@@ -137,7 +137,8 @@ fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str
     fs::write(&path, text).map_err(|source| ImportError::Write { path, source })
 }
 
-/// Writes the refusal report as `<destination>/report.txt`.
+/// Writes the refusal report as `<destination>/report.txt`, and the tree's declaration as
+/// `<destination>/declaration.md`.
 ///
 /// `.txt`, not `.md`: `sutura-catalog-local`'s walk loads every `.md` file as a catalog document,
 /// and a report has no `kind:` tag to be one - naming it `.md` would make the converted catalog
@@ -148,7 +149,9 @@ fn write_report(destination: &Path, converted: &convert::Converted) -> Result<()
         source,
     })?;
     let path = destination.join("report.txt");
-    fs::write(&path, render::report(converted)).map_err(|source| ImportError::Write { path, source })
+    fs::write(&path, render::report(converted)).map_err(|source| ImportError::Write { path, source })?;
+    let path = destination.join("declaration.md");
+    fs::write(&path, render::DECLARATION).map_err(|source| ImportError::Write { path, source })
 }
 
 #[cfg(test)]
