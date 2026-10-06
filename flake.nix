@@ -400,17 +400,17 @@
           cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
         }) cargoLinkEnv cargoWarmStart;
 
-        # `fuzz/`'s OWN vendor directory, for the one thing `checks.hygiene` needs it for:
-        # `check-boundaries` reads `fuzz/Cargo.toml`'s graph as a second, DECLARED cargo workspace
-        # (`xtask/src/boundaries/second_workspace.rs`, `telekom/sutura#863`), and the network-isolated
-        # sandbox has no registry to resolve `libfuzzer-sys` from - `cargoVendorDir` above is crane's
-        # vendor dir for the ROOT lock only, and never contains it. Vendored separately rather than
-        # merged into the same directory: the two lockfiles can pin different versions of a shared
-        # crate, and one combined `[source]` block can only point `crates-io` at one directory.
-        # `xtask/src/main.rs`'s `run_cargo_metadata` is the other half - it points `CARGO_HOME` at
-        # this directory for a satellite manifest ONLY, and only when this variable is set, so a
-        # developer's shell (which sets nothing here) keeps resolving fuzz's graph over the network
-        # exactly as it does today.
+        # `fuzz/`'s OWN vendor directory, for the one thing `checks.hygiene` and `checks.nextest`
+        # need it for: `check-boundaries` reads `fuzz/Cargo.toml`'s graph as a second, DECLARED
+        # cargo workspace (`xtask/src/boundaries/second_workspace.rs`, `telekom/sutura#863`), and
+        # the network-isolated sandbox has no registry to resolve `libfuzzer-sys` from -
+        # `cargoVendorDir` above is crane's vendor dir for the ROOT lock only, and never contains
+        # it. Vendored separately rather than merged into the same directory: the two lockfiles can
+        # pin different versions of a shared crate, and one combined `[source]` block can only point
+        # `crates-io` at one directory. `xtask/src/main.rs`'s `run_cargo_metadata` is the other half
+        # - it points `CARGO_HOME` at this directory for a satellite manifest ONLY, and only when
+        # this variable is set, so a developer's shell (which sets nothing here) keeps resolving
+        # fuzz's graph over the network exactly as it does today.
         fuzzVendorDir = craneLib.vendorCargoDeps { src = ./fuzz; };
 
         # The allocator's C as a derivation per target, and the opt level that MUST match what
@@ -746,6 +746,9 @@
             preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
+            # `check-boundaries`' paired falsifier resolves `fuzz/`'s graph offline - measured
+            # without it: `no matching package named libfuzzer-sys`.
+            SUTURA_SATELLITE_CARGO_VENDOR_DIR = fuzzVendorDir;
             # The driver every Postgres cell opens, as the composition root would on a host that
             # links none - the tier is useless to an ADBC-only adapter without it.
             SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
@@ -836,8 +839,7 @@
             # this is the one hygiene gate that needs `pkgs.git` for real, not as a fallback.
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd pkgs.git ];
             # `fuzzVendorDir`'s own comment carries the reason: `check-boundaries` reads
-            # `fuzz/Cargo.toml`'s graph here, and only here among the ten checks, because only
-            # `hygiene` runs against `wholeTree` rather than the root-only filtered source.
+            # `fuzz/Cargo.toml`'s graph here, and in `nextest`'s paired falsifier.
             SUTURA_SATELLITE_CARGO_VENDOR_DIR = fuzzVendorDir;
             buildPhaseCargoCommand = ''
               cargo run -q --profile "$CARGO_PROFILE" -p xtask -- hygiene
@@ -1236,6 +1238,9 @@
             # The gate shells out to nextest, its falsifier test runs the pinned jscpd, and the claim
             # arm starts the kill worktree's own Postgres tier.
             export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
+            # The driver `checks.nextest` names: a tier with none fails every Postgres claim cell in
+            # its setup, before the cell's own assertion - measured on #1286's first CI run.
+            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:

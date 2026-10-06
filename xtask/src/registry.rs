@@ -98,6 +98,24 @@ impl Reads {
     }
 }
 
+/// A gate's own rule proven on a copy of its REAL inputs: they must pass, then one `violation`
+/// must fail. For a gate whose other arms refuse any synthetic tree before the own rule is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Paired {
+    /// Repo-relative files or directories the gate reads; `"."` is the whole published tree.
+    pub(crate) inputs: &'static [&'static str],
+    /// The own-rule violation, as edits applied after the control passes.
+    pub(crate) violation: &'static [Edit],
+}
+
+/// One exact text replacement in a copied file; `find` must occur exactly once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Edit {
+    pub(crate) path: &'static str,
+    pub(crate) find: &'static str,
+    pub(crate) replace: &'static str,
+}
+
 /// A hygiene gate's own-rule falsifier: the seed that must make ITS substantive rule fire, and
 /// the in-scope proviso that stops a missing-input or empty-scan refusal being mistaken for it.
 ///
@@ -112,6 +130,8 @@ impl Reads {
 /// to answer rather than reminded to. The seed-programme marker [`Falsifier::declared_in_programme`]
 /// is where a gate that has not yet written its own-rule seed lands - the sweep still asserts it
 /// refuses the shared tree (it fails closed), and the programme replaces it gate by gate.
+///
+/// [`Falsifier::paired`] is the route for a gate no synthetic tree can isolate - see [`Paired`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Falsifier {
     /// Files to seed into the falsifier tree, each a REAL violation of this one gate's own rule,
@@ -122,6 +142,8 @@ pub(crate) struct Falsifier {
     /// that does not visibly carry the gate's subject is not the own-rule refusal this slot is
     /// for - it is the absent-input / empty-scan floor #371 names. `None` on the placeholder.
     pub(crate) in_scope: Option<&'static str>,
+    /// The real-input pair, for a gate that still fails closed on the shared sweep tree.
+    pub(crate) paired: Option<&'static Paired>,
 }
 
 impl Falsifier {
@@ -132,6 +154,16 @@ impl Falsifier {
         Self {
             seeds: &[],
             in_scope: None,
+            paired: None,
+        }
+    }
+
+    /// The paired form: no seeds, because the violation lands on a copy of the real inputs.
+    pub(crate) const fn paired(pair: &'static Paired) -> Self {
+        Self {
+            seeds: &[],
+            in_scope: None,
+            paired: Some(pair),
         }
     }
 }

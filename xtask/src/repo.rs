@@ -43,7 +43,7 @@ const SKIP_DIRS: &[&str] = &[
 ///
 /// Split out of [`from_git`] so it is testable on a bare string, with no filesystem and no git
 /// listing involved.
-fn skip_dir_crossed(path: &str) -> Option<&'static str> {
+pub(crate) fn skip_dir_crossed(path: &str) -> Option<&'static str> {
     path.split('/')
         .find_map(|component| SKIP_DIRS.iter().find(|&&skip| skip == component).copied())
 }

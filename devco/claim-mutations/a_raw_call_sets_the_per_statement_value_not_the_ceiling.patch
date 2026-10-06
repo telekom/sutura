@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/deadline.rs b/crates/sutura-exec-postgres/src/deadline.rs
+index 7d4a06c..27531c5 100644
+--- a/crates/sutura-exec-postgres/src/deadline.rs
++++ b/crates/sutura-exec-postgres/src/deadline.rs
+@@ -49,7 +49,7 @@ pub(crate) fn deadline_statement_timeout_ms(ceiling_ms: u32, deadline: Deadline)
+     let clamped = if ceiling_ms == 0 {
+         remaining_ms
+     } else {
+-        remaining_ms.min(ceiling_ms)
++        ceiling_ms
+     };
+     NonZeroU32::new(clamped).unwrap_or(NonZeroU32::MIN)
+ }

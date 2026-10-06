@@ -1776,11 +1776,11 @@ What `causality::claim::validate` holds:
 
 | Shape | Answer |
 | --- | --- |
-| trailer on the commit that ADDS the test | measured by its mutation |
-| trailer on a commit that adds no such test - one base already carries, or one the range only edits | `not added:` - read PER COMMIT, so the trailer sits on the commit that adds the test |
+| trailer on the commit that ADDS or MODIFIES the test | measured by its mutation. MODIFIED is `Scan::of`'s answer through `super::edited`: an added line in the test's own span, or in a same-file `#[cfg(test)]` helper it calls (#1286 declared five edited cells this way) |
+| trailer on a commit that neither adds nor modifies that test | `not added:` (*its commit added or modified no such test*) - read PER COMMIT, so the trailer sits on the commit that adds or edits it |
 | trailer, no committed patch | `no patch:` |
 | an EDITED test, renamed | a rename counts as added: `Claim-Cell: <new-name>` on the renaming commit. The old name reads as a deleted test, so the range also carries `Weakens-Test: <old-name> - <reason>` (`causality::weakens`), or causality exits 1 |
-| an EDITED test, not renamed, green on base | `INCONCLUSIVE - these tests were not ADDED here` (exit 3): rename it as above, or change the behaviour it pins |
+| an EDITED test, not renamed, green on base, undeclared | refused by name on the tests-only and the separable arm - `AddedTest::is_edited` keeps it a pin, never a move (`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`): declare it on the editing commit |
 
 **Exit 3 (`INCONCLUSIVE`) is not a verdict.** Quote it verbatim and supply a hand mutation table in
 its place - each mechanism removed, and the cell that goes red. Exit 1 `the base does not compile

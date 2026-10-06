@@ -4,18 +4,41 @@
 //! The seam is the subject, not the cost: every row here reads `crates/` source and fails on a
 //! structural claim, so a reviewer asking *did the hexagon hold* has one file to read.
 
-use crate::registry::{Falsifier, Kind, Reads, Task};
+use crate::registry::{Edit, Falsifier, Kind, Paired, Reads, Task};
 use crate::{
     answer_path_cache, boot_order, boundaries, bounded_wait, catalog_opened_once, conformance, newtype_leaks, one_bound,
     orphan_modules, refusals, serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
 };
+
+/// `dependency_direction`'s own rule, and only it: `tokio` as a `sutura-domain` DEV-dependency, in
+/// its manifest and the root lock. The root walk follows dev edges, so the domain now reaches a
+/// runtime; `fuzz/`'s resolve takes no dev edge of a path dependency, so the satellite half stays
+/// `ok` and cannot carry the `Fail` for a neutralised root half.
+const CHECK_BOUNDARIES_PAIRED: Paired = Paired {
+    inputs: &["."],
+    violation: &[
+        Edit {
+            path: "crates/sutura-domain/Cargo.toml",
+            find: "\narrow-buffer = { workspace = true }\n",
+            replace: "\narrow-buffer = { workspace = true }\ntokio = { workspace = true }\n",
+        },
+        Edit {
+            path: "Cargo.lock",
+            find: DOMAIN_LOCK_TAIL,
+            replace: DOMAIN_LOCK_TAIL_TOKIO,
+        },
+    ],
+};
+const DOMAIN_LOCK_TAIL: &str = " \"secrecy\",\n \"serde\",\n \"serde_json\",\n \"sha2\",\n \"thiserror 2.0.21\",\n]";
+const DOMAIN_LOCK_TAIL_TOKIO: &str =
+    " \"secrecy\",\n \"serde\",\n \"serde_json\",\n \"sha2\",\n \"thiserror 2.0.21\",\n \"tokio\",\n]";
 
 pub(crate) const TASKS: &[Task] = &[
     Task {
         name: "check-boundaries",
         description: "the domain crate depends on no framework",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier::paired(&CHECK_BOUNDARIES_PAIRED),
         run: boundaries::run,
     },
     Task {
@@ -61,6 +84,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("crates/sutura-domain/src/lib.rs", "pub mod orphan {}\n"),
             ],
             in_scope: Some("crates/sutura-domain/src/lib.rs"),
+            paired: None,
         },
         run: orphan_modules::run,
     },
@@ -85,6 +109,7 @@ pub(crate) const TASKS: &[Task] = &[
                 "struct Digest(String);\nimpl core::ops::Deref for Digest {\n    type Target = str;\n}\n",
             )],
             in_scope: Some("src/leaky.rs"),
+            paired: None,
         },
         run: newtype_leaks::run,
     },
@@ -106,6 +131,7 @@ pub(crate) const TASKS: &[Task] = &[
                 "struct SubjectCache {\n    seen: std::collections::HashMap<u8, sutura_domain::warehouse::RowSet>,\n}\n",
             )],
             in_scope: Some("crates/sutura-app/src/leaky_cache.rs"),
+            paired: None,
         },
         run: answer_path_cache::run,
     },
@@ -131,6 +157,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("crates/unguarded/src/lib.rs", "pub fn reachable() {}\n"),
             ],
             in_scope: Some("crates/unguarded/src/lib.rs"),
+            paired: None,
         },
         run: unsafe_containment::run,
     },
@@ -157,6 +184,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("crates/sutura-cli/src/serve.rs"),
+            paired: None,
         },
         run: boot_order::run,
     },
@@ -179,6 +207,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("crates/sutura-cli/src/main.rs"),
+            paired: None,
         },
         run: one_bound::run,
     },
@@ -206,6 +235,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             )],
             in_scope: Some("Cargo.lock"),
+            paired: None,
         },
         run: shared_client::run,
     },
@@ -223,6 +253,7 @@ pub(crate) const TASKS: &[Task] = &[
                 "#[derive(serde::Deserialize)]\npub enum Choice { Empty }\nimpl Choice {\n    pub fn parse(raw: &str) -> Result<Self, Bad> { todo!() }\n}\n",
             )],
             in_scope: Some("choice.rs"),
+            paired: None,
         },
         run: serde_parse::run,
     },
@@ -267,6 +298,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),
+            paired: None,
         },
         run: refusals::run,
     },
@@ -301,6 +333,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("xtask/src/compose/extra.rs"),
+            paired: None,
         },
         run: bounded_wait::run,
     },
@@ -317,6 +350,7 @@ pub(crate) const TASKS: &[Task] = &[
         falsifier: Falsifier {
             seeds: &[],
             in_scope: Some("nix/shared-scratch.sh"),
+            paired: None,
         },
         run: worktree_state::run,
     },
@@ -358,6 +392,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("crates/sutura-app/tests/adapters/adapters.rs"),
+            paired: None,
         },
         run: conformance::run,
     },
@@ -401,6 +436,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("crates/sutura-catalog-local/src/leaky_read.rs"),
+            paired: None,
         },
         run: catalog_opened_once::run,
     },
@@ -423,6 +459,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             )],
             in_scope: Some("xtask/src/main.rs"),
+            paired: None,
         },
         run: threshold_expect::run,
     },
