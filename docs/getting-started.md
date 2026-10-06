@@ -537,6 +537,12 @@ Four things matter before you write one:
   before the bundle is served, so a definition that has stopped meaning what it claimed fails
   readiness instead of answering. Declare one for any metric whose value you would act on.
 
+A catalogue is held to carrying everything the format can express: relationships, metrics, grains,
+column types and descriptions, and the four knowledge lists. One that is narrower, and is refused as
+`Unprovided` for it, states what it supplies in one `kind: declaration` document (at most one per
+directory) with `definitions:` (it must list `structure`), optional `may_provide:` and `knowledge:`.
+`sutura import wren` writes one.
+
 For the data, `query` expects one file per model, named after the model's table, in the directory you
 pass it - `<table>.parquet` if it is there, `<table>.csv` otherwise. Nothing is written and there is
 no database: the engine registers each file in process and reads it where it lies on every run, so

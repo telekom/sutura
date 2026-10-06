@@ -123,6 +123,7 @@ finer split is a cheap change if a caller ever needs the branch.
   domain's own hashing, and neither is a fact about reading a directory. The chain still says
   which one happened.
 - `SecondDeclaration` - A second `kind: declaration` document. A tree states one declaration; two would need a rule for which one wins, and a silent winner is the failure a declaration exists to prevent.
+- `DeclarationWithoutStructure` - A `kind: declaration` document whose `definitions:` does not list `structure` as always carried. A tree with no models is an empty bundle, and one with notes alone would render them deployment-wide, which `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md` rules out: knowledge speaks through a metric.
 
 ### Implements
 
@@ -246,9 +247,16 @@ tree with one is held to it when it composes, in both directions, like any decla
 `sutura import wren` writes one, because the model it converts is narrower than this format
 (`github.com/telekom/sutura#1278`).
 
+`definitions:` must list `structure` and not under `may_provide:`: a tree always carries models,
+and one that did not would be an empty bundle, or notes rendered deployment-wide against
+`docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`. A load without it is refused
+as `LocalCatalogError::DeclarationWithoutStructure`.
+
 The knowledge half is also the bundle's own `sutura_domain::knowledge::Knowledge` declaration,
-which the agent-facing prompt renders: a kind left out reads as *nothing is kept here*, and a kind
-listed with no notes reads as *somebody keeps this list and it is empty*.
+which the agent-facing prompt renders: a kind left out reads as *nothing is kept here*. A kind
+listed must carry at least one note, because a knowledge kind cannot be declared and empty: the
+tree is refused at load when it carries a note of a kind it left out, and at composition when it
+lists a kind and carries no note of it.
 
 #### Methods
 

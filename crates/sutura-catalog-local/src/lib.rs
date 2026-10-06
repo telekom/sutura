@@ -256,6 +256,14 @@ pub enum LocalCatalogError {
     /// for which one wins, and a silent winner is the failure a declaration exists to prevent.
     #[error("{path} is a second `kind: declaration` document, and a catalog states one declaration")]
     SecondDeclaration { path: PathBuf },
+    /// A `kind: declaration` document whose `definitions:` does not list `structure` as always
+    /// carried. A tree with no models is an empty bundle, and one with notes alone would render
+    /// them deployment-wide, which `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`
+    /// rules out: knowledge speaks through a metric.
+    #[error(
+        "{path} is a `kind: declaration` document that does not list `structure` under `definitions:`, and a catalog always carries models"
+    )]
+    DeclarationWithoutStructure { path: PathBuf },
 }
 
 // The canonical form and its hash used to live here, and a review showed why they could not: while
@@ -485,7 +493,14 @@ impl Collected {
                     });
                 }
                 let doc: DeclarationDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
-                self.declared = Some(doc.into_domain());
+                let declared = doc.into_domain();
+                let definitions = declared.definitions();
+                if !definitions.declares(DefinitionKind::Structure) || definitions.is_conditional(DefinitionKind::Structure) {
+                    return Err(LocalCatalogError::DeclarationWithoutStructure {
+                        path: PathBuf::from(path),
+                    });
+                }
+                self.declared = Some(declared);
                 Ok(())
             }
         }

@@ -100,9 +100,16 @@ impl DocumentKind {
 /// `sutura import wren` writes one, because the model it converts is narrower than this format
 /// (`github.com/telekom/sutura#1278`).
 ///
+/// `definitions:` must list `structure` and not under `may_provide:`: a tree always carries models,
+/// and one that did not would be an empty bundle, or notes rendered deployment-wide against
+/// `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`. A load without it is refused
+/// as `LocalCatalogError::DeclarationWithoutStructure`.
+///
 /// The knowledge half is also the bundle's own [`sutura_domain::knowledge::Knowledge`] declaration,
-/// which the agent-facing prompt renders: a kind left out reads as *nothing is kept here*, and a kind
-/// listed with no notes reads as *somebody keeps this list and it is empty*.
+/// which the agent-facing prompt renders: a kind left out reads as *nothing is kept here*. A kind
+/// listed must carry at least one note, because a knowledge kind cannot be declared and empty: the
+/// tree is refused at load when it carries a note of a kind it left out, and at composition when it
+/// lists a kind and carries no note of it.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeclarationDoc {
