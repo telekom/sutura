@@ -165,6 +165,10 @@ pub(crate) struct RawSource {
     /// `host:port/service_name` string. Not a SID, and not a `database`: the key names what it is.
     #[serde(default)]
     pub(crate) service_name: Option<String>,
+    /// The database file a `duckdb` source opens, read-only. A path, so not `database`, which names
+    /// a database on a server.
+    #[serde(default)]
+    pub(crate) database_file: Option<String>,
     /// The role a `postgres` source connects as.
     #[serde(default)]
     pub(crate) user: Option<String>,

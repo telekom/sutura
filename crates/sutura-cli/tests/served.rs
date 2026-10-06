@@ -158,6 +158,14 @@ mod delegation_adbc;
 #[path = "served/e2e_adbc.rs"]
 mod e2e_adbc;
 
+// The served `kind: duckdb` source (`telekom/sutura#1292`), certified and raw; gated on the
+// feature that links the adapter.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "duckdb")]
+#[path = "served/duckdb.rs"]
+mod duckdb;
+
 // The four startup refusals (`github.com/telekom/sutura#302`), split out of `mod tests` below by
 // the same 1000-line cap - a pure relocation, no `#[cfg(unix)]`/`#[cfg(feature)]` of its own
 // because none of the four needs one.

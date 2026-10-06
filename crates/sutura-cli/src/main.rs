@@ -98,6 +98,9 @@ mod catalog;
 #[cfg(feature = "clickhouse")]
 mod clickhouse;
 mod commands;
+/// The ONE DuckDB composition, reached by both composition roots below - `oracle`'s shape.
+#[cfg(feature = "duckdb")]
+mod duckdb;
 mod import;
 mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
