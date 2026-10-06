@@ -41,7 +41,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 
 use crate::catalog::{OpenedCatalogs, load_each};
@@ -87,7 +86,6 @@ pub(crate) enum Outcome {
 pub(crate) struct Refresher<K> {
     catalogs: Vec<K>,
     sender: tokio::sync::watch::Sender<Arc<PinnedDefinitions>>,
-    digest: DefinitionDigest,
 }
 
 impl<K> Refresher<K>
@@ -99,14 +97,9 @@ where
     /// digest change that boot itself would not have.
     #[must_use]
     pub(crate) fn new(catalogs: Vec<K>, initial: PinnedDefinitions) -> Self {
-        let digest = initial.digest().clone();
         let (sender, receiver) = tokio::sync::watch::channel(Arc::new(initial));
         drop(receiver);
-        Self {
-            catalogs,
-            sender,
-            digest,
-        }
+        Self { catalogs, sender }
     }
 
     /// The read handle a caller holds. Cheap to clone; every clone observes this channel.
@@ -121,27 +114,32 @@ where
     /// (`load_each`). On success with a changed digest, adopts the new bundle and audits the
     /// digest transition; on an unchanged digest, does nothing; on a refusal, keeps the bundle
     /// already in use and logs loudly rather than tearing anything down.
-    pub(crate) fn poll_once(&mut self) -> Outcome {
+    pub(crate) fn poll_once(&self) -> Outcome {
         match load_each(&self.catalogs) {
             Ok(next) => {
-                if next.digest() == &self.digest {
-                    return Outcome::Unchanged;
+                {
+                    let current = self.sender.borrow();
+                    if next.digest() == current.digest() {
+                        return Outcome::Unchanged;
+                    }
+                    tracing::info!(
+                        previous_digest = current.digest().as_str(),
+                        digest = next.digest().as_str(),
+                        "a declared catalog refresh re-pinned this bundle"
+                    );
                 }
-                tracing::info!(
-                    previous_digest = self.digest.as_str(),
-                    digest = next.digest().as_str(),
-                    "a declared catalog refresh re-pinned this bundle"
-                );
-                self.digest = next.digest().clone();
                 drop(self.sender.send_replace(Arc::new(next)));
                 Outcome::Rotated
             }
             Err(cause) => {
-                tracing::error!(
-                    error = %cause,
-                    digest = self.digest.as_str(),
-                    "a declared catalog's refresh failed to load; keeping the bundle already pinned"
-                );
+                {
+                    let current = self.sender.borrow();
+                    tracing::error!(
+                        error = %cause,
+                        digest = current.digest().as_str(),
+                        "a declared catalog's refresh failed to load; keeping the bundle already pinned"
+                    );
+                }
                 Outcome::Rejected
             }
         }
@@ -207,7 +205,7 @@ where
     K: SemanticCatalog + Send + Sync + 'static,
     K::Error: Send + Sync,
 {
-    let mut refresher = Refresher::new(catalogs, initial);
+    let refresher = Refresher::new(catalogs, initial);
     let rotating = refresher.rotating();
     drop(tokio::spawn(async move {
         loop {
@@ -383,7 +381,7 @@ mod tests {
     fn an_unchanged_read_is_silent_and_keeps_the_same_bundle() {
         let (catalog, _next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
         let digest = rotating.current().digest().clone();
 
@@ -397,7 +395,7 @@ mod tests {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
         let before_digest = initial.digest().clone();
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
 
         set(&next, Answer::Bundle(vec!["a", "b"]));
@@ -421,7 +419,7 @@ mod tests {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
         let before_digest = initial.digest().clone();
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
 
         set(&next, Answer::Refused);
@@ -445,7 +443,7 @@ mod tests {
     fn provenance_reads_the_bundle_a_clone_was_taken_from_not_a_live_subscription() {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
         let held_before_the_swap = rotating.current();
 
