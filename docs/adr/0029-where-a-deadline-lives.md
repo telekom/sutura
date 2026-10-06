@@ -355,12 +355,17 @@ cancel's own latency, with `INTERRUPT Error: Interrupted!` and the error detail
 `duckdb:error_type = Interrupt`; `StatementCancel` does not, because the driver manager holds the
 statement's lock for the whole `execute`, so the cancel waits for the call it should stop.
 
-What runs now, in `Warehouse::execute`: a spent budget is refused before the statement starts; a
-scoped watchdog thread waits for what is left of the deadline and cancels the connection; a failure
-that carries `Interrupt` after the watchdog fired is `deadline_exceeded`, so a refusal by name and
-not a retryable error. An interrupt the watchdog did not cause stays the engine's own error.
-`dry_run` only prepares and still carries the deadline.
+What runs now, in `Warehouse::execute` and, on a database `DuckDbWarehouse::open` opened,
+`Warehouse::execute_raw`: a spent budget is refused before the statement starts; a scoped watchdog
+thread waits for what is left of the deadline and cancels the connection; a failure that carries
+`Interrupt` after the watchdog fired is `deadline_exceeded`, so a refusal by name and not a
+retryable error. An interrupt the watchdog did not cause stays the engine's own error. The watchdog
+is armed before the driver prepares, because the driver runs every statement of a raw string but
+the last while preparing it; an interrupt there carries the message and no detail, so the message is
+read too. `dry_run` only prepares and still carries the deadline.
 
 **Limit.** The stop lands at the engine's next interrupt check, not at the instant, and a failed
-cancel leaves the statement to finish. The cell is
-`a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name`.
+cancel leaves the statement to finish. The cells are
+`a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name` and, for the raw path
+and a long statement placed before a raw string's last,
+`a_raw_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name`.

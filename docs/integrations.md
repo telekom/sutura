@@ -70,8 +70,9 @@ by name. The file is opened read-only with external access off and the configura
 is what a raw `run_sql` statement on it runs under ([Serving](serving.md#the-raw-sql-tool-over-a-duckdb-source)
 says what that refuses and what it does not). The golden row runs against a file opened that way. It
 executes as the one process that holds the file - `NoPlaceForASubject`, so an
-`impersonation-at-source` declaration is refused at the composition root. Its deadline is carried,
-not enforced, until the #1236 watchdog lands (`docs/adr/0029`).
+`impersonation-at-source` declaration is refused at the composition root. At the deadline a
+watchdog cancels the call's connection, a raw statement's included, and the stop lands at the
+engine's next interrupt check (`docs/adr/0029`).
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,

@@ -14,11 +14,13 @@
 #[cfg(test)]
 mod raw {
     use std::path::PathBuf;
+    use std::time::{Duration, Instant};
 
     use sutura_conformance::corpus;
     use sutura_domain::identity::{Presented, PrincipalName};
     use sutura_domain::model::TableName;
     use sutura_domain::raw::RawStatement;
+    use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{RawRows, ResultBudget, Value, Warehouse as _};
     use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse, write_database};
 
@@ -329,6 +331,32 @@ mod raw {
             &corpus::presented(),
         );
         assert!(warehouse.result_did_not_fit(&error), "{error:?}");
+    }
+
+    /// The deadline: the watchdog `execute` runs under cancels the connection on the raw path too,
+    /// and the port reads the interrupt as `deadline_exceeded`. **Armed before the driver prepares**,
+    /// so a long statement placed before a `SELECT` - which the driver runs while preparing - is
+    /// stopped as well.
+    #[test]
+    fn a_raw_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name() {
+        let scratch = Scratch::new("deadline");
+        let warehouse = scratch.open();
+        let long = "SELECT count(*) FROM range(100000) a, range(100000) b, range(1000) c \
+                    WHERE (a.range * b.range + c.range) % 7 = 3";
+        for sql in [String::from(long), format!("{long}; SELECT 1")] {
+            let statement = RawStatement::parse(&sql).expect("a test statement is a statement");
+            let second = Budget::parse(Duration::from_secs(1)).expect("a second is a budget");
+            let started = Instant::now();
+            let error = match warehouse.execute_raw(&statement, &corpus::presented(), Deadline::opened_at(started, second)) {
+                Some(Err(error)) => error,
+                other => panic!("`{sql}` must have been stopped, got {other:?}"),
+            };
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "`{sql}` was stopped by finishing, not by the watchdog"
+            );
+            assert!(warehouse.deadline_exceeded(&error), "`{sql}`: {error:?}");
+        }
     }
 
     /// A subject's own credential has nowhere to go on this adapter, on the raw path as on the

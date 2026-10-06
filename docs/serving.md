@@ -1189,8 +1189,12 @@ refused as `result_too_large`.
 
 **What this does not reach:**
 
-- **The deadline is carry-only until #1236 lands** (`docs/adr/0029`). A budget spent before the call
-  is refused; a statement that starts runs until it ends, holding its admission slot.
+- **The deadline stops a statement at the engine's next interrupt check, not at the instant**
+  (`docs/adr/0029`, sixth amendment). A budget spent before the call is refused. Otherwise a
+  watchdog cancels the call's connection when the budget runs out, and the call answers
+  `deadline_exceeded`. It is armed before the driver prepares, so a string's statements before its
+  last are under it too. A cancel that fails leaves the statement to finish, holding its admission
+  slot.
 - **Spilling to disk is not measured.** The spill directory is a local file system, which this open
   disables, so a statement too large for memory is expected to fail rather than spill.
 - **What lives and dies with one call's connection is allowed**: a `TEMP` table or a session setting.

@@ -36,11 +36,12 @@ place the habit started.
 
 ## Limits
 
-- **The deadline is a watchdog per `execute`** (`docs/adr/0029`, sixth amendment): a thread
-  calls the driver's `ConnectionCancel` when the budget is spent, the engine answers `Interrupt`,
-  and that is read as the deadline. Granularity is the engine's own interrupt check, so a
-  statement is stopped at its next one rather than the instant; `dry_run` only prepares and
-  carries the deadline, and so does the raw path, where a statement runs until it ends.
+- **The deadline is a watchdog per call** (`docs/adr/0029`, sixth amendment): on
+  `DuckDbWarehouse::execute` and on the raw path, a thread calls the driver's `ConnectionCancel`
+  when the budget is spent, the engine answers `Interrupt`, and that is read as the deadline. It
+  starts before the driver prepares, so a raw string's statements before its last are under it
+  too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
+  cancel leaves the statement to finish; `dry_run` only prepares and carries the deadline.
 - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; `READ_ONLY` and
   `THEN_LOCKED` are what each of them runs under.
