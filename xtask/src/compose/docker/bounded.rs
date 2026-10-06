@@ -836,4 +836,63 @@ mod tests {
             assert!((TIMEOUT_MIN_SECS..=ceiling).contains(&seconds), "{value:?} -> {seconds}");
         }
     }
+
+    /// `github.com/telekom/sutura#1179`: a `docker` that stalls on `--version` and one that cannot
+    /// be started must not get the same report. Both were `no container runtime (Cli)`, so a red
+    /// run could not say which it had been.
+    ///
+    /// Through `presence` itself, in a child of this test binary, because its only seam is the
+    /// process's `PATH`, and setting that here would reach every test sharing this process. Here
+    /// rather than beside `presence` because this is the one file of the tier that may wait on a
+    /// child (`cargo xtask check-bounded-wait`), and the wait is [`super::waited`] with a budget.
+    #[test]
+    fn a_stalled_docker_and_an_unstartable_one_report_apart() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        const CHILD: &str = "SUTURA_PRESENCE_CHILD";
+        if let Some(out) = std::env::var_os(CHILD) {
+            let answer = format!("{:?}", crate::compose::docker::presence());
+            std::fs::write(out, answer).expect("the child's answer is writable");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("sutura-presence-{}", std::process::id()));
+        for name in ["stalled", "unstartable"] {
+            std::fs::create_dir_all(dir.join(name)).expect("the scratch directory is creatable");
+        }
+        let stub = dir.join("stalled/docker");
+        std::fs::write(&stub, "#!/bin/sh\nwhile :; do :; done\n").expect("the stub is writable");
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("the stub is executable");
+        // The child's `PATH` is the one directory, so `docker` is the stub or nothing at all.
+        let report = |name: &str| {
+            let out = dir.join(format!("{name}.answer"));
+            let mut child = Command::new(std::env::current_exe().expect("the test executable has a path"))
+                .args([
+                    "--exact",
+                    "compose::docker::bounded::tests::a_stalled_docker_and_an_unstartable_one_report_apart",
+                ])
+                .env(CHILD, &out)
+                .env("PATH", dir.join(name))
+                .env("SUTURA_DOCKER_PROBE_TIMEOUT_SECS", "1")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("the test executable runs");
+            let status = super::waited(&mut child, Duration::from_secs(60))
+                .expect("the child is waited on")
+                .expect("the child answers inside a minute");
+            assert!(status.success(), "the child failed: {status}");
+            std::fs::read_to_string(&out).expect("the child wrote its answer")
+        };
+        let (stall, refused) = (report("stalled"), report("unstartable"));
+        drop(std::fs::remove_dir_all(&dir));
+        assert!(
+            stall.starts_with("Err(") && refused.starts_with("Err("),
+            "{stall} / {refused}"
+        );
+        assert_ne!(
+            stall, refused,
+            "a stalled docker and an unstartable one must not share a report"
+        );
+    }
 }
