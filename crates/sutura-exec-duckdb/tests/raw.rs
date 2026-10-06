@@ -14,6 +14,7 @@
 #[cfg(test)]
 mod raw {
     use std::path::PathBuf;
+    use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
     use sutura_conformance::corpus;
@@ -336,26 +337,32 @@ mod raw {
     /// The deadline: the watchdog `execute` runs under cancels the connection on the raw path too,
     /// and the port reads the interrupt as `deadline_exceeded`. **Armed before the driver prepares**,
     /// so a long statement placed before a `SELECT` - which the driver runs while preparing - is
-    /// stopped as well.
+    /// stopped as well. The calls run on a thread of their own, so a statement nothing stops fails
+    /// this cell's own bound rather than waiting for the runner's.
     #[test]
     fn a_raw_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name() {
         let scratch = Scratch::new("deadline");
         let warehouse = scratch.open();
         let long = "SELECT count(*) FROM range(100000) a, range(100000) b, range(1000) c \
                     WHERE (a.range * b.range + c.range) % 7 = 3";
-        for sql in [String::from(long), format!("{long}; SELECT 1")] {
-            let statement = RawStatement::parse(&sql).expect("a test statement is a statement");
-            let second = Budget::parse(Duration::from_secs(1)).expect("a second is a budget");
-            let started = Instant::now();
-            let error = match warehouse.execute_raw(&statement, &corpus::presented(), Deadline::opened_at(started, second)) {
-                Some(Err(error)) => error,
-                other => panic!("`{sql}` must have been stopped, got {other:?}"),
-            };
-            assert!(
-                started.elapsed() < Duration::from_secs(30),
-                "`{sql}` was stopped by finishing, not by the watchdog"
-            );
-            assert!(warehouse.deadline_exceeded(&error), "`{sql}`: {error:?}");
+        let inputs = [String::from(long), format!("{long}; SELECT 1")];
+        let (answered, answers) = mpsc::channel();
+        let calls = inputs.clone();
+        std::thread::spawn(move || {
+            for sql in calls {
+                let statement = RawStatement::parse(&sql).expect("a test statement is a statement");
+                let second = Budget::parse(Duration::from_secs(1)).expect("a second is a budget");
+                let executed =
+                    warehouse.execute_raw(&statement, &corpus::presented(), Deadline::opened_at(Instant::now(), second));
+                let by_name = matches!(&executed, Some(Err(error)) if warehouse.deadline_exceeded(error));
+                drop(answered.send((by_name, format!("{executed:?}"))));
+            }
+        });
+        for sql in inputs {
+            let (by_name, executed) = answers
+                .recv_timeout(Duration::from_secs(30))
+                .unwrap_or_else(|_| panic!("`{sql}` was not stopped within 30s of a one-second deadline"));
+            assert!(by_name, "`{sql}` must have been refused as deadline_exceeded, got {executed}");
         }
     }
 
