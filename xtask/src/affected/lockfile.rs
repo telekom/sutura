@@ -369,7 +369,7 @@ fn bfs_to_members(start: &Key, reverse: &Reverse, boundaries: &BTreeSet<String>)
         // A member or a root is a boundary: record it, never walk through it.
         let parents = reverse.get(&current);
         if boundaries.contains(&current.0) || parents.is_none() {
-            reached.insert(current.0.clone());
+            reached.insert(current.0);
             continue;
         }
         for parent in parents.into_iter().flatten() {
