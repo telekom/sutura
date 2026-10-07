@@ -1,0 +1,12 @@
+diff --git a/xtask/src/venues/problems.rs b/xtask/src/venues/problems.rs
+--- a/xtask/src/venues/problems.rs
++++ b/xtask/src/venues/problems.rs
+@@ -93,7 +93,7 @@
+         }
+         for (venue, cell) in listed.iter().zip(row.iter().skip(1)) {
+             match verdict(cell) {
+-                None => problems.push(format!(
++                None => drop(format!(
+                     "{PAGE}: `{}` says `{cell}` about `{claim}`, which is not one of {VERDICTS:?}. \
+                      A cell is where a venue states its limit for one claim, so a sentence there \
+                      is a limit nothing can read",
