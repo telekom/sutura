@@ -5,6 +5,8 @@
 # secrets setup.sh writes to .env and the user passwords in keycloak/realm.json are for a local
 # demo and must never be reachable from another host.
 
+# The DataHub services copy the CI tier's (compose.services.yaml), and nothing compares the two.
+
 x-datahub-backend-environment: &datahub-backend-environment
   DATAHUB_GMS_HOST: datahub-gms
   DATAHUB_GMS_PORT: "8080"
@@ -207,7 +209,7 @@ services:
       - sutura-run:/run/sutura
 
   sutura:
-    image: ghcr.io/telekom/sutura:${SUTURA_VERSION:-latest}
+    image: ghcr.io/telekom/sutura:${SUTURA_VERSION:?set SUTURA_VERSION to a release that reads workload_identity.delegation, or a local image}
     command: serve
     # sutura binds 127.0.0.1:8080. In a container that is the container itself, so it uses the host
     # network, and reaches Keycloak and DataHub on their 127.0.0.1 ports.

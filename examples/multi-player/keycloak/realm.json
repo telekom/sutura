@@ -35,6 +35,7 @@
       "publicClient": true,
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": false,
+      "attributes": { "access.token.header.type.rfc9068": "true" },
       "defaultClientScopes": ["basic", "sutura:catalog.read", "sutura:metrics.ask"],
       "optionalClientScopes": [],
       "protocolMappers": [

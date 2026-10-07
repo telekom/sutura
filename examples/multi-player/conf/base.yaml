@@ -4,16 +4,14 @@ server:
     enabled: true
 security:
   identity: "multi-user"
-  # Every caller presents a Keycloak access token. sutura checks it against the realm's public keys.
+  # Every caller presents a Keycloak access token (`typ: at+jwt`, set on the `sutura` client in
+  # keycloak/realm.json). sutura checks it against the realm's public keys.
   inbound:
     mode: "direct"
     resource: "https://sutura.example.com"
     authorization_server: "https://localhost:8443/realms/sutura-example"
     key_set_file: "/run/sutura/jwks.json"
     algorithms: ["RS256"]
-    # Keycloak sets `typ: JWT` on an access token, not `at+jwt`.
-    token_type: "any"
-    accept_any_token_type: true
 catalogs:
   # DataHub, read with one token for every caller. The name is also the BigQuery source's name.
   - name: "warehouse"
