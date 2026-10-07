@@ -1158,10 +1158,17 @@ tools:
 
 Everything the postgres section above says this service enforces holds here too: the switch and the
 scope, the wire shape with no provenance, the row cap, the multi-user boot refusal and the audit
-record. **What differs is what bounds the statement.** There is no role to grant. The file is opened
-with two options, and two settings are made on it before anything else runs. Each is measured
-against the pinned driver by a cell in `crates/sutura-exec-duckdb/tests/raw.rs` that is red without
-it:
+record. **What differs is what bounds the statement.** There is no role to grant. A text is screened
+before any of it runs, and the file is opened with two options and two settings made on it before
+anything else runs. Each is measured against the pinned driver by a cell in
+`crates/sutura-exec-duckdb/tests/raw.rs` that is red without it:
+
+- **The screen**: `DuckDB`'s own parser reads the text first (`json_serialize_sql`, the text bound
+  as a value, never spliced in). Every statement must be a `SELECT` - `DESCRIBE`, `SHOW`,
+  `SUMMARIZE`, `FROM t`, `TABLE t` and `VALUES` parse as one - and every table function it calls,
+  at any depth, one of the generators and catalog reads `sutura_exec_duckdb::RAW_TABLE_FUNCTIONS`
+  lists, unqualified. `CALL`, `PRAGMA`, `SET`, `EXPLAIN`, `CREATE`, a `PIVOT` statement, a table function not
+  listed and a tree nested too deep to read are refused before any statement in the text runs.
 
 - `access_mode = READ_ONLY`: no write and no DDL takes effect, and a file that is not there is
   refused at boot rather than created.
@@ -1181,9 +1188,10 @@ it:
   above, threads, memory, the spill directory), which would otherwise outlive the statement for
   every later call.
 
-**Those settings, not a parse of the text, are the barrier.** The driver runs every statement of a
-string but the last while preparing it, so `drop table t; select 1` is two statements and both run -
-under the settings, which refuse the first. Unlike the postgres source, one call is not one statement.
+**The settings do not rely on the screen.** The driver runs every statement of a string but the last
+while preparing it, so `select 1; select 2` is two statements and both run, under the settings; each
+setting's cell runs with the screen left out, so it is red without that setting even where the
+screen would refuse first. Unlike the postgres source, one call is not one statement.
 
 The byte cap is `runtime.working_set_max_bytes`, spent while the result is read: a result over it is
 refused as `result_too_large`.
@@ -1198,8 +1206,10 @@ refused as `result_too_large`.
   slot.
 - **Spilling to disk is not measured.** The spill directory is a local file system, which this open
   disables, so a statement too large for memory is expected to fail rather than spill.
-- **What lives and dies with one call's connection is allowed**: a `TEMP` table or a session setting.
-  Each call opens its own connection, so neither reaches the next call.
+- **The screen walks the text, not what the database file declares.** A macro or a view the file
+  holds is expanded after the screen, so what it calls is not walked; the file is the operator's,
+  and the settings still hold under it. Scalar functions are not screened: a pass over the pinned
+  driver's function names found none that acts beyond its call, and that pass is not exhaustive.
 - **A refused statement answers `statement_failed`, never `source_refused`**: the driver's error
   carries nothing this adapter classifies, so a write refused by the read-only open reads the same as
   a syntax error.

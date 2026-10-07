@@ -16,11 +16,12 @@
 //! **A raw statement runs only on a database [`DuckDbWarehouse::open`] opened** (`docs/adr/0013`).
 //! [`DuckDbWarehouse::execute`] takes an [`Executable`] and renders the statement itself; the one door
 //! a caller's text reaches is [`Warehouse::execute_raw`], and it answers `None` on a database
-//! [`DuckDbWarehouse::in_memory`] opened. A file is opened with [`READ_ONLY`] and then
-//! [`THEN_LOCKED`]: no write, no file or network outside the database, no extension, and the
-//! configuration locked so no statement can turn any of that back. **Those settings, not a parse of
-//! the text, are the barrier**: the driver runs every statement of a string but the last while
-//! preparing it, before anything here could look.
+//! [`DuckDbWarehouse::in_memory`] opened. The text is screened first - every statement a `SELECT`
+//! by `DuckDB`'s own parser, calling only [`RAW_TABLE_FUNCTIONS`] - and a file is opened with
+//! [`READ_ONLY`] and then [`THEN_LOCKED`]: no write, no file or network outside the database, no
+//! extension, and the configuration locked so no statement can turn any of that back. **The
+//! settings do not rely on the screen**: the driver runs every statement of a string but the last
+//! while preparing it, and each setting has a cell that runs with the screen left out.
 //!
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and
 //! although this adapter has no row-level security to leak through, adding a cache here would be the
@@ -35,10 +36,12 @@
 //!   too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
 //!   cancel leaves the statement to finish; `dry_run` only prepares and carries the deadline.
 //! - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
-//!   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; [`READ_ONLY`] and
-//!   [`THEN_LOCKED`] are what each of them runs under.
-//! - **What those leave a raw statement**: reading the declared database's tables, and
-//!   objects that live and die with its own connection (a `TEMP` table, a session setting).
+//!   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; the screen reads
+//!   every one before any runs, and [`READ_ONLY`] and [`THEN_LOCKED`] are what each of them runs
+//!   under.
+//! - **What a raw text may be**: reads only - every statement a `SELECT` by `DuckDB`'s own parser,
+//!   calling only [`RAW_TABLE_FUNCTIONS`]. A macro or view the database file declares is expanded
+//!   after the screen and not walked, and scalar functions are not screened.
 //!   `DuckDB`'s own `memory_limit` is its default, not `runtime.working_set_max_bytes`, and spilling
 //!   is unmeasured: no local file opens after the database does, so a statement too large for
 //!   memory is expected to fail rather than spill.
@@ -63,11 +66,14 @@ use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{
-    Accumulating, AnchorRows, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, UnannouncedBatch, UnreadableCell,
-    Warehouse,
+    Accumulating, AnchorRows, ParamValue, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, UnannouncedBatch,
+    UnreadableCell, Value, Warehouse,
 };
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
+
+mod screen;
+pub use screen::{NotARead, RAW_TABLE_FUNCTIONS};
 
 /// The variable a host that links no driver names a mounted `libduckdb` with.
 ///
@@ -187,6 +193,12 @@ pub enum DuckDbError {
     /// The deadline ran out: spent before the statement started, or the watchdog interrupted it.
     #[error("the deadline for this answer ran out")]
     DeadlineExceeded,
+    /// A raw text the screen refused before any of it ran; see [`RAW_TABLE_FUNCTIONS`].
+    #[error("this source runs a raw text only if every statement in it is a read")]
+    NotARead {
+        #[source]
+        cause: NotARead,
+    },
     /// The plan could not be rendered as SQL.
     #[error("the plan could not be rendered for DuckDB")]
     Render {
@@ -602,10 +614,41 @@ impl DuckDbWarehouse {
         Ok(accumulating.finish())
     }
 
-    /// The raw tool's statement, read to [`RAW_ROWS`] at most, under [`READ_ONLY`], [`THEN_LOCKED`]
-    /// and the watchdog.
+    /// The raw tool's statement: screened, then read to [`RAW_ROWS`] at most, under [`READ_ONLY`],
+    /// [`THEN_LOCKED`] and the watchdog.
     fn raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> Result<RawRows, DuckDbError> {
         self.deliverable(presented)?;
+        self.screened(statement, deadline)?;
+        self.unscreened(statement, deadline)
+    }
+
+    /// Refused unless `DuckDB`'s own parser reads `statement` as nothing but reads - see
+    /// [`RAW_TABLE_FUNCTIONS`] - under the deadline the statement then runs under.
+    fn screened(&self, statement: &RawStatement, deadline: Deadline) -> Result<(), DuckDbError> {
+        let text = parameter_batch(&[ParamValue::Text(statement.as_str().to_owned())])
+            .map_err(|cause| DuckDbError::Parameters { cause })?;
+        let (_, rows) = self
+            .watched(screen::SERIALIZED, text, Some(1), Some(deadline))?
+            .to_rows()
+            .map_err(|cause| DuckDbError::Unreadable { cause })?
+            .into_parts();
+        let serialized = match rows.first().and_then(|row| row.first()) {
+            Some(Value::Text(serialized)) => serialized.as_str(),
+            _ => "",
+        };
+        screen::screen(serialized).map_err(|cause| DuckDbError::NotARead { cause })
+    }
+
+    /// [`Warehouse::execute_raw`] with the screen left out and no credential read, so each of
+    /// [`READ_ONLY`] and [`THEN_LOCKED`] keeps a cell in `tests/raw.rs` held by a refusal of its own
+    /// rather than the screen's. Fixtures only: no build that serves links it.
+    #[cfg(feature = "fixtures")]
+    pub fn execute_unscreened(&self, statement: &RawStatement, deadline: Deadline) -> Result<RawRows, DuckDbError> {
+        self.unscreened(statement, deadline)
+    }
+
+    /// `statement` read to [`RAW_ROWS`] at most, under the watchdog.
+    fn unscreened(&self, statement: &RawStatement, deadline: Deadline) -> Result<RawRows, DuckDbError> {
         let batches = self.watched(statement.as_str(), None, Some(RAW_ROWS), Some(deadline))?;
         let (columns, mut rows) = batches
             .to_rows()

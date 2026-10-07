@@ -66,8 +66,8 @@ work lands.
 **DuckDB is the local kind: one database file, opened read-only, raw SQL included.** A
 `kind: duckdb` source names one absolute `database_file`, and a build carrying the `duckdb`
 feature opens it - default-off, and in no published binary, so a build without it refuses the kind
-by name. The file is opened read-only with external access off and the configuration locked, which
-is what a raw `run_sql` statement on it runs under ([Serving](serving.md#the-raw-sql-tool-over-a-duckdb-source)
+by name. A raw `run_sql` text is screened by `DuckDB`'s own parser - reads only - and runs on the
+file opened read-only with external access off and the configuration locked ([Serving](serving.md#the-raw-sql-tool-over-a-duckdb-source)
 says what that refuses and what it does not). The golden row runs against a file opened that way. It
 executes as the one process that holds the file - `NoPlaceForASubject`, so an
 `impersonation-at-source` declaration is refused at the composition root. At the deadline a

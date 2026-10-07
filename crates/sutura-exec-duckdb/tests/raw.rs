@@ -7,6 +7,11 @@
 //! its own per call, so a refusal holds that `THEN_LOCKED`'s settings are the database's, not those
 //! of the session that ran them.
 //!
+//! **Two layers, each held on its own.** `execute_raw` screens a text before any of it runs
+//! (`RAW_TABLE_FUNCTIONS`); the screen's cells go through it. The barrier cells go through the
+//! fixtures-only `execute_unscreened`, so each of `READ_ONLY` and `THEN_LOCKED` is red without it
+//! rather than answered by the screen first.
+//!
 //! **Each refusal asserts the EFFECT is absent, not only that an error came back**: the table still
 //! holds its rows, the file was not written, the setting did not move. An error alone would also be
 //! what a statement that half ran and then failed returns.
@@ -23,7 +28,7 @@ mod raw {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{RawRows, ResultBudget, Value, Warehouse as _};
-    use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse, write_database};
+    use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse, NotARead, write_database};
 
     /// A directory of this test's own, holding a database with one table `t` of two rows and a CSV
     /// beside it that is NOT in the database.
@@ -91,18 +96,51 @@ mod raw {
         }
     }
 
+    /// What `sql` answered with the screen left out, so a cell reads a barrier's own refusal.
+    fn unscreened(warehouse: &DuckDbWarehouse, sql: &str) -> Result<RawRows, DuckDbError> {
+        warehouse.execute_unscreened(&statement(sql), corpus::deadline())
+    }
+
+    fn statement(sql: &str) -> RawStatement {
+        RawStatement::parse(sql).expect("a test statement is a statement")
+    }
+
     /// The driver's own message, which is what says WHICH barrier refused.
     fn refusal(warehouse: &DuckDbWarehouse, sql: &str) -> String {
-        format!("{:?}", refused_as(warehouse, sql, &corpus::presented()))
+        match unscreened(warehouse, sql) {
+            Err(error) => format!("{error:?}"),
+            Ok(rows) => panic!("`{sql}` must have been refused, got {rows:?}"),
+        }
+    }
+
+    /// What `sql` answers behind the screen, on a connection of its own.
+    fn read(warehouse: &DuckDbWarehouse, sql: &str) -> RawRows {
+        match unscreened(warehouse, sql) {
+            Ok(rows) => rows,
+            Err(error) => panic!("`{sql}` must have answered, got {error:?}"),
+        }
+    }
+
+    /// What the screen refused `sql` as.
+    fn screened_out(warehouse: &DuckDbWarehouse, sql: &str) -> NotARead {
+        match refused_as(warehouse, sql, &corpus::presented()) {
+            DuckDbError::NotARead { cause } => cause,
+            other => panic!("`{sql}` must have been refused by the screen, got {other:?}"),
+        }
+    }
+
+    /// An instance-wide setting a table function can move, read on a connection of its own.
+    fn logging(warehouse: &DuckDbWarehouse) -> Value {
+        one(warehouse, "SELECT current_setting('enable_logging')::VARCHAR")
     }
 
     /// What `t` holds, read in a fresh connection - so a write a refused statement made would show.
     fn table(warehouse: &DuckDbWarehouse) -> Vec<Vec<Value>> {
-        answer(warehouse, "SELECT id, amount FROM t ORDER BY id").into_parts().1
+        read(warehouse, "SELECT id, amount FROM t ORDER BY id").into_parts().1
     }
 
     fn one(warehouse: &DuckDbWarehouse, sql: &str) -> Value {
-        let (_, rows) = answer(warehouse, sql).into_parts();
+        let (_, rows) = read(warehouse, sql).into_parts();
         rows.into_iter()
             .next()
             .and_then(|row| row.into_iter().next())
@@ -166,7 +204,7 @@ mod raw {
             );
         }
         assert_eq!(table(&warehouse), before);
-        let tables = answer(&warehouse, "SELECT table_name FROM duckdb_tables() ORDER BY table_name")
+        let tables = read(&warehouse, "SELECT table_name FROM duckdb_tables() ORDER BY table_name")
             .into_parts()
             .1;
         assert_eq!(tables, [[Value::Text(String::from("t"))]], "{tables:?}");
@@ -277,8 +315,8 @@ mod raw {
         );
     }
 
-    /// **The driver runs every statement but the last while PREPARING**, so the options, not a parse
-    /// of the text, are what a statement placed before a harmless `SELECT` runs under.
+    /// **The driver runs every statement but the last while PREPARING**, so behind the screen the
+    /// options are what a statement placed before a harmless `SELECT` runs under.
     #[test]
     fn a_statement_hidden_before_a_select_takes_no_effect() {
         let scratch = Scratch::new("multi");
@@ -405,6 +443,130 @@ mod raw {
                 .recv_timeout(Duration::from_secs(30))
                 .unwrap_or_else(|_| panic!("`{sql}` was not stopped within 30s of a one-second deadline"));
             assert!(by_name, "`{sql}` must have been refused as deadline_exceeded, got {executed}");
+        }
+    }
+
+    /// The screen's first class: a statement `DuckDB`'s parser does not read as a `SELECT`, or a
+    /// text it cannot parse, is refused before any statement in it runs - one placed before a
+    /// `SELECT`, which the driver would run while preparing, included.
+    #[test]
+    fn a_statement_that_is_not_a_select_is_refused_before_any_of_it_runs() {
+        let scratch = Scratch::new("screen-statement");
+        let warehouse = scratch.open();
+        let before = logging(&warehouse);
+        for sql in [
+            "CALL enable_logging('QueryLog')",
+            "CALL enable_logging('QueryLog'); SELECT 1",
+            "SELECT 1; CALL enable_logging('QueryLog')",
+            "PRAGMA database_list",
+            "SET search_path = 'main'",
+            "EXPLAIN SELECT 1",
+            "CREATE TEMP TABLE scratch AS SELECT 1 AS x",
+            "PIVOT t ON id USING sum(amount)",
+            "SELECT 1 FROM",
+        ] {
+            let refused = screened_out(&warehouse, sql);
+            assert!(matches!(refused, NotARead::Statement(_)), "`{sql}`: {refused:?}");
+        }
+        assert_eq!(logging(&warehouse), before);
+    }
+
+    /// The screen's second class: a table function [`sutura_exec_duckdb::RAW_TABLE_FUNCTIONS`] does
+    /// not list is refused wherever the text calls it - a subquery, a CTE, a set operation, a join
+    /// and a `DESCRIBE` of a query included - and so is one that runs SQL from a string.
+    #[test]
+    fn a_table_function_not_listed_is_refused_wherever_the_text_calls_it() {
+        let scratch = Scratch::new("screen-function");
+        let warehouse = scratch.open();
+        let before = logging(&warehouse);
+        for (sql, function) in [
+            ("SELECT * FROM enable_logging('QueryLog')", "enable_logging"),
+            ("FROM enable_logging('QueryLog')", "enable_logging"),
+            ("SELECT * FROM \"enable_logging\"('QueryLog')", "enable_logging"),
+            (
+                "WITH x AS (SELECT * FROM enable_logging('QueryLog')) SELECT * FROM x",
+                "enable_logging",
+            ),
+            (
+                "SELECT 1 UNION ALL SELECT 1 FROM enable_logging('QueryLog')",
+                "enable_logging",
+            ),
+            ("SELECT (SELECT count(*) FROM enable_logging('QueryLog'))", "enable_logging"),
+            (
+                "SELECT * FROM t WHERE id IN (SELECT 1 FROM enable_logging('QueryLog'))",
+                "enable_logging",
+            ),
+            ("SELECT * FROM t, LATERAL (FROM enable_logging('QueryLog'))", "enable_logging"),
+            ("SELECT * FROM t JOIN enable_logging('QueryLog') ON true", "enable_logging"),
+            ("DESCRIBE SELECT * FROM enable_logging('QueryLog')", "enable_logging"),
+            ("SELECT * FROM query('SELECT * FROM enable_logging(''QueryLog'')')", "query"),
+            ("SELECT * FROM query_table('t')", "query_table"),
+        ] {
+            let refused = screened_out(&warehouse, sql);
+            assert!(
+                matches!(refused, NotARead::TableFunction(ref name) if name == function),
+                "`{sql}`: {refused:?}"
+            );
+        }
+        assert_eq!(logging(&warehouse), before);
+    }
+
+    /// The screen's third class: a listed name is refused when the text qualifies it, so a catalog
+    /// or schema of the database's own cannot answer for it.
+    #[test]
+    fn a_qualified_table_function_is_refused_though_its_name_is_listed() {
+        let scratch = Scratch::new("screen-qualified");
+        let warehouse = scratch.open();
+        for sql in ["SELECT * FROM system.main.range(3)", "SELECT * FROM main.range(3)"] {
+            let refused = screened_out(&warehouse, sql);
+            assert!(
+                matches!(refused, NotARead::TableFunction(ref name) if name == "range"),
+                "`{sql}`: {refused:?}"
+            );
+        }
+    }
+
+    /// The screen's fourth class: a tree nested deeper than `serde_json` reads is refused rather
+    /// than passed unread, so nesting cannot carry a table function past the walk.
+    #[test]
+    fn a_text_nested_past_what_the_screen_reads_is_refused() {
+        let scratch = Scratch::new("screen-deep");
+        let warehouse = scratch.open();
+        let before = logging(&warehouse);
+        let depth = 70;
+        let sql = format!(
+            "SELECT {}(SELECT count(*) FROM enable_logging('QueryLog')){}",
+            "abs(".repeat(depth),
+            ")".repeat(depth)
+        );
+        let refused = screened_out(&warehouse, &sql);
+        assert!(matches!(refused, NotARead::Unreadable { .. }), "{refused:?}");
+        assert_eq!(logging(&warehouse), before);
+    }
+
+    /// What the screen lets through answers: every listed table function, the read shapes
+    /// `DuckDB` parses as a `SELECT`, and a text of several of them.
+    #[test]
+    fn a_read_the_screen_lists_answers_through_it() {
+        let scratch = Scratch::new("screen-read");
+        let warehouse = scratch.open();
+        for sql in [
+            "SELECT * FROM range(3)",
+            "SELECT * FROM generate_series(1, 3)",
+            "SELECT * FROM unnest([1, 2, 3])",
+            "SELECT table_name FROM duckdb_tables()",
+            "SELECT column_name FROM duckdb_columns()",
+            "SELECT view_name FROM duckdb_views()",
+            "SELECT schema_name FROM duckdb_schemas()",
+            "SELECT type_name FROM duckdb_types()",
+            "SELECT constraint_type FROM duckdb_constraints()",
+            "SELECT index_name FROM duckdb_indexes()",
+            "DESCRIBE t",
+            "FROM t",
+            "WITH x AS (SELECT id FROM t) SELECT * FROM x",
+            "SELECT id FROM t; SELECT amount FROM t",
+        ] {
+            drop(answer(&warehouse, sql));
         }
     }
 
