@@ -895,3 +895,64 @@ cross-builds for both musl triples, and `nix/duckdb-adbc.nix` links a `-static` 
 merged archive, which the musl artifacts now receive as an ADBC driver. The rest of that entry
 stands: `sutura-exec-duckdb` is still a dev-dependency, and shipping a data source still changes the
 cross-build matrix - and this change moved it without shipping one.
+
+## Sixth amendment, 2026-10-08: a federated answer's wall clock is measured in process, and it leaves both numbers alone
+
+The third amendment measured the deadline on one source and stated that nothing it found could be
+quoted as a bound on a federated answer, because `answer_path` binds `RefusingCombiner` and so never
+combines. This is the in-process half of that gap: a second `divan` bench, `federated_answer`, runs
+the derived federated corpus's widest questions through the real `DataFusionCombiner`. **The networked
+half is not here** - it needs a live venue, and a bench cannot supply one.
+
+**Conditions, stated before the numbers.** A 15-core Apple Silicon developer host (arm64, macOS), the
+pinned `nightly-2026-09-27` toolchain, the `bench` profile (optimized), corpus revision `951045642`.
+`just bench` narrowed to this one harness (`-p sutura-app --bench federated_answer`, `--all-features`
+kept). The harness printed `venue: load average 10.98 over 15 core(s)` and its own contention warning
+did not fire. The first reading was 11.24 and the 5- and 15-minute averages were 11.01 and 14.41, so
+this was a host with work on it, not a quiet one: one other top-level build or test step host-wide
+(counted by the lane gate's own census) and one `nice`d fuzz run were live, and the 1-minute figure
+includes this step's own build, which had finished seconds earlier. **The three runs were
+back-to-back, inside five seconds of each other.** They are one condition sampled three times, not
+three venues - the spread below is the noise of that moment and says nothing about the same bench on
+another day. A number taken under this repository's usual multi-lane load is an envelope, not a
+default.
+
+100 samples of 100 iterations per case, per run. Each question is answered once before it is timed,
+and a refusal would have been reported and skipped rather than timed - all three cases answered.
+
+| Case (derived two-source corpus) | median, run 1 / 2 / 3    | fastest - slowest, all runs | median of the three medians, as a share of the 29 s budget |
+| -------------------------------- | ------------------------ | --------------------------- | ---------------------------------------------------------- |
+| `widest_two_source_answer`       | 3.021 / 2.579 / 2.583 ms | 2.407 - 3.830 ms            | 2.583 ms = 0.0089%                                         |
+| `combine_then_rank_top`          | 2.559 / 2.098 / 2.072 ms | 1.867 - 3.621 ms            | 2.098 ms = 0.0072%                                         |
+| `one_remote_dimension`           | 2.267 / 1.977 / 1.933 ms | 1.752 - 3.129 ms            | 1.977 ms = 0.0068%                                         |
+
+The widest question is `region` (on the second source) and `product_family` (on the first) over the
+corpus's July rows, which carry a null join key, a remote orphan and a same-source orphan, so both
+legs and the combine all do work. The 29 seconds is the third amendment's: the 30-second default less
+`0029`'s one-second reply margin, which is what the execution port opens. The worst single sample in
+any run, 3.830 ms, is 0.013% of it.
+
+**What it decides.** Nothing moves. On this corpus, in process, the widest federated answer costs about
+one part in eleven thousand of the budget, so the third amendment's conclusion for one source holds
+for two: **the 30-second default is nowhere near binding, and nothing here argues for a different
+number.** The working-set default is untouched, and this bench observes no peak - the distinct-key
+pull-up that would set one is still refused before execution, so its peak cannot be taken until that
+refusal lifts.
+
+**What it does not decide.**
+
+- **No network.** A deadline exists for a source that is slow because it is far away. Both legs here
+  are `DataFusion` over local CSVs, so this is the cost of splitting, combining and materialising and
+  not of waiting. The networked federated answer is still unmeasured; nothing here may be quoted as a
+  bound on it.
+- **Widest by dimensions, not by statements.** The two-fact ratio, which runs three statements, is not
+  in the bench.
+- **Hundreds of rows.** The same limit as the two amendments above: a floor on a real deployment's
+  cost, not a ceiling on it.
+- **One identity.** Both legs run as the deployment itself. This is the cost of the path and says
+  nothing about a leg executing as the asking subject.
+- **No like-for-like against one source.** The third amendment's 755.9 us and 1.453 ms came from a
+  load of 4.34 on an earlier tree, and were not re-taken here, so no ratio between those and these
+  figures is drawn.
+- **Held by a reader.** `just bench` is not a gate. Nothing fails if these numbers move, and the
+  figures above are restated in prose, which nobody holds.
