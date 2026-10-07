@@ -1,0 +1,46 @@
+version: 2
+seeds:
+  - name: fct_subscription_monthly
+    description: >-
+      One row per subscription per month: what that subscription was worth in the month, and what
+      state it was in at the end of it.
+    columns:
+      - name: month
+        data_type: DATE
+        description: The first day of the month this snapshot row describes.
+      - name: subscription_key
+        data_type: INT64
+        description: The surrogate key of the subscription.
+      - name: customer_key
+        data_type: INT64
+        description: The customer this subscription belongs to.
+      - name: product_key
+        data_type: INT64
+        description: The product this subscription was on this month.
+      - name: status
+        data_type: STRING
+        description: The state at the end of the month - active or terminated.
+      - name: mrr_cents
+        data_type: INT64
+        description: Recurring revenue for the month, in minor units.
+      - name: churned_in_month
+        data_type: BOOL
+        description: Whether this subscription churned during the month.
+      - name: contract_term
+        data_type: STRING
+        description: The contract length - annual or monthly.
+  - name: dim_customer
+    description: One row per customer, with the attributes an answer may be grouped by.
+    columns:
+      - name: customer_key
+        data_type: INT64
+        description: The surrogate key every fact table joins on.
+      - name: customer_id
+        data_type: STRING
+        description: The business key a person would quote, for example C0001.
+      - name: segment
+        data_type: STRING
+        description: The commercial segment - business, consumer or wholesale.
+      - name: region
+        data_type: STRING
+        description: Which of the five regions this customer is in.

@@ -1,0 +1,293 @@
+# The Google side of the multi-player example: a workload identity pool that trusts the local
+# Keycloak realm, one service account per test user, and a dataset whose row access policies give
+# alice and bob different rows. Run ../setup.sh first: this program reads ../.local/jwks.json.
+#
+#   pulumi stack init local && pulumi config set project <your-project-id>
+#   pulumi up
+#   pulumi stack output settings > ../conf/development.yaml
+#
+# `pulumi destroy` removes everything this program created.
+name: sutura-multi-player
+runtime: yaml
+description: Test accounts and data for the sutura multi-player example.
+
+config:
+  project:
+    type: string
+  location:
+    type: string
+    default: EU
+  datasetId:
+    type: string
+    default: sutura_example
+
+variables:
+  projectNumber:
+    fn::invoke:
+      function: gcp:organizations:getProject
+      arguments:
+        projectId: ${project}
+      options:
+        provider: ${google}
+      return: number
+  # The fixed Keycloak user ids (keycloak/realm.json). A token's `sub` is this id.
+  aliceSubject: 0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01
+  bobSubject: 0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02
+  poolPrincipal: principal://iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${pool.workloadIdentityPoolId}/subject
+  tableSchema:
+    fct_subscription_monthly:
+      - { name: month, type: DATE, mode: REQUIRED }
+      - { name: subscription_key, type: INT64, mode: REQUIRED }
+      - { name: customer_key, type: INT64, mode: REQUIRED }
+      - { name: product_key, type: INT64, mode: REQUIRED }
+      - { name: status, type: STRING, mode: REQUIRED }
+      - { name: mrr_cents, type: INT64, mode: REQUIRED }
+      - { name: churned_in_month, type: BOOL, mode: REQUIRED }
+      - { name: contract_term, type: STRING, mode: REQUIRED }
+    dim_customer:
+      - { name: customer_key, type: INT64, mode: REQUIRED }
+      - { name: customer_id, type: STRING, mode: REQUIRED }
+      - { name: segment, type: STRING, mode: REQUIRED }
+      - { name: region, type: STRING, mode: REQUIRED }
+
+resources:
+  google:
+    type: pulumi:providers:gcp
+    properties:
+      project: ${project}
+    options:
+      version: 9.37.0
+
+  # Enabling an API is project-wide. A destroy leaves them on.
+  iamApi:
+    type: gcp:projects:Service
+    properties: { service: iam.googleapis.com, disableOnDestroy: false }
+    options: { provider: "${google}" }
+  iamCredentialsApi:
+    type: gcp:projects:Service
+    properties: { service: iamcredentials.googleapis.com, disableOnDestroy: false }
+    options: { provider: "${google}" }
+  stsApi:
+    type: gcp:projects:Service
+    properties: { service: sts.googleapis.com, disableOnDestroy: false }
+    options: { provider: "${google}" }
+  bigqueryApi:
+    type: gcp:projects:Service
+    properties: { service: bigquery.googleapis.com, disableOnDestroy: false }
+    options: { provider: "${google}" }
+  bigqueryStorageApi:
+    type: gcp:projects:Service
+    properties: { service: bigquerystorage.googleapis.com, disableOnDestroy: false }
+    options: { provider: "${google}" }
+
+  pool:
+    type: gcp:iam:WorkloadIdentityPool
+    properties:
+      workloadIdentityPoolId: sutura-multi-player
+      displayName: sutura multi-player example
+    options: { provider: "${google}", dependsOn: ["${iamApi}", "${stsApi}"] }
+
+  # Trusts tokens the local realm signs. Google cannot reach a local Keycloak, so the public keys
+  # are uploaded. A new realm key means `pulumi up` again.
+  keycloakProvider:
+    type: gcp:iam:WorkloadIdentityPoolProvider
+    properties:
+      workloadIdentityPoolId: ${pool.workloadIdentityPoolId}
+      workloadIdentityPoolProviderId: keycloak
+      displayName: local Keycloak realm
+      attributeMapping:
+        google.subject: assertion.sub
+      oidc:
+        issuerUri: https://localhost:8443/realms/sutura-example
+        # The audience of the token sutura gets from Keycloak's token exchange.
+        allowedAudiences: [sutura-gcp-pool]
+        jwksJson:
+          fn::readFile: ../.local/jwks.json
+    options: { provider: "${google}" }
+
+  aliceAccount:
+    type: gcp:serviceaccount:Account
+    properties: { accountId: sutura-mp-alice, displayName: sutura example user alice }
+    options: { provider: "${google}", dependsOn: ["${iamApi}"] }
+  bobAccount:
+    type: gcp:serviceaccount:Account
+    properties: { accountId: sutura-mp-bob, displayName: sutura example user bob }
+    options: { provider: "${google}", dependsOn: ["${iamApi}"] }
+
+  # One subject per account: only alice's token may act as alice's account. No principalSet.
+  aliceWorkloadIdentityUser:
+    type: gcp:serviceaccount:IAMMember
+    properties:
+      serviceAccountId: ${aliceAccount.name}
+      role: roles/iam.workloadIdentityUser
+      member: ${poolPrincipal}/${aliceSubject}
+    options: { provider: "${google}" }
+  bobWorkloadIdentityUser:
+    type: gcp:serviceaccount:IAMMember
+    properties:
+      serviceAccountId: ${bobAccount.name}
+      role: roles/iam.workloadIdentityUser
+      member: ${poolPrincipal}/${bobSubject}
+    options: { provider: "${google}" }
+
+  aliceJobUser:
+    type: gcp:projects:IAMMember
+    properties: { project: "${project}", role: roles/bigquery.jobUser, member: "${aliceAccount.member}" }
+    options: { provider: "${google}" }
+  bobJobUser:
+    type: gcp:projects:IAMMember
+    properties: { project: "${project}", role: roles/bigquery.jobUser, member: "${bobAccount.member}" }
+    options: { provider: "${google}" }
+  # The driver reads results through the BigQuery Storage Read API.
+  aliceReadSessionUser:
+    type: gcp:projects:IAMMember
+    properties: { project: "${project}", role: roles/bigquery.readSessionUser, member: "${aliceAccount.member}" }
+    options: { provider: "${google}" }
+  bobReadSessionUser:
+    type: gcp:projects:IAMMember
+    properties: { project: "${project}", role: roles/bigquery.readSessionUser, member: "${bobAccount.member}" }
+    options: { provider: "${google}" }
+
+  dataset:
+    type: gcp:bigquery:Dataset
+    properties:
+      datasetId: ${datasetId}
+      location: ${location}
+      deleteContentsOnDestroy: true
+    options: { provider: "${google}", dependsOn: ["${bigqueryApi}"] }
+  subscriptions:
+    type: gcp:bigquery:Table
+    properties:
+      datasetId: ${dataset.datasetId}
+      tableId: fct_subscription_monthly
+      deletionProtection: false
+      schema:
+        fn::toJSON: ${tableSchema.fct_subscription_monthly}
+    options: { provider: "${google}" }
+  customers:
+    type: gcp:bigquery:Table
+    properties:
+      datasetId: ${dataset.datasetId}
+      tableId: dim_customer
+      deletionProtection: false
+      schema:
+        fn::toJSON: ${tableSchema.dim_customer}
+    options: { provider: "${google}" }
+
+  # The rows: the single-player CSV files, loaded through a bucket.
+  seedBucket:
+    type: gcp:storage:Bucket
+    properties:
+      name: ${project}-sutura-mp-seed
+      location: ${location}
+      uniformBucketLevelAccess: true
+      forceDestroy: true
+    options: { provider: "${google}" }
+  subscriptionsCsv:
+    type: gcp:storage:BucketObject
+    properties:
+      bucket: ${seedBucket.name}
+      name: fct_subscription_monthly.csv
+      source:
+        fn::fileAsset: ../../single-player/data/fct_subscription_monthly.csv
+    options: { provider: "${google}" }
+  customersCsv:
+    type: gcp:storage:BucketObject
+    properties:
+      bucket: ${seedBucket.name}
+      name: dim_customer.csv
+      source:
+        fn::fileAsset: ../../single-player/data/dim_customer.csv
+    options: { provider: "${google}" }
+  subscriptionsLoad:
+    type: gcp:bigquery:Job
+    properties:
+      jobId: sutura-mp-subscriptions-${subscriptionsCsv.generation}
+      location: ${location}
+      load:
+        sourceUris: ["gs://${seedBucket.name}/${subscriptionsCsv.name}"]
+        destinationTable: {
+          projectId: "${project}",
+          datasetId: "${dataset.datasetId}",
+          tableId: "${subscriptions.tableId}",
+        }
+        sourceFormat: CSV
+        skipLeadingRows: 1
+        createDisposition: CREATE_NEVER
+        writeDisposition: WRITE_TRUNCATE
+    options: { provider: "${google}" }
+  customersLoad:
+    type: gcp:bigquery:Job
+    properties:
+      jobId: sutura-mp-customers-${customersCsv.generation}
+      location: ${location}
+      load:
+        sourceUris: ["gs://${seedBucket.name}/${customersCsv.name}"]
+        destinationTable: {
+          projectId: "${project}",
+          datasetId: "${dataset.datasetId}",
+          tableId: "${customers.tableId}",
+        }
+        sourceFormat: CSV
+        skipLeadingRows: 1
+        createDisposition: CREATE_NEVER
+        writeDisposition: WRITE_TRUNCATE
+    options: { provider: "${google}" }
+
+  # alice reads the annual contracts, bob the monthly ones. dim_customer has no policy, so both
+  # read all of it.
+  aliceRows:
+    type: gcp:bigquery:RowAccessPolicy
+    properties:
+      datasetId: ${dataset.datasetId}
+      tableId: ${subscriptions.tableId}
+      policyId: alice_annual
+      grantees: ["${aliceAccount.member}"]
+      filterPredicate: contract_term = 'annual'
+    options: { provider: "${google}", dependsOn: ["${subscriptionsLoad}"] }
+  bobRows:
+    type: gcp:bigquery:RowAccessPolicy
+    properties:
+      datasetId: ${dataset.datasetId}
+      tableId: ${subscriptions.tableId}
+      policyId: bob_monthly
+      grantees: ["${bobAccount.member}"]
+      filterPredicate: contract_term = 'monthly'
+    options: { provider: "${google}", dependsOn: ["${subscriptionsLoad}"] }
+
+  # The read grant waits for both policies: before they exist, a reader sees every row.
+  aliceDataViewer:
+    type: gcp:bigquery:DatasetIamMember
+    properties: { datasetId: "${dataset.datasetId}", role: roles/bigquery.dataViewer, member: "${aliceAccount.member}" }
+    options: { provider: "${google}", dependsOn: ["${aliceRows}", "${bobRows}"] }
+  bobDataViewer:
+    type: gcp:bigquery:DatasetIamMember
+    properties: { datasetId: "${dataset.datasetId}", role: roles/bigquery.dataViewer, member: "${bobAccount.member}" }
+    options: { provider: "${google}", dependsOn: ["${aliceRows}", "${bobRows}"] }
+
+outputs:
+  # sutura's BigQuery source. JSON is YAML: `pulumi stack output settings > ../conf/development.yaml`.
+  # carol is not in `impersonate`, so sutura refuses her question instead of running it as anyone.
+  settings:
+    fn::toJSON:
+      sources:
+        warehouse:
+          kind: bigquery
+          billing_project: ${project}
+          dataset: ${dataset.datasetId}
+          # Required by the settings and not read: the driver authenticates as the caller.
+          credential_file: /nonexistent/not-read.json
+          max_bytes_billed: 1073741824
+          posture: impersonation-at-source
+          workload_identity:
+            audience: //iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${pool.workloadIdentityPoolId}/providers/${keycloakProvider.workloadIdentityPoolProviderId}
+            scope: https://www.googleapis.com/auth/bigquery
+            impersonate:
+              # alice and bob, by their Keycloak user id.
+              0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01: ${aliceAccount.email}
+              0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02: ${bobAccount.email}
+            delegation:
+              token_endpoint: http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token
+              client_id: https://sutura.example.com
+              client_secret_file: /run/sutura/exchange-secret
+              audience: sutura-gcp-pool
