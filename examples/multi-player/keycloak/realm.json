@@ -1,0 +1,125 @@
+{
+  "realm": "sutura-example",
+  "enabled": true,
+  "accessTokenLifespan": 3600,
+  "clientScopes": [
+    {
+      "name": "basic",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "false", "display.on.consent.screen": "false" },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": { "access.token.claim": "true", "introspection.token.claim": "true" }
+        }
+      ]
+    },
+    {
+      "name": "sutura:catalog.read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "sutura:metrics.ask",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "sutura",
+      "name": "Login client for the example users (password grant)",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "attributes": { "access.token.header.type.rfc9068": "true" },
+      "defaultClientScopes": ["basic", "sutura:catalog.read", "sutura:metrics.ask"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "resource-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "https://sutura.example.com",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "https://sutura.example.com",
+      "name": "sutura itself: exchanges a caller's token for one the Google pool accepts",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${SUTURA_EXCHANGE_SECRET}",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "attributes": { "standard.token.exchange.enabled": "true" },
+      "defaultClientScopes": ["basic"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "pool-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "sutura-gcp-pool",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "sutura-gcp-pool",
+      "name": "The audience the Google workload identity pool accepts",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "id": "0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01",
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Example",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "alice", "temporary": false }]
+    },
+    {
+      "id": "0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02",
+      "username": "bob",
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Example",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "bob", "temporary": false }]
+    },
+    {
+      "id": "0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a03",
+      "username": "carol",
+      "email": "carol@example.com",
+      "firstName": "Carol",
+      "lastName": "Example",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "carol", "temporary": false }]
+    }
+  ]
+}

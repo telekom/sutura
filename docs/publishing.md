@@ -23,25 +23,26 @@ gh-pages/
   index.html      redirect to the default version, written by `mike set-default`
   versions.json   the list the header's version selector reads
   .nojekyll       Pages runs Jekyll over a branch, and Jekyll drops `_`-prefixed paths
-  latest/         alias, moved onto each release - HTML redirects, one per page
-  0.2.0/
+  latest/         alias of main/ - HTML redirects, one per page
+  0.2.0/          a release, the tag's `v` dropped
   0.1.0/
-  main/           the development docs, overwritten by a push to main that touches them
+  main/           overwritten by a push to main that touches the docs
 ```
 
 | Event                           | Deploys                        | Alias                                                                   |
 | ------------------------------- | ------------------------------ | ----------------------------------------------------------------------- |
-| push to `main`                  | `main/`                        | none. `latest` stays pinned to the newest release                       |
-| push of a `v*` tag              | `<version>/`, the `v` stripped | `latest` moves onto it, and the root redirect follows                   |
-| `workflow_dispatch` from `main` | `main/`                        | none                                                                    |
+| push to `main`                  | `main/`                        | `latest` moves onto it, and the root redirect follows                   |
+| push of a `v*` tag              | `<version>/`, the `v` stripped | none. A release never moves `latest`                                    |
+| `workflow_dispatch` from `main` | `main/`                        | `latest`, as for a push                                                 |
 | pull request                    | nothing                        | builds with `--strict`, so a broken link or an orphan page fails the PR |
 
 Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
 the job fail rather than overwrite: a failed job is recoverable and a deleted version is not.
 
-The root redirect points at `latest` once a release exists. Before that the workflow sets the
-default to `main`, so the site has a working root from the first deployment rather than from the
-first tag.
+`latest` is the main branch and `X.Y.Z/` is a release (owner decision, 2026-10-06). The root redirect
+points at `latest`. A release tag published before main ever was points the root at its own
+directory, so the site has a working root from the first deployment. Release directories keep the
+form `0.6.1/`, without the tag's `v`, so every link already published still resolves.
 
 ## The one repository setting
 

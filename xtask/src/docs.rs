@@ -56,6 +56,7 @@ use crate::repo;
 
 mod exclude;
 mod links;
+mod site_links;
 
 /// The site configuration. Paths inside it are relative either to this file's directory (the
 /// repo root) or to the docs directory, and which is which is per key - see `asset_problems`.
@@ -580,6 +581,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     found.extend(asset_problems(&root, &docs_dir, &declared));
     found.extend(font_problem(&config));
     found.extend(superseded_problems(&root));
+    found.extend(site_links::unversioned());
 
     if found.is_empty() {
         println!(
@@ -926,6 +928,26 @@ extra:
         let (snippets, problems) = snippet_problems("markdown_extensions:\n  - admonition\n");
         assert!(matches!(snippets, super::links::Snippets::NotConfigured));
         assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    #[test]
+    fn a_site_link_must_name_latest_main_or_a_release() {
+        use super::site_links::versioned;
+
+        for allowed in ["latest/examples/", "main/", "0.6.1/serving/", ")", ">", "", "#top", "latest)"] {
+            assert!(versioned(allowed), "{allowed:?} is a versioned link or the bare root");
+        }
+        for refused in [
+            "examples/",
+            "examples/single-player/",
+            "serving/",
+            "v0.6.1/",
+            "0.6/",
+            "1.2.x/",
+            "latestx/",
+        ] {
+            assert!(!versioned(refused), "{refused:?} names no version and answers 404");
+        }
     }
 
     // NOTE: there is deliberately no test here that reads the real `mkdocs.yml` and the real

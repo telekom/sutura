@@ -401,6 +401,15 @@ mod tests {
     }
 
     #[test]
+    fn check_docs_passes_its_real_inputs_and_refuses_one_violation() {
+        assert_eq!(
+            paired_verdicts("check-docs"),
+            (crate::Verdict::Pass, crate::Verdict::Fail),
+            "check-docs {PAIRED_MESSAGE}"
+        );
+    }
+
+    #[test]
     fn check_guidance_passes_its_real_inputs_and_refuses_one_violation() {
         assert_eq!(
             paired_verdicts("check-guidance"),
@@ -436,18 +445,25 @@ mod tests {
         paired_gates.sort_unstable();
         assert_eq!(
             paired_gates,
-            ["check-boundaries", "check-guidance", "check-venues", "check-warm-start"],
+            [
+                "check-boundaries",
+                "check-docs",
+                "check-guidance",
+                "check-venues",
+                "check-warm-start"
+            ],
             "the paired set changed: a gate gained or lost `Falsifier::paired`; add or drop its cell"
         );
     }
 
-    /// `.config/nextest.toml` names the four cells for their group and ceiling, and nextest accepts a
+    /// `.config/nextest.toml` names the per-gate cells for their group and ceiling, and nextest accepts a
     /// filter that matches nothing, so a typo or a rename drops a cell from both with no red. The
     /// expected names are the compiler's own (`type_name_of_val` of each cell), so a rename moves them.
     #[test]
     fn the_nextest_group_names_exactly_the_per_gate_cells() {
         let mut expected = [
             std::any::type_name_of_val(&check_boundaries_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_docs_passes_its_real_inputs_and_refuses_one_violation),
             std::any::type_name_of_val(&check_guidance_passes_its_real_inputs_and_refuses_one_violation),
             std::any::type_name_of_val(&check_venues_passes_its_real_inputs_and_refuses_one_violation),
             std::any::type_name_of_val(&check_warm_start_passes_its_real_inputs_and_refuses_one_violation),

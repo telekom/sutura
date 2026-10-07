@@ -1,0 +1,4 @@
+# A template. Your stack (for example `local`) keeps its values in Pulumi.local.yaml, which git ignores.
+config:
+  sutura-multi-player:project: your-project-id
+  sutura-multi-player:location: EU
