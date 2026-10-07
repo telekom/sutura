@@ -172,11 +172,11 @@ let
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
       features = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
-      # `tokio-postgres` is banned by name (`github.com/telekom/sutura#1246`). Since
-      # `github.com/telekom/sutura#913` stage 2 the shipped `postgres` feature answers over the
-      # ADBC driver, and `tokio-postgres` reaches this crate only as a dev-dependency and through
-      # `rdbms`, which `features` above does not ship. A change that ships `rdbms` removes this
-      # ban in the same diff, the way `permit` below lifts `ring` and `ureq`.
+      # `tokio-postgres` is banned by name (`github.com/telekom/sutura#1246`). Every Postgres
+      # source and the RDBMS catalog reader answer over the ADBC connector now, so no crate in the
+      # workspace depends on it. This entry keeps it that way: a dependency or feature that brings
+      # it back into the shipped binary fails `checks.shipped-features`. A change that ships it
+      # on purpose lifts the ban in the same diff, the way `permit` below lifts `ring` and `ureq`.
       alsoForbidden = [ "tokio-postgres" ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
       # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
@@ -784,8 +784,8 @@ let
         # and `ureq` are in it.
         #
         # Per-binary rather than only shared: a binary's own `alsoForbidden` (declared beside
-        # it above) is appended per binary in `checkOne` below. `sutura`'s is empty - it
-        # legitimately links `polyglot-sql` for `compile`, which used to be `sutura-serve`'s
+        # it above) is appended per binary in `checkOne` below. `sutura`'s names `tokio-postgres`
+        # alone - it legitimately links `polyglot-sql` for `compile`, which used to be `sutura-serve`'s
         # own reason to ban it for ITSELF alone; folding the two binaries into one made that
         # ban moot rather than something to carry forward.
         forbidden = [ "ring" "ureq" ];
