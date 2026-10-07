@@ -1,15 +1,19 @@
 diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
 --- a/crates/sutura-domain/src/catalog/consistency.rs
 +++ b/crates/sutura-domain/src/catalog/consistency.rs
-@@ -483,11 +483,11 @@
+@@ -489,7 +489,7 @@ impl Definitions {
+     /// reads an absent fact's leaves as it) and re-aggregate across the two fact legs.
      fn check_cross_model_aggregate(metric: &Metric, aggregate: Aggregate) -> Result<(), InconsistentDefinitions> {
-         let metric = metric.name.clone();
          match aggregate {
--            Aggregate::Avg | Aggregate::Min | Aggregate::Max => {
-+            Aggregate::Avg | Aggregate::Max => {
-                 Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue { metric, aggregate })
-             }
-             Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate { metric, aggregate }),
+-            Aggregate::Avg | Aggregate::Min | Aggregate::Max => Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
++            Aggregate::Avg | Aggregate::Max => Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
+                 metric: metric.name.clone(),
+                 aggregate,
+             }),
+@@ -497,7 +497,7 @@ impl Definitions {
+                 metric: metric.name.clone(),
+                 aggregate,
+             }),
 -            Aggregate::Sum | Aggregate::Count => Ok(()),
 +            Aggregate::Sum | Aggregate::Count | Aggregate::Min => Ok(()),
          }

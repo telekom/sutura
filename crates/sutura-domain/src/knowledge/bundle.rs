@@ -779,24 +779,24 @@ impl Knowledge {
     /// period longer than a request may ask for, and more group-by keys than a request may carry.
     fn check_question(definitions: &Definitions, note: &Example) -> Result<(), InconsistentKnowledge> {
         let question = note.question();
-        let name = note.name().clone();
+        let name = note.name();
         if question.metrics().len() > 1 {
             return Err(InconsistentKnowledge::ExampleNamesMultipleMetrics {
-                name,
+                name: name.clone(),
                 requested: question.metrics().len(),
             });
         }
-        let metric_name = question.metric().clone();
-        let Some(metric) = definitions.metric(&metric_name) else {
+        let metric_name = question.metric();
+        let Some(metric) = definitions.metric(metric_name) else {
             return Err(InconsistentKnowledge::ExampleUnknownMetric {
-                name,
-                metric: metric_name,
+                name: name.clone(),
+                metric: metric_name.clone(),
             });
         };
         if !metric.supports_grain(question.grain()) {
             return Err(InconsistentKnowledge::ExampleGrainNotSupported {
-                name,
-                metric: metric_name,
+                name: name.clone(),
+                metric: metric_name.clone(),
                 grain: question.grain(),
             });
         }
@@ -805,14 +805,14 @@ impl Knowledge {
         let days = question.range().days();
         if days > MAX_RANGE_DAYS {
             return Err(InconsistentKnowledge::ExampleRangeTooLong {
-                name,
+                name: name.clone(),
                 days,
                 limit: MAX_RANGE_DAYS,
             });
         }
         if question.dimensions().len() > MAX_DIMENSIONS {
             return Err(InconsistentKnowledge::ExampleTooManyDimensions {
-                name,
+                name: name.clone(),
                 requested: question.dimensions().len(),
                 limit: MAX_DIMENSIONS,
             });
@@ -820,8 +820,8 @@ impl Knowledge {
         for dimension in question.dimensions() {
             if metric.dimension(dimension).is_none() {
                 return Err(InconsistentKnowledge::ExampleDimensionNotPermitted {
-                    name,
-                    metric: metric_name,
+                    name: name.clone(),
+                    metric: metric_name.clone(),
                     dimension: dimension.clone(),
                 });
             }
@@ -832,8 +832,8 @@ impl Knowledge {
                 let permitted = declared.is_some_and(|declared| declared.permits(value));
                 if !permitted {
                     return Err(InconsistentKnowledge::ExampleValueNotAllowed {
-                        name,
-                        metric: metric_name,
+                        name: name.clone(),
+                        metric: metric_name.clone(),
                         dimension: filter.dimension().clone(),
                         value: value.clone(),
                     });
