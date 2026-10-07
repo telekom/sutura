@@ -1169,6 +1169,9 @@ anything else runs. Each is measured against the pinned driver by a cell in
   at any depth, one of the generators and catalog reads `sutura_exec_duckdb::RAW_TABLE_FUNCTIONS`
   lists, unqualified. `CALL`, `PRAGMA`, `SET`, `EXPLAIN`, `CREATE`, a `PIVOT` statement, a table function not
   listed and a tree nested too deep to read are refused before any statement in the text runs.
+- **The nesting bound**: the text's queries may nest at most `sutura_exec_duckdb::MAX_NESTING` deep
+  and number at most `sutura_exec_duckdb::MAX_QUERIES`, across its statements, a reference to a CTE
+  counted as the query it names. A text past either is refused before any of it runs.
 
 - `access_mode = READ_ONLY`: no write and no DDL takes effect, and a file that is not there is
   refused at boot rather than created.
@@ -1207,7 +1210,7 @@ refused as `result_too_large`.
 - **Spilling to disk is not measured.** The spill directory is a local file system, which this open
   disables, so a statement too large for memory is expected to fail rather than spill.
 - **The screen walks the text, not what the database file declares.** A macro or a view the file
-  holds is expanded after the screen, so what it calls is not walked; the file is the operator's,
+  holds is expanded after the screen, so what it calls is not walked or counted; the file is the operator's,
   and the settings still hold under it. Scalar functions are not screened: a pass over the pinned
   driver's function names found none that acts beyond its call, and that pass is not exhaustive.
 - **A refused statement answers `statement_failed`, never `source_refused`**: the driver's error

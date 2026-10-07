@@ -350,3 +350,20 @@ fn a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name() {
     );
     assert!(warehouse.deadline_exceeded(&error), "{error:?}");
 }
+
+/// The screen reads the CTEs of a node it can find all of, and only those: a `cte_map` of any other
+/// shape than the one the pinned parser answers is refused unread, so no CTE in it goes unwalked.
+#[test]
+fn a_cte_map_of_another_shape_is_refused_unread() {
+    for cte_map in [r#"{"map": [], "extra": []}"#, r#"{"other": []}"#, r#"{"map": {}}"#, "[]"] {
+        let tree = format!(r#"{{"error": false, "statements": [{{"node": {{"type": "SELECT_NODE", "cte_map": {cte_map}}}}}]}}"#);
+        let refused = super::screen::screen(&tree);
+        assert!(
+            matches!(refused, Err(super::NotARead::Unreadable { cause: None })),
+            "{cte_map}: {refused:?}"
+        );
+    }
+    let read =
+        super::screen::screen(r#"{"error": false, "statements": [{"node": {"type": "SELECT_NODE", "cte_map": {"map": []}}}]}"#);
+    assert!(read.is_ok(), "{read:?}");
+}

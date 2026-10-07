@@ -28,7 +28,7 @@ mod raw {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{RawRows, ResultBudget, Value, Warehouse as _};
-    use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse, NotARead, write_database};
+    use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse, MAX_NESTING, MAX_QUERIES, NotARead, write_database};
 
     /// A directory of this test's own, holding a database with one table `t` of two rows and a CSV
     /// beside it that is NOT in the database.
@@ -542,6 +542,60 @@ mod raw {
         let refused = screened_out(&warehouse, &sql);
         assert!(matches!(refused, NotARead::Unreadable { .. }), "{refused:?}");
         assert_eq!(logging(&warehouse), before);
+    }
+
+    /// The nesting bound: queries nested [`MAX_NESTING`] deep answer and one level deeper is
+    /// refused by name. A reference to a CTE counts as the query it names, however its case is
+    /// spelled, so a chain of CTEs nests as deep as the subqueries it stands for.
+    #[test]
+    fn a_text_nested_past_the_nesting_bound_is_refused_by_name() {
+        let scratch = Scratch::new("screen-nesting");
+        let warehouse = scratch.open();
+        let deepest = usize::try_from(MAX_NESTING).expect("the bound is a count");
+        let subqueries = |inner: usize| format!("SELECT {}1{}", "(SELECT ".repeat(inner), ")".repeat(inner));
+        let chained = |ctes: usize| {
+            let chain: Vec<String> = (1..=ctes)
+                .map(|cte| format!("c{cte} AS (SELECT x FROM C{})", cte - 1))
+                .collect();
+            format!("WITH c0 AS (SELECT 1 AS x), {} SELECT x FROM C{ctes}", chain.join(", "))
+        };
+        for sql in [subqueries(deepest - 1), chained(deepest - 2)] {
+            drop(answer(&warehouse, &sql));
+        }
+        for sql in [subqueries(deepest), chained(deepest - 1)] {
+            let refused = screened_out(&warehouse, &sql);
+            assert!(
+                matches!(refused, NotARead::TooDeep { depth } if depth == MAX_NESTING + 1),
+                "`{sql}`: {refused:?}"
+            );
+        }
+    }
+
+    /// The query bound: a text of [`MAX_QUERIES`] queries answers and one more is refused by name,
+    /// counted across its statements. A CTE counts again at every reference to it, however its case
+    /// is spelled, so a few lines that refer to each CTE several times count every query they stand
+    /// for.
+    #[test]
+    fn a_text_holding_more_queries_than_the_bound_is_refused_by_name() {
+        let scratch = Scratch::new("screen-queries");
+        let warehouse = scratch.open();
+        let most = usize::try_from(MAX_QUERIES).expect("the bound is a count");
+        let statements = |count: usize| vec!["SELECT 1"; count].join("; ");
+        drop(answer(&warehouse, &statements(most)));
+        let refused = screened_out(&warehouse, &statements(most + 1));
+        assert!(
+            matches!(refused, NotARead::TooMany { queries } if queries == MAX_QUERIES + 1),
+            "{refused:?}"
+        );
+        let fanned: Vec<String> = (1..=5)
+            .map(|cte| format!("c{cte} AS (SELECT a.x FROM C{p} a, C{p} b, C{p} c, C{p} d)", p = cte - 1))
+            .collect();
+        let sql = format!("WITH c0 AS (SELECT 1 AS x), {} SELECT count(*) FROM c5", fanned.join(", "));
+        let refused = screened_out(&warehouse, &sql);
+        assert!(
+            matches!(refused, NotARead::TooMany { queries } if queries > MAX_QUERIES),
+            "`{sql}`: {refused:?}"
+        );
     }
 
     /// What the screen lets through answers: every listed table function, the read shapes

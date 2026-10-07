@@ -40,8 +40,9 @@
 //!   every one before any runs, and [`READ_ONLY`] and [`THEN_LOCKED`] are what each of them runs
 //!   under.
 //! - **What a raw text may be**: reads only - every statement a `SELECT` by `DuckDB`'s own parser,
-//!   calling only [`RAW_TABLE_FUNCTIONS`]. A macro or view the database file declares is expanded
-//!   after the screen and not walked, and scalar functions are not screened.
+//!   calling only [`RAW_TABLE_FUNCTIONS`], its queries nested no deeper than [`MAX_NESTING`] and
+//!   no more than [`MAX_QUERIES`] of them. A macro or view the database file declares is expanded
+//!   after the screen and not walked or counted, and scalar functions are not screened.
 //!   `DuckDB`'s own `memory_limit` is its default, not `runtime.working_set_max_bytes`, and spilling
 //!   is unmeasured: no local file opens after the database does, so a statement too large for
 //!   memory is expected to fail rather than spill.
@@ -73,7 +74,7 @@ use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 mod screen;
-pub use screen::{NotARead, RAW_TABLE_FUNCTIONS};
+pub use screen::{MAX_NESTING, MAX_QUERIES, NotARead, RAW_TABLE_FUNCTIONS};
 
 /// The variable a host that links no driver names a mounted `libduckdb` with.
 ///
