@@ -157,7 +157,7 @@ where
 /// entries declared an interval - the shortest is the one that makes every declared interval hold
 /// (an entry that asked for one minute is never left waiting five just because a second entry in
 /// the same deployment asked for less).
-fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Duration> {
+pub(crate) fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Duration> {
     declared
         .each()
         .filter_map(sutura_config::CatalogSettings::refresh_seconds)
@@ -175,8 +175,8 @@ fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Dura
 /// Takes the opened catalogs and the boot pin BY VALUE: the poll is their last holder, so nothing is
 /// cloned for it - and a catalog holding a credential (the `rdbms` reader's connection string) need
 /// not be `Clone` at all.
-pub(crate) fn drive(catalogs: OpenedCatalogs, pinned: PinnedDefinitions, declared: &sutura_config::Catalogs) {
-    let Some(interval) = shortest_declared_interval(declared) else {
+pub(crate) fn drive(catalogs: OpenedCatalogs, pinned: PinnedDefinitions, interval: Option<Duration>) {
+    let Some(interval) = interval else {
         return;
     };
     if tokio::runtime::Handle::try_current().is_err() {
