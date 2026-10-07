@@ -36,6 +36,7 @@ impl Served {
     }
 
     /// A GET carrying `host` as its `Host` header instead of the listener's own address.
+    #[cfg(feature = "agent")]
     pub(crate) fn get_as_host(&self, host: &str, path: &str, token: Option<&str>) -> Reply {
         self.send("GET", path, token, None, None, Some(host))
     }
