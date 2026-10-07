@@ -159,7 +159,7 @@ impl OkfCatalog {
             )
             .map_err(|cause| OkfCatalogError::InvalidColumnDescription {
                 path: path.to_path_buf(),
-                column: column_name.clone(),
+                column: column_name,
                 cause,
             })?;
             columns.push(column);

@@ -14,7 +14,7 @@ index ebe03c260..609ba28e7 100644
 -            )
 -            .map_err(|cause| OkfCatalogError::InvalidColumnDescription {
 -                path: path.to_path_buf(),
--                column: column_name.clone(),
+-                column: column_name,
 -                cause,
 -            })?;
 +            let column = Column::from_metadata(column_name, field.r#type.as_deref(), field_description.as_deref(), None)
