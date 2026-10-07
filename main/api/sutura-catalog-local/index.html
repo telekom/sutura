@@ -5052,11 +5052,13 @@ good at.</p>
 <h4 id="struct-caveatdoc"><code>struct CaveatDoc</code><a class="headerlink" href="#struct-caveatdoc" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CaveatDoc</span>
 </span></code></pre></div>
-<p>One caveat, and everything it is about.</p>
-<p><code>about</code> has no default. A caveat scoped to nothing is refused by
-<code>sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing</code>, and that refusal is what
-keeps the catalog from having an unscoped channel into the prompt - so the field being required
-here means the author is told about the missing key rather than about the empty list.</p>
+<p>One caveat, and everything it is about: the metrics in <code>about</code>, or the relationships in
+<code>relationships</code> that the domain expands into one caveat per metric reaching a dimension through
+them.</p>
+<p>Both default to empty, because a caveat names one or the other. A caveat naming neither is
+refused by <code>sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing</code>, and that
+refusal - in the domain, where every adapter has it - is what keeps the catalog from having an
+unscoped channel into the prompt.</p>
 <h5 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_domain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="nc">NoteBody</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Caveat</span>
 </span></code></pre></div>

@@ -2488,9 +2488,11 @@ column. <code>semanticType</code> is <code>column</code>/<code>measure</code>/<c
 documented as <em>an aggregated value whose aggregation expression is held in <code>transformLogic</code></em>. <code>synonyms</code>
 (RFC-0041) helps tools resolve business vocabulary, and <code>context</code> (RFC-0038, contract and
 <code>SchemaObject</code> level) carries <code>instructions</code>, <code>verifiedStatements</code> Q&amp;A and <code>constraints</code> for AI agents.
-<code>context</code> and <code>synonyms</code> are the closest thing ODCS has to this repository's <code>Knowledge</code>, but every
-<code>Referent</code> here is metric-anchored and ODCS has none - so they stay prose that travels rather than
-referent-bearing knowledge, the same limit <code>enum</code> and <code>semanticType: dimension</code> hit.</p>
+<code>context</code> and <code>synonyms</code> are the closest thing ODCS has to this repository's <code>Knowledge</code>. A <code>Referent</code>
+names a metric, a dimension or a value of one - and ODCS has no metric - or a declared model or
+column, which a schema object and its properties are. The adapter maps neither <code>context</code> nor <code>synonyms</code>
+to a referent, so they stay prose that travels rather than referent-bearing knowledge; <code>enum</code> and
+<code>semanticType: dimension</code> stay absent because there is no metric to own them.</p>
 <p><strong>Relationships.</strong> No relationship construct exists in the 3.0 line. v3.1.0 adds a <code>relationships</code>
 array at both levels together - schema-level on <code>SchemaObject</code>, property-level on <code>SchemaBaseProperty</code>
 (<code>from</code> implicit) - v3.2.0 unchanged bar an optional <code>id</code>. A relationship carries <code>type</code> (constant
@@ -2628,7 +2630,7 @@ own verdict, unchanged.</p>
 <tr>
 <td><code>Knowledge</code> with <code>Referent</code></td>
 <td><code>description</code> / <code>businessName</code> free text, <code>context</code> (v3.2.0, RFC-0038) and <code>synonyms</code> (v3.2.0, RFC-0041)</td>
-<td><strong>partial</strong> - prose travels; every <code>Referent</code> is metric-anchored and there is no metric to anchor it to</td>
+<td><strong>partial</strong> - prose travels; no <code>Referent</code> is built: there is no metric, and the adapter maps no model note</td>
 </tr>
 </tbody>
 </table>
