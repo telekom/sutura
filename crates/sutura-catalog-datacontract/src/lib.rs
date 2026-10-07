@@ -317,16 +317,14 @@ impl DataContractCatalog {
                 column,
                 cause,
             })?;
-            // Primary key evidence: a column with `primaryKey: true` is part of the key, ordered by
-            // `primaryKeyPosition` (1-based). Evidence only, per `Model::with_primary_key`'s own doc.
+            // Primary key evidence: a column with `primaryKey: true` is part of the key. Evidence only,
+            // per `Model::with_primary_key`'s own doc; the key is a set, so `primaryKeyPosition` is
+            // not read.
             if property.primary_key == Some(true) {
-                primary_key.push((property.primary_key_position.unwrap_or(-1), column.name().clone()));
+                primary_key.push(column.name().clone());
             }
             columns.push(column);
         }
-        // Sort the primary-key columns by their declared position so a composite key's order is
-        // deterministic; an author who left positions out sorts by column name as a stable tiebreak.
-        primary_key.sort();
 
         // Descriptions is a may-provide kind here, so an undecorated object is a faithful model
         // rather than a refusal: `Description::default()` carries no prose and the declaration's
@@ -346,7 +344,7 @@ impl DataContractCatalog {
         };
         let model = Model::new(name, self.name.clone(), table, columns, description);
         model
-            .with_primary_key(primary_key.into_iter().map(|(_, column)| column))
+            .with_primary_key(primary_key)
             .map_err(|cause| DataContractError::Inconsistent { cause })
     }
 

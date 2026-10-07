@@ -13,5 +13,5 @@ index 8a68f9b9b..4b75b17ff 100644
 -                cause,
 +                found: column.as_str().to_owned(),
              })?;
-             // Primary key evidence: a column with `primaryKey: true` is part of the key, ordered by
-             // `primaryKeyPosition` (1-based). Evidence only, per `Model::with_primary_key`'s own doc.
+             // Primary key evidence: a column with `primaryKey: true` is part of the key. Evidence only,
+             // per `Model::with_primary_key`'s own doc; the key is a set, so `primaryKeyPosition` is
