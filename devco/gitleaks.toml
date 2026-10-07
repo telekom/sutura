@@ -77,3 +77,17 @@ paths = [
 ]
 regexTarget = "match"
 regexes = ['''^http://\[::1\]:1@(?:localhost|127\.0\.0\.1:9002)["`]?$''']
+
+# Private keys outside PEM armour: a key provider's key in Keycloak's realm export form (base64 DER
+# in a JSON array), and a JWK's private member `d`.
+[[rules]]
+id = "keycloak-export-private-key"
+description = "A private key in Keycloak's realm export form"
+regex = '''"privateKey"\s*:\s*\[\s*"(M[A-Za-z0-9+/]{60,}={0,2})"'''
+keywords = ["privatekey"]
+
+[[rules]]
+id = "jwk-private-key"
+description = "A JWK with its private member d"
+regex = '''"d"\s*:\s*"([A-Za-z0-9_-]{40,})"'''
+keywords = ['"d"']
