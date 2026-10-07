@@ -292,7 +292,7 @@ fn unquote(value: &str) -> Option<&str> {
 /// [`ROOT_MANIFEST`]'s single `version = "..."` line, unquoted.
 ///
 /// `None` is the documented, accepted case ONLY when no line starts `version = ` at all -
-/// `xtask/tests/hook_paths.rs`'s fixture tree is a bare `[workspace]\n` with no shared version,
+/// `xtask/tests/check_fuzz.rs`'s fixture tree is a bare `[workspace]\n` with no shared version,
 /// and a workspace that declares none has nothing for [`version_gaps`] to compare against. Any
 /// line that DOES start `version = ` is read by [`unquote`], comment or not.
 fn workspace_version(root_manifest: &str) -> Option<&str> {
@@ -302,7 +302,7 @@ fn workspace_version(root_manifest: &str) -> Option<&str> {
 }
 
 /// Every [`LOCK`] pin that disagrees with [`ROOT_MANIFEST`]'s workspace version, each already
-/// formatted as a failure line - the pure comparison [`run`] wires into [`report`]'s `hook_gaps`,
+/// formatted as a failure line - the pure comparison [`run`] wires into [`report`]'s `gaps`,
 /// and the one [`crate::boundaries`] calls to put the same hint on its own `fuzz/Cargo.toml`
 /// `cargo metadata --locked` failure, which the drift trips FIRST in the `hygiene` sweep
 /// (`check-boundaries` runs before `check-fuzz` - `telekom/sutura#1150` review, finding 3a: the
@@ -311,7 +311,7 @@ fn workspace_version(root_manifest: &str) -> Option<&str> {
 ///
 /// Extracted to a pure `(text, text) -> Vec<String>` function, rather than left inline in `run`,
 /// for a reason that is not tidiness: the version this gate shipped with (`telekom/sutura#1150`
-/// review, finding 4) tested `report`'s `hook_gaps` parameter with a HAND-WRITTEN string and
+/// review, finding 4) tested `report`'s `gaps` parameter with a HAND-WRITTEN string and
 /// never called `first_party_pins`, `workspace_version` or this filter at all - so a mutated
 /// filter (`pinned != workspace` weakened to `pinned != workspace && false`) passed all 2065
 /// tests in the workspace. A test that calls this function directly, on a real stale lock, is
@@ -389,31 +389,15 @@ fn unparseable_entries(dictionary: &str) -> Vec<usize> {
         .collect()
 }
 
-/// `github.com/telekom/sutura#867`: every crate a target's source names, checked against both
-/// the `fuzz` pre-commit hook's `files:` pattern and the "fuzzed tree" surface's `paths` - fails
-/// closed if either reader that answers those two questions comes back empty.
-fn hook_crate_gaps(root: &std::path::Path, sources: &BTreeSet<String>) -> Result<Vec<String>, String> {
-    let hooks_config = std::fs::read_to_string(root.join(crate::hooks::CONFIG)).map_err(|error| {
-        format!(
-            "{} is unreadable - the fuzz hook's own filter could not be checked: {error}",
-            crate::hooks::CONFIG
-        )
-    })?;
-    let hook_files = crate::hooks::hooks(&hooks_config)
-        .into_iter()
-        .find(|hook| hook.id == "fuzz")
-        .map(|hook| hook.files)
-        .ok_or_else(|| {
-            format!(
-                "{} declares no `fuzz` hook - its `files:` reach could not be checked",
-                crate::hooks::CONFIG
-            )
-        })?;
+/// `github.com/telekom/sutura#867`: every crate a target's source names must be reachable through
+/// the "fuzzed tree" surface, the one pattern that decides whether `just ship-check` replays the
+/// seeds for a diff. Fails closed if no surface is reached by `fuzz-smoke`.
+fn surface_crate_gaps(root: &std::path::Path, sources: &BTreeSet<String>) -> Result<Vec<String>, String> {
     let surface_paths = crate::hook_coverage::SURFACES
         .iter()
-        .find(|surface| surface.hooks.contains(&"fuzz"))
+        .find(|surface| surface.reached_by == "fuzz-smoke")
         .map(|surface| surface.paths)
-        .ok_or_else(|| String::from("no surface in xtask/src/hook_coverage/surfaces.rs claims the `fuzz` hook"))?;
+        .ok_or_else(|| String::from("no surface in xtask/src/hook_coverage/surfaces.rs is reached by `fuzz-smoke`"))?;
 
     let mut gaps = Vec::new();
     for name in sources {
@@ -421,17 +405,11 @@ fn hook_crate_gaps(root: &std::path::Path, sources: &BTreeSet<String>) -> Result
             continue;
         };
         for crate_dir in hook_paths::target_crates(&source) {
-            if hook_paths::missing_from_hook(&crate_dir, &hook_files) {
-                gaps.push(format!(
-                    "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which the `fuzz` hook's \
-                     `files:` pattern in {} never names - a change there triggers no smoke replay",
-                    crate::hooks::CONFIG
-                ));
-            }
             if hook_paths::missing_from_surface(&crate_dir, surface_paths) {
                 gaps.push(format!(
-                    "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which no row in \
-                     xtask/src/hook_coverage/surfaces.rs claims"
+                    "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which the `fuzzed tree` row in \
+                     xtask/src/hook_coverage/surfaces.rs never names - a change there makes \
+                     `just ship-check` skip the seed replay"
                 ));
             }
         }
@@ -450,10 +428,10 @@ fn report(
     in_release: &[(usize, &str)],
     locked: bool,
     aborts: bool,
-    hook_gaps: &[String],
+    gaps: &[String],
 ) -> Verdict {
     let mut failures = Vec::new();
-    failures.extend(hook_gaps.iter().cloned());
+    failures.extend(gaps.iter().cloned());
     if sources.is_empty() {
         failures.push(format!("{TARGETS_DIR} holds no target - a green fuzz run over nothing"));
     }
@@ -620,7 +598,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     let in_release = release_invocations(&release);
-    let mut hook_gaps = match hook_crate_gaps(&root, &sources) {
+    let mut gaps = match surface_crate_gaps(&root, &sources) {
         Ok(gaps) => gaps,
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
@@ -631,12 +609,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-fuzz: {ROOT_MANIFEST} is unreadable - the workspace version could not be checked");
         return Verdict::Fail;
     };
-    // Merged into `hook_gaps` rather than given `report` an 11th parameter: `clippy.toml` caps
+    // Merged into `gaps` rather than given `report` an 11th parameter: `clippy.toml` caps
     // `too-many-arguments-threshold` at 10, already the shape's own limit.
     let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
-    hook_gaps.extend(version_gaps(&root_manifest, &lock_text));
-    hook_gaps.extend(lock_drift::gaps_in(&root, &lock_text));
-    hook_gaps.extend(deny_wiring::gaps(&root));
+    gaps.extend(version_gaps(&root_manifest, &lock_text));
+    gaps.extend(lock_drift::gaps_in(&root, &lock_text));
+    gaps.extend(deny_wiring::gaps(&root));
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,
@@ -648,7 +626,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             &in_release,
             locked,
             aborts,
-            &hook_gaps,
+            &gaps,
         ),
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
@@ -810,7 +788,7 @@ mod tests {
     /// `3ab86ad77`, the v0.6.0 release commit: a `fuzz/Cargo.lock` a release left behind at the
     /// previous version, with the root manifest already bumped, is exactly this shape.
     ///
-    /// Calls [`version_gaps`] directly rather than hand-writing a `hook_gaps` string for
+    /// Calls [`version_gaps`] directly rather than hand-writing a `gaps` string for
     /// `report`. `telekom/sutura#1150` review, finding 4: the earlier version of this test did
     /// the latter, so it never called [`first_party_pins`], [`workspace_version`] or the
     /// comparison at all, and a mutated filter (weakened to always find no gap) still passed
@@ -845,7 +823,7 @@ mod tests {
     }
 
     /// No `version = ` line at all is the one case this gate accepts silently -
-    /// `xtask/tests/hook_paths.rs`'s fixture tree is exactly this shape.
+    /// `xtask/tests/check_fuzz.rs`'s fixture tree is exactly this shape.
     #[test]
     fn no_workspace_version_line_reports_no_gap() {
         let root_manifest = "[workspace]\n";

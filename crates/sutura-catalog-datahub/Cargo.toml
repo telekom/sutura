@@ -28,9 +28,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 # The real `AspectReader` (`src/http.rs`), behind the `http` feature above. `ureq` rather than a
-# second client: `libduckdb-sys` already resolves this version and feature set, and
-# `sutura-http-client` shares it, so nothing new enters `Cargo.lock` - the same argument
-# `docs/adr/0018` makes, and `cargo xtask check-shared-client` is what holds it.
+# second client: `sutura-http-client` and the adapters that dial out share one version, and
+# `cargo xtask check-shared-client` is what holds it (`docs/adr/0018`).
 ureq = { workspace = true, optional = true }
 # The loaded outbound trust anchors a deployment's `security.outbound.transport_anchors` resolves to,
 # behind the same default-off `http` feature as `ureq`: replacing `ureq`'s compiled-in roots with a

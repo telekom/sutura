@@ -729,3 +729,88 @@ Sales over the order fact.
         );
     }
 }
+
+/// `kind: declaration`, the tree stating less than the format can carry - `github.com/telekom/sutura#1278`.
+///
+/// Both cells read the refusal and the recorded declaration through the public surface rather than
+/// naming a new variant, so they compile against a tree without the document kind and fail there by
+/// their own assertion.
+mod declaration {
+    use super::{catalog, scratch};
+    use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
+    use sutura_domain::knowledge::KnowledgeCapabilities;
+    use sutura_domain::pinned::{Contribution, SemanticCatalog as _};
+
+    const MODEL: &str =
+        "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents]\n---\nOne row per order.\n";
+    const DECLARATION: &str = "---\nkind: declaration\ndefinitions: [structure, descriptions]\nknowledge: []\n---\n";
+
+    #[test]
+    fn a_tree_records_what_it_declares_and_keeps_no_knowledge_it_left_out() {
+        let root = scratch("declared");
+        std::fs::write(root.join("model.md"), MODEL).expect("a document is writable");
+        std::fs::write(root.join("declaration.md"), DECLARATION).expect("a document is writable");
+        let pinned = catalog(root.clone()).load();
+        drop(std::fs::remove_dir_all(&root));
+        let pinned = pinned.expect("a declared one-model tree loads");
+        let stated = MetadataCapabilities::of(
+            DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Descriptions]),
+            KnowledgeCapabilities::none(),
+        );
+        let recorded: Vec<&MetadataCapabilities> = pinned.manifest().entries().values().map(Contribution::capabilities).collect();
+        assert_eq!(recorded, [&stated], "the manifest records the tree's own declaration");
+        assert_eq!(
+            pinned.knowledge().declares(),
+            stated.knowledge(),
+            "the prompt reads the knowledge the tree declares, not every kind the format can carry"
+        );
+    }
+
+    #[test]
+    fn a_second_declaration_is_refused_by_name() {
+        let root = scratch("declared-twice");
+        std::fs::write(root.join("model.md"), MODEL).expect("a document is writable");
+        std::fs::write(root.join("a.md"), DECLARATION).expect("a document is writable");
+        std::fs::write(root.join("b.md"), DECLARATION).expect("a document is writable");
+        let outcome = catalog(root.clone()).load();
+        drop(std::fs::remove_dir_all(&root));
+        let message = outcome.expect_err("two declarations are refused").to_string();
+        assert!(message.contains("b.md is a second `kind: declaration` document"), "{message}");
+    }
+
+    #[test]
+    fn a_declaration_without_structure_is_refused_by_name() {
+        for (name, text) in [
+            (
+                "no-structure",
+                "---\nkind: declaration\ndefinitions: [descriptions]\nknowledge: [absences]\n---\n",
+            ),
+            (
+                "may-provide",
+                "---\nkind: declaration\ndefinitions: []\nmay_provide: [structure]\nknowledge: []\n---\n",
+            ),
+        ] {
+            let root = scratch(name);
+            std::fs::write(root.join("model.md"), MODEL).expect("a document is writable");
+            std::fs::write(root.join("declaration.md"), text).expect("a document is writable");
+            let outcome = catalog(root.clone()).load();
+            drop(std::fs::remove_dir_all(&root));
+            let message = outcome.expect_err("a declaration without structure is refused").to_string();
+            assert!(message.contains("does not list `structure`"), "{name}: {message}");
+        }
+    }
+
+    #[test]
+    fn a_directory_holding_only_a_declaration_is_refused() {
+        let root = scratch("declaration-only");
+        std::fs::write(
+            root.join("declaration.md"),
+            "---\nkind: declaration\ndefinitions: []\nknowledge: []\n---\n",
+        )
+        .expect("a document is writable");
+        let outcome = catalog(root.clone()).load();
+        drop(std::fs::remove_dir_all(&root));
+        let message = outcome.expect_err("a declaration alone is not a catalog").to_string();
+        assert!(message.contains("does not list `structure`"), "{message}");
+    }
+}

@@ -547,3 +547,10 @@ statements through the ADBC driver and holds no `tokio_postgres::Client`, and th
 tokio-postgres client left, the RDBMS catalog reader, calls `Transaction::query_raw`. So that
 probe measured a sink the tree no longer reaches, and its `Arc` warning has no field left to apply
 to. The probe was not rerun against the new transport.
+
+## Fifth amendment, 2026-10-06: no `tokio-postgres` client is left
+
+The Fourth amendment's "one tokio-postgres client left, the RDBMS catalog reader" is gone too:
+stage 3 of `github.com/telekom/sutura#913` moves that reader onto the shared ADBC connector
+(`sutura-adbc-postgres`), and `tokio-postgres` leaves the workspace. The probe's sink is reached by
+no call in this tree.

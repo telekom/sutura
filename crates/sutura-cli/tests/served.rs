@@ -114,9 +114,9 @@ mod datacontract;
 // `catalog.kind: rdbms`, served: #970's "boots and lists" acceptance for the live RDBMS dictionary
 // reader - see `served/rdbms.rs`'s module header. `cfg(test)` for the same `allow-expect-in-tests`
 // reason `datahub`/`okf`/`openmetadata` above carry one; `cfg(feature = "postgres")` for the tier
-// harness (`dep:tokio-postgres`) the fixture installs the documentation schema through, and
-// `cfg(feature = "rdbms")` so a build without the reader does not parse a file naming a crate it
-// did not link - the same split `openmetadata` above holds on its own feature.
+// harness (`sutura-exec-postgres`'s `FixtureAdmin`) the fixture installs the documentation schema
+// through, and `cfg(feature = "rdbms")` so a build without the reader does not parse a file naming
+// a crate it did not link - the same split `openmetadata` above holds on its own feature.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "postgres")]

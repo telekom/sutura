@@ -1,9 +1,8 @@
 diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
-index 00cc49974..23473eeb4 100644
 --- a/crates/sutura-catalog-local/src/lib.rs
 +++ b/crates/sutura-catalog-local/src/lib.rs
-@@ -371,13 +371,12 @@ impl LocalCatalog {
-         collected.assemble()
+@@ -396,13 +396,12 @@
+         self.read_declared().map(|(content, _)| content)
      }
  
 -    fn parse<T>(path: &Path, frontmatter: &str, kind: DocumentKind) -> Result<T, LocalCatalogError>

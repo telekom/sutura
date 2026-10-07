@@ -1,24 +1,12 @@
 #[cfg(feature = "fixtures")]
 use super::duck_types;
-use super::{DuckDbError, DuckDbWarehouse, Presented, Real};
-use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
-use sutura_domain::calendar::Date;
+use super::{DuckDbError, DuckDbWarehouse, Presented};
 use sutura_domain::model::SourceName;
-use sutura_domain::warehouse::{RowSet, Value};
+use sutura_domain::warehouse::{Real, RowSet, UnreadableCell, Value};
 use sutura_sql::GeneratedQuery;
 
 fn real(value: f64) -> Real {
     Real::parse(value).expect("a test literal is finite")
-}
-
-/// One row of the shared table: what the value is called, what the driver hands over, and the
-/// domain value both adapters have to produce for it. Named because the tuple is over the
-/// `type_complexity` threshold this workspace tightened, and a `Vec<(..)>` of three is where it
-/// starts to be unreadable anyway.
-type Case = (&'static str, DuckValue, Value);
-
-fn day(iso: &str) -> Date {
-    Date::parse(iso).expect("a test date is a date")
 }
 
 fn source() -> SourceName {
@@ -71,147 +59,127 @@ fn fixture_schema_forces_the_shared_boolean_wide_and_decimal_types() {
     assert!(example.contains("'churned_in_month': 'BOOLEAN'"), "{example}");
 }
 
+/// `SELECT <expression> AS v` through the driver, read as the boot path reads it.
+fn read(expression: &str) -> Result<RowSet, DuckDbError> {
+    DuckDbWarehouse::in_memory(source(), shared_posture(), budget())?
+        .run(&GeneratedQuery::literal(source(), format!("SELECT {expression} AS v")))
+}
+
+/// The one cell `expression` answered.
+fn cell_of(expression: &str) -> Value {
+    let rows = read(expression).expect(expression);
+    let [row] = rows.rows() else {
+        panic!("{expression}: one row, got {}", rows.rows().len());
+    };
+    row.first().cloned().expect("one column")
+}
+
+/// The cell the domain's decode refused for `expression`.
+fn refused(expression: &str) -> UnreadableCell {
+    match read(expression) {
+        Err(DuckDbError::Unreadable { cause }) => cause,
+        other => panic!("{expression} must be refused by the domain's decode: {other:?}"),
+    }
+}
+
 #[test]
 fn every_type_this_adapter_maps_answers_what_the_engine_answers() {
     // The twin of `every_type_the_interior_maps_answers_what_the_data_source_answers` in
-    // `crates/sutura-domain/src/warehouse/arrow/tests.rs`. Same logical values, same
-    // expected column, one row per width - because a Parquet `INT32` column under a `min` or a
-    // `max` used to answer here and error there.
-    // Boundary values rather than round ones, written in hex where the decimal form is a bit
-    // pattern nobody reads: an arm that reached for the wrong width would come back truncated
-    // or sign-flipped, and 42 would survive that.
-    let cases: Vec<Case> = vec![
-        ("NULL", DuckValue::Null, Value::Null),
-        ("BOOLEAN true", DuckValue::Boolean(true), Value::Integer(1)),
-        ("BOOLEAN false", DuckValue::Boolean(false), Value::Integer(0)),
-        ("TINYINT", DuckValue::TinyInt(i8::MIN), Value::Integer(-128)),
-        ("SMALLINT", DuckValue::SmallInt(i16::MIN), Value::Integer(-0x8000)),
-        ("INTEGER", DuckValue::Int(i32::MAX), Value::Integer(0x7FFF_FFFF)),
-        ("BIGINT", DuckValue::BigInt(i64::MIN), Value::Integer(i64::MIN)),
-        ("UTINYINT", DuckValue::UTinyInt(u8::MAX), Value::Integer(255)),
-        ("USMALLINT", DuckValue::USmallInt(u16::MAX), Value::Integer(0xFFFF)),
-        ("UINTEGER", DuckValue::UInt(u32::MAX), Value::Integer(0xFFFF_FFFF)),
-        ("UBIGINT that fits an i64", DuckValue::UBigInt(42), Value::Integer(42)),
+    // `crates/sutura-domain/src/warehouse/arrow/tests.rs`, now through the Arrow type the pinned
+    // driver gives each `DuckDB` type rather than a value this adapter mapped itself. Boundary values,
+    // so an arm that reached for the wrong width comes back truncated or sign-flipped.
+    let cases = [
+        ("NULL::INTEGER", Value::Null),
+        ("true", Value::Integer(1)),
+        ("false", Value::Integer(0)),
+        ("(-128)::TINYINT", Value::Integer(-128)),
+        ("(-32768)::SMALLINT", Value::Integer(-0x8000)),
+        ("2147483647::INTEGER", Value::Integer(0x7FFF_FFFF)),
+        ("(-9223372036854775808)::BIGINT", Value::Integer(i64::MIN)),
+        ("255::UTINYINT", Value::Integer(255)),
+        ("65535::USMALLINT", Value::Integer(0xFFFF)),
+        ("4294967295::UINTEGER", Value::Integer(0xFFFF_FFFF)),
+        ("42::UBIGINT", Value::Integer(42)),
         (
-            "UBIGINT that does not",
-            DuckValue::UBigInt(u64::MAX),
+            "18446744073709551615::UBIGINT",
             Value::Text(String::from("18446744073709551615")),
         ),
+        // What a `SUM` over integers comes back as: whole, so an integer where it fits an `i64` and
+        // its exact text where it does not, never wrapped.
+        ("42::HUGEINT", Value::Integer(42)),
         (
-            "HUGEINT wider than the shared decimal",
-            DuckValue::HugeInt(i128::MAX),
-            Value::Text(i128::MAX.to_string()),
+            "99999999999999999999999999999999999999::HUGEINT",
+            Value::Text(String::from("99999999999999999999999999999999999999")),
         ),
-        ("DOUBLE", DuckValue::Double(0.1), Value::Real(real(0.1))),
-        // Zero is finite, and it is here because the check that refuses `inf` is a check about a
-        // division BY zero: a metric that legitimately answers zero must still answer.
-        ("DOUBLE zero", DuckValue::Double(0.0), Value::Real(real(0.0))),
-        (
-            "DECIMAL stays text so it stays exact",
-            DuckValue::Decimal(Decimal::new(9, 2, 12_345).expect("a test decimal is a decimal")),
-            Value::Text(String::from("123.45")),
-        ),
-        (
-            "whole DECIMAL fitting i64",
-            DuckValue::Decimal(Decimal::new(2, 0, 42).expect("a test whole decimal is a decimal")),
-            Value::Integer(42),
-        ),
-        (
-            "VARCHAR",
-            DuckValue::Text(String::from("north")),
-            Value::Text(String::from("north")),
-        ),
-        (
-            "DATE as ISO text",
-            DuckValue::Date32(day("2026-06-01").days_since_epoch()),
-            Value::Text(String::from("2026-06-01")),
-        ),
+        ("0.1::DOUBLE", Value::Real(real(0.1))),
+        // Zero is finite: the check that refuses `inf` is about a division BY zero.
+        ("0.0::DOUBLE", Value::Real(real(0.0))),
+        ("123.45::DECIMAL(9,2)", Value::Text(String::from("123.45"))),
+        ("42::DECIMAL(2,0)", Value::Integer(42)),
+        ("'north'", Value::Text(String::from("north"))),
+        ("DATE '2026-06-01'", Value::Text(String::from("2026-06-01"))),
     ];
-    for (name, raw, expected) in cases {
-        assert_eq!(DuckDbWarehouse::cell(name, raw).expect(name), expected, "{name}");
+    for (expression, expected) in cases {
+        assert_eq!(cell_of(expression), expected, "{expression}");
     }
 }
 
 #[test]
 fn a_32_bit_float_is_refused_here_because_it_is_refused_there() {
-    // The finding this arm exists for. It was `Value::Real(f64::from(v))`, and the engine's
-    // `cell` refused `Float32` in the same release - so one plan over a `REAL` column answered
-    // 0.10000000149011612 through the data source and errored through the engine. Refusing is
-    // the half of the disagreement that can be fixed without inventing a rendering: there is no
-    // `f64` that is `0.1_f32`, and picking one silently is how a number nobody got wrong stops
-    // matching itself.
-    let error = DuckDbWarehouse::cell("amount", DuckValue::Float(0.1)).expect_err("a 32-bit float is not mapped");
+    // `0.1_f32` as an `f64` renders as `0.10000000149011612`, so a widened `REAL` is a number nobody
+    // got wrong failing to match itself. The driver hands `REAL` over as `Float32`, not widened, and
+    // the domain's decode refuses it by its column - and a `DOUBLE` still answers, so this is not a
+    // cell that would pass with every float refused.
+    let refusal = refused("0.1::REAL");
     assert!(
-        matches!(error, DuckDbError::UnsupportedType { ref column, .. } if column == "amount"),
-        "{error:?}"
+        matches!(refusal, UnreadableCell::UnsupportedType { ref column, ref arrow_type } if column == "v" && arrow_type == "Float32"),
+        "{refusal:?}"
     );
-    let message = error.to_string();
-    assert!(message.contains("REAL"), "{message}");
-    assert!(message.contains("column amount"), "{message}");
-    // And the type that DOES answer, so this is not a test that would pass with every float
-    // refused.
-    assert_eq!(
-        DuckDbWarehouse::cell("amount", DuckValue::Double(0.1)).expect("a 64-bit float is mapped"),
-        Value::Real(real(0.1))
-    );
+    assert_eq!(cell_of("0.1::DOUBLE"), Value::Real(real(0.1)));
 }
 
 #[test]
 fn a_non_finite_double_is_refused_here_because_it_is_refused_there() {
-    // THE FINDING THIS ARM EXISTS FOR, and the twin of
-    // `a_non_finite_double_is_refused_on_both_sides_of_the_port` in
-    // `crates/sutura-domain/src/warehouse/arrow/tests.rs`. This arm was `Value::Real(v)`
-    // on a raw `f64`, and the value that reached it was real: a ratio measure declaring
-    // `zero_denominator: fails` renders as an unguarded division with the numerator cast to
-    // `DOUBLE`, and `CAST(3 AS DOUBLE) / 0` in this data system is `inf`, not an error. So the
-    // metric answered the string "inf" under its own certified name, and the engine answered the
-    // same string, so the differential test agreed and passed.
-    //
-    // All three of the class, not just the one a zero denominator produces first: a guard on the
-    // division would have left `-inf` and `NaN` on the way in.
-    for (name, raw) in [
-        ("positive infinity", f64::INFINITY),
-        ("negative infinity", f64::NEG_INFINITY),
-        ("not a number", f64::NAN),
-    ] {
-        let error = DuckDbWarehouse::cell("revenue_per_refunded_order", DuckValue::Double(raw)).expect_err(name);
+    // What `zero_denominator: fails` produces here: the numerator is cast to `DOUBLE`, so the
+    // division is IEEE and answers `inf` rather than failing. All three of the class.
+    for special in ["'inf'::DOUBLE", "'-inf'::DOUBLE", "'nan'::DOUBLE", "CAST(3 AS DOUBLE) / 0"] {
+        let refusal = refused(special);
         assert!(
-            matches!(error, DuckDbError::NotFinite { ref column, .. } if column == "revenue_per_refunded_order"),
-            "{name}: {error:?}"
-        );
-        assert_eq!(
-            error.to_string(),
-            "column revenue_per_refunded_order came back as a value that is not a finite number",
-            "{name}"
+            matches!(refusal, UnreadableCell::NotFinite { ref column, .. } if column == "v"),
+            "{special}: {refusal:?}"
         );
     }
-    // And the values that DO answer, so this is not a test that would pass with every double
-    // refused - zero included, because the check is about dividing BY zero and not about it.
-    assert_eq!(
-        DuckDbWarehouse::cell("revenue", DuckValue::Double(0.0)).expect("zero is a finite number"),
-        Value::Real(real(0.0))
-    );
-    assert_eq!(
-        DuckDbWarehouse::cell("average_order", DuckValue::Double(63_335.777_777_777_78)).expect("an average is a finite number"),
-        Value::Real(real(63_335.777_777_777_78))
-    );
 }
 
 #[test]
 fn a_type_neither_adapter_maps_names_itself_rather_than_being_rendered() {
-    // A `Debug` fallback here would flow into an answer looking like data, and an anchor
-    // comparison against it would pass or fail for a reason nobody could read.
-    for raw in [
-        DuckValue::Blob(vec![0_u8, 1_u8]),
-        DuckValue::Timestamp(TimeUnit::Microsecond, 0),
-        DuckValue::List(vec![DuckValue::Int(1)]),
+    // A `Debug` rendering would flow into an answer looking like data. Refused at the schema, so an
+    // all-null or empty column of these types is refused too.
+    for unmapped in [
+        "'\\x00\\x01'::BLOB",
+        "TIMESTAMP '2026-06-01 00:00:00'",
+        "[1]",
+        "NULL::TIMESTAMP",
     ] {
-        let error = DuckDbWarehouse::cell("payload", raw).expect_err("an unmapped type is an error");
+        let refusal = refused(unmapped);
         assert!(
-            matches!(error, DuckDbError::UnsupportedType { ref column, .. } if column == "payload"),
-            "{error:?}"
+            matches!(refusal, UnreadableCell::UnsupportedType { ref column, .. } if column == "v"),
+            "{unmapped}: {refusal:?}"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_database_path_that_is_not_utf8_is_refused_rather_than_converted() {
+    // A lossy conversion would open a file the caller did not name.
+    use std::os::unix::ffi::OsStrExt as _;
+    let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/tmp/not-utf8-\xff.duckdb"));
+    let outcome = DuckDbWarehouse::open(source(), shared_posture(), path, budget());
+    assert!(
+        matches!(outcome, Err(DuckDbError::Open { ref cause, .. }) if cause.status == adbc_core::error::Status::InvalidArguments),
+        "{outcome:?}"
+    );
 }
 
 #[test]
@@ -302,41 +270,12 @@ fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_prepared
 }
 
 #[test]
-fn a_result_set_with_no_statement_behind_it_is_refused_rather_than_answered_with_no_columns() {
-    // THE DEGRADATION THIS VARIANT REPLACED. The column labels were read as
-    // `rows.as_ref().map(Statement::column_names).unwrap_or_default()`, so an absent handle
-    // produced an empty projection - and this is why nothing downstream would have caught it: a
-    // `RowSet` with no columns and N rows is REJECTED BY NOTHING, because every row has no cells
-    // either and the result is rectangular.
-    let degraded = RowSet::new(Vec::new(), vec![Vec::new(), Vec::new()])
-        .expect("no columns and no cells per row is rectangular, which is what made the default silent");
-    assert!(degraded.columns().is_empty(), "the exact defect being refused");
-    assert_eq!(degraded.rows().len(), 2, "two rows of nothing, and a valid result set");
-    // So the shape has to be refused where it arises. Constructed rather than provoked: the
-    // handle is present for every statement this adapter runs - the test above is that path -
-    // and a driver that stopped handing one over is exactly the change that must not turn into
-    // an answer. The message names what is missing, because "no columns" on its own reads as a
-    // fact about the metric rather than about the driver.
-    let error = DuckDbError::NoSchema;
-    assert_eq!(
-        error.to_string(),
-        "the result set came back without the statement that produced it, so it has no columns"
-    );
-    assert!(
-        core::error::Error::source(&error).is_none(),
-        "an absent handle carries no cause, and inventing one would be worse than saying so"
-    );
-}
-
-#[test]
 fn a_result_that_would_not_fit_the_materialisation_budget_is_refused_at_the_row_that_crosses_it() {
-    // THE POINT OF `Budgeted`. A generous budget below does not stop at the shape, and a budget
-    // designed to be crossed must cross on a row the adapter has actually decoded - so the test
-    // reads the result with a budget too small to hold two text cells, refuses, and checks BOTH
-    // that the refusal is the budget's own (`OverBudget`) and not a shape or type failure, and
-    // that the refused stream had answered far fewer rows than the statement produced. The
-    // consequence on the port is asserted through `result_did_not_fit`, the predicate the router
-    // reads to refuse a caller.
+    // A generous budget does not stop at the shape, and a budget designed to be crossed must cross
+    // on a batch the adapter has actually read - so the test reads the result with a budget too
+    // small to hold one batch, refuses, and checks that the refusal is the budget's own
+    // (`OverBudget`) and not a shape or type failure. The consequence on the port is asserted
+    // through `result_did_not_fit`, the predicate the router reads to refuse a caller.
     let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture(), budget()).expect("an in-memory database opens");
     let query = GeneratedQuery::literal(
         source(),
@@ -366,18 +305,20 @@ fn a_result_that_would_not_fit_the_materialisation_budget_is_refused_at_the_row_
 
 #[test]
 fn a_query_reads_only_its_row_ceiling_witness() {
+    // The driver streams one `DuckDB` chunk per batch, so the stop lands on the batch that reaches
+    // the ceiling: far fewer than the statement's rows, and never fewer than the ceiling.
     let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture(), budget()).expect("an in-memory database opens");
-    let query = GeneratedQuery::literal(source(), String::from("SELECT range AS id FROM range(1000)"));
+    let query = GeneratedQuery::literal(source(), String::from("SELECT range AS id FROM range(10000)"));
     assert_eq!(
         warehouse.run(&query).expect("the source produces every row").rows().len(),
-        1000
+        10_000
     );
     let bounded = warehouse
-        .run_with_limit(&query, Some(2))
-        .expect("two rows fit the byte budget");
-    assert_eq!(
-        bounded.rows().len(),
-        2,
-        "the adapter stops once the caller can refuse on rows"
+        .answered(&query, Some(2))
+        .expect("the first chunk fits the byte budget");
+    assert!(
+        (2..10_000).contains(&bounded.rows()),
+        "the adapter stops once the caller can refuse on rows: {} read",
+        bounded.rows()
     );
 }

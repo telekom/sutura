@@ -20,8 +20,7 @@ half, like `sutura_exec_postgres`: no OAuth, no impersonation.
 runtime there, while `ureq` can execute the request directly. `ClickHouse`'s
 own HTTP interface asks for nothing more than one request/response per statement, which is
 `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
-no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what most of
-`sutura_catalog_rdbms::postgres_channel::client_config`'s reasoning transfers to.
+no C TLS library, and this crate's own `tls` module (over `sutura-tls`) builds the verifier.
 
 # Why a driver-shaped seam, and not just a hand-rolled client
 
@@ -274,9 +273,8 @@ This process's fixture credential, as the tier exported it.
 
 Building the `ureq::tls::TlsConfig` a TLS `clickhouse` source channel verifies with.
 
-This is the TLS half of `sutura_config::sources::transport`, turned into a verifier - the same
-job `sutura_catalog_rdbms::postgres_channel::client_config` does for `rustls`, so that module's
-own header is this one's rather than restated: configuration owns the three-state DECLARATION (`plaintext` /
+This is the TLS half of `sutura_config::sources::transport`, turned into a verifier:
+configuration owns the three-state DECLARATION (`plaintext` /
 `verified` / `mutual`), and this module owns turning a declared `verified` or `mutual` channel
 into the thing the client connects with. **The declared-trust-store rule extends rather than
 forks** (`docs/adr/0010`): a PEM bundle or the host's system store, read once by `config` and

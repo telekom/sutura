@@ -58,7 +58,7 @@
 //!   every surface covered and `ok`, exit 0 - **character for character** the lines this branch's
 //!   real `ship-check` run printed, with not one hook having executed. It is its own
 //!   [`Coverage::DryRun`] and a FAILED verdict now: a dry run is neither *ran* nor *filtered out*.
-//! * **A hook that decides for itself not to run prints `Passed`.** Nine of the seventeen do.
+//! * **A hook that decides for itself not to run prints `Passed`.** Seven of the thirteen do.
 //!   [`abstain`] carries that, the measurement, and why the notice cannot be the mechanism.
 //!
 //! # What this does NOT reach
@@ -663,10 +663,10 @@ mod tests {
         let declared = declared();
         let none = super::BTreeSet::new();
         let dry = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(COMMIT_LOG), &none);
-        // FIVE rows measured nothing, and none of them is counted as having run.
+        // THREE declared hooks' rows measured nothing, and none of them is counted as having run.
         assert_eq!(
             dry.iter().filter(|hook| hook.coverage == Coverage::DryRun).count(),
-            5,
+            3,
             "{dry:?}"
         );
         assert_eq!(dry.iter().filter(|hook| hook.coverage.inspected()).count(), 0, "{dry:?}");
@@ -677,10 +677,10 @@ mod tests {
             .collect();
         // BY KIND, not as a total: both captures above are verbatim from one dated run, so a hook
         // declared after it prints no row in either and is correctly refused. Editing a row in to
-        // keep the total at five would make the provenance sentence above false.
+        // keep the total up would make the provenance sentence above false.
         assert_eq!(
             refusals.iter().filter(|line| line.contains("Dry Run")).count(),
-            5,
+            3,
             "{refusals:?}"
         );
         assert!(
@@ -690,10 +690,10 @@ mod tests {
                 .all(|line| line.contains("printed no row")),
             "{refusals:?}"
         );
-        // And the real capture of the SAME diff, on which those five did run: not one DRY-RUN
+        // And the real capture of the SAME diff, on which those three did run: not one DRY-RUN
         // refusal, which is the whole discrimination. What remains is the `printed no row` kind.
         let real = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(REAL_COMMIT_LOG), &none);
-        assert_eq!(real.iter().filter(|hook| hook.coverage.inspected()).count(), 5, "{real:?}");
+        assert_eq!(real.iter().filter(|hook| hook.coverage.inspected()).count(), 3, "{real:?}");
         assert!(
             real.iter()
                 .filter_map(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook))
@@ -705,7 +705,7 @@ mod tests {
     #[test]
     fn a_hook_that_could_not_have_run_here_is_not_coverage_whatever_its_row_said() {
         // MEASURED: the `shellcheck` entry verbatim with `nix` off PATH prints its notice and
-        // exits 0, so prek prints a pass. Nine of the seventeen declared hooks are written that
+        // exits 0, so prek prints a pass. Seven of the thirteen declared hooks are written that
         // way, both of the two on push - so on a host with no nix the verdict was
         // `pre-push - 4 of 4 declared hook(s) ran` over hooks that announced their own skip.
         let declared = declared();
@@ -896,7 +896,7 @@ mod tests {
         );
         // A Rust diff is covered when EVERY hook claiming Rust ran, and not before: `one of them
         // ran` is the sentence this module exists to stop being printed as coverage. Named as
-        // `ran` too: the two no-hook Rust rows #987 added (`check-api-docs`, `check-default-features`).
+        // `ran` too: the no-hook Rust rows #987 added and the CRAP row, which `sutura-domain` is in.
         let rust = vec![String::from("crates/sutura-domain/src/lib.rs")];
         let all: Vec<String> = super::SURFACES
             .iter()
@@ -906,20 +906,20 @@ mod tests {
             .iter()
             .map(|id| String::from(*id))
             .collect();
-        let ran = [String::from("check-api-docs"), String::from("check-default-features")];
+        let ran = ["check-api-docs", "check-default-features", "crap"].map(String::from);
         assert!(
             super::surface_gaps(&rust, &all, &ran).1.is_empty(),
             "every hook claiming Rust leaves no gap"
         );
         // Clippy alone is a gap, and the gap NAMES the four that did not run. `ran` still names
-        // the two no-hook rows, or they would add two gaps this assertion is not about.
+        // the three no-hook rows, or they would add three gaps this assertion is not about.
         let (_, partial) = super::surface_gaps(&rust, &[String::from("rust-clippy")], &ran);
         assert_eq!(partial.len(), 1, "{partial:?}");
         assert!(partial.first().is_some_and(|gap| gap.contains("rust-fmt")), "{partial:?}");
         // And with nothing at all, which is the state the measured run on a workflow-only branch
-        // was in for five of its ten hooks - three gaps now, the two no-hook rows added to the one
+        // was in for five of its ten hooks - four gaps now, the three no-hook rows added to the one
         // hooked row's.
-        assert_eq!(super::surface_gaps(&rust, &[], &[]).1.len(), 3);
+        assert_eq!(super::surface_gaps(&rust, &[], &[]).1.len(), 4);
     }
 
     /// The surface table after a hook rename nobody carried here.
@@ -961,8 +961,8 @@ mod tests {
         // AND THE RULE ABOVE COVERS BOTH SPELLINGS OF "runs whatever the diff contains" -
         // `always_run: true`, and no `files:`/`types:` filter at all, which prek runs on every
         // diff for the same reason. This tree has one of each, so the derived set is asserted to
-        // hold both: with only the first spelling held, `rust-tests` and `rust-doctests` were
-        // claimed by the `Rust source` row and the rule passed over the same defect.
+        // hold both: with only the first spelling held, an unfiltered hook claimed by a row
+        // passed over the same defect (`rust-tests` and `rust-doctests` were, before they left).
         let unconditional: Vec<String> = declared()
             .iter()
             .filter(|hook| hook.unconditional())
@@ -973,9 +973,10 @@ mod tests {
             "always_run: {unconditional:?}"
         );
         assert!(
-            unconditional.iter().any(|id| id == "rust-tests"),
+            unconditional.iter().any(|id| id == "betterleaks"),
             "unfiltered: {unconditional:?}"
         );
+        assert!(!unconditional.iter().any(|id| id == "rust-tests"));
         // Which is what `unknown_hook_ids` above holds over the real table - asserted here so a
         // row that claims one is a FAILED verdict rather than a passing test.
         let claimed: Vec<&str> = super::SURFACES.iter().flat_map(|s| s.hooks.iter().copied()).collect();
