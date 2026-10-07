@@ -1206,8 +1206,9 @@ refused as `result_too_large`.
   watchdog cancels the call's connection when the budget runs out, and the call answers
   `deadline_exceeded`. It is armed before the driver prepares, so a string's statements before its
   last are under it too. A cancel that fails leaves the statement to finish, holding its admission
-  slot. Binding and planning a statement are not interrupted; the screen's nesting bound is what
-  keeps their cost small on the shapes measured.
+  slot. Binding a statement is not interrupted, and the optimizer checks for an interrupt only at
+  the start of each of its passes (read in the pinned DuckDB source, not measured); the screen's
+  nesting bound is what keeps their cost small on the shapes measured.
 - **Spilling to disk is not measured.** The spill directory is a local file system, which this open
   disables, so a statement too large for memory is expected to fail rather than spill.
 - **The screen walks the text, not what the database file declares.** A macro or a view the file
