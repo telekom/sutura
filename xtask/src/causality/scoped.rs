@@ -292,17 +292,19 @@ impl Scan {
                     path: file.path.clone(),
                     module: None,
                 }),
-                Some(Declares::OutOfLine(candidates)) => {
-                    match candidates.iter().find(|one| files.iter().any(|f| f.path == **one)) {
-                        Some(present) => silent.push(Silent {
-                            path: file.path.clone(),
-                            module: Some(present.clone()),
-                        }),
-                        None => enabled.push(Enabled {
-                            path: file.path.clone(),
-                            module: candidates.into_iter().next().unwrap_or_default(),
-                            because: Because::Declared,
-                        }),
+                Some(Declares::OutOfLine(declarations)) => {
+                    for candidates in declarations {
+                        match candidates.iter().find(|one| files.iter().any(|f| f.path == **one)) {
+                            Some(present) => silent.push(Silent {
+                                path: file.path.clone(),
+                                module: Some(present.clone()),
+                            }),
+                            None => enabled.push(Enabled {
+                                path: file.path.clone(),
+                                module: candidates.into_iter().next().unwrap_or_default(),
+                                because: Because::Declared,
+                            }),
+                        }
                     }
                 }
                 // Nothing in the added lines declares a module, so what made this a test file

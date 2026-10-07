@@ -164,7 +164,7 @@ mod tests {
         fn pr_causality_measures_the_topic_and_restores_the_merge_for_every_verdict() {
             let root = crate::repo::root().expect("the repository root");
             let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("the workflow");
-            let step = crate::workflows::step::app_step(&workflow, "ci", "causality").expect("the live step");
+            let step = crate::workflows::step::app_step(&workflow, "causality", "causality").expect("the live step");
             let body = crate::workflows::step::shell(&step)
                 .into_iter()
                 .skip(1)
