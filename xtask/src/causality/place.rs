@@ -167,6 +167,7 @@ pub(super) enum Declares {
 /// a refusal: something made the file a test file and this cannot account for it.
 pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declares> {
     let mut out_of_line: Vec<Vec<String>> = Vec::new();
+    let mut seen: Vec<usize> = Vec::new();
     for added in &file.added {
         let trimmed = added.text.trim();
         // `number` is 1-based, so it is the 0-based index of the line after this one.
@@ -187,7 +188,12 @@ pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declar
         if item.contains('{') {
             return Some(Declares::Inline);
         }
-        if let Some(name) = module_name(item) {
+        // A declaration is reached twice when its own attribute is added too: once from the
+        // attribute and once from the `mod` line. It is one declaration, keyed by its line.
+        if let Some(name) = module_name(item)
+            && !seen.contains(&at)
+        {
+            seen.push(at);
             out_of_line.push(declared_module_files(&file.path, name, relocated(lines, at).as_deref()));
         }
     }
