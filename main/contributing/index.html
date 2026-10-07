@@ -2441,6 +2441,43 @@ step people skip. <code>just</code> with no argument lists every task.</p>
 stages (<code>pre-commit</code>, <code>pre-push</code>, <code>commit-msg</code>) through <code>prek</code>, installs the pixi environment the
 hook runner lives in, warms <code>xtask</code> so your first commit is not a cold compile, and ends with
 <code>doctor</code>. It is idempotent, so re-run it whenever an environment file changes.</p>
+<p><strong>Hook tiers.</strong> A hook that is too slow for its stage gets switched off, so each stage runs only what
+it can afford. <code>cargo xtask check-hook-tiers</code> reads <code>.pre-commit-config.yaml</code> and nothing else: it
+holds the stages that file declares, not the table below, which can drift from the config with every
+gate green. A hook is bypassable with <code>--no-verify</code>, so this is a tier policy rather than an
+invariant.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Runs</th>
+<th>Does not run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pre-commit</code></td>
+<td>fmt, clippy, <code>cargo check</code> of the changed packages, the structural gates, text and chart gates</td>
+<td>the test suite and doctests, the CRAP score, the fuzz replay</td>
+</tr>
+<tr>
+<td><code>pre-push</code></td>
+<td>the whole-tree secret scan and the supply-chain gate, nothing else</td>
+<td>anything that compiles</td>
+</tr>
+<tr>
+<td><code>commit-msg</code></td>
+<td>the conventional-commit subject</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>The suite, the doctests and the CRAP score run in <code>just validate</code> and in CI. <code>just ship-check</code> also
+runs CRAP for a diff that reaches the scored crate, and the fuzz replay (<code>just fuzz-smoke</code>) for a diff
+that touches the fuzzed tree; no pull request or merge-queue run replays the seeds, and
+<code>.github/workflows/fuzz.yml</code> does on a release tag and a manual dispatch. So a local commit can hold
+a failing test until <code>just validate</code> or CI runs it, and CRAP and the replay run only where
+<code>ship-check</code> runs.</p>
 <p>Run it before your first commit, because <strong>an uninstalled hook does not complain - it silently never
 fires.</strong> This repo spent a whole session believing hooks ran that had never run: <code>core.hooksPath</code>
 pointed at a <code>.githooks/</code> directory that had been deleted, so git looked somewhere that did not
