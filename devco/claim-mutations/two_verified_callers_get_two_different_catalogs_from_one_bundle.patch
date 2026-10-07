@@ -1,0 +1,15 @@
+Claim-Cell-File: crates/sutura-http/src/identity_e2e.rs
+diff --git a/crates/sutura-http/src/routes/v1/catalog.rs b/crates/sutura-http/src/routes/v1/catalog.rs
+index 358f19d98..00b9aa1ce 100644
+--- a/crates/sutura-http/src/routes/v1/catalog.rs
++++ b/crates/sutura-http/src/routes/v1/catalog.rs
+@@ -67,7 +67,8 @@ pub(crate) async fn catalog(
+     // composition root forgot would take `CatalogProse::default()`, which is `quoted`, and ship the
+     // prose of a deployment that asked for none. The settings are the one place that cannot be out
+     // of date about what the operator wrote.
+-    let view = sutura_app::scoped_for(state.definitions(), asked.context());
++    let _ = asked;
++    let view = sutura_domain::pinned::view::ScopedView::everything(state.definitions());
+     (
+         [(header::CACHE_CONTROL, "private, no-store")],
+         Json(CatalogBody::of(&view, state.settings().prompt().catalog_prose())),
