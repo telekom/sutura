@@ -78,12 +78,14 @@ paths = [
 regexTarget = "match"
 regexes = ['''^http://\[::1\]:1@(?:localhost|127\.0\.0\.1:9002)["`]?$''']
 
-# Private keys outside PEM armour: a key provider's key in Keycloak's realm export form (base64 DER
-# in a JSON array), and a JWK's private member `d`.
+# Private keys outside PEM armour, and a JWK's private member `d`. Keycloak's realm export holds a
+# key provider's private key as base64 DER in a JSON array, under `privateKey` (RSA) or a lowercase
+# algorithm prefix plus `PrivateKey` (`ecdsa`, `ecdh`, `eddsa`); the shortest, Ed25519 PKCS#8, is
+# 64 characters. A symmetric provider's `secret` is not matched.
 [[rules]]
 id = "keycloak-export-private-key"
 description = "A private key in Keycloak's realm export form"
-regex = '''"privateKey"\s*:\s*\[\s*"(M[A-Za-z0-9+/]{60,}={0,2})"'''
+regex = '''"(?:[a-z]+P|p)rivateKey"\s*:\s*\[\s*"(M[A-Za-z0-9+/]{60,}={0,2})"'''
 keywords = ["privatekey"]
 
 [[rules]]
