@@ -32,9 +32,8 @@
 # host-starved run (line 81) but gets a doubled 600s ceiling from the override it sits beside,
 # re-added 10-02 after it hit the 300s ceiling in two runs. That single cell is not the one the
 # 1.7x above rests on; it carries its own ceiling - so "any test" here means every test but that
-# composite cell and the five stopgap cells at the foot of this file (the paired-gate falsifier
-# cell and the four 10,000-entry cap cells), which also carry 600s. (No other gas cell has a
-# special ceiling.)
+# composite cell, the per-gate falsifier cells (360s) and the four 10,000-entry cap cells
+# (600s), both at the foot of this file. (No other gas cell has a special ceiling.)
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
 
@@ -90,6 +89,7 @@ success-output = "immediate"
 [test-groups]
 real-cargo = { max-threads = 2 }
 entry-cap = { max-threads = 1 }
+paired-gate = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::bin/xtask) & (test(/^causality::gas_tests::/) | test(/^causality::tests::/) | test(/^causality::rot::tests::the_kill_half_/))"
@@ -127,17 +127,25 @@ filter = "package(sutura-app) & test(=tests::leg_executing_data_systems_agree_wi
 slow-timeout = { period = "60s", terminate-after = 2 }
 
 [[profile.default.overrides]]
-# STOPGAP for a load flake that reds the suite in `just test`, `just validate` and CI; no commit
-# hook runs it any more. The cell was measured when one still did.
-# `every_paired_gate_passes_its_real_inputs_and_refuses_one_violation` ran into the 300s ceiling
-# (300.04s, 300.08s and 300.02s in three separate commit-hook runs on 10-06, five lanes sharing
-# the host), and its sibling paired-gate cells measured 99-222s in a four-cell run under load.
-# Doubling the ceiling to 600s only MOVES the threshold: a host slow enough still reds it. The
-# fix is the "bounded by work" change in the coming area-d PR, which renames this cell. Nothing
-# mechanical forces that PR to drop this override: a stale filter matches no cell and fails
-# silently, so the area-d PR owns removing it.
-filter = "binary_id(xtask::bin/xtask) & test(=falsifier::tests::every_paired_gate_passes_its_real_inputs_and_refuses_one_violation)"
-slow-timeout = { period = "60s", terminate-after = 10 }
+# The per-gate falsifier cells, each running one real gate twice (the control, then one
+# own-rule edit) over a scratch copy of the tree. They were one cell that ran all four gates back
+# to back and hit the 300s ceiling three times in one day (300.04s, 300.08s, 300.02s, five lanes
+# sharing the host). Split, a cell is one gate's work: measured at load 16-22, 5.7s (warm-start),
+# 99s (venues), 176s (guidance), 24s (boundaries, after its cargo-metadata cache; 222s before it).
+# The group runs them one at a time, because four cargo-heavy gates racing a loaded host is what
+# stretched the old cell; 360s is 2x the slowest measured. Limits: a cell's floor is about twice
+# its gate, so a host slower than 2x this measurement still reds one; the ceiling and the
+# serialising move the threshold, they do not remove the gate's own cost. The pin cell
+# `the_paired_set_is_the_four_gates_with_a_cell_each` needs neither.
+#
+# Each cell is named exactly, and nextest accepts a filter that matches nothing: a typo or a rename
+# would put a cell back on the 300s default and out of the group with no red anywhere (measured:
+# `warm_start` -> `warmstart` listed 3 of 4, exit 0). `the_nextest_group_names_exactly_the_per_gate_cells`
+# compares these names with the cell functions' own. Limit: it reads this text, not nextest's
+# evaluation of it, and it does not read `binary_id` or the `paired-gate` definition.
+filter = "binary_id(xtask::bin/xtask) & (test(=falsifier::tests::check_boundaries_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_docs_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_guidance_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_venues_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_warm_start_passes_its_real_inputs_and_refuses_one_violation))"
+test-group = "paired-gate"
+slow-timeout = { period = "60s", terminate-after = 6 }
 
 # STOPGAP, same flake family: the four 10,000-entry cap cells each write 10,001 files, so they are
 # bound by file I/O (and by the endpoint scanner, which reads every new file), not by CPU. One lane

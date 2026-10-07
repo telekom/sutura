@@ -872,7 +872,9 @@
           # needs no second toolchain - the child that EMITS the JSON runs the same `toolchain`
           # the closure was built from. `xtask/src/api_docs.rs` reaches it by SHELLING OUT, which
           # is why the profile is NAMED IN THE COMMAND below - see `hygiene`; a spawned child is
-          # the worse half, as crane does not even export `CARGO_PROFILE`.
+          # the worse half: it does inherit `CARGO_PROFILE`, which `ciArgs` puts in the
+          # derivation's environment, but cargo reads no variable to choose a profile, so only a
+          # flag the child is handed selects one.
           # `SUTURA_API_DOCS_PROFILE` matters because cargo's default `dev` optimises every
           # dependency and build script at `opt-level = 3`. `wholeTree` for `hygiene`'s reason,
           # and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of

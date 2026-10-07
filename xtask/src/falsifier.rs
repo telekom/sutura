@@ -365,10 +365,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_paired_gate_passes_its_real_inputs_and_refuses_one_violation() {
-        // The control is a pass over the real inputs, so the one-edit violation's fail is the own
-        // rule firing at `task.run`. Moves the cwd, hence the sweep's NEXTEST guard.
+    /// The control and the violated verdicts of the one paired gate `name`, each run in its own
+    /// scratch tree. Moves the cwd, hence the NEXTEST guard; the assertions stay in the cells.
+    fn paired_verdicts(name: &str) -> (crate::Verdict, crate::Verdict) {
         assert!(
             std::env::var_os("NEXTEST").is_some(),
             "this test moves the process's current directory: run it under `just test`"
@@ -380,22 +379,69 @@ mod tests {
             std::env::set_current_dir(&original).expect("restore the cwd");
             verdict
         };
-        let mut paired_gates = Vec::new();
-        for task in crate::tasks() {
-            let Some(paired) = task.falsifier.paired else { continue };
-            let tree = paired_tree(paired);
-            let control = run_in(&tree, task);
-            apply_violation(&tree, paired);
-            let violated = run_in(&tree, task);
-            drop(std::fs::remove_dir_all(&tree));
-            assert_eq!(
-                (control, violated),
-                (crate::Verdict::Pass, crate::Verdict::Fail),
-                "`{}` must pass its real inputs and fail one own-rule edit of them",
-                task.name
-            );
-            paired_gates.push(task.name);
-        }
+        let task = crate::tasks().find(|task| task.name == name).expect("a registered task");
+        let paired = task.falsifier.paired.expect("a gate registered as paired");
+        let tree = paired_tree(paired);
+        let control = run_in(&tree, task);
+        apply_violation(&tree, paired);
+        let violated = run_in(&tree, task);
+        drop(std::fs::remove_dir_all(&tree));
+        (control, violated)
+    }
+
+    const PAIRED_MESSAGE: &str = "must pass its real inputs and fail one own-rule edit of them";
+
+    #[test]
+    fn check_boundaries_passes_its_real_inputs_and_refuses_one_violation() {
+        assert_eq!(
+            paired_verdicts("check-boundaries"),
+            (crate::Verdict::Pass, crate::Verdict::Fail),
+            "check-boundaries {PAIRED_MESSAGE}"
+        );
+    }
+
+    #[test]
+    fn check_docs_passes_its_real_inputs_and_refuses_one_violation() {
+        assert_eq!(
+            paired_verdicts("check-docs"),
+            (crate::Verdict::Pass, crate::Verdict::Fail),
+            "check-docs {PAIRED_MESSAGE}"
+        );
+    }
+
+    #[test]
+    fn check_guidance_passes_its_real_inputs_and_refuses_one_violation() {
+        assert_eq!(
+            paired_verdicts("check-guidance"),
+            (crate::Verdict::Pass, crate::Verdict::Fail),
+            "check-guidance {PAIRED_MESSAGE}"
+        );
+    }
+
+    #[test]
+    fn check_venues_passes_its_real_inputs_and_refuses_one_violation() {
+        assert_eq!(
+            paired_verdicts("check-venues"),
+            (crate::Verdict::Pass, crate::Verdict::Fail),
+            "check-venues {PAIRED_MESSAGE}"
+        );
+    }
+
+    #[test]
+    fn check_warm_start_passes_its_real_inputs_and_refuses_one_violation() {
+        assert_eq!(
+            paired_verdicts("check-warm-start"),
+            (crate::Verdict::Pass, crate::Verdict::Fail),
+            "check-warm-start {PAIRED_MESSAGE}"
+        );
+    }
+
+    #[test]
+    fn the_paired_set_is_the_four_gates_with_a_cell_each() {
+        let mut paired_gates: Vec<&str> = crate::tasks()
+            .filter(|task| task.falsifier.paired.is_some())
+            .map(|task| task.name)
+            .collect();
         paired_gates.sort_unstable();
         assert_eq!(
             paired_gates,
@@ -406,7 +452,37 @@ mod tests {
                 "check-venues",
                 "check-warm-start"
             ],
-            "the paired set changed: a gate gained or lost `Falsifier::paired`"
+            "the paired set changed: a gate gained or lost `Falsifier::paired`; add or drop its cell"
         );
+    }
+
+    /// `.config/nextest.toml` names the per-gate cells for their group and ceiling, and nextest accepts a
+    /// filter that matches nothing, so a typo or a rename drops a cell from both with no red. The
+    /// expected names are the compiler's own (`type_name_of_val` of each cell), so a rename moves them.
+    #[test]
+    fn the_nextest_group_names_exactly_the_per_gate_cells() {
+        let mut expected = [
+            std::any::type_name_of_val(&check_boundaries_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_docs_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_guidance_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_venues_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_warm_start_passes_its_real_inputs_and_refuses_one_violation),
+        ]
+        .map(|name| name.strip_prefix("xtask::").expect("a cell's path starts at this crate"));
+        let config = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.config/nextest.toml");
+        let config = std::fs::read_to_string(config).expect("the nextest config is in the tree");
+        let group = config
+            .split("[[profile.default.overrides]]")
+            .find(|table| table.contains("test-group = \"paired-gate\""))
+            .expect("an override puts cells in `paired-gate`");
+        let filter: String = group.lines().filter(|line| !line.trim_start().starts_with('#')).collect();
+        let mut named: Vec<&str> = filter
+            .split("test(=")
+            .skip(1)
+            .filter_map(|rest| rest.split(')').next())
+            .collect();
+        named.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(named, expected, "`paired-gate`'s filter must name exactly the per-gate cells");
     }
 }

@@ -190,7 +190,46 @@ fn usage() {
 /// One place, because three gates read the workspace graph and each wants the same `--locked`
 /// guarantee: a gate must not be the thing that rewrites `Cargo.lock`.
 fn cargo_metadata(extra: &[&str]) -> Result<serde_json::Value, String> {
-    run_cargo_metadata(None, extra)
+    let key = extra.join(" ");
+    let seen = METADATA_RUN.with_borrow(|run| {
+        let answers = run.as_ref()?;
+        answers.get(&key).cloned()
+    });
+    if let Some(hit) = seen {
+        return hit;
+    }
+    let fresh = run_cargo_metadata(None, extra);
+    METADATA_RUN.with_borrow_mut(|run| {
+        if let Some(seen) = run {
+            seen.insert(key, fresh.clone());
+        }
+    });
+    fresh
+}
+
+type MetadataAnswers = std::collections::HashMap<String, Result<serde_json::Value, String>>;
+
+thread_local! {
+    /// The `cargo_metadata` answers of ONE gate run, in memory only: `Some` between
+    /// [`MetadataRun::open`] and its drop, `None` everywhere else, so no answer outlives the run
+    /// that asked and a second run over an edited tree always asks cargo again.
+    static METADATA_RUN: std::cell::RefCell<Option<MetadataAnswers>> = const { std::cell::RefCell::new(None) };
+}
+
+/// While alive, repeated identical `cargo_metadata` calls on this thread reuse the first answer.
+struct MetadataRun;
+
+impl MetadataRun {
+    fn open() -> Self {
+        METADATA_RUN.with_borrow_mut(|run| *run = Some(std::collections::HashMap::new()));
+        Self
+    }
+}
+
+impl Drop for MetadataRun {
+    fn drop(&mut self) {
+        METADATA_RUN.with_borrow_mut(|run| *run = None);
+    }
 }
 
 /// `cargo metadata` against a manifest OTHER than this process's own -
@@ -369,6 +408,28 @@ mod tests {
         assert_ne!(
             format!("{:?}", Verdict::Inconclusive.exit_code()),
             format!("{:?}", ExitCode::SUCCESS)
+        );
+    }
+
+    #[test]
+    fn a_metadata_answer_is_reused_inside_one_run_and_never_after_it() {
+        let seeded = Err(String::from("seeded"));
+        {
+            let _run = super::MetadataRun::open();
+            super::METADATA_RUN.with_borrow_mut(|run| {
+                run.as_mut()
+                    .expect("an open run")
+                    .insert(String::from("--no-deps"), seeded.clone());
+            });
+            assert_eq!(
+                super::cargo_metadata(&["--no-deps"]),
+                seeded,
+                "the run did not reuse its answer"
+            );
+        }
+        assert!(
+            super::cargo_metadata(&["--no-deps"]).is_ok(),
+            "an answer outlived the run that asked for it"
         );
     }
 
