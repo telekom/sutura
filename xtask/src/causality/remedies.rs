@@ -213,16 +213,18 @@ fn orphaned_lines(remove: &[&String], files: &[ChangedFile], read: &PostImage<'_
             continue;
         };
         let post: Vec<&str> = text.lines().collect();
-        let Some(Declares::OutOfLine(candidates)) = accounted_for(file, &post) else {
+        let Some(Declares::OutOfLine(declarations)) = accounted_for(file, &post) else {
             continue;
         };
-        if let Some(child) = candidates
-            .into_iter()
-            .find(|candidate| files.iter().any(|f| &f.path == candidate))
-        {
-            lines.push(format!(
-                "  orphaned:  {child}  (its `mod` is declared in {path}, which is new here - nothing to attach to at base)"
-            ));
+        for candidates in declarations {
+            if let Some(child) = candidates
+                .into_iter()
+                .find(|candidate| files.iter().any(|f| &f.path == candidate))
+            {
+                lines.push(format!(
+                    "  orphaned:  {child}  (its `mod` is declared in {path}, which is new here - nothing to attach to at base)"
+                ));
+            }
         }
     }
     lines
@@ -614,6 +616,29 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("xtask/src/fuzz/hook_paths/tests.rs"), "{lines:?}");
         assert!(lines[0].contains("xtask/src/fuzz/hook_paths.rs"), "{lines:?}");
+    }
+
+    #[test]
+    fn every_declared_module_of_a_remove_file_that_is_in_the_diff_is_orphaned() {
+        // Two `mod`s in one new file, both children in the diff. Reading only one declaration -
+        // the last, as `accounted_for` once answered - names one child and leaves the other
+        // compiling at base with nothing said.
+        let parent = changed(
+            "crates/x/src/a.rs",
+            1,
+            &["#[cfg(test)]", "mod one;", "#[cfg(test)]", "mod two;"],
+        );
+        let path = String::from("crates/x/src/a.rs");
+        let files = vec![
+            parent,
+            changed("crates/x/src/a/one.rs", 1, &["#[test]", "fn first() {}"]),
+            changed("crates/x/src/a/two.rs", 1, &["#[test]", "fn second() {}"]),
+        ];
+        let read = tree(&[("crates/x/src/a.rs", "#[cfg(test)]\nmod one;\n#[cfg(test)]\nmod two;\n")]);
+        let lines = orphaned_lines(&[&path], &files, &read);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines.iter().any(|line| line.contains("a/one.rs")), "{lines:?}");
+        assert!(lines.iter().any(|line| line.contains("a/two.rs")), "{lines:?}");
     }
 
     #[test]

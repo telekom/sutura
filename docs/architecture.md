@@ -576,7 +576,7 @@ binary. `cargo xtask check-workflows` fails if a workflow names a build output t
 exist, and the `one-binary` check fails if an image carries more than the binary.
 
 The published binary carries every shipped feature. Nix compiles the ADBC drivers (Go and C) and
-links them into it: `just build`. In the development shell, a `cargo` build can name one feature:
+links them into it: `just build-release`. In the development shell, a `cargo` build can name one feature:
 
 ```bash
 cargo build --release -p sutura-cli --features bigquery

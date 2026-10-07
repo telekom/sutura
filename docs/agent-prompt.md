@@ -85,8 +85,9 @@ That is a claim about *fields of a metric*, and not about the document being a r
 endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
 field for at all, listed in the table above: the glossary, the terms recorded as not defined, what
 this deployment records about its own definitions, and the worked questions - plus any caveat, under
-the metric it is about. All five are knowledge from the pinned bundle, all are descriptive, and none
-of them names a column, a table or a model either.
+the metric it is about. All five are knowledge from the pinned bundle and all are descriptive. A
+glossary entry may mean a declared model or one of its columns, and it then names that model or
+column whether or not `prompt.list_physical_schema` is on: the model's audience decides who sees it.
 
 **Nothing about identity.** There is none. The bearer token authenticates the *deployment*, not the
 caller - see [Serving over HTTP](serving.md) - and a prompt that described per-caller scoping would

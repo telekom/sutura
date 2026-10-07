@@ -578,9 +578,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     };
     let parent = stack_parent(&root, &asked_for);
     let measured = Base::of(asked_for, &head, parent);
-    let at = measured.at().clone();
+    let at = measured.at();
 
-    let Some(files) = changed_with_additions(&at) else {
+    let Some(files) = changed_with_additions(at) else {
         // Same rule as classify: an unusable base ref is not evidence of nothing to do.
         eprintln!("xtask test-causality: could not diff against `{base}`");
         return Verdict::Fail;
@@ -595,16 +595,15 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let Ok(exemptions) = Exemptions::read(&root).map_err(|e| eprintln!("xtask test-causality: FAILED - {e}")) else {
         return Verdict::Fail;
     };
-    let Some(live) = live::Live::read(&root, &worktree::messages(&root, &at)) else {
+    let Some(live) = live::Live::read(&root, &worktree::messages(&root, at)) else {
         return Verdict::Fail;
     };
 
     // An added claim mutation no trailer declares is never applied - the fail-open of #970.
-    let touched = worktree::touched(&root, &at);
-    let undeclared =
-        claim::undeclared::undeclared(&touched, claim::Claim::of(&worktree::messages(&root, &at)).as_ref(), |path| {
-            worktree::base_has(&root, &at, path)
-        });
+    let touched = worktree::touched(&root, at);
+    let undeclared = claim::undeclared::undeclared(&touched, claim::Claim::of(&worktree::messages(&root, at)).as_ref(), |path| {
+        worktree::base_has(&root, at, path)
+    });
     if !undeclared.is_empty() {
         return claim::undeclared::report(&undeclared);
     }
@@ -624,7 +623,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // `Verdict::Fail` and each prints its own cause, so the order decides which cause an author is
     // shown and not the verdict. It goes first because a `Cargo.toml`-only diff reaches no other
     // refusal at all, which is the finding.
-    match feature_activation(&root, &at, &files, &working_tree) {
+    match feature_activation(&root, at, &files, &working_tree) {
         Activation::Nothing => {}
         Activation::Enables(refused) => return report_enabled_tests(&refused),
         Activation::Unread(unread) => return report_unread_manifests(&unread),
@@ -633,7 +632,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // THE BASE IMAGE, because a REMOVED line exists in no other one. Two consumers: `reverted`
     // asks whether a reverted line sat inside a test region of the tree it restores, and
     // `relocation` asks the same of every line a declared cleanup took out.
-    let base_tree = |path: &str| worktree::at_base(&root, &at, path);
+    let base_tree = |path: &str| worktree::at_base(&root, at, path);
 
     // A COMMIT MAY DECLARE ITSELF A TEST-FILE CLEANUP, and the trailer is a CLAIM this CHECKS
     // rather than a permission that replaces the check - a trailer nothing verifies is the gate
@@ -654,7 +653,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // list a `git rm` of a test file rides a claim that every changed line was accounted for, over
     // lines nothing ever read.
     match relocation::decide(
-        Claim::of(&worktree::messages(&root, &at).replace('\0', "\n")).as_ref(),
+        Claim::of(&worktree::messages(&root, at).replace('\0', "\n")).as_ref(),
         &relocation::Changed {
             files: &files,
             touched: &touched,
@@ -679,7 +678,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
             // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors
             // `Claim-Cell:` rather than a blanket override.
-            let waived = weakens::Waived::of(&worktree::messages(&root, &at));
+            let waived = weakens::Waived::of(&worktree::messages(&root, at));
             match report_deleted_tests(&deleted, &waived) {
                 Verdict::Pass => edited::callsite::separate(&files, &working_tree, &base_tree),
                 refused => return refused,
@@ -711,7 +710,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // ignored) falls through to the unconsulted-declaration line unchanged: this arm
             // cannot build the `Scoped` value `claim::run` needs, so it has not reached the claim
             // arm either, and says so exactly as it did before this decision.
-            let claim = claim::Claim::of(&worktree::messages(&root, &at));
+            let claim = claim::Claim::of(&worktree::messages(&root, at));
             if let Some(ref declared) = claim
                 && let Scan::Runnable(scoped) = live.scan(Scan::of(&files, &inseparable, &working_tree))
             {
@@ -738,7 +737,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
         Plan::Separable(separable) => {
             edited::callsite::name(&separable.edited);
-            let verdict = separable_verdict(&root, &at, &files, &separable, &working_tree, &base_tree, &exemptions, &live);
+            let verdict = separable_verdict(&root, at, &files, &separable, &working_tree, &base_tree, &exemptions, &live);
             edited::callsite::cap(&separable.edited, verdict)
         }
     }

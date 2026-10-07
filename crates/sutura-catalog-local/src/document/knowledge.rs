@@ -24,6 +24,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::knowledge::{Absence, Caveat, Example, GlossaryEntry, NoteBody, NoteName, Phrase, Referent};
+use sutura_domain::model::RelationshipName;
 use sutura_domain::query::Query;
 
 use crate::document::DocumentKind;
@@ -57,12 +58,14 @@ impl GlossaryDoc {
     }
 }
 
-/// One caveat, and everything it is about.
+/// One caveat, and everything it is about: the metrics in `about`, or the relationships in
+/// `relationships` that the domain expands into one caveat per metric reaching a dimension through
+/// them.
 ///
-/// `about` has no default. A caveat scoped to nothing is refused by
-/// `sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing`, and that refusal is what
-/// keeps the catalog from having an unscoped channel into the prompt - so the field being required
-/// here means the author is told about the missing key rather than about the empty list.
+/// Both default to empty, because a caveat names one or the other. A caveat naming neither is
+/// refused by `sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing`, and that
+/// refusal - in the domain, where every adapter has it - is what keeps the catalog from having an
+/// unscoped channel into the prompt.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaveatDoc {
@@ -73,12 +76,15 @@ pub struct CaveatDoc {
     )]
     kind: DocumentKind,
     name: NoteName,
+    #[serde(default)]
     about: Vec<Referent>,
+    #[serde(default)]
+    relationships: Vec<RelationshipName>,
 }
 
 impl CaveatDoc {
     pub fn into_domain(self, body: NoteBody) -> Caveat {
-        Caveat::new(self.name, self.about, body)
+        Caveat::new(self.name, self.about, body).through(self.relationships)
     }
 }
 
@@ -139,7 +145,7 @@ mod tests {
     use super::{CaveatDoc, DocumentKind, ExampleDoc, GlossaryDoc, NotDefinedDoc};
     use sutura_domain::catalog::DimensionValue;
     use sutura_domain::knowledge::{Capability, KnowledgeCapabilities, NoteBody, Phrase, Referent};
-    use sutura_domain::model::{DimensionName, Grain, MetricName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, RelationshipName};
 
     const GLOSSARY: &str = "
 kind: glossary
@@ -254,14 +260,19 @@ about:
     }
 
     #[test]
-    fn a_caveat_with_no_about_key_is_refused_by_the_missing_field() {
-        // Required rather than defaulted to empty: the empty list is refused by the domain anyway -
-        // an unscoped caveat is the one shape that would put a paragraph about the deployment at
-        // large into the prompt - so making the key required means the author is told which key they
-        // left out instead of being told their list is empty.
-        let yaml = "kind: caveat\nname: read_me_first\n";
-        let err = serde_norway::from_str::<CaveatDoc>(yaml).expect_err("a caveat is about something");
-        assert!(err.to_string().contains("about"), "{err}");
+    fn a_caveat_document_may_name_relationships_in_place_of_metrics() {
+        let yaml = "
+kind: caveat
+name: sales_area_as_of_today
+relationships: [customer_region]
+";
+        let doc: CaveatDoc = serde_norway::from_str(yaml).expect("a caveat about a relationship is a document");
+        let note = doc.into_domain(body());
+        assert_eq!(note.about(), []);
+        assert_eq!(
+            note.relationships().iter().map(RelationshipName::as_str).collect::<Vec<_>>(),
+            vec!["customer_region"]
+        );
     }
 
     #[test]

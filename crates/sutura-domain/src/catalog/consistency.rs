@@ -488,12 +488,15 @@ impl Definitions {
     /// One cross-model ratio term's aggregate: it must have a value over no rows (the empty-set rule
     /// reads an absent fact's leaves as it) and re-aggregate across the two fact legs.
     fn check_cross_model_aggregate(metric: &Metric, aggregate: Aggregate) -> Result<(), InconsistentDefinitions> {
-        let metric = metric.name.clone();
         match aggregate {
-            Aggregate::Avg | Aggregate::Min | Aggregate::Max => {
-                Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue { metric, aggregate })
-            }
-            Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate { metric, aggregate }),
+            Aggregate::Avg | Aggregate::Min | Aggregate::Max => Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
+                metric: metric.name.clone(),
+                aggregate,
+            }),
+            Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate {
+                metric: metric.name.clone(),
+                aggregate,
+            }),
             Aggregate::Sum | Aggregate::Count => Ok(()),
         }
     }

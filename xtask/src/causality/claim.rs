@@ -262,7 +262,7 @@ impl Cause {
 
 /// The patch file a declared cell's mutation lives at, under `dir` (the HEAD worktree the arm
 /// reads it from).
-fn mutation_path(dir: &Path, cell: &str) -> PathBuf {
+pub(super) fn mutation_path(dir: &Path, cell: &str) -> PathBuf {
     dir.join(MUTATIONS_DIR).join(format!("{cell}.patch"))
 }
 

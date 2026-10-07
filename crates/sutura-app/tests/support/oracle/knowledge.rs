@@ -44,7 +44,7 @@ use sutura_domain::knowledge::{
     Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
     Phrase, Referent,
 };
-use sutura_domain::model::{DimensionName, Grain, MetricName};
+use sutura_domain::model::{ColumnName, DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::query::{Filter, Query};
 
 use super::june;
@@ -102,6 +102,21 @@ fn about_value(raw: &str, name: &str, value: &str) -> Referent {
     }
 }
 
+/// One declared model.
+fn about_model(raw: &str) -> Referent {
+    Referent::Model {
+        model: ModelName::parse(raw).expect("a corpus model is a model"),
+    }
+}
+
+/// One declared column of one declared model.
+fn about_column(model: &str, column: &str) -> Referent {
+    Referent::Column {
+        model: ModelName::parse(model).expect("a corpus model is a model"),
+        column: ColumnName::parse(column).expect("a corpus column is a column"),
+    }
+}
+
 fn entry(term: &str, synonyms: &[&str], means: Referent) -> GlossaryEntry {
     GlossaryEntry::new(phrase(term), phrases(synonyms), means, body())
 }
@@ -125,12 +140,13 @@ fn worked(name: &str, asked: &[&str], question: Query) -> Example {
 
 // ------------------------------------------------------------------------------- the glossary ---
 
-/// The nine glossary entries.
+/// The eleven glossary entries.
 ///
-/// **Five of them resolve to a metric and four to something inside one**, which is the split worth
-/// keeping: a phrase that means a whole metric is the easy case, and a phrase that means one declared
-/// VALUE is the case that produces a wrong refusal rather than a wrong number when the catalog and the
-/// allowlist disagree.
+/// **Five of them resolve to a metric, four to something inside one, and two to the model most of
+/// those metrics are measured over**, which is the split worth keeping: a phrase that means a whole
+/// metric is the easy case, a phrase that means one declared VALUE is the case that produces a wrong
+/// refusal rather than a wrong number when the catalog and the allowlist disagree, and a phrase that
+/// means a model or a column is descriptive only - no request can name either.
 fn glossary() -> Vec<GlossaryEntry> {
     vec![
         // "always the ACTIVE figure" - the metric whose definitional filter is part of its name.
@@ -190,12 +206,21 @@ fn glossary() -> Vec<GlossaryEntry> {
             &["Vertragslaufzeit", "commitment", "term"],
             about_dimension("recurring_revenue", "contract_term"),
         ),
+        // "one row per subscription per month" - the model itself, not a metric over it.
+        entry("subscription snapshot", &["monthly snapshot"], about_model("subscriptions")),
+        // "one subscription's recurring revenue for one month, in minor units" - the stored column.
+        entry(
+            "revenue in cents",
+            &["MRR in cents"],
+            about_column("subscriptions", "mrr_cents"),
+        ),
     ]
 }
 
 // -------------------------------------------------------------------------------- the caveats ---
 
-/// The five caveats, each scoped to every metric its prose is about.
+/// The five caveats written about metrics, each scoped to every metric its prose is about, and the
+/// one a caveat about a relationship loads as.
 ///
 /// The scope is the part to transcribe carefully: a caveat attached to three of the four metrics it
 /// warns about is a warning that does not appear on the fourth, and nothing but this comparison would
@@ -237,6 +262,15 @@ fn caveats() -> Vec<Caveat> {
                 about("revenue_per_customer"),
                 about("revenue_per_churned_subscription"),
             ],
+        ),
+        // "A region rolls up into one sales area" - written once about `customer_region`, and loaded
+        // as one caveat per metric reaching a dimension through it: only `recurring_revenue`, whose
+        // `sales_area` chain is `[subscription_customer, customer_region]`. Stated here in that
+        // EXPANDED form, under the name the load derives, so the comparison checks the expansion
+        // rather than repeating it.
+        caveat(
+            "sales_area_as_of_today__recurring_revenue",
+            vec![about_dimension("recurring_revenue", "sales_area")],
         ),
     ]
 }

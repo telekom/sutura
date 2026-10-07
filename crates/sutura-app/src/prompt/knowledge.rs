@@ -37,9 +37,10 @@
 //!
 //! Every token of a glossary line is a phrase the domain parsed - one line, bounded, normalised, no
 //! control characters - or a name the pinned bundle already declares. So the STRUCTURED half of every
-//! section here cannot name a model, a table or a column: there is no
-//! [`Referent`](sutura_domain::knowledge::Referent) variant that could hold one, which is a property
-//! of the type rather than a review of each rendering.
+//! section here names only what a [`Referent`](sutura_domain::knowledge::Referent) can hold: a
+//! metric, a dimension or a declared value of one, and - in a glossary line alone - a declared model
+//! or column, shown only to a caller whose view holds that model. A model's table is never rendered
+//! here, which is a property of the type rather than a review of each rendering.
 //!
 //! **The narrow claim is the true one, and it is worth stating at its width.** A `Phrase` and a
 //! `NoteBody` are free text, both reach this document, and nothing mechanical stops an author writing
@@ -460,7 +461,7 @@ fn scope(note: &Caveat, metric: &MetricName) -> String {
     let mine: Vec<String> = note
         .about()
         .iter()
-        .filter(|referent| referent.metric() == metric)
+        .filter(|referent| referent.metric() == Some(metric))
         .map(|referent| match (referent.dimension(), referent.value()) {
             (None, _) => String::from("about this metric as a whole"),
             (Some(dimension), None) => format!("about its `{dimension}`"),
@@ -597,23 +598,30 @@ fn phrases<'a>(phrases: impl Iterator<Item = &'a Phrase>) -> String {
 
 /// One referent, in the words a caller can act on.
 ///
-/// A metric name, a dimension name, a declared value: the same three things `GET /v1/catalog`
-/// exposes, and nothing else. There is no variant of a referent that could name a model, a table or a
-/// column, which is what makes that true of this function without a check in it.
+/// A metric name, a dimension name, a declared value - the things `GET /v1/catalog` exposes - or,
+/// for a glossary entry, a declared model or column, which `Knowledge::scoped` shows only to a caller
+/// whose view holds that model. Every name here is one the bundle declares; nothing else can reach
+/// this function, because `Referent` has no variant to carry it.
 fn referent(referent: &Referent) -> String {
-    match (referent.dimension(), referent.value()) {
-        (None, _) => format!("metric `{}`", referent.metric()),
-        (Some(dimension), None) => format!("dimension `{}` of metric `{}`", dimension, referent.metric()),
-        (Some(dimension), Some(value)) => {
-            format!(
-                "value `{}` of dimension `{}` of metric `{}`",
-                value,
-                dimension,
-                referent.metric()
-            )
-        }
+    match *referent {
+        Referent::Metric { ref metric } => format!("metric `{metric}`"),
+        Referent::Dimension {
+            ref metric,
+            ref dimension,
+        } => format!("dimension `{dimension}` of metric `{metric}`"),
+        Referent::Value {
+            ref metric,
+            ref dimension,
+            ref value,
+        } => format!("value `{value}` of dimension `{dimension}` of metric `{metric}`"),
+        Referent::Model { ref model } => format!("model `{model}` ({DESCRIPTIVE})"),
+        Referent::Column { ref model, ref column } => format!("column `{column}` of model `{model}` ({DESCRIPTIVE})"),
     }
 }
+
+/// Said beside every model or column a glossary line names, because the line is the first place such a
+/// name may reach the prompt and a name in an agent's context is a name it will try to use.
+const DESCRIPTIVE: &str = "descriptive only: a request names a metric, never a model or a column";
 
 /// A glossary entry's, a caveat's, an absence's or an example's own prose, quoted, when this
 /// deployment includes prose at all.

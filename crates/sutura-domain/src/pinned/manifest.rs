@@ -16,6 +16,7 @@
 //! pinned-bundle half of the module.
 
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 
 use crate::capabilities::MetadataCapabilities;
 use crate::model::SourceName;
@@ -151,8 +152,15 @@ impl ContributionManifest {
     pub fn parse(entries: impl IntoIterator<Item = (SourceName, Contribution)>) -> Result<Self, InvalidManifest> {
         let mut map: BTreeMap<SourceName, Contribution> = BTreeMap::new();
         for (source, contribution) in entries {
-            if map.insert(source.clone(), contribution).is_some() {
-                return Err(InvalidManifest::DuplicateSource { source_name: source });
+            match map.entry(source) {
+                Entry::Vacant(slot) => {
+                    slot.insert(contribution);
+                }
+                Entry::Occupied(taken) => {
+                    return Err(InvalidManifest::DuplicateSource {
+                        source_name: taken.remove_entry().0,
+                    });
+                }
             }
         }
         if map.is_empty() {

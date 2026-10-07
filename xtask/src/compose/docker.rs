@@ -42,8 +42,15 @@ pub(crate) const COMPOSE_FILE: &str = "compose.services.yaml";
 /// What is missing before anything can be provisioned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Missing {
-    /// No `docker` on `PATH`.
+    /// No `docker` that runs: not on `PATH`, not startable, or `--version` exited non-zero.
     Cli,
+    /// `docker` started and `--version` said nothing inside its budget.
+    ///
+    /// Separate from [`Self::Cli`] because a stall is not an absent binary: `github.com/telekom/
+    /// sutura#1179` saw `Cli` on a host where the binary was installed, and the report could not
+    /// say whether it had stalled or failed to start. A stall on a loaded host is a budget
+    /// question, and the remedy says so.
+    SilentCli,
     /// `docker` is there; the Compose v2 plugin is not.
     ComposePlugin,
     /// Both are there and the daemon REFUSED. A stopped Docker Desktop is this case.
@@ -64,6 +71,10 @@ impl Missing {
     pub(crate) const fn remedy(self) -> &'static str {
         match self {
             Self::Cli => "install docker (a host dependency; nix deliberately does not pin it)",
+            Self::SilentCli => {
+                "`docker --version` did not answer inside its budget - a broken installation, or a \
+                 host too loaded for it: raise SUTURA_DOCKER_PROBE_TIMEOUT_SECS on a loaded host"
+            }
             Self::ComposePlugin => "install the Compose v2 plugin - `docker compose version` must work",
             Self::Daemon => "start the docker daemon - `docker info` must answer",
             // The same sentence a status query that ran out of budget prints, from the module that
@@ -126,15 +137,17 @@ fn probe_budget() -> Duration {
 /// [`Missing::WedgedDaemon`] against [`Missing::Daemon`] - because the remedy and the skip direction
 /// both differ.
 ///
-/// The limit worth stating: the distinction is drawn only for the daemon. A `docker` binary that
-/// hangs on `--version` is reported as no CLI at all, which is approximate. It stays approximate on
-/// purpose - a hanging `--version` is a broken installation rather than a running service, so the
-/// remedy still points at the right half of the problem, and the two remaining variants would each
-/// need a caller that acted on them differently to be worth carrying.
+/// The CLI probe draws the same line: a `--version` that stalls is [`Missing::SilentCli`], one that
+/// failed to start or exited non-zero is [`Missing::Cli`]. Both may be skipped, because a stalled
+/// `--version` is a broken installation rather than a running service. The limit worth stating: the
+/// compose-plugin probe does not draw it, so a hanging `docker compose version` is reported as no
+/// plugin at all.
 pub(crate) fn presence() -> Result<(), Missing> {
     let budget = probe_budget();
-    if probed(Command::new("docker").arg("--version"), budget) != Probe::Answered {
-        return Err(Missing::Cli);
+    match probed(Command::new("docker").arg("--version"), budget) {
+        Probe::Answered => {}
+        Probe::Silent => return Err(Missing::SilentCli),
+        Probe::Refused => return Err(Missing::Cli),
     }
     if probed(Command::new("docker").args(["compose", "version"]), budget) != Probe::Answered {
         return Err(Missing::ComposePlugin);
@@ -580,7 +593,13 @@ mod tests {
 
     #[test]
     fn a_missing_part_says_what_to_do_about_it() {
-        for missing in [Missing::Cli, Missing::ComposePlugin, Missing::Daemon, Missing::WedgedDaemon] {
+        for missing in [
+            Missing::Cli,
+            Missing::SilentCli,
+            Missing::ComposePlugin,
+            Missing::Daemon,
+            Missing::WedgedDaemon,
+        ] {
             assert!(
                 !missing.remedy().is_empty(),
                 "every missing-part variant has a non-empty remedy"
@@ -590,6 +609,7 @@ mod tests {
         // two: telling somebody whose daemon is running-but-silent to START it is advice they have
         // already taken, and this is what stops the pair collapsing back into one message.
         assert_ne!(Missing::Daemon.remedy(), Missing::WedgedDaemon.remedy());
+        assert_ne!(Missing::Cli.remedy(), Missing::SilentCli.remedy());
 
         // Not an assertion about this machine: `presence` is allowed to say either thing. What is
         // asserted is that it answers within a BOUND - the half this test used to leave out. On a
@@ -653,6 +673,7 @@ mod tests {
         // The direction the gate reads. A machine with no docker is a legitimate configuration and
         // skips; a daemon that is installed, running and not answering is a fault and must not.
         assert!(Missing::Cli.may_be_skipped());
+        assert!(Missing::SilentCli.may_be_skipped());
         assert!(Missing::ComposePlugin.may_be_skipped());
         assert!(Missing::Daemon.may_be_skipped());
         assert!(!Missing::WedgedDaemon.may_be_skipped());

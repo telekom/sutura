@@ -122,17 +122,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::catalog::DimensionValue;
-use crate::model::{DimensionName, MetricName, identifier_newtype};
+use crate::model::{ColumnName, DimensionName, MetricName, ModelName, identifier_newtype};
 use crate::text::{first_altered_control, first_invisible, is_invisible};
 
-// Two splits rather than one file, because `cargo xtask max-lines` fails at a thousand lines under
-// `crates/` and cannot be exempted. The seams are real ones: `note` holds the four records, `check`
-// holds everything that runs once when a bundle is loaded, and this file holds the vocabulary a note
-// is written in and the bundle they sit in. The names stay where they were - a caller still writes
+// Three splits rather than one file, because `cargo xtask max-lines` fails at a thousand lines under
+// `crates/` and cannot be exempted. The seams are real ones: `note` holds the four records, `bundle`
+// holds everything that runs once when a bundle is loaded, `referent` holds the walks from a note's
+// names to what the definitions declare, and this file holds the vocabulary a note is written in. The names stay where they were - a caller still writes
 // `sutura_domain::knowledge::GlossaryEntry` - because the module is the unit of API and the files are
 // not.
 mod bundle;
 mod note;
+mod referent;
 
 pub use bundle::{InconsistentKnowledge, Knowledge, KnowledgeInput};
 pub use note::{Absence, Caveat, Example, GlossaryEntry};
@@ -200,7 +201,7 @@ fn collapse_spacing(raw: &str) -> String {
 /// sections apart, about what a reader sees as one word. So the authored spelling is kept as the
 /// value everywhere, and this is what the index is keyed on.
 ///
-/// A free function rather than a method, for the reason [`bundle::identifier_shape`] gives: the
+/// A free function rather than a method, for the reason [`referent::identifier_shape`] gives: the
 /// only legitimate use of the result is to notice that two documents disagree, and a phrase should
 /// not offer to fold its own case for anybody else.
 pub(super) fn phrase_identity(phrase: &Phrase) -> String {
@@ -462,16 +463,20 @@ identifier_newtype! {
 
 /// What one note is about: something the pinned bundle declares.
 ///
-/// **There is deliberately no variant for a model, a table or a column, and that absence is load
-/// bearing rather than tidy.** A caller cannot ask about any of the three - [`crate::query::Query`] has no field
-/// for one - and a name in an agent's context is a name it will eventually try to use. Every
-/// STRUCTURED rendering `sutura_app::prompt` builds out of a note - the glossary line, a caveat's
-/// scope, the request in a worked question - is rendered from a `Referent`, so none of them CAN name
-/// a model, a table or a column, whatever an author writes. That is the claim the type holds up, and
-/// it is worth stating at its real width:
+/// **No note may select, widen or parameterise what executes, and that is restated here for every
+/// channel a note has.** [`crate::query::Query`] has no field for a model, a table or a column, and
+/// knowledge is read only by the prompt, so a name a note carries is a name an agent reads and
+/// never one a request can use. Every STRUCTURED rendering `sutura_app::prompt` builds out of a
+/// note - the glossary line, a caveat's scope, the request in a worked question - is rendered from a
+/// `Referent`, so the names it carries are the names these variants hold. That is the claim the
+/// type holds up, at its real width:
 ///
-/// * **The structured renderings cannot name one.** There is no variant to put it in, so this half
-///   is a property of the type rather than a review of each rendering.
+/// * **A glossary entry may mean a model or a column** - Q2 of
+///   `docs/adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md`. That is a new
+///   way to NAME a declared model or column in the prompt, not a new way to execute one, and a
+///   model or column note is shown only to a caller whose view holds that model
+///   ([`Knowledge::scoped`]). A caveat may not mean one: it is printed under the metric it is about,
+///   and [`InconsistentKnowledge::CaveatAboutAModel`] refuses a caveat that would be printed nowhere.
 /// * **[`Phrase`] and [`NoteBody`] are free text, and both reach the rendered document.** Nothing
 ///   here stops an author writing a column name into a glossary term or a note body, and the
 ///   pre-existing metric-description channel already carries such names into the prompt - the
@@ -481,10 +486,9 @@ identifier_newtype! {
 ///   claiming otherwise would be claiming the wrong mechanism.
 ///
 /// A load-time scan of every phrase and body for the bundle's own model, table and column names
-/// would close the second half. It is not here: it is a larger change than the type-level property
-/// needs, it would make an authored note refuse for naming a column in a sentence about why the
-/// column is not the thing being asked for, and the honest statement of what holds is the cheaper
-/// half of it.
+/// would close the second half. It is not here: it would make an authored note refuse for naming a
+/// column in a sentence about why the column is not the thing being asked for, and the honest
+/// statement of what holds is the cheaper half of it.
 ///
 /// It carries `Deserialize` as well as `Serialize`, for the same reason [`crate::measure::Measure`]
 /// does: this IS the on-disk shape, and a mirror of it in the adapter would be a second place to
@@ -496,9 +500,8 @@ identifier_newtype! {
 /// `means: { metric: { metric: recurring_revenue } }`: the tag word and the field word are the same
 /// word, so the nesting says nothing. `#[serde(untagged)]` is not the way out either - it reports
 /// "data did not match any variant", which names nothing. So a referent is one flat mapping with a
-/// `deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and the one
-/// combination that is not a referent - a value with no dimension - is an [`InvalidReferent`] that
-/// says so.
+/// `deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and a
+/// combination that is not a referent is an [`InvalidReferent`] that says which.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "ReferentRepr", into = "ReferentRepr")]
 pub enum Referent {
@@ -520,14 +523,22 @@ pub enum Referent {
         dimension: DimensionName,
         value: DimensionValue,
     },
+    /// One declared model. A glossary target only - see above.
+    Model { model: ModelName },
+    /// One declared column of one declared model. A glossary target only - see above.
+    Column { model: ModelName, column: ColumnName },
 }
 
 impl Referent {
-    /// The metric every referent is scoped to.
+    /// The metric this referent is scoped to, or `None` for a model or a column.
+    ///
+    /// `Option` so that every reader deciding where a note is shown, or to whom, has to say what
+    /// `None` means rather than inherit an answer.
     #[inline]
-    pub const fn metric(&self) -> &MetricName {
+    pub const fn metric(&self) -> Option<&MetricName> {
         match *self {
-            Self::Metric { ref metric } | Self::Dimension { ref metric, .. } | Self::Value { ref metric, .. } => metric,
+            Self::Metric { ref metric } | Self::Dimension { ref metric, .. } | Self::Value { ref metric, .. } => Some(metric),
+            Self::Model { .. } | Self::Column { .. } => None,
         }
     }
 
@@ -535,7 +546,7 @@ impl Referent {
     #[inline]
     pub const fn dimension(&self) -> Option<&DimensionName> {
         match *self {
-            Self::Metric { .. } => None,
+            Self::Metric { .. } | Self::Model { .. } | Self::Column { .. } => None,
             Self::Dimension { ref dimension, .. } | Self::Value { ref dimension, .. } => Some(dimension),
         }
     }
@@ -544,7 +555,7 @@ impl Referent {
     #[inline]
     pub const fn value(&self) -> Option<&DimensionValue> {
         match *self {
-            Self::Metric { .. } | Self::Dimension { .. } => None,
+            Self::Metric { .. } | Self::Dimension { .. } | Self::Model { .. } | Self::Column { .. } => None,
             Self::Value { ref value, .. } => Some(value),
         }
     }
@@ -555,10 +566,21 @@ impl Referent {
     /// the bundle and a `Vec` of them is not: a caveat listing one referent ten thousand times is
     /// inside every per-note cap and is not a note.
     fn authored_bytes(&self) -> usize {
-        self.dimension()
-            .map_or(0, |d| d.as_str().len())
-            .saturating_add(self.value().map_or(0, |value| value.as_str().len()))
-            .saturating_add(self.metric().as_str().len())
+        let names = match *self {
+            Self::Metric { ref metric } => [metric.as_str(), "", ""],
+            Self::Dimension {
+                ref metric,
+                ref dimension,
+            } => [metric.as_str(), dimension.as_str(), ""],
+            Self::Value {
+                ref metric,
+                ref dimension,
+                ref value,
+            } => [metric.as_str(), dimension.as_str(), value.as_str()],
+            Self::Model { ref model } => [model.as_str(), "", ""],
+            Self::Column { ref model, ref column } => [model.as_str(), column.as_str(), ""],
+        };
+        sum_bytes(names.iter().map(|name| name.len()))
     }
 }
 
@@ -567,46 +589,75 @@ impl Referent {
 /// It exists to be converted, the way [`crate::measure::Term`]'s does. `deny_unknown_fields` is the
 /// most useful line in it: without it `dimesion:` is dropped in silence and a note that meant to be
 /// about one dimension becomes one about a whole metric, with nothing anywhere saying so.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+///
+/// Every field is optional, so the serialized form of a metric referent is what it was before the
+/// model and column fields existed - and so is every digest taken over one.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReferentRepr {
-    metric: MetricName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    metric: Option<MetricName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dimension: Option<DimensionName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     value: Option<DimensionValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<ModelName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    column: Option<ColumnName>,
 }
 
-/// Why a referent was rejected.
-///
-/// One variant, because there is one combination of the three fields that is not a referent. A
-/// missing `metric` is a serde missing-field error naming the field, which is a better message than
-/// anything this enum could produce for it.
+/// Why a referent was rejected: the combinations of the five fields that are not one.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidReferent {
     #[error("a value belongs to a dimension: `value: {value}` on metric {metric} has no `dimension` beside it")]
     ValueWithoutDimension { metric: MetricName, value: DimensionValue },
+    /// A dimension, a value or a column on its own belongs to nothing.
+    #[error("a referent names a `metric` or a `model`, and this one names neither")]
+    NeitherMetricNorModel,
+    #[error(
+        "a referent is a `metric` with its `dimension` and `value`, or a `model` with its `column`, and this one mixes the two"
+    )]
+    MetricAndModelMixed,
 }
 
 impl TryFrom<ReferentRepr> for Referent {
     type Error = InvalidReferent;
 
     fn try_from(repr: ReferentRepr) -> Result<Self, Self::Error> {
-        match (repr.dimension, repr.value) {
-            (None, None) => Ok(Self::Metric { metric: repr.metric }),
-            (Some(dimension), None) => Ok(Self::Dimension {
-                metric: repr.metric,
-                dimension,
-            }),
-            (Some(dimension), Some(value)) => Ok(Self::Value {
-                metric: repr.metric,
+        match repr {
+            ReferentRepr {
+                metric: Some(metric),
                 dimension,
                 value,
+                model: None,
+                column: None,
+            } => match (dimension, value) {
+                (None, None) => Ok(Self::Metric { metric }),
+                (Some(dimension), None) => Ok(Self::Dimension { metric, dimension }),
+                (Some(dimension), Some(value)) => Ok(Self::Value {
+                    metric,
+                    dimension,
+                    value,
+                }),
+                (None, Some(value)) => Err(InvalidReferent::ValueWithoutDimension { metric, value }),
+            },
+            ReferentRepr {
+                metric: None,
+                dimension: None,
+                value: None,
+                model: Some(model),
+                column,
+            } => Ok(match column {
+                None => Self::Model { model },
+                Some(column) => Self::Column { model, column },
             }),
-            (None, Some(value)) => Err(InvalidReferent::ValueWithoutDimension {
-                metric: repr.metric,
-                value,
-            }),
+            ReferentRepr {
+                metric: None,
+                model: None,
+                ..
+            } => Err(InvalidReferent::NeitherMetricNorModel),
+            _ => Err(InvalidReferent::MetricAndModelMixed),
         }
     }
 }
@@ -618,23 +669,32 @@ impl From<Referent> for ReferentRepr {
     fn from(referent: Referent) -> Self {
         match referent {
             Referent::Metric { metric } => Self {
-                metric,
-                dimension: None,
-                value: None,
+                metric: Some(metric),
+                ..Self::default()
             },
             Referent::Dimension { metric, dimension } => Self {
-                metric,
+                metric: Some(metric),
                 dimension: Some(dimension),
-                value: None,
+                ..Self::default()
             },
             Referent::Value {
                 metric,
                 dimension,
                 value,
             } => Self {
-                metric,
+                metric: Some(metric),
                 dimension: Some(dimension),
                 value: Some(value),
+                ..Self::default()
+            },
+            Referent::Model { model } => Self {
+                model: Some(model),
+                ..Self::default()
+            },
+            Referent::Column { model, column } => Self {
+                model: Some(model),
+                column: Some(column),
+                ..Self::default()
             },
         }
     }
@@ -877,3 +937,9 @@ mod tests;
 
 #[cfg(test)]
 mod refusal_tests;
+
+#[cfg(test)]
+mod relationship_tests;
+
+#[cfg(test)]
+mod referent_tests;

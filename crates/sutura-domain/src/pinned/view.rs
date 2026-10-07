@@ -5,7 +5,7 @@
 //! [`GrantedAudiences`] is deployment policy, done above this crate.
 
 use crate::catalog::{GrantedAudiences, Metric, Model};
-use crate::model::MetricName;
+use crate::model::{MetricName, ModelName};
 use crate::pinned::PinnedDefinitions;
 
 /// Everything, or a caller's granted set. See [`ScopedView::everything`] and
@@ -101,18 +101,33 @@ impl<'a> ScopedView<'a> {
             .filter(|metric| self.visible(metric))
     }
 
+    /// One model, if declared AND this caller may see it - the rule [`Self::models`] lists by.
+    #[must_use]
+    pub fn model(&self, name: &ModelName) -> Option<&'a Model> {
+        let model = self.pinned.definitions().model(name)?;
+        self.visible_model(model).then_some(model)
+    }
+
     /// Models with an explicit audience visible to this caller. A whole-bundle view sees all.
     pub fn models(&self) -> impl Iterator<Item = &'a Model> + '_ {
-        self.pinned.definitions().models().values().filter(|model| match &self.scope {
-            Scope::Everything => true,
-            Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
-        })
+        self.pinned
+            .definitions()
+            .models()
+            .values()
+            .filter(|model| self.visible_model(model))
     }
 
     fn visible(&self, metric: &Metric) -> bool {
         match &self.scope {
             Scope::Everything => true,
             Scope::Granted(granted) => metric.audience().visible_to(granted.as_set()),
+        }
+    }
+
+    fn visible_model(&self, model: &Model) -> bool {
+        match &self.scope {
+            Scope::Everything => true,
+            Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
         }
     }
 }

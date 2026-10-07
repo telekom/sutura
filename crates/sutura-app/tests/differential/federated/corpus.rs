@@ -69,6 +69,8 @@ pub(crate) enum Edit {
     Added(&'static str),
     /// Rows appended to a shared file.
     Appended(&'static str),
+    /// A shared document, deleted. Absent, the derivation panics, for [`Self::Rewrite`]'s reason.
+    Removed,
 }
 
 /// The one-sided edit's shape, and it is a REWRITE of a document both catalogs already have.
@@ -139,6 +141,10 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
             with: "",
         },
     ),
+    // The caveat written about `customer_region`, removed with the dimension above: `sales_area`
+    // was the one dimension reached through it, so it would reach no metric and the load would
+    // refuse both catalogs by name.
+    ("knowledge/caveats/sales-area-as-of-today.md", Edit::Removed),
     // A zero denominator in ONE subgroup, under `fails`: the answer this metric's own document
     // argues for is a failure rather than a figure, and grouping it by a REMOTE attribute is
     // what makes the guard fire above two legs instead of inside one statement.
@@ -554,6 +560,9 @@ fn apply(to: &Path, edit: &Edit) {
             );
             text.push_str(rows);
             write(to, &text);
+        }
+        Edit::Removed => {
+            std::fs::remove_file(to).unwrap_or_else(|e| panic!("could not remove {}: {e}", to.display()));
         }
     }
 }

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/main.rs b/crates/sutura-cli/src/main.rs
+index d816285ce..1d8d21af8 100644
+--- a/crates/sutura-cli/src/main.rs
++++ b/crates/sutura-cli/src/main.rs
+@@ -304,7 +304,7 @@ fn exit_quietly_on_broken_pipe() {
+             .downcast_ref::<String>()
+             .map(String::as_str)
+             .or_else(|| info.payload().downcast_ref::<&str>().copied());
+-        if message.is_some_and(|m| m.starts_with("failed printing to stdout") && m.contains("Broken pipe")) {
++        if message.is_some_and(|m| m.starts_with("failed printing to stdout")) {
+             std::process::exit(0);
+         }
+         previous(info);

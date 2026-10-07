@@ -1,0 +1,13 @@
+diff --git a/.config/nextest.toml b/.config/nextest.toml
+index 5d19bc8..f849b2b 100644
+--- a/.config/nextest.toml
++++ b/.config/nextest.toml
+@@ -143,7 +143,7 @@ slow-timeout = { period = "60s", terminate-after = 2 }
+ # `warm_start` -> `warmstart` listed 3 of 4, exit 0). `the_nextest_group_names_exactly_the_per_gate_cells`
+ # compares these names with the cell functions' own. Limit: it reads this text, not nextest's
+ # evaluation of it, and it does not read `binary_id` or the `paired-gate` definition.
+-filter = "binary_id(xtask::bin/xtask) & (test(=falsifier::tests::check_boundaries_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_guidance_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_venues_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_warm_start_passes_its_real_inputs_and_refuses_one_violation))"
++filter = "binary_id(xtask::bin/xtask) & (test(=falsifier::tests::check_boundaries_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_guidance_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_venues_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_warmstart_passes_its_real_inputs_and_refuses_one_violation))"
+ test-group = "paired-gate"
+ slow-timeout = { period = "60s", terminate-after = 6 }
+ 

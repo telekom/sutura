@@ -128,6 +128,26 @@ pub struct Column {
     nullable: Option<bool>,
 }
 
+/// A column [`Column::from_metadata`] refused: the name it was handed, returned beside the
+/// [`InvalidDescription`] that refused it, so a caller that reports the column keeps no copy of the
+/// name aside for it.
+#[derive(Debug, thiserror::Error)]
+#[error("column {column}'s description is not usable")]
+pub struct ColumnRefusal {
+    column: ColumnName,
+    #[source]
+    cause: InvalidDescription,
+}
+
+impl ColumnRefusal {
+    /// The name and the refusal, owned - for a caller that reports both in an error of its own.
+    #[inline]
+    #[must_use]
+    pub fn into_parts(self) -> (ColumnName, InvalidDescription) {
+        (self.column, self.cause)
+    }
+}
+
 impl Column {
     pub const fn new(name: ColumnName, data_type: Option<ColumnType>, description: Description, nullable: Option<bool>) -> Self {
         Self {
@@ -175,15 +195,19 @@ impl Column {
     ///
     /// # Errors
     ///
-    /// [`InvalidDescription`], if `description` is `Some` and not usable.
+    /// [`ColumnRefusal`], if `description` is `Some` and not usable: the [`InvalidDescription`] with
+    /// `name` handed back beside it.
     pub fn from_metadata(
         name: ColumnName,
         data_type: Option<&str>,
         description: Option<&str>,
         nullable: Option<bool>,
-    ) -> Result<Self, InvalidDescription> {
+    ) -> Result<Self, ColumnRefusal> {
         let data_type = data_type.and_then(|raw| ColumnType::parse(raw).ok());
-        let description = description.map(Description::parse).transpose()?.unwrap_or_default();
+        let description = match description.map(Description::parse).transpose() {
+            Ok(parsed) => parsed.unwrap_or_default(),
+            Err(cause) => return Err(ColumnRefusal { column: name, cause }),
+        };
         Ok(Self::new(name, data_type, description, nullable))
     }
 }
@@ -259,7 +283,9 @@ impl Model {
         }
     }
 
-    /// Declares who may see this model in an opted-in physical-schema listing.
+    /// Declares who may see this model: in an opted-in physical-schema listing, and in a glossary
+    /// entry that names the model or one of its columns. The second does not depend on
+    /// `prompt.list_physical_schema`. A model that declares none is shown to no caller-scoped view.
     #[must_use]
     pub fn with_audience(mut self, audience: Audience) -> Self {
         self.audience = Some(audience);

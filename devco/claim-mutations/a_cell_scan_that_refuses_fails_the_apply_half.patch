@@ -2,10 +2,10 @@ diff --git a/xtask/src/causality/rot.rs b/xtask/src/causality/rot.rs
 index 1c5919527..6aa184f10 100644
 --- a/xtask/src/causality/rot.rs
 +++ b/xtask/src/causality/rot.rs
-@@ -150,7 +150,7 @@ fn check_apply_at(root: &Path) -> Verdict {
+@@ -159,7 +159,7 @@ fn check_apply_at(root: &Path) -> Verdict {
      // half is on demand, so this is the only per-commit gate that sees a renamed cell.
      match locate(root, &cells) {
-         Ok(located) => rotted.extend(unlocated(&cells, &located).1),
+         Ok(located) => rotted.extend(gone(&cells, &located)),
 -        Err(why) => rotted.push(why),
 +        Err(why) => drop(why),
      }

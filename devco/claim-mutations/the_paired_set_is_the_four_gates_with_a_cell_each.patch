@@ -1,0 +1,13 @@
+diff --git a/xtask/src/registry.rs b/xtask/src/registry.rs
+index b1106d30e..90c3840f2 100644
+--- a/xtask/src/registry.rs
++++ b/xtask/src/registry.rs
+@@ -163,7 +163,7 @@ impl Falsifier {
+         Self {
+             seeds: &[],
+             in_scope: None,
+-            paired: Some(pair),
++            paired: { let _ = pair; None },
+         }
+     }
+ }

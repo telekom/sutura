@@ -1,0 +1,12 @@
+diff --git a/xtask/src/boundaries.rs b/xtask/src/boundaries.rs
+index d115fc644..ae3527194 100644
+--- a/xtask/src/boundaries.rs
++++ b/xtask/src/boundaries.rs
+@@ -211,6 +211,7 @@ fn shared_row(row: &shared_client::Row, walked: Result<shared_client::Report, St
+ 
+ /// Who DECLARES a port, which is the one question dependency direction cannot answer.
+ fn declared_ports() -> Verdict {
++    return Verdict::Pass;
+     // `--no-deps` on purpose, and for `api_shape`'s reason inverted: this half needs workspace
+     // members and their DECLARED dependencies, not the resolve graph. A transitive reach into the
+     // application is not what makes a crate a caller of its port.

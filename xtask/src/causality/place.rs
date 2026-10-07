@@ -36,7 +36,7 @@ use std::collections::BTreeSet;
 use crate::causality::attributes::{attached, item_below};
 use crate::causality::diff::ChangedFile;
 use crate::causality::names::{CargoName, Ident};
-use crate::causality::regions::{PostImage, item_head, module_name};
+use crate::causality::regions::{AddedLine, PostImage, item_head, module_name};
 use crate::changes::package_name;
 
 /// One test the diff added, as a key that identifies it in a run's output.
@@ -147,9 +147,9 @@ pub(super) enum Declares {
     /// `mod <name> {` - the body is in this same file, so its lines are in this diff by
     /// construction and there is no second file to look for.
     Inline,
-    /// `mod <name>;` - the module's source is another file. The candidates cargo would compile,
-    /// in the order [`declared_module_files`] produces them.
-    OutOfLine(Vec<String>),
+    /// `mod <name>;` - the module's source is another file. One entry per declaration, each the
+    /// candidates cargo would compile, in the order [`declared_module_files`] produces them.
+    OutOfLine(Vec<Vec<String>>),
 }
 
 /// The test module a file that named no test declares, if this can read one.
@@ -159,12 +159,15 @@ pub(super) enum Declares {
 /// the attribute and its item are two lines and only the attribute has to be new.
 ///
 /// An INLINE module wins over an out-of-line one when a hunk adds both, because an inline body
-/// arrives with the file and is the shape that needs no second file to exist.
+/// arrives with the file and is the shape that needs no second file to exist. Out-of-line
+/// declarations are ALL kept: a caller that saw only the last one answered for a file whose
+/// first declaration enabled a module nobody had looked at.
 ///
 /// `None` when nothing in the added lines declares a module at all. `super::scoped` reads that as
 /// a refusal: something made the file a test file and this cannot account for it.
 pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declares> {
-    let mut out_of_line: Option<Vec<String>> = None;
+    let mut out_of_line: Vec<Vec<String>> = Vec::new();
+    let mut seen: Vec<usize> = Vec::new();
     for added in &file.added {
         let trimmed = added.text.trim();
         // `number` is 1-based, so it is the 0-based index of the line after this one.
@@ -172,6 +175,9 @@ pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declar
             .strip_prefix("#[cfg(test)]")
             .is_some_and(|rest| rest.trim().is_empty())
         {
+            if cut_below_its_twin(file, lines, added) {
+                continue;
+            }
             item_below(lines, added.number)?
         } else {
             (added.number.saturating_sub(1), trimmed)
@@ -182,11 +188,44 @@ pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declar
         if item.contains('{') {
             return Some(Declares::Inline);
         }
-        if let Some(name) = module_name(item) {
-            out_of_line = Some(declared_module_files(&file.path, name, relocated(lines, at).as_deref()));
+        // A declaration is reached twice when its own attribute is added too: once from the
+        // attribute and once from the `mod` line. It is one declaration, keyed by its line.
+        if let Some(name) = module_name(item)
+            && !seen.contains(&at)
+        {
+            seen.push(at);
+            out_of_line.push(declared_module_files(&file.path, name, relocated(lines, at).as_deref()));
         }
     }
-    out_of_line.map(Declares::OutOfLine)
+    (!out_of_line.is_empty()).then_some(Declares::OutOfLine(out_of_line))
+}
+
+/// Is this added `#[cfg(test)]` where the diff CUT its block rather than a new attribute?
+///
+/// An added block that ends in a line equal to the one above it can be cut one line higher, and
+/// the post-image cannot say which cut `git diff` chose: inserting `mod a;` above an existing
+/// `#[cfg(test)] mod b;` is shown as `+mod a;` `+#[cfg(test)]` under the old attribute just as
+/// well as `+#[cfg(test)]` `+mod a;` above it. In the first spelling the added attribute sits over
+/// `mod b;`, which base already gated, and reading it as a new gate reported `b`'s untouched file
+/// as a module this diff enabled - a refusal of a correct change, and the last-wins resolution
+/// then hid the declaration that was really added.
+///
+/// Exact rather than a guess: the line above the block is context, so base has it directly over
+/// the item below the block, and that item was gated there. An attribute NOT preceded by itself
+/// reads a new gate as before.
+fn cut_below_its_twin(file: &ChangedFile, lines: &[&str], added: &AddedLine) -> bool {
+    let is_added = |number: usize| file.added.iter().any(|one| one.number == number);
+    if is_added(added.number.saturating_add(1)) {
+        return false;
+    }
+    let mut first = added.number;
+    while first > 1 && is_added(first.saturating_sub(1)) {
+        first = first.saturating_sub(1);
+    }
+    first
+        .checked_sub(2)
+        .and_then(|above| lines.get(above))
+        .is_some_and(|line| line.trim() == added.text.trim())
 }
 
 /// The `#[path = ".."]` value on the declaration at 0-based `at`, if it carries one.

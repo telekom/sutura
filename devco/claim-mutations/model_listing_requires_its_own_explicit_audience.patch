@@ -1,9 +1,12 @@
 diff --git a/crates/sutura-domain/src/pinned/view.rs b/crates/sutura-domain/src/pinned/view.rs
-index 23f56eee..b8cc2ad3 100644
 --- a/crates/sutura-domain/src/pinned/view.rs
 +++ b/crates/sutura-domain/src/pinned/view.rs
-@@ -107,3 +107,3 @@ impl<'a> ScopedView<'a> {
+@@ -127,7 +127,7 @@
+     fn visible_model(&self, model: &Model) -> bool {
+         match &self.scope {
              Scope::Everything => true,
 -            Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
 +            Scope::Granted(_) => true,
-         })
+         }
+     }
+ }

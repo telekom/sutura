@@ -112,6 +112,87 @@ fn a_declaration_whose_module_file_is_absent_from_the_diff_refuses() {
 }
 
 #[test]
+fn an_attribute_the_diff_cut_below_its_twin_gates_nothing_new() {
+    // THE MISREAD. `mod fresh;` goes in above `#[cfg(test)] mod legacy;`. The post-image is the
+    // same under either cut of the diff, and the cut `git diff` chose adds the SECOND attribute:
+    // it sits over `mod legacy;`, which base already gated, so `legacy.rs` is not this diff's
+    // business. Read as a new gate, it refused the change for a module nothing enabled - and the
+    // declaration that WAS added, `fresh`, went unanswered.
+    let lib = "fn f() {}\n#[cfg(test)]\nmod fresh;\n#[cfg(test)]\nmod legacy;\n";
+    let files = vec![
+        changed("crates/x/src/lib.rs", 3, &["mod fresh;", "#[cfg(test)]"]),
+        changed("crates/x/src/fresh.rs", 1, &["#[test]", "fn added() {}"]),
+    ];
+    let read = tree(&[
+        ("crates/x/src/lib.rs", lib),
+        ("crates/x/src/fresh.rs", "#[test]\nfn added() {}\n"),
+        ("crates/x/src/legacy.rs", "#[test]\nfn old() {}\n"),
+        ("crates/x/Cargo.toml", &manifest("x")),
+    ]);
+    let provable = vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/src/fresh.rs")];
+    match Scan::of(&files, &provable, &read) {
+        Scan::Runnable(ref scoped) => assert_eq!(
+            scoped.silent(),
+            [Silent {
+                path: String::from("crates/x/src/lib.rs"),
+                module: Some(String::from("crates/x/src/fresh.rs")),
+            }]
+        ),
+        other => panic!("expected `fresh` to account for the declaration, got {other:?}"),
+    }
+    // THE LIMIT OF IT. The same added block with `fn f() {}` above it has no twin: the trailing
+    // attribute is new, and `legacy` was not gated before, so this still refuses.
+    let lib = "fn f() {}\nmod fresh;\n#[cfg(test)]\nmod legacy;\n";
+    let files = vec![
+        changed("crates/x/src/lib.rs", 2, &["mod fresh;", "#[cfg(test)]"]),
+        changed("crates/x/src/fresh.rs", 1, &["#[test]", "fn added() {}"]),
+    ];
+    let read = tree(&[
+        ("crates/x/src/lib.rs", lib),
+        ("crates/x/src/fresh.rs", "#[test]\nfn added() {}\n"),
+        ("crates/x/src/legacy.rs", "#[test]\nfn old() {}\n"),
+        ("crates/x/Cargo.toml", &manifest("x")),
+    ]);
+    match Scan::of(&files, &provable, &read) {
+        Scan::Enabled(ref refused) => {
+            assert_eq!(refused.len(), 1, "one declaration this diff cannot account for");
+            assert_eq!(refused.first().map(|one| one.module.as_str()), Some("crates/x/src/legacy.rs"));
+        }
+        other => panic!("expected the new gate over `legacy` to refuse, got {other:?}"),
+    }
+}
+
+#[test]
+fn every_out_of_line_declaration_in_a_file_is_accounted_for_not_only_the_last() {
+    // `legacy` is declared first and `fresh` last, and only `fresh.rs` is in the diff. Answering
+    // for the last declaration alone said the file was accounted for, and the module that enabled
+    // a whole file of pre-existing tests went by unremarked.
+    let lib = "fn f() {}\n#[cfg(test)]\nmod legacy;\n#[cfg(test)]\nmod fresh;\n";
+    let files = vec![
+        changed(
+            "crates/x/src/lib.rs",
+            2,
+            &["#[cfg(test)]", "mod legacy;", "#[cfg(test)]", "mod fresh;"],
+        ),
+        changed("crates/x/src/fresh.rs", 1, &["#[test]", "fn added() {}"]),
+    ];
+    let read = tree(&[
+        ("crates/x/src/lib.rs", lib),
+        ("crates/x/src/fresh.rs", "#[test]\nfn added() {}\n"),
+        ("crates/x/src/legacy.rs", "#[test]\nfn old() {}\n"),
+        ("crates/x/Cargo.toml", &manifest("x")),
+    ]);
+    let provable = vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/src/fresh.rs")];
+    match Scan::of(&files, &provable, &read) {
+        Scan::Enabled(ref refused) => {
+            assert_eq!(refused.len(), 1, "`legacy` is the one declaration nothing accounts for");
+            assert_eq!(refused.first().map(|one| one.module.as_str()), Some("crates/x/src/legacy.rs"));
+        }
+        other => panic!("expected `legacy` to refuse, got {other:?}"),
+    }
+}
+
+#[test]
 fn an_unreadable_post_image_is_refused_rather_than_called_a_test_module() {
     // The other half of the same finding. `attributes::adds` answers `TestModule` for a file
     // it cannot read, which is the fail-closed direction - but this scan could not read it
