@@ -226,10 +226,13 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
                 metadata.and_then(document::ColumnMetadata::description),
                 None,
             )
-            .map_err(|(column, cause)| OpenMetadataError::ColumnDescription {
-                on: table.name().to_owned(),
-                column,
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                OpenMetadataError::ColumnDescription {
+                    on: table.name().to_owned(),
+                    column,
+                    cause,
+                }
             })?;
             columns.push(column);
         }

@@ -397,10 +397,13 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                 metadata.and_then(ColumnMetadata::description),
                 None,
             )
-            .map_err(|(column, cause)| RdbmsError::ColumnDescription {
-                table: physical_table.to_string(),
-                column,
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                RdbmsError::ColumnDescription {
+                    table: physical_table.to_string(),
+                    column,
+                    cause,
+                }
             })?;
             columns.push(column);
         }

@@ -335,11 +335,10 @@ impl ModelDoc {
                 })?;
         let mut columns = Vec::with_capacity(self.columns.len());
         for entry in self.columns {
-            columns.push(
-                entry
-                    .into_domain()
-                    .map_err(|(column, cause)| InvalidModelDocument::ColumnDescription { column, cause })?,
-            );
+            columns.push(entry.into_domain().map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                InvalidModelDocument::ColumnDescription { column, cause }
+            })?);
         }
         let mut model = Model::new(self.name, self.source, self.table, columns, description);
         if let Some(audience) = audience {

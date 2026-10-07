@@ -128,9 +128,25 @@ pub struct Column {
     nullable: Option<bool>,
 }
 
-/// The name [`Column::from_metadata`] was handed, returned beside the [`InvalidDescription`] that
-/// refused it, so a caller that reports the column keeps no copy of the name aside for it.
-pub type ColumnRefusal = (ColumnName, InvalidDescription);
+/// A column [`Column::from_metadata`] refused: the name it was handed, returned beside the
+/// [`InvalidDescription`] that refused it, so a caller that reports the column keeps no copy of the
+/// name aside for it.
+#[derive(Debug, thiserror::Error)]
+#[error("column {column}'s description is not usable")]
+pub struct ColumnRefusal {
+    column: ColumnName,
+    #[source]
+    cause: InvalidDescription,
+}
+
+impl ColumnRefusal {
+    /// The name and the refusal, owned - for a caller that reports both in an error of its own.
+    #[inline]
+    #[must_use]
+    pub fn into_parts(self) -> (ColumnName, InvalidDescription) {
+        (self.column, self.cause)
+    }
+}
 
 impl Column {
     pub const fn new(name: ColumnName, data_type: Option<ColumnType>, description: Description, nullable: Option<bool>) -> Self {
@@ -190,7 +206,7 @@ impl Column {
         let data_type = data_type.and_then(|raw| ColumnType::parse(raw).ok());
         let description = match description.map(Description::parse).transpose() {
             Ok(parsed) => parsed.unwrap_or_default(),
-            Err(cause) => return Err((name, cause)),
+            Err(cause) => return Err(ColumnRefusal { column: name, cause }),
         };
         Ok(Self::new(name, data_type, description, nullable))
     }

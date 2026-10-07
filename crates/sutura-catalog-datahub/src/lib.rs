@@ -336,10 +336,13 @@ impl<R: AspectReader> DataHubCatalog<R> {
                 metadata.and_then(document::ColumnMetadata::description),
                 None,
             )
-            .map_err(|(column, cause)| DataHubError::ColumnDescription {
-                on: dataset.name().to_owned(),
-                column,
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                DataHubError::ColumnDescription {
+                    on: dataset.name().to_owned(),
+                    column,
+                    cause,
+                }
             })?;
             columns.push(column);
         }

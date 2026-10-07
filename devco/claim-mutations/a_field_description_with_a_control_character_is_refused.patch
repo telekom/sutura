@@ -1,15 +1,17 @@
 diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
-index ebe03c260..609ba28e7 100644
+index a14c30392..01aa83d28 100644
 --- a/crates/sutura-catalog-okf/src/lib.rs
 +++ b/crates/sutura-catalog-okf/src/lib.rs
-@@ -152,9 +152,8 @@ impl OkfCatalog {
-                 .map(|text| text.trim().to_owned())
+@@ -153,10 +153,9 @@ impl OkfCatalog {
                  .filter(|text| !text.is_empty());
              let column = Column::from_metadata(column_name, field.r#type.as_deref(), field_description.as_deref(), None)
--                .map_err(|(column, cause)| OkfCatalogError::InvalidColumnDescription {
-+                .map_err(|(_column, cause)| OkfCatalogError::InvalidDescription {
-                     path: path.to_path_buf(),
--                    column,
-                     cause,
+                 .map_err(|refusal| {
+-                    let (column, cause) = refusal.into_parts();
+-                    OkfCatalogError::InvalidColumnDescription {
++                    let (_column, cause) = refusal.into_parts();
++                    OkfCatalogError::InvalidDescription {
+                         path: path.to_path_buf(),
+-                        column,
+                         cause,
+                     }
                  })?;
-             columns.push(column);

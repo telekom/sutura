@@ -152,10 +152,13 @@ impl OkfCatalog {
                 .map(|text| text.trim().to_owned())
                 .filter(|text| !text.is_empty());
             let column = Column::from_metadata(column_name, field.r#type.as_deref(), field_description.as_deref(), None)
-                .map_err(|(column, cause)| OkfCatalogError::InvalidColumnDescription {
-                    path: path.to_path_buf(),
-                    column,
-                    cause,
+                .map_err(|refusal| {
+                    let (column, cause) = refusal.into_parts();
+                    OkfCatalogError::InvalidColumnDescription {
+                        path: path.to_path_buf(),
+                        column,
+                        cause,
+                    }
                 })?;
             columns.push(column);
         }

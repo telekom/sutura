@@ -1045,6 +1045,28 @@ pub const fn nullable(&self) -> Option<bool>
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `struct ColumnRefusal`
+
+```rust
+pub struct ColumnRefusal
+```
+
+A column `Column::from_metadata` refused: the name it was handed, returned beside the
+`InvalidDescription` that refused it, so a caller that reports the column keeps no copy of the
+name aside for it.
+
+#### Methods
+
+```rust
+pub fn into_parts(self) -> (ColumnName, InvalidDescription)
+```
+
+The name and the refusal, owned - for a caller that reports both in an error of its own.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `struct Model`
 
 ```rust
@@ -2042,11 +2064,6 @@ than left to say a smaller bundle than the corpus now is. Still more than
 bundle also carries the identifiers a knowledge bundle does not. Argued the way
 `crate::query::MAX_RANGE_DAYS` is: what it bounds is the size of the document, not whether what
 is in it is worth reading.
-
-### `type_alias ColumnRefusal`
-
-The name `Column::from_metadata` was handed, returned beside the `InvalidDescription` that
-refused it, so a caller that reports the column keeps no copy of the name aside for it.
 
 ## Module `definitions`
 

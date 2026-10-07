@@ -312,10 +312,13 @@ impl DataContractCatalog {
                 // both state that an absent `required` is not a nullability decision.
                 property.required.map(|required| !required),
             )
-            .map_err(|(column, cause)| DataContractError::InvalidColumnDescription {
-                path: path.to_path_buf(),
-                column,
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                DataContractError::InvalidColumnDescription {
+                    path: path.to_path_buf(),
+                    column,
+                    cause,
+                }
             })?;
             // Primary key evidence: a column with `primaryKey: true` is part of the key. Evidence only,
             // per `Model::with_primary_key`'s own doc; the key is a set, so `primaryKeyPosition` is
