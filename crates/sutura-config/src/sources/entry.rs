@@ -30,6 +30,10 @@ pub(super) fn parse_placement(
     // Read as "was anything meaningful written", so an empty string is the same as an absent key -
     // which is what the rest of this module already does with operator-written text.
     let written = |value: Option<&str>| value.is_some_and(|text| !text.trim().is_empty());
+    // `duckdb`'s one key, refused on every other kind here rather than in five lists.
+    if kind != SourceKind::Duckdb {
+        refuse_foreign_keys(alias, kind, [("database_file", written(entry.database_file))])?;
+    }
     match kind {
         SourceKind::Files => {
             refuse_foreign_keys(
@@ -189,6 +193,25 @@ pub(super) fn parse_placement(
         }
         SourceKind::ClickHouse => clickhouse::parse_placement(alias, kind, entry, written),
         SourceKind::Oracle => oracle::parse_placement(alias, kind, entry, written),
+        SourceKind::Duckdb => {
+            refuse_foreign_keys(
+                alias,
+                kind,
+                [
+                    ("data_dir", written(entry.data_dir)),
+                    ("billing_project", written(entry.billing_project)),
+                    ("dataset", written(entry.dataset)),
+                    ("credential_file", written(entry.credential_file)),
+                    ("max_bytes_billed", entry.max_bytes_billed.is_some()),
+                ]
+                .into_iter()
+                .chain(dialled_source_keys(entry, written)),
+            )?;
+            let database_file = required(alias, kind, "database_file", entry.database_file)?;
+            Ok(SourcePlacement::Duckdb {
+                database_file: parse_absolute(alias, "database_file", database_file)?,
+            })
+        }
     }
 }
 
@@ -230,8 +253,8 @@ fn channel_refusal(alias: &SourceName, cause: crate::sources::transport::UnsafeC
 /// The eleven keys that mean something only to a source this deployment DIALS - `postgres`,
 /// `clickhouse` or `oracle` - paired with whether this entry wrote each one.
 ///
-/// Shared by the `Files` and `BigQuery` foreign-key checks in [`parse_placement`]: a key that means
-/// nothing to a kind is refused on that kind, and these eleven mean nothing to either of those two.
+/// Shared by the `Files`, `BigQuery` and `Duckdb` foreign-key checks in [`parse_placement`]: a key
+/// that means nothing to a kind is refused on that kind, and these eleven mean nothing to those three.
 ///
 /// **Not every dialled kind reads all eleven.** Each dialled kind's own list refuses the ones it
 /// reads past: `unix_socket`, `database` and `service_name` on `clickhouse`; `service_name` on

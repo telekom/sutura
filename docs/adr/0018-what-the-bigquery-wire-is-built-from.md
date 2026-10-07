@@ -1805,3 +1805,21 @@ result libpq already holds; the select's `LIMIT`, one past the row cap, is what 
 rows and not in bytes. Neither bound limits elapsed time, and no statement timeout is set. The
 connector's refusal text names `sources.<catalog name>`, its own key space, behind the catalog's own
 key.
+
+## Twenty-first amendment, 2026-10-07: a `kind: duckdb` source opens the DuckDB adapter, and its deadline is enforced
+
+**What moved.** Three claims in the seventeenth and nineteenth amendments are no longer true.
+"`sutura-exec-duckdb` stays a dev-dependency": `sutura-cli` now names the crate as an optional
+dependency behind its default-off `duckdb` feature, which a `kind: duckdb` source opens
+(`telekom/sutura#1292`). "Nothing shipped calls the linked DuckDB driver" and "a carry-only cost":
+`nix/shipped.nix` lists `duckdb` among the shipped `features`, so every release links the adapter,
+and a musl release's linked archive is the driver a `kind: duckdb` source opens. And "carry-only
+deadlines" and "Deadlines stay carried-only": the DuckDB adapter now stops a statement at the
+deadline with a watchdog that cancels the call's connection
+([0029](0029-where-a-deadline-lives.md)'s sixth amendment, `telekom/sutura#1236`).
+
+**What does NOT move.** The adapter still declares `NoPlaceForASubject`. The GNU triples and the
+darwin host link no DuckDB archive: they mount the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER`
+names, which a Nix build on Apple silicon presets. **No shipped artefact has been observed
+answering a `kind: duckdb` source**: the linked-driver test build answers `SELECT 1` from the
+archive on x86_64 musl and nothing more.

@@ -13,12 +13,15 @@
 //! arrives as Arrow batches and is handed on as the driver typed it: which types answer is decided
 //! once, by the domain's reader (`ResultBatches::to_rows`), for every Arrow adapter alike.
 //!
-//! Two things this adapter deliberately does not offer:
-//!
-//! **No arbitrary SQL entry point.** [`DuckDbWarehouse::execute`] takes an [`Executable`] and renders
-//! the statement itself, into a [`GeneratedQuery`] that carries its parameters separately. There is
-//! no method that takes a string. A development affordance that ran a statement somebody typed would
-//! be the shortest path around every check upstream of here.
+//! **A raw statement runs only on a database [`DuckDbWarehouse::open`] opened** (`docs/adr/0013`).
+//! [`DuckDbWarehouse::execute`] takes an [`Executable`] and renders the statement itself; the one door
+//! a caller's text reaches is [`Warehouse::execute_raw`], and it answers `None` on a database
+//! [`DuckDbWarehouse::in_memory`] opened. The text is screened first - every statement a `SELECT`
+//! by `DuckDB`'s own parser, calling only [`RAW_TABLE_FUNCTIONS`] - and a file is opened with
+//! [`READ_ONLY`] and then [`THEN_LOCKED`]: no write, no file or network outside the database, no
+//! extension, and the configuration locked so no statement can turn any of that back. **The
+//! settings do not rely on the screen**: the driver runs every statement of a string but the last
+//! while preparing it, and each setting has a cell that runs with the screen left out.
 //!
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and
 //! although this adapter has no row-level security to leak through, adding a cache here would be the
@@ -26,39 +29,94 @@
 //!
 //! ## Limits
 //!
-//! - **The deadline is carried, not enforced** (`docs/adr/0029`): the driver's `ConnectionCancel`
-//!   interrupts a running statement, and honouring the deadline needs a watchdog per call
-//!   (`telekom/sutura#1236`).
+//! - **The deadline is a watchdog per call** (`docs/adr/0029`, sixth amendment): on
+//!   [`DuckDbWarehouse::execute`] and on the raw path, a thread calls the driver's `ConnectionCancel`
+//!   when the budget is spent, the engine answers `Interrupt`, and that is read as the deadline. It
+//!   starts before the driver prepares, so a raw string's statements before its last are under it
+//!   too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
+//!   cancel leaves the statement to finish; `dry_run` only prepares and carries the deadline.
+//!   Binding a statement is not interrupted, and the optimizer checks for an interrupt only at the
+//!   start of each of its passes (read in the pinned `DuckDB` source, not measured); on the raw
+//!   path the nesting bound is what keeps their cost small on the shapes measured.
 //! - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
-//!   the last (the pinned `StatementSetSqlQuery`). Only rendered statements and this crate's own
-//!   `attach_*` views reach it, each one statement.
+//!   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; the screen reads
+//!   every one before any runs, and [`READ_ONLY`] and [`THEN_LOCKED`] are what each of them runs
+//!   under.
+//! - **What a raw text may be**: reads only - every statement a `SELECT` by `DuckDB`'s own parser,
+//!   calling only [`RAW_TABLE_FUNCTIONS`], its queries nested no deeper than [`MAX_NESTING`] and
+//!   no more than [`MAX_QUERIES`] of them. A macro or view the database file declares is expanded
+//!   after the screen and not walked or counted, and scalar functions are not screened.
+//!   `DuckDB`'s own `memory_limit` is its default, not `runtime.working_set_max_bytes`, and spilling
+//!   is unmeasured: no local file opens after the database does, so a statement too large for
+//!   memory is expected to fail rather than spill.
 //! - **A certified answer is handed on unread**, so a `REAL`, a non-finite `DOUBLE` or an unmapped
 //!   type is refused by the domain's reader downstream rather than as a [`DuckDbError`].
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Instant;
 
 use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{OptionDatabase, OptionValue};
 use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};
 use adbc_driver_manager::{ManagedDatabase, ManagedDriver, ManagedStatement};
-use arrow_array::RecordBatchReader as _;
+use arrow_array::{RecordBatch, RecordBatchReader as _};
 use sutura_adbc::parameter_batch;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
+use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{
-    Accumulating, AnchorRows, PreFlight, ResultBatches, RowSet, UnannouncedBatch, UnreadableCell, Warehouse,
+    Accumulating, AnchorRows, ParamValue, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, UnannouncedBatch,
+    UnreadableCell, Value, Warehouse,
 };
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
+
+mod screen;
+pub use screen::{MAX_NESTING, MAX_QUERIES, NotARead, RAW_TABLE_FUNCTIONS};
 
 /// The variable a host that links no driver names a mounted `libduckdb` with.
 ///
 /// **Not a settings key**, for `sutura-adbc-postgres`'s `MOUNTED_DRIVER` reason: which driver file a
 /// host carries is a property of the host, and a build that links one never reads this.
 pub const MOUNTED_DRIVER: &str = "SUTURA_DUCKDB_ADBC_DRIVER";
+
+/// The options [`DuckDbWarehouse::open`] hands the driver with a database file's path.
+///
+/// Each is measured against the pinned driver by `tests/raw.rs`, with a cell there that is red
+/// without it. `access_mode` refuses a write or DDL. `enable_external_access` refuses every file and
+/// network read or write outside the database and every extension install or load (`ATTACH`,
+/// `COPY ... TO`, `read_csv`, `glob`, `INSTALL`, `LOAD`) - **and so does [`THEN_LOCKED`]'s disabled
+/// local file system**: a file read, `INSTALL` included, is refused by the file system, while `LOAD`
+/// and `ATTACH 'md:'` are refused by external access and, with it dropped, by the file system
+/// instead. So on the pinned driver no refusal is external access's alone, and its cell asserts the
+/// setting rather than an effect. It stays for the file system that is not local: a network one a
+/// driver build links, which the pinned one does not. `DuckDB` itself refuses turning either option
+/// back while the database is open, locked or not.
+pub const READ_ONLY: [(&str, &str); 2] = [("access_mode", "READ_ONLY"), ("enable_external_access", "false")];
+
+/// What [`DuckDbWarehouse::open`] runs on the database once it is open, in order, before the
+/// handle exists for anyone to call.
+///
+/// `disabled_filesystems` refuses a read of the database's OWN file as bytes, which external access
+/// alone leaves open, and `lock_configuration` - last, so it locks what came before - a `SET` of an
+/// instance-wide setting, which would otherwise outlive the statement for every later call. Each
+/// has a cell in `tests/raw.rs` that is red without it. **Statements, not open options**: the pinned
+/// driver refuses `disabled_filesystems` as an option ("Failed to set configuration option" -
+/// `DuckDB` sets it only on a running database), and a lock handed over at open would refuse the
+/// `SET` after it. So a lock moved first fails the open, rather than leaving the file system on.
+pub const THEN_LOCKED: [&str; 2] = [
+    "SET disabled_filesystems = 'LocalFileSystem'",
+    "SET lock_configuration = true",
+];
+
+/// The rows a raw statement is read to: one past the cap, so the caller's own check sees a result
+/// over it rather than a truncated one that looks complete.
+const RAW_ROWS: usize = sutura_domain::plan::MAX_ROWS as usize + 1;
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -136,6 +194,15 @@ pub enum DuckDbError {
         #[source]
         cause: CountsNotRead,
     },
+    /// The deadline ran out: spent before the statement started, or the watchdog interrupted it.
+    #[error("the deadline for this answer ran out")]
+    DeadlineExceeded,
+    /// A raw text the screen refused before any of it ran; see [`RAW_TABLE_FUNCTIONS`].
+    #[error("this source runs a raw text only if every statement in it is a read")]
+    NotARead {
+        #[source]
+        cause: NotARead,
+    },
     /// The plan could not be rendered as SQL.
     #[error("the plan could not be rendered for DuckDB")]
     Render {
@@ -209,6 +276,9 @@ pub struct DuckDbWarehouse {
     /// long as this handle, and the driver manager serialises each FFI object, so this adapter is
     /// `Sync` - what a federated answer's scoped lookup leg borrows across a thread - with no lock.
     database: ManagedDatabase,
+    /// Whether this database was opened with [`READ_ONLY`] and [`THEN_LOCKED`], which is what lets a
+    /// raw statement run.
+    read_only: bool,
 }
 
 impl core::fmt::Debug for DuckDbWarehouse {
@@ -232,42 +302,107 @@ fn driver() -> Result<ManagedDriver, DuckDbError> {
     loaded.map_err(|cause| DuckDbError::Load { cause })
 }
 
+/// A database file, opened with `options` - a path that is not UTF-8 refused rather than converted
+/// lossily into a path that names another file.
+fn database(path: &Path, options: &[(&str, &str)]) -> Result<ManagedDatabase, DuckDbError> {
+    let named = path.display().to_string();
+    let Some(utf8) = path.to_str() else {
+        return Err(DuckDbError::Open {
+            path: named,
+            cause: CoreError::with_message_and_status("the path is not UTF-8", Status::InvalidArguments),
+        });
+    };
+    let options = core::iter::once(("path", utf8))
+        .chain(options.iter().copied())
+        .map(|(key, value)| (OptionDatabase::Other(String::from(key)), OptionValue::from(value)));
+    driver()?
+        .new_database_with_opts(options)
+        .map_err(|cause| DuckDbError::Open { path: named, cause })
+}
+
+/// One connection on `database`, and a statement over `sql` the driver has prepared.
+fn prepared(database: &ManagedDatabase, sql: &str) -> Result<ManagedStatement, DuckDbError> {
+    let mut connection = database.new_connection().map_err(|cause| DuckDbError::Connect { cause })?;
+    let mut statement = connection.new_statement().map_err(|cause| DuckDbError::Prepare { cause })?;
+    statement.set_sql_query(sql).map_err(|cause| DuckDbError::Prepare { cause })?;
+    Ok(statement)
+}
+
+/// Writes a database file holding one table per CSV, for a fixture to [`DuckDbWarehouse::open`].
+///
+/// Typed the way [`DuckDbWarehouse::attach_csv`] types a view. Available only with the default-off
+/// `fixtures` feature.
+///
+/// # Errors
+///
+/// [`DuckDbError::Open`] where the file cannot be created, and [`DuckDbError::Attach`] where a CSV
+/// cannot be read.
+#[cfg(feature = "fixtures")]
+pub fn write_database(path: &Path, tables: &[(TableName, std::path::PathBuf)]) -> Result<(), DuckDbError> {
+    let database = database(path, &[])?;
+    for (table, csv) in tables {
+        let attach = |cause| DuckDbError::Attach {
+            table: String::from(table.as_str()),
+            path: csv.display().to_string(),
+            cause,
+        };
+        let literal = csv.display().to_string().replace('\'', "''");
+        let sql = format!(
+            "CREATE OR REPLACE TABLE \"{}\" AS SELECT * FROM read_csv_auto('{literal}')",
+            table.as_str()
+        );
+        let mut statement = prepared(&database, &sql).map_err(|error| match error {
+            DuckDbError::Prepare { cause } => attach(cause),
+            other => other,
+        })?;
+        statement.execute().map(drop).map_err(attach)?;
+    }
+    Ok(())
+}
+
 impl DuckDbWarehouse {
-    /// Opens a database file.
+    /// Opens a database file with [`READ_ONLY`], then runs [`THEN_LOCKED`] on it: the one constructor
+    /// a raw statement can run on.
     ///
     /// # Errors
     ///
     /// [`DuckDbError::NoDriver`] or [`DuckDbError::Load`] where there is no driver, and
-    /// [`DuckDbError::Open`] where the database does not open - a path that is not UTF-8 included,
-    /// refused rather than converted lossily into a path that names another file.
+    /// [`DuckDbError::Open`] where the database does not open - a file that is not there included,
+    /// since a read-only open creates nothing, a path that is not UTF-8, and a [`THEN_LOCKED`]
+    /// statement the driver refused.
     pub fn open(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
         path: &Path,
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, DuckDbError> {
-        let named = path.display().to_string();
-        let Some(utf8) = path.to_str() else {
-            return Err(DuckDbError::Open {
-                path: named,
-                cause: CoreError::with_message_and_status("the path is not UTF-8", Status::InvalidArguments),
-            });
-        };
-        let database = driver()?
-            .new_database_with_opts([(OptionDatabase::Other(String::from("path")), OptionValue::from(utf8))])
-            .map_err(|cause| DuckDbError::Open { path: named, cause })?;
+        let database = database(path, &READ_ONLY)?;
+        for sql in THEN_LOCKED {
+            let open = |cause| DuckDbError::Open {
+                path: path.display().to_string(),
+                cause,
+            };
+            let mut statement = prepared(&database, sql).map_err(|error| match error {
+                DuckDbError::Prepare { cause } => open(cause),
+                other => other,
+            })?;
+            statement.execute().map(drop).map_err(open)?;
+        }
         Ok(Self {
             source,
             posture,
             result_budget,
             database,
+            read_only: true,
         })
     }
 
-    /// Opens a database that exists only for this process.
+    /// Opens a database that exists only for this process, WRITABLE - so it accepts no raw statement.
     ///
-    /// What the golden suite uses: a fixture that is built from a committed CSV every run cannot
-    /// drift from the CSV, and a database file in the repository would be a binary nobody reviews.
+    /// What the conformance packs and the differential use, attaching views over committed CSVs: a
+    /// fixture built from a committed CSV every run cannot drift from the CSV, and a database file
+    /// in the repository would be a binary nobody reviews. The golden row opens [`Self::open`]
+    /// instead, over a file `write_database` wrote.
     /// **The posture is a parameter and has no default**, for the reason the port gives: a defaulted
     /// posture would be a claim about who a query runs as that nobody made.
     ///
@@ -288,18 +423,13 @@ impl DuckDbWarehouse {
             posture,
             result_budget,
             database,
+            read_only: false,
         })
     }
 
     /// One connection, and a statement over `sql` the driver has prepared.
     fn statement(&self, sql: &str) -> Result<ManagedStatement, DuckDbError> {
-        let mut connection = self
-            .database
-            .new_connection()
-            .map_err(|cause| DuckDbError::Connect { cause })?;
-        let mut statement = connection.new_statement().map_err(|cause| DuckDbError::Prepare { cause })?;
-        statement.set_sql_query(sql).map_err(|cause| DuckDbError::Prepare { cause })?;
-        Ok(statement)
+        prepared(&self.database, sql)
     }
 
     /// Exposes a CSV file as a table.
@@ -398,17 +528,80 @@ impl DuckDbWarehouse {
         }
     }
 
-    /// Runs a statement and reads its stream against the materialisation budget, stopping once
-    /// `stop` rows are in.
+    /// A rendered statement, its parameters bound, run by [`Self::watched`].
+    fn answered(
+        &self,
+        query: &GeneratedQuery,
+        stop: Option<usize>,
+        deadline: Option<Deadline>,
+    ) -> Result<ResultBatches, DuckDbError> {
+        let bound = parameter_batch(query.params()).map_err(|cause| DuckDbError::Parameters { cause })?;
+        self.watched(query.sql(), bound, stop, deadline)
+    }
+
+    /// Prepares and runs `sql` on a connection of its own and reads its stream against the
+    /// materialisation budget, stopping once `stop` rows are in, and cancelling the connection when
+    /// `deadline` is spent.
     ///
     /// Read whole before the connection is dropped, and refused at the batch that crosses the budget
     /// rather than after every batch is held - see [`Accumulating`]. The driver hands a stream one
     /// `DuckDB` chunk at a time, so that is the granularity both bounds work at.
-    fn answered(&self, query: &GeneratedQuery, stop: Option<usize>) -> Result<ResultBatches, DuckDbError> {
-        let mut statement = self.statement(query.sql())?;
-        if let Some(bound) = parameter_batch(query.params()).map_err(|cause| DuckDbError::Parameters { cause })? {
-            statement.bind(bound).map_err(|cause| DuckDbError::Execute { cause })?;
-        }
+    ///
+    /// **The connection is cancelled, not the statement**: the driver manager holds a statement's
+    /// lock for the whole `execute`, so a statement cancel waits for the very call it should stop.
+    /// **And the watchdog is armed before `set_sql_query`**, which runs every statement of a string
+    /// but the last, so a raw string's earlier statements are under it as well. The pinned driver's
+    /// `execute` returns only once the statement has finished - a stop lands there even when the
+    /// first rows are ready at once - so a read of the stream is never what the cancel interrupts.
+    fn watched(
+        &self,
+        sql: &str,
+        bound: Option<RecordBatch>,
+        stop: Option<usize>,
+        deadline: Option<Deadline>,
+    ) -> Result<ResultBatches, DuckDbError> {
+        let mut connection = self
+            .database
+            .new_connection()
+            .map_err(|cause| DuckDbError::Connect { cause })?;
+        let mut statement = connection.new_statement().map_err(|cause| DuckDbError::Prepare { cause })?;
+        let run = move || {
+            statement.set_sql_query(sql).map_err(|cause| DuckDbError::Prepare { cause })?;
+            if let Some(bound) = bound {
+                statement.bind(bound).map_err(|cause| DuckDbError::Execute { cause })?;
+            }
+            self.streamed(statement, stop)
+        };
+        let Some(deadline) = deadline else {
+            return run();
+        };
+        let left = deadline.remaining_at(Instant::now()).ok_or(DuckDbError::DeadlineExceeded)?;
+        let (finished, watched) = mpsc::channel::<()>();
+        let fired = AtomicBool::new(false);
+        let fired = &fired;
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                if watched.recv_timeout(left) == Err(RecvTimeoutError::Timeout) {
+                    fired.store(true, Ordering::Release);
+                    // A failed cancel leaves the statement to finish; the read then answers as it would.
+                    drop(connection.cancel());
+                }
+            });
+            let outcome = run();
+            drop(finished);
+            outcome.map_err(|error| match error {
+                DuckDbError::Prepare { ref cause } | DuckDbError::Execute { ref cause }
+                    if fired.load(Ordering::Acquire) && interrupted(cause) =>
+                {
+                    DuckDbError::DeadlineExceeded
+                }
+                other => other,
+            })
+        })
+    }
+
+    /// Executes a prepared statement and reads its stream - [`Self::watched`]'s inner half.
+    fn streamed(&self, mut statement: ManagedStatement, stop: Option<usize>) -> Result<ResultBatches, DuckDbError> {
         let reader = statement.execute().map_err(|cause| DuckDbError::Execute { cause })?;
         let mut accumulating = Accumulating::announcing(reader.schema(), usize::MAX, self.result_budget);
         for batch in reader {
@@ -425,9 +618,53 @@ impl DuckDbWarehouse {
         Ok(accumulating.finish())
     }
 
+    /// The raw tool's statement: screened, then read to [`RAW_ROWS`] at most, under [`READ_ONLY`],
+    /// [`THEN_LOCKED`] and the watchdog.
+    fn raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> Result<RawRows, DuckDbError> {
+        self.deliverable(presented)?;
+        self.screened(statement, deadline)?;
+        self.unscreened(statement, deadline)
+    }
+
+    /// Refused unless `DuckDB`'s own parser reads `statement` as nothing but reads - see
+    /// [`RAW_TABLE_FUNCTIONS`] - under the deadline the statement then runs under.
+    fn screened(&self, statement: &RawStatement, deadline: Deadline) -> Result<(), DuckDbError> {
+        let text = parameter_batch(&[ParamValue::Text(statement.as_str().to_owned())])
+            .map_err(|cause| DuckDbError::Parameters { cause })?;
+        let (_, rows) = self
+            .watched(screen::SERIALIZED, text, Some(1), Some(deadline))?
+            .to_rows()
+            .map_err(|cause| DuckDbError::Unreadable { cause })?
+            .into_parts();
+        let serialized = match rows.first().and_then(|row| row.first()) {
+            Some(Value::Text(serialized)) => serialized.as_str(),
+            _ => "",
+        };
+        screen::screen(serialized).map_err(|cause| DuckDbError::NotARead { cause })
+    }
+
+    /// [`Warehouse::execute_raw`] with the screen left out and no credential read, so each of
+    /// [`READ_ONLY`] and [`THEN_LOCKED`] keeps a cell in `tests/raw.rs` held by a refusal of its own
+    /// rather than the screen's. Fixtures only: no build that serves links it.
+    #[cfg(feature = "fixtures")]
+    pub fn execute_unscreened(&self, statement: &RawStatement, deadline: Deadline) -> Result<RawRows, DuckDbError> {
+        self.unscreened(statement, deadline)
+    }
+
+    /// `statement` read to [`RAW_ROWS`] at most, under the watchdog.
+    fn unscreened(&self, statement: &RawStatement, deadline: Deadline) -> Result<RawRows, DuckDbError> {
+        let batches = self.watched(statement.as_str(), None, Some(RAW_ROWS), Some(deadline))?;
+        let (columns, mut rows) = batches
+            .to_rows()
+            .map_err(|cause| DuckDbError::Unreadable { cause })?
+            .into_parts();
+        rows.truncate(RAW_ROWS);
+        Ok(RawRows::of(columns, rows))
+    }
+
     /// A boot-path statement's rows, read by the domain's one decode.
     fn run(&self, query: &GeneratedQuery) -> Result<RowSet, DuckDbError> {
-        self.answered(query, None)?
+        self.answered(query, None, None)?
             .to_rows()
             .map_err(|cause| DuckDbError::Unreadable { cause })
     }
@@ -448,6 +685,10 @@ impl Warehouse for DuckDbWarehouse {
     /// surfaced as a half-answer.
     const EXECUTES_LEGS: bool = true;
 
+    /// `kind: duckdb`'s raw SQL source - on a database [`DuckDbWarehouse::open`] opened, and on no
+    /// other; see [`Self::execute_raw`].
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source
     }
@@ -463,7 +704,8 @@ impl Warehouse for DuckDbWarehouse {
     /// `estimated_bytes` is `None`: preparing reads no plan statistics that would price bytes
     /// touched (`docs/adr/0030`).
     ///
-    /// **The deadline is carried, not enforced here; see `docs/adr/0029`** and this crate's limits.
+    /// **The deadline is carried, not enforced here**: preparing is not the long step, and
+    /// [`Self::execute`] holds the watchdog (`docs/adr/0029`).
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
@@ -471,16 +713,16 @@ impl Warehouse for DuckDbWarehouse {
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
-    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
+    /// Under a watchdog that cancels the connection at the deadline; `docs/adr/0029`.
     fn execute(
         &self,
         executable: Executable<'_>,
         presented: &Presented,
-        _deadline: Deadline,
+        deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.answered(&query, executable.row_limit())
+        self.answered(&query, executable.row_limit(), Some(deadline))
     }
 
     /// Re-runs an anchor's plan, under the one identity this database was opened with.
@@ -503,11 +745,32 @@ impl Warehouse for DuckDbWarehouse {
         KeyUniqueness::read(&rows).map_err(|cause| DuckDbError::KeyCounts { cause })
     }
 
+    /// `None` on a database [`DuckDbWarehouse::in_memory`] opened: it was opened writable, for
+    /// fixtures, and a caller's text never runs on one. Under [`Self::execute`]'s watchdog otherwise.
+    fn execute_raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> RawExecution<Self::Error> {
+        self.read_only.then(|| self.raw(statement, presented, deadline))
+    }
+
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(*error, DuckDbError::DeadlineExceeded)
+    }
+
     /// The MATERIALISATION BUDGET alone: a result refused for crossing it is a governance outcome a
     /// caller cannot retry past. Every other failure shape stays `false`.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         matches!(*error, DuckDbError::OverBudget { .. })
     }
+}
+
+/// Whether the engine stopped a statement because it was interrupted: by the error detail `execute`
+/// sets, else by the message, because `set_sql_query` reports a statement it ran with no detail.
+fn interrupted(cause: &CoreError) -> bool {
+    cause.message.starts_with("INTERRUPT Error")
+        || cause
+            .details
+            .iter()
+            .flatten()
+            .any(|(key, value)| key == "duckdb:error_type" && value == b"Interrupt")
 }
 
 /// The `types` argument for [`DuckDbWarehouse::attach_fixture_csv`].

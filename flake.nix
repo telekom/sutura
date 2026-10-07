@@ -426,7 +426,7 @@
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
             inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
-            postgresAdbcHostDriver wholeTree;
+            postgresAdbcHostDriver duckdbHostDriver wholeTree;
           inherit (commonArgs) version;
         };
 
@@ -463,6 +463,9 @@
           crossSystemName = system;
         };
         postgresAdbcHostDriver = "${postgresAdbcHost}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
+        # The DuckDB this host mounts, from the one file the dev shell reads (`nix/duckdb.nix`), so a
+        # Nix build of the binary and `devenv.nix` cannot open two different libduckdbs.
+        duckdbHostDriver = duckdb.env.SUTURA_DUCKDB_ADBC_DRIVER;
 
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so

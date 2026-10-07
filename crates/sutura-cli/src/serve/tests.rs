@@ -82,6 +82,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::ClickHouse(_)) => panic!("expected the file engine, got the ClickHouse arm"),
         #[cfg(feature = "oracle")]
         Ok(OpenedSources::Oracle(_)) => panic!("expected the file engine, got the Oracle arm"),
+        #[cfg(feature = "duckdb")]
+        Ok(OpenedSources::Duckdb(_)) => panic!("expected the file engine, got the DuckDB arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }

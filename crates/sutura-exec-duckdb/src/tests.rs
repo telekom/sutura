@@ -314,11 +314,56 @@ fn a_query_reads_only_its_row_ceiling_witness() {
         10_000
     );
     let bounded = warehouse
-        .answered(&query, Some(2))
+        .answered(&query, Some(2), None)
         .expect("the first chunk fits the byte budget");
     assert!(
         (2..10_000).contains(&bounded.rows()),
         "the adapter stops once the caller can refuse on rows: {} read",
         bounded.rows()
     );
+}
+
+#[test]
+fn a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name() {
+    use std::time::{Duration, Instant};
+    use sutura_domain::warehouse::Warehouse as _;
+    use sutura_domain::warehouse::deadline::{Budget, Deadline};
+
+    let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture(), budget()).expect("an in-memory database opens");
+    let long = GeneratedQuery::literal(
+        source(),
+        String::from(
+            "SELECT count(*) FROM range(100000) a, range(100000) b, range(1000) c WHERE (a.range * b.range + c.range) % 7 = 3",
+        ),
+    );
+    let deadline = Deadline::opened_at(
+        Instant::now(),
+        Budget::parse(Duration::from_secs(1)).expect("a second is a budget"),
+    );
+    let started = Instant::now();
+    let error = warehouse
+        .answered(&long, None, Some(deadline))
+        .expect_err("the statement outlives its deadline");
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "stopped by the watchdog, not by finishing"
+    );
+    assert!(warehouse.deadline_exceeded(&error), "{error:?}");
+}
+
+/// The screen reads the CTEs of a node it can find all of, and only those: a `cte_map` of any other
+/// shape than the one the pinned parser answers is refused unread, so no CTE in it goes unwalked.
+#[test]
+fn a_cte_map_of_another_shape_is_refused_unread() {
+    for cte_map in [r#"{"map": [], "extra": []}"#, r#"{"other": []}"#, r#"{"map": {}}"#, "[]"] {
+        let tree = format!(r#"{{"error": false, "statements": [{{"node": {{"type": "SELECT_NODE", "cte_map": {cte_map}}}}}]}}"#);
+        let refused = super::screen::screen(&tree);
+        assert!(
+            matches!(refused, Err(super::NotARead::Unreadable { cause: None })),
+            "{cte_map}: {refused:?}"
+        );
+    }
+    let read =
+        super::screen::screen(r#"{"error": false, "statements": [{"node": {"type": "SELECT_NODE", "cte_map": {"map": []}}}]}"#);
+    assert!(read.is_ok(), "{read:?}");
 }

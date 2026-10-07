@@ -333,7 +333,7 @@ echo "  c-archive exists; neither artefact reads a path."
 
 # THE SECOND LINKED DRIVER'S libpq, RUN, in a TEST build (`github.com/telekom/sutura#913`): `doctor`
 # above only initialises it, so this static musl binary is where its libpq executes beside the
-# BigQuery driver - and where the third, DuckDB, answers `SELECT 1`, which no shipped code calls. A test build, so a release-profile run of this script skips it. The derivation
+# BigQuery driver - and where the third, DuckDB, answers `SELECT 1`, which `doctor` does not call. A test build, so a release-profile run of this script skips it. The derivation
 # fails if the cell fails; `linked_verdict` decides that the LINKED arm is what passed. What that
 # cell does not reach is in its own doc comment.
 if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then

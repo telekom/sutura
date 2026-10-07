@@ -69,6 +69,9 @@ mod clickhouse;
 /// The same, for the Oracle listener this root opens.
 mod oracle;
 
+/// The same, for the `DuckDB` file this root opens read-only.
+mod duckdb;
+
 /// The FILES half: the in-process engine over declared directories, and what it attached.
 ///
 /// **Its own file for the reason `bigquery`'s and `postgres`' are** - `cargo xtask max-lines` fails
@@ -295,6 +298,12 @@ pub(crate) fn run() -> Result<(), String> {
         OpenedSources::Oracle(engines) => {
             // No pre-flight, for the `Postgres` arm's reason exactly: `OracleWarehouse` takes the
             // port's default `preflight`, so there is nothing for the table check to read.
+            (shared_identity_service(&catalogs, engines, &settings)?, None)
+        }
+        #[cfg(feature = "duckdb")]
+        OpenedSources::Duckdb(engines) => {
+            // No pre-flight, for the `Postgres` arm's reason: `DuckDbWarehouse` takes the port's
+            // default `preflight`. The file's tables are checked by the first anchor or question.
             (shared_identity_service(&catalogs, engines, &settings)?, None)
         }
         OpenedSources::Mixed(mixed) => {
@@ -635,6 +644,9 @@ pub(crate) enum OpenedSources {
     /// listener redirects (see `crate::oracle`). Nothing is attached.
     #[cfg(feature = "oracle")]
     Oracle(sutura_app::Warehouses<OracleSource>),
+    /// A local `DuckDB` database file per source, opened read-only. Nothing is attached.
+    #[cfg(feature = "duckdb")]
+    Duckdb(sutura_app::Warehouses<DuckdbSource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
@@ -655,6 +667,10 @@ pub(crate) use crate::clickhouse::ClickHouseSource;
 /// `Warehouse` bound and a constructor's return.
 #[cfg(feature = "oracle")]
 pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
+
+/// A `DuckDB` source as this binary composes it, named for `OracleSource`'s reason.
+#[cfg(feature = "duckdb")]
+pub(crate) type DuckdbSource = sutura_exec_duckdb::DuckDbWarehouse;
 
 /// A `Postgres` source as this binary composes it - `crate::postgres`'s, named here for this
 /// root's registry types.
@@ -790,16 +806,20 @@ fn open_engine(
         grouped.postgres.is_empty(),
         grouped.clickhouse.is_empty(),
         grouped.oracle.is_empty(),
+        grouped.duckdb.is_empty(),
     ) {
-        (false, true, true, true, true) => files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
-        (true, false, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
-        (true, true, false, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (false, true, true, true, true, true) => {
+            files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files)
+        }
+        (true, false, true, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
+        (true, true, false, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
+        (true, true, true, true, false, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, true, false) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        (true, true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
 }
