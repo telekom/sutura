@@ -2296,10 +2296,10 @@ does and there is no pip and no npm in the path.</p>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  index.html      redirect to the default version, written by `mike set-default`
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  versions.json   the list the header's version selector reads
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  .nojekyll       Pages runs Jekyll over a branch, and Jekyll drops `_`-prefixed paths
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  latest/         alias, moved onto each release - HTML redirects, one per page
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  0.2.0/
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  latest/         alias of main/ - HTML redirects, one per page
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  0.2.0/          a release, the tag's `v` dropped
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  0.1.0/
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  main/           the development docs, overwritten by a push to main that touches them
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  main/           overwritten by a push to main that touches the docs
 </span></code></pre></div>
 <table>
 <thead>
@@ -2313,17 +2313,17 @@ does and there is no pip and no npm in the path.</p>
 <tr>
 <td>push to <code>main</code></td>
 <td><code>main/</code></td>
-<td>none. <code>latest</code> stays pinned to the newest release</td>
+<td><code>latest</code> moves onto it, and the root redirect follows</td>
 </tr>
 <tr>
 <td>push of a <code>v*</code> tag</td>
 <td><code>&lt;version&gt;/</code>, the <code>v</code> stripped</td>
-<td><code>latest</code> moves onto it, and the root redirect follows</td>
+<td>none. A release never moves <code>latest</code></td>
 </tr>
 <tr>
 <td><code>workflow_dispatch</code> from <code>main</code></td>
 <td><code>main/</code></td>
-<td>none</td>
+<td><code>latest</code>, as for a push</td>
 </tr>
 <tr>
 <td>pull request</td>
@@ -2334,9 +2334,10 @@ does and there is no pip and no npm in the path.</p>
 </table>
 <p>Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
 the job fail rather than overwrite: a failed job is recoverable and a deleted version is not.</p>
-<p>The root redirect points at <code>latest</code> once a release exists. Before that the workflow sets the
-default to <code>main</code>, so the site has a working root from the first deployment rather than from the
-first tag.</p>
+<p><code>latest</code> is the main branch and <code>X.Y.Z/</code> is a release (owner decision, 2026-10-06). The root redirect
+points at <code>latest</code>. A release tag published before main ever was points the root at its own
+directory, so the site has a working root from the first deployment. Release directories keep the
+form <code>0.6.1/</code>, without the tag's <code>v</code>, so every link already published still resolves.</p>
 <h2 id="the-one-repository-setting">The one repository setting<a class="headerlink" href="#the-one-repository-setting" title="Permanent link">&para;</a></h2>
 <p>Publishing works from a cold start, because mike creates <code>gh-pages</code> itself when it is absent.
 <em>Serving</em> needs one manual step no workflow can perform. In <strong>Settings -&gt; Pages -&gt; Build and
