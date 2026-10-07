@@ -886,13 +886,7 @@ mod tests {
         };
         let (stall, refused) = (report("stalled"), report("unstartable"));
         drop(std::fs::remove_dir_all(&dir));
-        assert!(
-            stall.starts_with("Err(") && refused.starts_with("Err("),
-            "{stall} / {refused}"
-        );
-        assert_ne!(
-            stall, refused,
-            "a stalled docker and an unstartable one must not share a report"
-        );
+        assert_eq!(stall, "Err(SilentCli)", "a docker that stalls on `--version`");
+        assert_eq!(refused, "Err(Cli)", "a docker that cannot be started");
     }
 }
