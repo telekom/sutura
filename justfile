@@ -442,8 +442,21 @@ check-claim-mutation-kills:
 # `github.com/telekom/sutura#685` step 2 folded the second binary #111 added back into it - the
 # HTTP surface is `sutura serve` now, not a second executable to build separately.
 # The release binary: the command-line tool, and the server as its `serve` subcommand.
-build:
+build-release:
     nix build .#sutura
+
+# `[profile.fast-install]`, every shipped feature, no optimisation: compiles fast, never a release.
+# The local fast binary, through nix like `build-release`.
+build-dev:
+    nix build .#sutura-dev
+
+# Put the release binary on the PATH of the current nix profile.
+install-release:
+    nix profile install .#sutura
+
+# Put the fast local binary on the PATH of the current nix profile.
+install-dev:
+    nix profile install .#sutura-dev
 
 # The release image: one binary, no shell, no package manager.
 image:

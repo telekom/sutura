@@ -28,7 +28,7 @@ pub(super) const PROTOCOL: &str = "2025-06-18";
 /// assertion on it should catch.
 pub(super) const VERSION: &str = "local-working-tree";
 
-/// The source name the CLI opens a catalog under: `crate::commands::CATALOG_SOURCE`.
+/// The data source name the example declares.
 pub(super) const SOURCE: &str = "local";
 
 /// How long one request may take before the test gives up and prints the log it has.

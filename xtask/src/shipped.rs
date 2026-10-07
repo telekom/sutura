@@ -28,7 +28,7 @@
 //!
 //! # What it does NOT check
 //!
-//! * **The `justfile`.** `just build`, `just image` and `just build-all` write the nix attribute
+//! * **The `justfile`.** `just build-release`, `just build-dev`, `just image` and `just build-all` write the nix attribute
 //!   names out, and a subset there costs a developer a surprise rather than a release a binary.
 //!   Parsing recipe bodies for attribute prefixes is brittle in the direction that matters - a
 //!   gate that fails on a correct tree gets disabled - so the release path is the scope and this
