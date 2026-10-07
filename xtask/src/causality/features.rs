@@ -384,7 +384,8 @@ fn gated_declarations(path: &str, text: &str) -> Vec<Gated> {
                 removed: Vec::new(),
             };
             match accounted_for(&one, &lines)? {
-                Declares::OutOfLine(candidates) => Some((feature, candidates)),
+                // One added line, so one declaration.
+                Declares::OutOfLine(declarations) => declarations.into_iter().next().map(|candidates| (feature, candidates)),
                 // The body is in this file, so nothing arrived for the module's own file to be.
                 // Stated as a limit in this module's header rather than answered here.
                 Declares::Inline => None,

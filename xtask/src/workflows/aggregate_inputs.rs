@@ -25,6 +25,14 @@
 //!
 //! Its own module rather than a row in `obligations`, which holds STEP `if:` conditions by step
 //! name: this holds ENV INPUT source jobs by env var name, over a different block of the same file.
+//!
+//! Two env inputs are pinned to their exact normalised condition, not only their source job: an
+//! equivalent rewrite is refused until the table is edited, which fails closed. That pin holds
+//! the TEXT, not that the condition is the right one - and it does not hold that
+//! `CAUS_REQUIRED`/`PGD_REQUIRED` agree with the moved job's own `if:` (those read
+//! `identity-classify`, these read `ci`; a disagreement fails closed in one direction and runs an
+//! unrequested gate in the other). `E2E_REQUIRED`, `BQC_REQUIRED` and every `*_SELECTED` input
+//! predate this and stay review-only.
 
 use std::path::Path;
 
@@ -48,6 +56,23 @@ const REQUIRED: &[(&str, &str)] = &[
     ("DH_SELECTED", "ci"),
     ("BQC_RESULT", "bigquery-conformance"),
     ("BQC_REQUIRED", "ci"),
+    ("CAUS_RESULT", "causality"),
+    ("CAUS_REQUIRED", "ci"),
+    ("PGD_RESULT", "postgres-linked-driver"),
+    ("PGD_REQUIRED", "ci"),
+];
+
+/// Env inputs whose whole condition is pinned, not only the job it reads: the selection the two
+/// moved jobs (#1280) are required under. Exact text, so a neutralised copy (`false && ..`) is refused.
+const EXPRESSIONS: &[(&str, &str)] = &[
+    (
+        "CAUS_REQUIRED",
+        "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
+    ),
+    (
+        "PGD_REQUIRED",
+        "(needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push'",
+    ),
 ];
 
 /// The job key of the aggregate.
@@ -58,11 +83,19 @@ pub(super) const fn held() -> usize {
     REQUIRED.len()
 }
 
+/// How many of those env inputs are pinned to their exact condition, for the success line.
+pub(super) const fn pinned() -> usize {
+    EXPRESSIONS.len()
+}
+
 /// One env-var line of the aggregate step, parsed into its key and the job names its expression
 /// references.
 struct EnvInput {
     line: usize,
     key: String,
+    /// The value with the surrounding `${{ }}` removed, trimmed - the exact condition text the
+    /// expression table pins.
+    expression: String,
     /// Every `<job>` found in `needs.<job>.` within the value. Empty when the value is not a
     /// `needs.` reference at all - which is itself a violation, since the table is non-empty.
     jobs: Vec<String>,
@@ -119,6 +152,15 @@ fn check(text: &str) -> Vec<String> {
                     input.line, input.key
                 ));
             }
+        }
+        if let Some((_, want)) = EXPRESSIONS.iter().find(|(key, _)| *key == input.key)
+            && input.expression != *want
+        {
+            out.push(format!(
+                "ci.yml:{}  {AGGREGATE} env `{}` is `{}` - the committed table pins `{want}`, \
+                 the condition a moved job is required under",
+                input.line, input.key, input.expression
+            ));
         }
     }
     // A table entry the aggregate no longer declares is a pin that has stopped holding: the env
@@ -209,14 +251,27 @@ fn env_inputs(text: &str) -> Vec<EnvInput> {
         if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             continue;
         }
+        let expression = expression_of(value);
         let jobs = jobs_in(value);
         out.push(EnvInput {
             line: index.saturating_add(1),
             key: String::from(key),
+            expression,
             jobs,
         });
     }
     out
+}
+
+/// The condition inside the `${{ }}`, trimmed; a value without the wrapper is returned trimmed.
+fn expression_of(value: &str) -> String {
+    let value = value.trim();
+    value
+        .strip_prefix("${{")
+        .and_then(|rest| rest.strip_suffix("}}"))
+        .unwrap_or(value)
+        .trim()
+        .to_owned()
 }
 
 /// Every `<job>` in a `needs.<job>.` reference within `value`.
@@ -287,6 +342,10 @@ mod tests {
             "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
             "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
             "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
+            "          CAUS_RESULT: ${{ needs.causality.result }}",
+            "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
+            "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
+            "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
         ]
         .join("\n")
     }
@@ -399,5 +458,51 @@ mod tests {
     #[test]
     fn jobs_in_returns_empty_for_no_needs() {
         assert_eq!(jobs_in("${{ github.event_name }}"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_neutralised_moved_job_condition_fails() {
+        for key in ["CAUS_REQUIRED", "PGD_REQUIRED"] {
+            let env = real_env().replace(&format!("{key}: ${{{{"), &format!("{key}: ${{{{ false &&"));
+            let workflow = aggregate_workflow(&env);
+            let problems = check(&workflow);
+            assert!(
+                problems
+                    .iter()
+                    .any(|p| p.contains(key) && p.contains("the committed table pins")),
+                "{key}: {problems:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_condition_with_an_arm_dropped_fails() {
+        let env = real_env()
+            .lines()
+            .map(|line| {
+                if line.starts_with("          CAUS_REQUIRED:") {
+                    line.replace(" && github.event_name != 'push' }}", " }}")
+                } else {
+                    String::from(line)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let workflow = aggregate_workflow(&env);
+        let problems = check(&workflow);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("CAUS_REQUIRED") && p.contains("the committed table pins")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn the_committed_ci_aggregate_pins_hold() {
+        // Over the REAL ci.yml, which the fixture cells above do not read.
+        let root = crate::repo::root().expect("the repo root");
+        let problems = problems(&root);
+        assert!(problems.is_empty(), "{problems:?}");
     }
 }
