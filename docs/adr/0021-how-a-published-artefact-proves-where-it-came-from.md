@@ -5,11 +5,14 @@ description: Why a release is signed keylessly with Sigstore rather than with a 
 
 # How a published artefact proves where it came from
 
-Status: **accepted, and amended twice.** Built. A tagged release publishes a Sigstore bundle per
+Status: **accepted, and amended three times.** Built. A tagged release publishes a Sigstore bundle per
 asset, a `cosign` signature on all six image references, a CycloneDX attestation on each of the four
 leaf images, and SLSA provenance for every asset and for the two manifest lists.
 `.github/actions/attest-and-sign` is the sequence; `docs/verifying-a-release.md` is what a consumer
 reads.
+
+**The third amendment adds the Helm chart to what a release signs** and is at the bottom under
+*Third amendment, 2026-10-07: the Helm chart is published and signed*.
 
 **The second amendment closes the roadmap bullet's licence half** and is at the bottom under
 *Second amendment: the attribution document, and the licence report as a signed asset*. **The first
@@ -613,3 +616,34 @@ The attribution document owns the checked workspace-wide declared-licence list, 
 per-binary SBOM formats. The source scanner was disabled, so ORT did not close the remaining
 dependency-`NOTICE` gap. This amendment supersedes the earlier sections that describe the report as
 still produced.
+
+## Third amendment, 2026-10-07: the Helm chart is published and signed
+
+**The chart is a published artefact, and it is signed the way the images are.** After the images are
+pushed, `.github/actions/publish-chart` (called from `release.yml`) packages the chart with the
+pinned `helm`, pushes it as an OCI artefact to `ghcr.io/telekom/charts/sutura` at the release's
+semver tag, appends a `chart sutura <reference>@<digest>` record to `image-digests.txt`, and signs
+that reference by digest with keyless `cosign sign`. The distribution shape is the owner decision on
+`github.com/telekom/sutura#149`, 2026-09-17: the chart stays an OCI artefact on the registry the
+images use, with the same authentication and no second distribution surface; Artifact Hub is for
+discovery only.
+
+**It is its own step rather than part of `attest-and-sign`.** That action's SBOM-per-leaf and
+provenance accounting is built around the six image references, and a chart has neither an SBOM nor
+a second architecture to reconcile.
+
+**What is claimed.** A registry signature, by the release workflow's keyless identity, over the
+chart's digest. Measured by hand against the `v0.6.1` chart
+(`sha256:d71cda143c71c64a4675b8bb3943df83ee1632e92f31728de0818b48ab2ced14`): `cosign verify` with
+`--certificate-identity-regexp '^https://github.com/telekom/sutura/'` exits 0. The command is under
+*Verifying the chart* in `docs/verifying-a-release.md`.
+
+**What is not claimed.** No SBOM attestation, no Sigstore bundle asset and no SLSA provenance: the
+provenance collector skips a `chart` record, so the chart is no provenance subject. No Helm `.prov`
+file is produced, so `helm install --verify` does not apply. Nothing here says the chart's contents
+are good, and whether the registry package is readable without a login is a registry setting this
+record does not establish.
+
+**The limit of the control.** No check in `just validate` or in a pull-request job runs the signing
+step or verifies a chart; a tagged release exercises it, and the verification above was one manual
+run, not a gate.

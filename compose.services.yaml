@@ -637,18 +637,20 @@ services:
 # ## Services the plan names that are NOT here, and why - stated rather than left as an omission
 #
 # The compose-tier section of `docs/implementation-plan-identity-and-services.md` names Oracle,
-# Datahub and OpenMetadata. All three are DEFERRED, each for a
-# reason that is about this tier's job rather than about effort. That job is to stand up the source an
-# adapter is tested against - so a service with no adapter to test is cost with no coverage.
+# Datahub and OpenMetadata. Oracle and Datahub have left this list, below; OpenMetadata is DEFERRED,
+# for a reason that is about this tier's job rather than about effort. That job is to stand up the
+# source an adapter is tested against - so a service with no live leg to test is cost with no coverage.
 #
 #   * **Oracle has LEFT this list**: the `oracle` service is above and the `oracle-tier` CI job
 #     converges it. The vendor's own `oracle/database-free` is not on Docker Hub; the community
 #     `gvenzl/oracle-free` rebuild is, under the Oracle Free licence - the `oracle-tier` job's
 #     comment in `ci.yml` carries the licence note and its limit. `docs/adr/0008` still records
 #     Oracle's per-subject impersonation as DEFERRED; this tier serves the shared fixture user only.
-#   * **OpenMetadata.** Not one image: a stack - its own store, a search index, a scheduler. There
-#     is no OpenMetadata crate at all, so nothing would read from it, and the cost is real for zero
-#     coverage gained.
+#   * **OpenMetadata.** Not one image: a stack - its own store, a search index, a scheduler. The
+#     `sutura-catalog-openmetadata` crate reads an instance over its REST API, so something WOULD read
+#     from one; but its reader has only been run against a fake server, no service here and no CI job
+#     provisions an instance, and no live test leg exists. The deferral rests on the cost of the
+#     stack, which buys coverage only once that leg does.
 #   * **`Datahub` was in the bullet above and has LEFT it, and which half of the argument was spent
 #     when is the part worth reading.** The first half went earlier: this cell used to say
 #     `sutura-datahub` was planned and non-existent, and `sutura-catalog-datahub` exists - the first

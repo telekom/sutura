@@ -11845,15 +11845,15 @@ driver speaks Arrow hands its batches through untouched and the one Arrow-to-`Va
 happens once, at the presentation edge, in `ResultBatches::to_rows`.
 
 **What that costs, because it is not free for every adapter and the record only counted the
-half that gains.** The two Arrow-native adapters - `BigQuery` through ADBC, and the engine -
-stop converting at all, and a federated leg from either reaches the combiner with its driver's
-own types. The four whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` -
+half that gains.** The Arrow-native adapters - `BigQuery`, `Postgres` and `DuckDB`, each through
+ADBC, and the engine - stop converting at all, and a federated leg from any of them reaches the
+combiner as batches. The two whose drivers speak rows - Oracle and `ClickHouse` -
 now convert at their own boundary through `arrow::of_rows`, which they did not before: on a
 single-source answer that is a conversion out and `ResultBatches::to_rows` back, for data
 that never left the process. The conversion did not disappear; it moved to the adapter that
 owns the row-speaking driver, which is where the leg's own cost already had to be paid.
 
-**And it carries `arrow::arrow_column`'s inference limit onto those four adapters' production
+**And it carries `arrow::arrow_column`'s inference limit onto those two adapters' production
 path**: a column mixing `Value::Integer` and `Value::Text` cells round-trips as text. No
 data system produces one - a source declares a column's type - so what this reaches is a fake
 that builds one by hand, and the row builder's own doc is where that is stated.
@@ -12013,7 +12013,7 @@ is being asked for.
 **`Self::posture`'s limit, stated where it publishes rather than on the method alone:** it
 answers the value the root handed over at construction. Every adapter this workspace ships now
 checks a leg's `Presented` credential against it before running - `Presented::agrees_with`,
-called once per leg inside all four adapters' own `execute` - so the comparison is per LEG, not
+called once per leg inside each adapter's own `execute` - so the comparison is per LEG, not
 only at boot. What that proves is that the credential offered for this leg matches how the
 source was declared, not that the data system itself evaluated anybody's authorization: there is
 no round trip back from the data system confirming which identity it actually ran as.
@@ -12799,14 +12799,13 @@ but `checks.shipped-features` establishes that kind of claim by reading crate NA
 binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
 fail if a composition root turned the feature on.
 
-**An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
-than as the range question it is.** Four are live: `sutura-exec-duckdb`'s `UBigInt` and
-`HugeInt` arms and `sutura-exec-datafusion`'s `UInt64` arm answer `Value::Integer` while the
-value fits an `i64` and `Value::Text` when it does not; `sutura-exec-postgres` answers a
-scale-0 `NUMERIC` the same way against a `Decimal`; and `sutura-exec-bigquery` answers its own
-`NUMERIC`/`BIGNUMERIC` fields the identical way, added once its `execute_packs!` binding
-(`telekom/sutura#710`) exercised the same class its own corpus already carried. Under the
-display form all four compare EQUAL, and that was the RECORDED reason for the display form.
+**A decoder's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.** It is live wherever a decoder answers `Value::Integer`
+while the value fits an `i64` and `Value::Text` when it does not: the domain's Arrow reader,
+`ResultBatches::to_rows`, does it for a `UInt64` and for a zero-scale `Decimal128` or
+`Decimal256`, which covers every adapter that hands its batches on; `sutura-exec-postgres` does
+it for a scale-0 `NUMERIC`; and `sutura-exec-oracle` does it for a `NUMBER`. Under the display
+form they compare EQUAL, and that was the RECORDED reason for the display form.
 Here they are `ContentDisagreement::Multiplicity` - *one side answered a row 1 time(s) and the
 other 0* - naming neither the fallback nor the overflow behind it. So a `Multiplicity` over a
 wide count or a decimal column is a range question first: check whether one side overflowed
@@ -14123,8 +14122,9 @@ One column's Arrow array, built from domain values.
 
 **No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
 With `Warehouse::execute` returning `ResultBatches`,
-the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
-this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
+the two adapters whose drivers speak rows - Oracle and `ClickHouse` - call this on their own
+production path. An adapter whose driver speaks Arrow hands its batches on; `Postgres` calls this
+only to rebuild an exact `NUMERIC` column.
 
 **The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
 all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
@@ -14134,13 +14134,13 @@ from, so the type is arbitrary rather than wrong.
 
 **The `Decimal128` arm exists because the "no source produces a mixed column" argument is
 FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
-column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
-`sutura-exec-postgres` both answer a whole number that fits an `i64` as `Value::Integer` and
-one that does not as an exact `Value::Text`, so one `DECIMAL`/`HUGEINT` column arrives mixed.
+column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-oracle` answers a
+`NUMBER` that fits an `i64` as `Value::Integer` and one that does not as an exact
+`Value::Text`, and `sutura-exec-postgres` splits a `NUMERIC` column the same way before it
+rebuilds the column with this function, so one such column arrives mixed.
 The conformance corpus has two such cases (`wide-total-by-day`,
 `overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
-`Text("15")` - a conformance failure against the reference rows, on the production path, for
-two of the four adapters the Arrow port makes convert.
+`Text("15")` - a conformance failure against the reference rows, on the production path.
 
 `Decimal128(38, 0)` round-trips both halves exactly, because `ResultBatches::to_rows`'s
 zero-scale arm widens a
@@ -14161,8 +14161,9 @@ pub fn of_row_set(rows: &crate::warehouse::rows::RowSet) -> Result<ResultBatches
 A `RowSet` as Arrow batches: what an adapter whose driver speaks rows returns from
 `Warehouse::execute`.
 
-**One function, named, in the interior - which is what makes the four adapters paying for the
-Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+**One function, named, in the interior - which is what makes the cost of the Arrow port to the
+two row-speaking adapters, Oracle and `ClickHouse`, a single place to measure and a single place
+to delete.** `docs/adr/0007` asked for
 exactly that when it still expected the conversion to live in a combiner crate; the port moved
 and the property did not.
 
@@ -14193,8 +14194,9 @@ invariant makes the ragged case unreachable.
 would be the one nobody had read.
 **It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
 Its input is rows the caller already holds, so a budget here would check after the spend.
-`DuckDB`, `ClickHouse`, and `Oracle` charge their decode loops before calling this conversion.
-Postgres still builds a whole `RowSet` first; this function does not bound it or fakes.
+`ClickHouse` and `Oracle` charge their decode loops before calling this conversion.
+`Postgres` does not call this function: it rebuilds only a `NUMERIC` column, through
+`arrow_column`.
 
 ### Module `raw`
 

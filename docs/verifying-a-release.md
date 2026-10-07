@@ -32,15 +32,17 @@ lock file.** Why that distinction is worth the sentence is under
 this binary and still do - there is nothing else for them to resolve to now. Which libc you get is
 still something you have to type: `:latest-musl` for the static pair, `:latest` for glibc.
 
-**Built with every optional feature on**, since `github.com/telekom/sutura#685` step 5 - the
-published binary carries the HTTP surface, the caller-token verification, the rate limiter, the
-generated interface description, in-process TLS, and the BigQuery, Postgres and DataHub adapters,
-all at once. Configuring a deployment to use one is a settings-tree entry, not a build: which
-adapters a deployment uses is configuration, and a binary with fewer of them is a source build a
-contributor chooses, not what a release ships. `nix/shipped.nix` is where that decision is written,
-and `nix build .#checks.x86_64-linux.shipped-features` is what asserts it, out of the shipped
-binary's own embedded dependency list rather than out of a manifest - including that `ring` and
-`ureq`, the crates the earlier default-off decision existed to keep out, are now genuinely present.
+**Built with the optional features `nix/shipped.nix` lists on**, since
+`github.com/telekom/sutura#685` step 5 - the published binary carries the HTTP surface, the
+caller-token verification, the rate limiter and the generated interface description, which are not
+optional features and are always linked, plus every entry of that file's `features` list. Configuring
+a deployment to use an adapter is a settings-tree entry, not a build: which adapters a deployment
+uses is configuration, and a binary with fewer of them is a source build a contributor chooses, not
+what a release ships. A feature absent from that list is a source build only. `nix/shipped.nix` is
+where that decision is written, and `nix build .#checks.x86_64-linux.shipped-features` is what
+asserts it, out of the shipped binary's own embedded dependency list rather than out of a manifest -
+including that `ring` and `ureq`, the crates the earlier default-off decision existed to keep out,
+are now genuinely present.
 
 **The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver they link -
 libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls'. That libpq
@@ -79,6 +81,7 @@ the two documents answers is under [The licence statement](#the-licence-statemen
 | the `.sha256` sidecars           | no                                               | yes                      | n/a                              |
 | the four leaf images             | n/a                                              | no                       | `cosign sign`, by digest         |
 | the two manifest lists           | n/a                                              | yes                      | `cosign sign`, by digest         |
+| the chart                        | n/a                                              | no                       | `cosign sign`, by digest         |
 | each leaf image's CycloneDX SBOM | n/a                                              | n/a                      | `cosign attest --type cyclonedx` |
 | `sutura-provenance.intoto.jsonl` | three existing signed attestation bundles        | not recursively attested | n/a                              |
 
@@ -103,7 +106,8 @@ produced it.
 `docker pull` resolves and what the release notes tell you to pin. The leaves are what a list points
 at, they are signed by `cosign` individually, and pinning one means asking for a single architecture
 on purpose. There are two lists, one per libc, because there is one binary; a second shipped binary
-would add two more rather than changing this one.
+would add two more rather than changing this one. Provenance does not cover the chart either: the
+chart is signed by digest with `cosign sign`, and the table shows nothing more.
 
 **The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`
 fetches provenance from GitHub. With `--bundle`, it reads the exported JSONL instead; retain that
@@ -216,6 +220,36 @@ For the manifest lists, GitHub's provenance works on the same digest:
 gh attestation verify oci://ghcr.io/telekom/sutura:0.1.0 --repo telekom/sutura
 gh attestation verify oci://ghcr.io/telekom/sutura:0.1.0-musl --repo telekom/sutura
 ```
+
+## Verifying the chart
+
+The Helm chart is pushed as an OCI artefact beside the images, to `ghcr.io/telekom/charts/sutura`
+(`.github/actions/publish-chart`), and signed by digest in the same release run, keyless like the
+images. The release notes do not list it: take the digest from the `chart` line of
+`image-digests.txt`, the signed asset, which reads
+`chart sutura ghcr.io/telekom/charts/sutura@sha256:...`. **Verify by digest, not by tag**, for the
+reason the images give.
+
+```bash
+cosign verify \
+  ghcr.io/telekom/charts/sutura@sha256:... \
+  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Run against the `v0.6.1` chart (`sha256:d71cda143c71c64a4675b8bb3943df83ee1632e92f31728de0818b48ab2ced14`)
+with the `cosign` the flake pins (`nix run .#cosign`), this exited 0 and reported the claims
+validated, the transparency-log entry verified offline and the certificate verified against the
+trusted authorities. The regexp pins the repository and not the tag. Against the same chart,
+`--certificate-identity` in place of the regexp flag, with
+`https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/v0.6.1`, also
+exits 0, and the same flag naming `@refs/tags/v0.4.1` is refused (`expected SAN value ... got
+...@refs/tags/v0.6.1`), so prefer the exact identity once you know the tag.
+
+**Limits.** The chart carries a signature and nothing else: no SBOM attestation, no SLSA provenance
+and no Sigstore bundle asset. No Helm `.prov` file is produced, so `helm install --verify` does not
+apply. Whether the registry package is readable without a login is a registry setting this page does
+not establish. `docs/adr/0021`'s third amendment records the decision.
 
 ## What the SBOM covers
 
