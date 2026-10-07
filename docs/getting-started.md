@@ -126,7 +126,7 @@ sutura query examples/single-player/catalog examples/single-player/questions/rec
 ```
 
 ```text
--- definitions local-working-tree 071c346df765dea9f7df02e763fcf7e767189cf82502a15e8d25fba437fdb570
+-- definitions local-working-tree bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598

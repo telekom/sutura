@@ -3,8 +3,9 @@
 //! Split out of `knowledge.rs` for a limit rather than a preference: `cargo xtask max-lines` fails at
 //! a thousand lines under `crates/`, and `devco/max-lines-ignore` refuses any pattern there on
 //! purpose - the answer is to split the file. The seam is a real one. The parent holds the vocabulary
-//! a note is written in, `note.rs` holds the four records, and this holds the value they are
-//! collected into plus the checks that run once, when a bundle is loaded, and never again.
+//! a note is written in, `note.rs` holds the four records, `referent.rs` holds the walks from a
+//! note's names to what the definitions declare, and this holds the value they are collected into
+//! plus the checks that run once, when a bundle is loaded, and never again.
 //!
 //! **One `impl Knowledge` block, and that is forced rather than chosen.** The workspace enables
 //! clippy's whole `restriction` category, so `multiple_inherent_impl` is an error: a type's inherent
@@ -27,12 +28,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::referent::{caveat_fault, declared_as, fault_in, glossary_fault, reached_through, visible};
 use super::{
     Absence, Absences, Capability, Caveat, Caveats, Example, Examples, Glossary, GlossaryEntry, KnowledgeCapabilities,
     MAX_KNOWLEDGE_BYTES, NoteName, Phrase, Referent, phrase_identity, sum_bytes,
 };
 use crate::catalog::{Definitions, DimensionValue};
-use crate::model::{DimensionName, Grain, MetricName};
+use crate::model::{ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, ModelName, RelationshipName};
 use crate::pinned::view::ScopedView;
 use crate::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 
@@ -120,9 +122,11 @@ impl KnowledgeInput {
     /// indices - each phrase's identity computed and cloned into a map, each referent cloned, the
     /// claim map walked for a collision. An oversized input paid for all of that before it was
     /// refused. Measuring the input costs one pass over `Vec`s the caller already allocated, and it
-    /// is the same number: nothing here drops a note before the cap is checked, so summing before
-    /// indexing and summing after are the same total by construction, not by the assumption
-    /// `Knowledge::assemble`'s check used to rest on.
+    /// is the same number for every note but one kind: nothing here drops a note before the cap is
+    /// checked, so summing before indexing and summing after are the same total by construction. The
+    /// exception is a caveat written about relationships, which indexing EXPANDS into one caveat per
+    /// metric - counted here as written, and re-counted as expanded by `index_caveats`, which checks
+    /// the cap again on what the bundle will hold.
     fn authored_bytes(&self) -> usize {
         let glossary = sum_bytes(self.glossary.iter().map(GlossaryEntry::authored_bytes));
         let caveats = sum_bytes(self.caveats.iter().map(Caveat::authored_bytes));
@@ -185,6 +189,14 @@ pub enum InconsistentKnowledge {
         dimension: DimensionName,
         value: DimensionValue,
     },
+    #[error("glossary entry {term} means model {model}, which is not defined")]
+    GlossaryUnknownModel { term: Phrase, model: ModelName },
+    #[error("glossary entry {term} means column {column}, which model {model} does not declare")]
+    GlossaryUnknownColumn {
+        term: Phrase,
+        model: ModelName,
+        column: ColumnName,
+    },
     #[error("caveat {name} is about metric {metric}, which is not defined")]
     CaveatUnknownMetric { name: NoteName, metric: MetricName },
     #[error("caveat {name} is about dimension {dimension}, which metric {metric} does not declare")]
@@ -209,6 +221,43 @@ pub enum InconsistentKnowledge {
     /// prompt's preamble.
     #[error("caveat {name} is about nothing, so there is no question it would be shown beside")]
     CaveatAboutNothing { name: NoteName },
+    /// A caveat about a model or one of its columns. A caveat is printed under the metric it is
+    /// about, and a model has no block of its own to print it in, so it would load and be read by
+    /// nobody. Only a glossary entry may mean a model or a column.
+    #[error("caveat {name} is about model {model}, and a caveat is printed under a metric: name the metrics it warns about")]
+    CaveatAboutAModel { name: NoteName, model: ModelName },
+    #[error("caveat {name} is about relationship {relationship}, which is not defined")]
+    CaveatUnknownRelationship { name: NoteName, relationship: RelationshipName },
+    /// A caveat about a relationship no dimension is reached through. It would expand into no caveat
+    /// at all and load read by nobody, which is [`Self::CaveatAboutAModel`]'s argument one step
+    /// along. A cross-model ratio's hop to its shared calendar does not count as reaching: nothing
+    /// names it in a `via`.
+    #[error("caveat {name} is about relationship {relationship}, and no metric reaches a dimension through it")]
+    CaveatRelationshipReachesNoMetric { name: NoteName, relationship: RelationshipName },
+    /// A caveat naming both `about` and `relationships`. The second is expanded into one caveat per
+    /// metric under a name derived from this one, and the first would be printed under this name,
+    /// so one document would become notes that warn about one metric twice under two names.
+    #[error("caveat {name} names metrics and relationships: a caveat is about one or the other")]
+    CaveatAboutAndThroughRelationships { name: NoteName },
+    /// The name a relationship caveat is printed under for one metric, `<caveat>__<metric>`, is not
+    /// a note name - which, both halves being names already, means it is past the 63 characters an
+    /// identifier may have. Refused rather than shortened: two metrics sharing a prefix would shorten
+    /// to one name.
+    #[error("caveat {caveat} would be printed under metric {metric} as {caveat}__{metric}, which is not a note name")]
+    DerivedCaveatNotAName {
+        caveat: NoteName,
+        metric: MetricName,
+        #[source]
+        cause: InvalidIdentifier,
+    },
+    /// The name a relationship caveat is printed under for one metric is already a caveat's: an
+    /// authored one, or another relationship caveat's under another metric.
+    #[error("caveat {caveat} would be printed under metric {metric} as {name}, which is already a caveat")]
+    DerivedCaveatNameTaken {
+        name: NoteName,
+        caveat: NoteName,
+        metric: MetricName,
+    },
     /// One phrase, claimed by TWO glossary entries. A phrase resolves to at most one thing across the
     /// whole glossary, and the check is on the CLAIM rather than on what it resolves to: two entries
     /// claiming one phrase are two bodies for it, and a map would keep the second silently.
@@ -341,109 +390,6 @@ enum Claim {
     NotDefined,
 }
 
-/// What a referent got wrong, before the note that wrote it dresses it as its own error.
-///
-/// One resolution and three dressings, rather than three copies of the resolution. The glossary and a
-/// caveat name the offending document differently - a term, a note name - and that difference is the
-/// whole reason their variants are not shared; the walk from a referent to the thing it refers to is
-/// not different, so it is written once. Each variant carries what it needs, so no site has to
-/// re-derive a name the walk already had - which is where an `expect` on an unreachable branch would
-/// otherwise appear.
-enum ReferentFault<'a> {
-    UnknownMetric,
-    UnknownDimension {
-        dimension: &'a DimensionName,
-    },
-    ValueNotAllowed {
-        dimension: &'a DimensionName,
-        value: &'a DimensionValue,
-    },
-}
-
-/// Does this referent name something the bundle declares?
-fn fault_in<'a>(definitions: &Definitions, referent: &'a Referent) -> Option<ReferentFault<'a>> {
-    let Some(metric) = definitions.metric(referent.metric()) else {
-        return Some(ReferentFault::UnknownMetric);
-    };
-    // `?` rather than `let ... else { return None }`, which the lint asks for: a referent that names
-    // no dimension has nothing further to check, so the absence IS the answer.
-    let name = referent.dimension()?;
-    let Some(dimension) = metric.dimension(name) else {
-        return Some(ReferentFault::UnknownDimension { dimension: name });
-    };
-    let value = referent.value()?;
-    if dimension.permits(value) {
-        None
-    } else {
-        Some(ReferentFault::ValueNotAllowed { dimension: name, value })
-    }
-}
-
-/// The identifier a phrase would be, if somebody wrote it as one.
-///
-/// Lower-cased, with every run of characters that cannot appear in an identifier collapsed into one
-/// underscore. It exists for exactly one comparison - an absence against a name the bundle declares -
-/// and it is a free function rather than a method on [`Phrase`] because turning prose into an
-/// identifier is not something a phrase should offer to do: the only legitimate use of the result is
-/// to notice that two documents disagree.
-pub(super) fn identifier_shape(phrase: &str) -> String {
-    let mut out = String::new();
-    for character in phrase.chars() {
-        if character.is_ascii_alphanumeric() {
-            out.push(character.to_ascii_lowercase());
-        } else if !out.ends_with('_') {
-            out.push('_');
-        }
-    }
-    String::from(out.trim_matches('_'))
-}
-
-/// What this phrase names, if the bundle declares anything at all under that name.
-///
-/// Compared through [`identifier_shape`] on both sides, so a phrase written the way a person writes it
-/// is recognised as naming something written the way an identifier is written - and a declared value
-/// like `business` is recognised in a note about "Business".
-///
-/// A [`Referent`] is the return type because a referent is exactly the set of things a bundle declares
-/// under a name: a metric, a dimension of one, a permitted value of one. The caller dresses whichever
-/// it found as the error that names it.
-///
-/// Three passes rather than one, so the message is about the most important thing the phrase collides
-/// with: a phrase that names a metric is reported as naming the metric even if some dimension
-/// somewhere shares the word.
-fn declared_as(definitions: &Definitions, phrase: &Phrase) -> Option<Referent> {
-    let shape = identifier_shape(phrase.as_str());
-    for name in definitions.metrics().keys() {
-        if identifier_shape(name.as_str()) == shape {
-            return Some(Referent::Metric { metric: name.clone() });
-        }
-    }
-    for (name, metric) in definitions.metrics() {
-        for dimension in metric.dimensions().keys() {
-            if identifier_shape(dimension.as_str()) == shape {
-                return Some(Referent::Dimension {
-                    metric: name.clone(),
-                    dimension: dimension.clone(),
-                });
-            }
-        }
-    }
-    for (name, metric) in definitions.metrics() {
-        for (dimension, declared) in metric.dimensions() {
-            for value in declared.allowed_values().into_iter().flatten() {
-                if identifier_shape(value.as_str()) == shape {
-                    return Some(Referent::Value {
-                        metric: name.clone(),
-                        dimension: dimension.clone(),
-                        value: value.clone(),
-                    });
-                }
-            }
-        }
-    }
-    None
-}
-
 impl Knowledge {
     /// A provider that declares nothing and carries nothing.
     ///
@@ -518,15 +464,15 @@ impl Knowledge {
         let metric = metric.clone();
         self.caveats
             .values()
-            .filter(move |note| note.about().iter().any(|referent| *referent.metric() == metric))
+            .filter(move |note| note.about().iter().any(|referent| referent.metric() == Some(&metric)))
     }
     /// This bundle's knowledge, filtered down to what one caller may see - `docs/adr/0028`.
     ///
     /// Knowledge follows its structured referents rather than its prose: a glossary entry follows the
-    /// metric its `Referent` names, a caveat survives only when EVERY metric it refers to is visible,
-    /// and a worked example follows the metric in its `Query`. The caller's own view supplies what is
-    /// visible - a metric is visible iff it is both declared and granted - so this is metadata access
-    /// over the already-pinned bundle, never a new source of definitions.
+    /// metric or the model its `Referent` names, a caveat survives only when EVERY metric it refers to
+    /// is visible, and a worked example follows the metric in its `Query`. The caller's own view
+    /// supplies what is visible - a metric or a model is visible iff it is both declared and granted -
+    /// so this is metadata access over the already-pinned bundle, never a new source of definitions.
     ///
     /// **It takes a [`ScopedView`] rather than a predicate, and that is where the ADR rule lives.**
     /// `docs/adr/0028`'s all-referents rule is exactly "a note survives when every metric it refers
@@ -563,13 +509,13 @@ impl Knowledge {
             glossary: self
                 .glossary
                 .iter()
-                .filter(|(_, entry)| view.metric(entry.means().metric()).is_some())
+                .filter(|(_, entry)| visible(view, entry.means()))
                 .map(|(term, entry)| (term.clone(), entry.clone()))
                 .collect(),
             caveats: self
                 .caveats
                 .iter()
-                .filter(|(_, note)| note.about().iter().all(|referent| view.metric(referent.metric()).is_some()))
+                .filter(|(_, note)| note.about().iter().all(|referent| visible(view, referent)))
                 .map(|(name, note)| (name.clone(), note.clone()))
                 .collect(),
             // Withheld from any caller-scoped view: no catalog-wide audience is declared, and the
@@ -621,7 +567,8 @@ impl Knowledge {
         // refused before it pays for what indexing costs: parsing every phrase's identity, cloning
         // every referent into a map, walking the claim index for a collision. `KnowledgeInput` owns
         // its `Vec`s, so this reads memory the caller already allocated rather than allocating more -
-        // the check itself is not what was expensive.
+        // the check itself is not what was expensive. The one index that GROWS its input - a caveat
+        // written about relationships, expanded per metric - re-checks this cap on what it produces.
         let bytes = input.authored_bytes();
         if bytes > MAX_KNOWLEDGE_BYTES {
             return Err(InconsistentKnowledge::KnowledgeTooLarge {
@@ -635,7 +582,7 @@ impl Knowledge {
         // worked question was asked.
         let mut claims: BTreeMap<String, Claim> = BTreeMap::new();
         let glossary = Self::index_glossary(definitions, input.glossary, &mut claims)?;
-        let caveats = Self::index_caveats(definitions, input.caveats)?;
+        let caveats = Self::index_caveats(definitions, input.caveats, bytes)?;
         let absences = Self::index_absences(definitions, input.absences, &mut claims)?;
         let examples = Self::index_examples(definitions, input.examples, &claims)?;
         Ok(Self {
@@ -655,7 +602,7 @@ impl Knowledge {
         let mut indexed: Glossary = BTreeMap::new();
         for entry in entries {
             if let Some(fault) = fault_in(definitions, entry.means()) {
-                return Err(glossary_fault(&fault, entry.term(), entry.means().metric()));
+                return Err(glossary_fault(&fault, entry.term()));
             }
             // One entry against itself first. A synonym that is the term again, or two synonyms that
             // are one phrase, is an ambiguity inside a single document - and reporting it as
@@ -689,23 +636,90 @@ impl Knowledge {
         Ok(indexed)
     }
 
-    fn index_caveats(definitions: &Definitions, notes: Vec<Caveat>) -> Result<Caveats, InconsistentKnowledge> {
+    /// The caveats, with every one written about relationships expanded into one per metric.
+    ///
+    /// **Two passes, and the order is what makes a collision a named refusal.** Every authored name
+    /// is claimed in the first, so a derived name that is already a note is refused as
+    /// [`InconsistentKnowledge::DerivedCaveatNameTaken`] whichever document arrived first, rather
+    /// than as a duplicate of whichever was indexed second.
+    ///
+    /// `bytes` is what the input was measured at. A relationship caveat is counted there as written;
+    /// here its own count is taken back and each caveat it expands into is added and checked as it is
+    /// built - so the cap bounds what the bundle holds, an expansion stops at the first caveat over
+    /// it, and a composed bundle re-assembling these derived caveats as authored ones arrives at the
+    /// same total.
+    fn index_caveats(definitions: &Definitions, notes: Vec<Caveat>, bytes: usize) -> Result<Caveats, InconsistentKnowledge> {
         let mut indexed: Caveats = BTreeMap::new();
+        let mut authored: BTreeSet<NoteName> = BTreeSet::new();
+        let mut written_through: Vec<Caveat> = Vec::new();
         for note in notes {
+            if !authored.insert(note.name().clone()) {
+                return Err(InconsistentKnowledge::DuplicateCaveat {
+                    name: note.name().clone(),
+                });
+            }
+            if !note.relationships().is_empty() {
+                if !note.about().is_empty() {
+                    return Err(InconsistentKnowledge::CaveatAboutAndThroughRelationships {
+                        name: note.name().clone(),
+                    });
+                }
+                written_through.push(note);
+                continue;
+            }
             if note.about().is_empty() {
                 return Err(InconsistentKnowledge::CaveatAboutNothing {
                     name: note.name().clone(),
                 });
             }
             for referent in note.about() {
+                if let Referent::Model { ref model } | Referent::Column { ref model, .. } = *referent {
+                    return Err(InconsistentKnowledge::CaveatAboutAModel {
+                        name: note.name().clone(),
+                        model: model.clone(),
+                    });
+                }
                 if let Some(fault) = fault_in(definitions, referent) {
-                    return Err(caveat_fault(&fault, note.name(), referent.metric()));
+                    return Err(caveat_fault(&fault, note.name()));
                 }
             }
-            if let Some(existing) = indexed.insert(note.name().clone(), note) {
-                return Err(InconsistentKnowledge::DuplicateCaveat {
-                    name: existing.name().clone(),
-                });
+            // `authored` has already refused a second note with this name.
+            drop(indexed.insert(note.name().clone(), note));
+        }
+        let mut bytes = bytes;
+        for note in written_through {
+            bytes = bytes.saturating_sub(note.authored_bytes());
+            for (metric, dimensions) in reached_through(definitions, note.name(), note.relationships())? {
+                let name = NoteName::parse(format!("{}__{metric}", note.name())).map_err(|cause| {
+                    InconsistentKnowledge::DerivedCaveatNotAName {
+                        caveat: note.name().clone(),
+                        metric: metric.clone(),
+                        cause,
+                    }
+                })?;
+                if indexed.contains_key(&name) {
+                    return Err(InconsistentKnowledge::DerivedCaveatNameTaken {
+                        name,
+                        caveat: note.name().clone(),
+                        metric: metric.clone(),
+                    });
+                }
+                let about = dimensions
+                    .into_iter()
+                    .map(|dimension| Referent::Dimension {
+                        metric: metric.clone(),
+                        dimension: dimension.clone(),
+                    })
+                    .collect();
+                let derived = Caveat::new(name, about, note.body().clone());
+                bytes = bytes.saturating_add(derived.authored_bytes());
+                if bytes > MAX_KNOWLEDGE_BYTES {
+                    return Err(InconsistentKnowledge::KnowledgeTooLarge {
+                        bytes,
+                        limit: MAX_KNOWLEDGE_BYTES,
+                    });
+                }
+                drop(indexed.insert(derived.name().clone(), derived));
             }
         }
         Ok(indexed)
@@ -719,8 +733,8 @@ impl Knowledge {
         let mut indexed: Absences = BTreeMap::new();
         for note in notes {
             for phrase in note.phrases() {
-                if let Some(declared) = declared_as(definitions, phrase) {
-                    return Err(absence_fault(phrase, &declared));
+                if let Some(fault) = declared_as(definitions, phrase) {
+                    return Err(fault);
                 }
                 match claims.insert(phrase_identity(phrase), Claim::NotDefined) {
                     None => {}
@@ -841,70 +855,5 @@ impl Knowledge {
             }
         }
         Ok(())
-    }
-}
-
-/// One fault, dressed as the glossary's own error.
-fn glossary_fault(fault: &ReferentFault<'_>, term: &Phrase, metric: &MetricName) -> InconsistentKnowledge {
-    let term = term.clone();
-    let metric = metric.clone();
-    match *fault {
-        ReferentFault::UnknownMetric => InconsistentKnowledge::GlossaryUnknownMetric { term, metric },
-        ReferentFault::UnknownDimension { dimension } => InconsistentKnowledge::GlossaryUnknownDimension {
-            term,
-            metric,
-            dimension: dimension.clone(),
-        },
-        ReferentFault::ValueNotAllowed { dimension, value } => InconsistentKnowledge::GlossaryValueNotAllowed {
-            term,
-            metric,
-            dimension: dimension.clone(),
-            value: value.clone(),
-        },
-    }
-}
-
-/// One fault, dressed as a caveat's own error.
-fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName, metric: &MetricName) -> InconsistentKnowledge {
-    let name = name.clone();
-    let metric = metric.clone();
-    match *fault {
-        ReferentFault::UnknownMetric => InconsistentKnowledge::CaveatUnknownMetric { name, metric },
-        ReferentFault::UnknownDimension { dimension } => InconsistentKnowledge::CaveatUnknownDimension {
-            name,
-            metric,
-            dimension: dimension.clone(),
-        },
-        ReferentFault::ValueNotAllowed { dimension, value } => InconsistentKnowledge::CaveatValueNotAllowed {
-            name,
-            metric,
-            dimension: dimension.clone(),
-            value: value.clone(),
-        },
-    }
-}
-
-/// What the bundle declares under a phrase somebody recorded as undefined, dressed as the absence's
-/// own error.
-///
-/// The same one-resolution-three-dressings shape [`glossary_fault`] uses, over the other direction:
-/// there the note names something that does not exist, here it says something that does exist does
-/// not.
-fn absence_fault(phrase: &Phrase, declared: &Referent) -> InconsistentKnowledge {
-    let phrase = phrase.clone();
-    let metric = declared.metric().clone();
-    match (declared.dimension(), declared.value()) {
-        (None, _) => InconsistentKnowledge::AbsenceNamesADefinedMetric { phrase, metric },
-        (Some(dimension), None) => InconsistentKnowledge::AbsenceNamesADeclaredDimension {
-            phrase,
-            metric,
-            dimension: dimension.clone(),
-        },
-        (Some(dimension), Some(value)) => InconsistentKnowledge::AbsenceNamesADeclaredValue {
-            phrase,
-            metric,
-            dimension: dimension.clone(),
-            value: value.clone(),
-        },
     }
 }
