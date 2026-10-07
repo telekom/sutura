@@ -459,10 +459,11 @@ wrote `Shared`, and a mode with two names in one document is how it acquires two
 
 **Why it is its own step, ahead of the OAuth one.** Three things it settles that nothing else can:
 
-- **Which shipped artifact links a native driver.** Open in two ADRs. `sutura-exec-duckdb` is a
-  dev-dependency because nixpkgs has no musl `libduckdb`, and a Postgres driver has the same question
-  with a different answer available: a pure-Rust client links nothing, which may make the cross-build
-  matrix a non-issue for this source and *not* for the next one. Answering it against real code beats
+- **Which shipped artifact links a native driver.** Open in two ADRs. A missing musl `libduckdb` is
+  no obstacle to a native DuckDB driver: nixpkgs' `duckdb` cross-builds for both musl triples
+  (`docs/adr/0007`'s eleventh amendment). A Postgres driver has the same question with a different
+  answer available: a pure-Rust client links nothing, which may make the cross-build matrix a
+  non-issue for this source and *not* for the next one. Answering it against real code beats
   answering it in prose.
 - **The rendered SQL meets a real Postgres.** 21 statement goldens and 21 parameter goldens exist and
   every statement is parse-checked, and parse-checked is
