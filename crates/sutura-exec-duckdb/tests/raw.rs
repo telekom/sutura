@@ -571,6 +571,23 @@ mod raw {
         }
     }
 
+    /// A CTE counts only inside the query that defines it: a later statement reading the table of
+    /// the same name reads the table, and is counted as the table, so it still answers at
+    /// [`MAX_NESTING`] deep.
+    #[test]
+    fn a_cte_counts_only_inside_the_query_that_defines_it() {
+        let scratch = Scratch::new("screen-scope");
+        let warehouse = scratch.open();
+        let deepest = usize::try_from(MAX_NESTING).expect("the bound is a count");
+        let sql = format!(
+            "WITH t AS (SELECT 1 AS id) SELECT id FROM t; SELECT {}count(*) FROM t{}",
+            "(SELECT ".repeat(deepest - 1),
+            ")".repeat(deepest - 1)
+        );
+        let (_, rows) = answer(&warehouse, &sql).into_parts();
+        assert_eq!(rows, [[Value::Integer(2)]], "`{sql}`");
+    }
+
     /// The query bound: a text of [`MAX_QUERIES`] queries answers and one more is refused by name,
     /// counted across its statements. A CTE counts again at every reference to it, however its case
     /// is spelled, so a few lines that refer to each CTE several times count every query they stand
