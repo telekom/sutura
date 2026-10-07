@@ -5,6 +5,19 @@ caller's own service account (built, not yet proven against Google). The walkthr
 progress; it will be on the
 [documentation site](https://telekom.github.io/sutura/latest/examples/multi-player/).
 
+## Setup requirements
+
+- **This demo:** Docker, Pulumi, and a Google Cloud test project. The Pulumi credential needs
+  permission to enable APIs, create the seed bucket, dataset, identity pool, provider, and test
+  accounts, and set IAM grants and row policies. These permissions are for setup only.
+- **Enterprise:** Operators pre-create the accounts, identity provider, pool, data, and grants.
+  Configure token exchange and the per-caller account map in sutura. The MCP runtime uses these
+  existing resources. Grant query and read access to the source accounts, and approved impersonation
+  to callers. The runtime needs no administrator or provisioning role. The catalog needs its own
+  read credential.
+
+## Run the demo
+
 Quick start, from this directory: `SUTURA_VERSION=<version> ./setup.sh`, then the Pulumi program in
 `infra/`, then `docker compose up -d`. The image must read
 `workload_identity.delegation`, and a release can predate it. If `sutura serve` refuses that key,

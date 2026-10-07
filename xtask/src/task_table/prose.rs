@@ -14,8 +14,8 @@ const CHECK_GUIDANCE_PAIRED: Paired = Paired {
     inputs: &["."],
     violation: &[Edit {
         path: "README.md",
-        find: "data runtime. It is built",
-        replace: "data runtime. Never run cargo fmt --all here. It is built",
+        find: "Apache-2.0.",
+        replace: "Apache-2.0. Never run cargo fmt --all here.",
     }],
 };
 
