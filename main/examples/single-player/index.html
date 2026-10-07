@@ -2665,7 +2665,7 @@ filters. It has no field for SQL.</p>
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/questions/recurring-revenue-by-month.yaml<span class="w"> </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>-- definitions local-working-tree 071c346df765dea9f7df02e763fcf7e767189cf82502a15e8d25fba437fdb570
 </span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>period  recurring_revenue
 </span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>2026-01-01  237320
 </span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>2026-02-01  232822
@@ -2690,7 +2690,7 @@ digest. The values are in minor units: <code>202121</code> is 2021.21.</p>
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/questions/recurring-revenue-business-only.yaml<span class="w"> </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>-- definitions local-working-tree 071c346df765dea9f7df02e763fcf7e767189cf82502a15e8d25fba437fdb570
 </span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>region  period  recurring_revenue
 </span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>central 2026-06-01  13246
 </span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>east    2026-06-01  9727
@@ -2763,7 +2763,7 @@ The fact table has no region and no sales area. So the question needs two joins:
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>sutura<span class="w"> </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/questions/recurring-revenue-by-sales-area.yaml<span class="w"> </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>-- definitions local-working-tree 071c346df765dea9f7df02e763fcf7e767189cf82502a15e8d25fba437fdb570
 </span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>sales_area  period  recurring_revenue
 </span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>central 2026-06-01  51739
 </span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>north_east  2026-06-01  74755

@@ -3036,7 +3036,7 @@ would be linted and tested by nothing. <a href="../contributing/">Contributing</
 binary. <code>cargo xtask check-workflows</code> fails if a workflow names a build output that does not
 exist, and the <code>one-binary</code> check fails if an image carries more than the binary.</p>
 <p>The published binary carries every shipped feature. Nix compiles the ADBC drivers (Go and C) and
-links them into it: <code>just build</code>. In the development shell, a <code>cargo</code> build can name one feature:</p>
+links them into it: <code>just build-release</code>. In the development shell, a <code>cargo</code> build can name one feature:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
 </span></code></pre></div>
 <p>That build links no driver. It loads the driver from the file that the development shell names in
