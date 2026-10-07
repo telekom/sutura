@@ -96,6 +96,7 @@ pub mod capability;
 pub mod client_address;
 pub mod constants;
 pub mod correlation;
+pub mod host;
 pub mod inbound;
 pub mod metrics;
 pub mod middleware;

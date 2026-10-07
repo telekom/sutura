@@ -983,3 +983,8 @@ mod refusals;
 /// above.
 #[cfg(test)]
 mod merge_depth;
+
+/// `server.allowed_hosts` reaching `ServerSettings::allowed_hosts()`, and its refusal. Same
+/// `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod allowed_hosts;

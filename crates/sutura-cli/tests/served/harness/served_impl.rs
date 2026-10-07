@@ -14,12 +14,12 @@ use super::{RECORD_BUDGET, Reply, STOP_BUDGET, Served, derived_beside, example_r
 impl Served {
     /// A GET, with the deployment's token when one is given.
     pub(crate) fn get(&self, path: &str, token: Option<&str>) -> Reply {
-        self.send("GET", path, token, None, None)
+        self.send("GET", path, token, None, None, None)
     }
 
     /// A POST of a JSON question.
     pub(crate) fn post(&self, path: &str, token: Option<&str>, body: &str) -> Reply {
-        self.send("POST", path, token, Some(body), None)
+        self.send("POST", path, token, Some(body), None, None)
     }
 
     /// An MCP JSON-RPC POST to the agent surface, with the `Accept` header the streamable-HTTP transport requires. Reachable only when the `agent` feature is compiled in.
@@ -31,6 +31,26 @@ impl Served {
             token,
             Some(body),
             Some("application/json, text/event-stream"),
+            None,
+        )
+    }
+
+    /// A GET carrying `host` as its `Host` header instead of the listener's own address.
+    #[cfg(feature = "agent")]
+    pub(crate) fn get_as_host(&self, host: &str, path: &str, token: Option<&str>) -> Reply {
+        self.send("GET", path, token, None, None, Some(host))
+    }
+
+    /// An MCP JSON-RPC POST carrying `host` as its `Host` header.
+    #[cfg(feature = "agent")]
+    pub(crate) fn mcp_as_host(&self, host: &str, token: Option<&str>, body: &str) -> Reply {
+        self.send(
+            "POST",
+            sutura_http::constants::AGENT_MOUNT_PATH,
+            token,
+            Some(body),
+            Some("application/json, text/event-stream"),
+            Some(host),
         )
     }
 
@@ -46,14 +66,22 @@ impl Served {
     /// `Connection: close` is what makes reading to end-of-file the whole response, and the
     /// chunked assertion in [`parse`] is what stops that quietly mis-parsing if a handler ever
     /// answers without a length.
-    fn send(&self, method: &str, path: &str, token: Option<&str>, body: Option<&str>, accept: Option<&str>) -> Reply {
+    fn send(
+        &self,
+        method: &str,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&str>,
+        accept: Option<&str>,
+        host: Option<&str>,
+    ) -> Reply {
         let mut stream = TcpStream::connect(&self.address).expect("the listener accepts a connection");
         stream
             .set_read_timeout(Some(Duration::from_secs(60)))
             .expect("a read timeout is settable");
         let mut request = String::new();
         write!(request, "{method} {path} HTTP/1.1\r\n").expect("writing to a String cannot fail");
-        write!(request, "Host: {}\r\n", self.address).expect("writing to a String cannot fail");
+        write!(request, "Host: {}\r\n", host.unwrap_or(&self.address)).expect("writing to a String cannot fail");
         request.push_str("Connection: close\r\n");
         if let Some(accept) = accept {
             write!(request, "Accept: {accept}\r\n").expect("writing to a String cannot fail");

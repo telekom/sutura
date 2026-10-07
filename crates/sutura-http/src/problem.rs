@@ -188,6 +188,12 @@ pub enum Failure {
     /// BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
     /// is the reason a caller with every scope this surface issues still cannot reach the route.
     ToolNotEnabled { capability: &'static str },
+    /// The request's `Host` is not one this deployment answers.
+    ///
+    /// **`403`, and no `Host` echoed back**: the value is the caller's own text and the list it was
+    /// refused against is this deployment's. An operator reading a client's complaint has something
+    /// to act on: `server.allowed_hosts` is the key that admits another name.
+    HostNotAllowed,
     /// The body is not a question. Carries a message naming the field.
     ///
     /// **No bare `String` to except any more.** `detail` is [`Detail`], a witness type whose only
@@ -248,7 +254,7 @@ impl Failure {
         use axum::http::StatusCode;
         match *self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } => StatusCode::FORBIDDEN,
+            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed => StatusCode::FORBIDDEN,
             Self::NotAQuestion { .. } => StatusCode::BAD_REQUEST,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -275,6 +281,7 @@ impl Failure {
             Self::Unauthorized
             | Self::InsufficientScope { .. }
             | Self::ToolNotEnabled { .. }
+            | Self::HostNotAllowed
             | Self::NotAQuestion { .. }
             | Self::TooLarge
             | Self::RateLimited
@@ -291,6 +298,7 @@ impl Failure {
             Self::Unauthorized => "unauthorized",
             Self::InsufficientScope { .. } => "insufficient_scope",
             Self::ToolNotEnabled { .. } => "tool_not_enabled",
+            Self::HostNotAllowed => "host_not_allowed",
             Self::NotAQuestion { .. } => "not_a_question",
             Self::TooLarge => "too_large",
             Self::RateLimited => "rate_limited",
@@ -315,6 +323,7 @@ impl Failure {
             Self::ToolNotEnabled { capability } => {
                 format!("`{capability}` is not enabled on this deployment")
             }
+            Self::HostNotAllowed => String::from("this deployment does not answer this Host"),
             Self::NotAQuestion { ref detail } => detail.to_string(),
             Self::TooLarge => String::from("the body is larger than this service will read"),
             Self::RateLimited => String::from("too many requests; slow down and retry"),
@@ -420,6 +429,7 @@ mod tests {
             Failure::ToolNotEnabled {
                 capability: "sutura:sql.run",
             },
+            Failure::HostNotAllowed,
             Failure::NotAQuestion {
                 detail: Detail(String::from("`grain` is not a grain")),
             },
@@ -473,6 +483,7 @@ mod tests {
             Failure::ToolNotEnabled {
                 capability: "sutura:sql.run",
             },
+            Failure::HostNotAllowed,
             Failure::TooLarge,
             Failure::RateLimited,
             Failure::Timeout,

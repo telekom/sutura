@@ -327,10 +327,13 @@ of an SSE stream to parse. A future tool that DID need to stream would need this
   `if use_session {}` statement, not nested inside it) - which serves EVERY message type
   one-shot, `initialize` included. `crate::http::config`'s pin selects the second; the cells in this
   module exercise it directly rather than trust this paragraph.
-- **`allowed_hosts`/`allowed_origins` are left at the SDK's own defaults**
-  (`["localhost", "127.0.0.1", "::1"]`, no origin check) - a composition root serving this
-  outside loopback must override them, or the transport refuses every request with a `Host`
-  header it does not recognise. PR4's job to state, not this module's.
+- **`allowed_hosts` is switched off here, and the router in front checks `Host`.** The transport's
+  own list is the loopback names alone, which refuses a deployment reached by any other name;
+  `sutura_http::host` holds the one list for every route, `/mcp` included, so a composition
+  root that mounts this service anywhere else has no `Host` check until it adds one. The
+  transport still parses the `Host` before it reads its (now empty) list, so a request that names
+  none is refused `400` here whatever the router in front let through.
+  `allowed_origins` stays at the SDK's default (no origin check).
 - **The exact SEP-2243 header-validation helpers this module's tests exercise
   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
   no-op conditions on a plain, non-`stateless_protocol_metadata_required` request and not
@@ -341,7 +344,7 @@ of an SSE stream to parse. A future tool that DID need to stream would need this
 ### `fn config`
 
 ```rust
-pub fn config() -> rmcp::transport::StreamableHttpServerConfig
+pub fn config(max_body: sutura_config::BodyLimit) -> rmcp::transport::StreamableHttpServerConfig
 ```
 
 This deployment's fixed transport configuration - see the module documentation for
@@ -351,20 +354,23 @@ A function rather than a `const`: `StreamableHttpServerConfig` is `#[non_exhaust
 struct-expression literal cannot name its fields at all - and its `Default` builds a fresh
 `CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
 
-**The limit the two pins carry, stated rather than assumed contractually:** only
-`legacy_session_mode` and `json_response` are set here; the other eight fields are inherited
-from the SDK's `Default` through the builder and are not pinned - a future field with an unsafe
-default would arrive silently, and `allowed_hosts` stays loopback-only, so a composition root
-serving outside loopback must override it (the transport refuses every unrecognised `Host`, see
-the module documentation). And `service` still constructs a `LocalSessionManager`; that
+**The limit the pins carry, stated rather than assumed contractually:** only
+`legacy_session_mode`, `json_response`, the body bound and `allowed_hosts` below are set here; the
+other six fields are inherited from the SDK's `Default` through the builder and are not pinned - a
+future field with an unsafe default would arrive silently. And `service` still constructs a `LocalSessionManager`; that
 manager is kept idle by `legacy_session_mode: false` alone. Nothing here binds a session to a
 caller, and the SDK's own `create_session` takes no identity argument regardless - the caller is
 re-resolved per request out of each request's `Asked`, never out of a session.
 
+**And `max_request_body_bytes` is the deployment's `server.max_body_bytes`**, the bound `/v1`
+reads under, rather than the SDK's own 4 MiB: the transport reads its own body, so an `axum`
+`DefaultBodyLimit` in front of it would bind nothing. **`allowed_hosts` is switched off**: the
+router in front checks `Host` against the deployment's one list, see the module documentation.
+
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, max_body: sutura_config::BodyLimit, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`

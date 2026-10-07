@@ -381,6 +381,60 @@ fn trimmed(raw: Option<&str>) -> Option<&str> {
     raw.map(str::trim)
 }
 
+/// A `Host` this deployment answers: a name or an address, with no port.
+///
+/// Stored lower case and with an IPv6 literal unbracketed, which is the form the request-side check
+/// compares in. A port is refused rather than dropped: the check ignores ports, so a declared
+/// `host:8080` would read as a narrower allowance than it is. No wildcards - a literal name is the
+/// only thing this admits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllowedHost(String);
+
+/// Why a declared host is not a name or an address.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidAllowedHost {
+    /// Nothing was written, or only whitespace was.
+    #[error("it is empty")]
+    Empty,
+    /// Not a domain name or an IP address - a scheme, a port, a path and a wildcard all land here.
+    #[error("`{found}` is not a host name or an IP address - write the bare name, with no scheme, port or path")]
+    NotAHost { found: String },
+}
+
+impl AllowedHost {
+    /// The key a list of these is written under.
+    pub const KEY: &'static str = "server.allowed_hosts";
+
+    /// Reads a declared host.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidAllowedHost> {
+        let trimmed = raw.as_ref().trim();
+        if trimmed.is_empty() {
+            return Err(InvalidAllowedHost::Empty);
+        }
+        let bare = trimmed
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+            .unwrap_or(trimmed);
+        if let Ok(address) = bare.parse::<IpAddr>() {
+            return Ok(Self(address.to_string()));
+        }
+        match url::Host::parse(bare) {
+            Ok(url::Host::Domain(domain)) if !domain.contains('*') => Ok(Self(domain)),
+            Ok(url::Host::Ipv4(address)) => Ok(Self(address.to_string())),
+            Ok(url::Host::Domain(_) | url::Host::Ipv6(_)) | Err(_) => Err(InvalidAllowedHost::NotAHost {
+                found: String::from(trimmed),
+            }),
+        }
+    }
+
+    /// The host, lower case, an IPv6 literal without brackets.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Everything about the socket, the two per-request bounds, and the TLS material if there is any.
 ///
 /// **Not `Copy`, and that is the TLS paths.** Every accessor borrows or returns a `Copy` value, and
@@ -395,6 +449,8 @@ pub struct ServerSettings {
     /// `server.agent_surface.enabled: true`. A build with the `agent` feature linked still keeps
     /// this off by default - the explicit-bool shape, not `security.inbound`'s presence-only one.
     agent_surface_enabled: bool,
+    /// The external hosts `server.allowed_hosts` declares, beyond the loopback names.
+    allowed_hosts: Vec<AllowedHost>,
 }
 
 impl ServerSettings {
@@ -411,6 +467,7 @@ impl ServerSettings {
         max_body: BodyLimit,
         tls: Option<TlsMaterial>,
         agent_surface_enabled: bool,
+        allowed_hosts: Vec<AllowedHost>,
     ) -> Self {
         Self {
             bind,
@@ -418,6 +475,7 @@ impl ServerSettings {
             max_body,
             tls,
             agent_surface_enabled,
+            allowed_hosts,
         }
     }
 
@@ -454,13 +512,23 @@ impl ServerSettings {
     pub const fn agent_surface_enabled(&self) -> bool {
         self.agent_surface_enabled
     }
+
+    /// The external hosts this deployment declared it answers, beyond the loopback names and the
+    /// host of its own resource identifier. Empty unless `server.allowed_hosts` is written.
+    #[inline]
+    pub fn allowed_hosts(&self) -> &[AllowedHost] {
+        &self.allowed_hosts
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use super::{BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, TlsMaterial};
+    use super::{
+        AllowedHost, BindAddress, BodyLimit, InvalidAllowedHost, InvalidBindAddress, InvalidBound, InvalidTlsMaterial,
+        RequestTimeout, TlsMaterial,
+    };
 
     #[test]
     fn loopback_is_recognised_in_both_address_families() {
@@ -659,5 +727,37 @@ mod tests {
             TlsMaterial::parse(Some("/tls/chain.pem"), Some("  ")),
             Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" })
         );
+    }
+
+    #[test]
+    fn a_declared_host_is_normalised_to_the_form_the_request_check_compares_in() {
+        for (written, kept) in [
+            ("sutura.example.com", "sutura.example.com"),
+            ("  Sutura.Example.COM ", "sutura.example.com"),
+            ("10.0.0.7", "10.0.0.7"),
+            ("::1", "::1"),
+            ("[::1]", "::1"),
+        ] {
+            assert_eq!(AllowedHost::parse(written).expect(written).as_str(), kept, "{written}");
+        }
+    }
+
+    #[test]
+    fn a_declared_host_that_is_not_a_bare_name_is_refused() {
+        assert_eq!(AllowedHost::parse("  "), Err(InvalidAllowedHost::Empty));
+        for written in [
+            "https://sutura.example.com",
+            "sutura.example.com:8080",
+            "sutura.example.com/path",
+            "*.example.com",
+            "*",
+            "a b",
+            "user@sutura.example.com",
+        ] {
+            assert!(
+                matches!(AllowedHost::parse(written), Err(InvalidAllowedHost::NotAHost { .. })),
+                "{written}"
+            );
+        }
     }
 }
