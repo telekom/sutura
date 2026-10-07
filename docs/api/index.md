@@ -25,7 +25,8 @@ arrow points inward, at the domain.
 - [sutura-exec-datafusion](sutura-exec-datafusion.md) - THE engine. A `Warehouse` adapter that
   executes a plan over Arrow and generates no SQL
 - [sutura-exec-duckdb](sutura-exec-duckdb.md) - a `Warehouse` adapter over DuckDB as a DATA SOURCE:
-  it renders the plan into DuckDB SQL and pushes it down. A development dependency, not shipped
+  it renders the plan into DuckDB SQL and pushes it down. Shipped in every release: a musl release
+  links the driver, any other build mounts it
 - [sutura-app](sutura-app.md) - the service, generic over the ports. Also the `Surface` driving port
   and its one implementor, so a transport implements nothing another transport owns
 - [sutura-config](sutura-config.md) - the settings tree and the startup refusals. Holds no

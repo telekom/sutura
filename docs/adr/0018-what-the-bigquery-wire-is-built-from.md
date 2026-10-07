@@ -1808,7 +1808,7 @@ key.
 
 ## Twenty-first amendment, 2026-10-07: a `kind: duckdb` source opens the DuckDB adapter, and its deadline is enforced
 
-**What moved.** Three sentences in the seventeenth and nineteenth amendments are no longer true.
+**What moved.** Three claims in the seventeenth and nineteenth amendments are no longer true.
 "`sutura-exec-duckdb` stays a dev-dependency": `sutura-cli` now names the crate as an optional
 dependency behind its default-off `duckdb` feature, which a `kind: duckdb` source opens
 (`telekom/sutura#1292`). "Nothing shipped calls the linked DuckDB driver" and "a carry-only cost":

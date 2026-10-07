@@ -204,9 +204,10 @@ A **data system** executes. The port is named `Warehouse`, which says nothing ab
 behind it. Its adapters are different kinds of thing: `sutura-exec-datafusion` is **the engine** -
 it reads CSV, Parquet and NDJSON files itself, executes the plan over Arrow and generates no SQL,
 and every build links it; `sutura-exec-duckdb` is a **data source** - it renders the plan into
-`DuckDB` SQL and pushes the statement down, and it is a development dependency, there to prove the
-rendered SQL runs somewhere. Postgres, ClickHouse, Oracle and BigQuery are data sources too, each
-behind a default-off feature, and the release binary enables BigQuery, Postgres and ClickHouse. The golden
+`DuckDB` SQL and pushes the statement down. Postgres, ClickHouse, Oracle and BigQuery are data
+sources too, each behind a default-off feature, and the release binary enables DuckDB, BigQuery,
+Postgres and ClickHouse: a musl release links the DuckDB driver, and any other build mounts the
+`libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. The golden
 suite executes the example corpus against Postgres and ClickHouse on a server their nix tier starts
 beside the suite; BigQuery's golden cells run against a real dataset in the `bigquery-conformance`
 CI job and skip elsewhere under a named exemption, and Oracle's skip under one because no gate
