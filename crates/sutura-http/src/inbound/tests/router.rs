@@ -673,6 +673,23 @@ async fn a_request_with_no_host_is_answered() {
     }
 }
 
+/// The protected-resource metadata route is public discovery data, so it answers a `Host` the versioned
+/// surface beside it refuses.
+#[tokio::test]
+async fn the_protected_resource_metadata_route_answers_a_host_the_versioned_surface_refuses() {
+    let issuer = an_issuer();
+    let app = app_verifying(&issuer);
+    let token = granting(&issuer, "sutura:catalog.read");
+    assert_eq!(
+        status_of(&app, ("GET", "/v1/catalog"), Some(&token), None, Some("rebound.example.net")).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status_of(&app, ("GET", METADATA_PATH), None, None, Some("rebound.example.net")).await,
+        StatusCode::OK
+    );
+}
+
 /// The body of one GET carrying `host`.
 async fn asked_with_host(app: &axum::Router, path: &str, host: &str) -> String {
     use tower::ServiceExt as _;
@@ -749,12 +766,12 @@ async fn a_declared_host_is_answered_on_every_route_and_an_undeclared_one_is_not
     }
 }
 
-/// Off the loopback with nothing declared, the deployment answers every `Host` and says so at boot,
-/// naming the key that would restrict it: its callers already present a credential.
+/// A subscriber that writes `info` and above into a buffer, and the buffer.
 #[cfg(feature = "agent")]
-#[tokio::test]
-async fn an_off_host_deployment_declaring_no_host_warns_and_answers_every_host() {
-    let issuer = an_issuer();
+fn captured() -> (
+    sutura_runtime::testing::Capture,
+    impl tracing::Subscriber + Send + Sync + 'static,
+) {
     let sink = sutura_runtime::testing::Capture::new();
     let telemetry = sutura_config::TelemetrySettings::new(
         sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
@@ -764,6 +781,16 @@ async fn an_off_host_deployment_declaring_no_host_warns_and_answers_every_host()
     );
     let subscriber =
         sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    (sink, subscriber)
+}
+
+/// Off the loopback with nothing declared, the deployment answers every `Host` and says so at boot,
+/// naming the key that would restrict it: its callers already present a credential.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn an_off_host_deployment_declaring_no_host_warns_and_answers_every_host() {
+    let issuer = an_issuer();
+    let (sink, subscriber) = captured();
     let app = tracing::subscriber::with_default(subscriber, || with_agent_mount(&off_host(&issuer, None), &issuer));
     let rendered = sink.contents();
     let warning = rendered
@@ -778,6 +805,131 @@ async fn an_off_host_deployment_declaring_no_host_warns_and_answers_every_host()
             status_of(&app, route, None, Some(&assertion), Some("anything.example.net")).await,
             StatusCode::OK,
             "{route:?} with an arbitrary Host"
+        );
+    }
+}
+
+/// What a request carries: a bearer token, a gateway assertion, a `Host`.
+#[cfg(feature = "agent")]
+type Carried<'a> = (Option<&'a str>, Option<&'a str>, Option<&'a str>);
+
+/// The status each of `count` identical requests gets, one after the other.
+#[cfg(feature = "agent")]
+async fn burst(app: &axum::Router, route: (&str, &str), carried: Carried<'_>, count: usize) -> Vec<StatusCode> {
+    let (bearer, assertion, host) = carried;
+    let mut statuses = Vec::with_capacity(count);
+    for _ in 0..count {
+        statuses.push(status_of(app, route, bearer, assertion, host).await);
+    }
+    statuses
+}
+
+/// Both surfaces, the way a cell below names them.
+#[cfg(feature = "agent")]
+const BOTH_SURFACES: [(&str, &str); 2] = [("GET", "/v1/catalog"), ("POST", crate::constants::AGENT_MOUNT_PATH)];
+
+/// A bearer that is not the deployment token and long enough to be mistaken for one.
+#[cfg(feature = "agent")]
+const WRONG_TOKEN: &str = "this-is-not-the-token-but-is-long-enough";
+
+/// **The order the layers run in is the same on `/v1` and on `/mcp`**: the rate limit, then the `Host`
+/// check, then the deployment token gate, then leg 1. The four cells below read one adjacent pair each
+/// off the statuses a burst of one gets, so a pair swapped on either surface reddens the cell for it.
+///
+/// A refused `Host` costs a rate-limit cell: the limiter is outside the `Host` check.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn a_refused_host_costs_a_rate_limit_cell_on_every_route() {
+    let issuer = an_issuer();
+    let overlay = format!(
+        "{}rate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
+        direct_overlay(&issuer, UNREAD)
+    );
+    let app = with_agent_mount(&overlay, &issuer);
+    for route in BOTH_SURFACES {
+        assert_eq!(
+            burst(&app, route, (None, None, Some("other.example.com")), 3).await,
+            [
+                StatusCode::FORBIDDEN,
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS
+            ],
+            "{route:?}: a refused Host past a burst of one"
+        );
+    }
+}
+
+/// A wrong deployment token costs a rate-limit cell: the limiter is outside the token gate.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn a_wrong_deployment_token_costs_a_rate_limit_cell_on_every_route() {
+    let issuer = an_issuer();
+    let overlay = format!(
+        "{}  access_token: \"{DEPLOYMENT_TOKEN}\"\nrate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
+        gateway_overlay(&issuer)
+    );
+    let app = with_agent_mount(&overlay, &issuer);
+    let assertion = assertion_from(&issuer, "someone@example.com");
+    for route in BOTH_SURFACES {
+        assert_eq!(
+            burst(&app, route, (Some(WRONG_TOKEN), Some(&assertion), None), 3).await,
+            [
+                StatusCode::UNAUTHORIZED,
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS
+            ],
+            "{route:?}: a wrong token past a burst of one"
+        );
+    }
+}
+
+/// The `Host` check is outside the token gate: a foreign `Host` is refused as that, and a listed one
+/// reaches the gate.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_host_check_runs_ahead_of_the_deployment_token_gate_on_every_route() {
+    let issuer = an_issuer();
+    let overlay = format!("{}  access_token: \"{DEPLOYMENT_TOKEN}\"\n", gateway_overlay(&issuer));
+    let app = with_agent_mount(&overlay, &issuer);
+    let assertion = assertion_from(&issuer, "someone@example.com");
+    for route in BOTH_SURFACES {
+        for (host, expected) in [
+            ("other.example.com", StatusCode::FORBIDDEN),
+            ("localhost", StatusCode::UNAUTHORIZED),
+        ] {
+            assert_eq!(
+                status_of(&app, route, Some(WRONG_TOKEN), Some(&assertion), Some(host)).await,
+                expected,
+                "{route:?} with a wrong token and Host {host}"
+            );
+        }
+    }
+}
+
+/// The deployment token gate is outside leg 1: a wrong token is turned away before leg 1 looks at the
+/// assertion beside it. Nothing in the response says which layer answered, so this reads the log each
+/// one writes when it refuses.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_deployment_token_gate_runs_ahead_of_leg_one_on_every_route() {
+    let issuer = an_issuer();
+    let overlay = format!("{}  access_token: \"{DEPLOYMENT_TOKEN}\"\n", gateway_overlay(&issuer));
+    let app = with_agent_mount(&overlay, &issuer);
+    for route in BOTH_SURFACES {
+        let (sink, subscriber) = captured();
+        let status = {
+            let _installed = tracing::subscriber::set_default(subscriber);
+            status_of(&app, route, Some(WRONG_TOKEN), Some("not-an-assertion"), None).await
+        };
+        let log = sink.contents();
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{route:?}");
+        assert!(
+            log.contains("no valid bearer token"),
+            "{route:?}: the token gate did not refuse: {log}"
+        );
+        assert!(
+            !log.contains("no verified caller"),
+            "{route:?}: leg 1 ran before the token gate: {log}"
         );
     }
 }

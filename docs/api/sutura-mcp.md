@@ -330,7 +330,9 @@ of an SSE stream to parse. A future tool that DID need to stream would need this
 - **`allowed_hosts` is switched off here, and the router in front checks `Host`.** The transport's
   own list is the loopback names alone, which refuses a deployment reached by any other name;
   `sutura_http::host` holds the one list for every route, `/mcp` included, so a composition
-  root that mounts this service anywhere else has no `Host` check until it adds one.
+  root that mounts this service anywhere else has no `Host` check until it adds one. The
+  transport still parses the `Host` before it reads its (now empty) list, so a request that names
+  none is refused `400` here whatever the router in front let through.
   `allowed_origins` stays at the SDK's default (no origin check).
 - **The exact SEP-2243 header-validation helpers this module's tests exercise
   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their

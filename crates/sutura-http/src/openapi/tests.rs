@@ -150,6 +150,26 @@ fn every_refusal_status_is_declared_on_the_query_operation() {
 }
 
 #[test]
+fn every_operation_describes_the_host_refusal_in_its_403() {
+    // The Host check runs ahead of every credential check, so every operation can answer it. Read the
+    // serialized document a client consumes, and count what was read so an empty loop cannot pass.
+    let rendered = document_json(true).expect("the document serializes");
+    let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("the document is JSON");
+    let mut read = 0_usize;
+    for (path, item) in parsed["paths"].as_object().expect("the document has paths") {
+        for (method, operation) in item.as_object().expect("a path item is an object") {
+            let forbidden = operation["responses"]["403"]["description"].as_str().unwrap_or_default();
+            assert!(
+                forbidden.contains("host_not_allowed"),
+                "{method} {path} does not describe it: {forbidden}"
+            );
+            read += 1;
+        }
+    }
+    assert_eq!(read, 3, "the governed operations this document describes");
+}
+
+#[test]
 fn no_security_scheme_is_declared() {
     // A shared deployment secret is not a caller authentication model.
     assert!(

@@ -64,7 +64,9 @@
 //! - **`allowed_hosts` is switched off here, and the router in front checks `Host`.** The transport's
 //!   own list is the loopback names alone, which refuses a deployment reached by any other name;
 //!   `sutura_http::host` holds the one list for every route, `/mcp` included, so a composition
-//!   root that mounts this service anywhere else has no `Host` check until it adds one.
+//!   root that mounts this service anywhere else has no `Host` check until it adds one. The
+//!   transport still parses the `Host` before it reads its (now empty) list, so a request that names
+//!   none is refused `400` here whatever the router in front let through.
 //!   `allowed_origins` stays at the SDK's default (no origin check).
 //! - **The exact SEP-2243 header-validation helpers this module's tests exercise
 //!   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
@@ -463,6 +465,51 @@ mod tests {
         assert!(!config.legacy_session_mode, "{config:?}");
         assert!(config.json_response, "{config:?}");
         assert!(config.allowed_hosts.is_empty(), "{config:?}");
+    }
+
+    /// With the transport's own list switched off, any host that names itself is served and a request
+    /// that names none is refused `400`: the router in front owns the list, and the transport still
+    /// parses the `Host` before it reads it.
+    #[tokio::test]
+    async fn the_transport_serves_any_named_host_and_refuses_a_request_naming_none() {
+        let transport = super::service(
+            Arc::new(testing::FailingSurface::new()),
+            CatalogProse::Quoted,
+            false,
+            admission(),
+            reply(),
+            settings().server().max_body(),
+            testing::instructions(),
+            testing::operator_instructions(),
+        );
+        let app = router(transport, subject_asked("someone@example.com", Permitted::every_capability()));
+        for host in [Some("declared.example.com"), None] {
+            let mut request = axum::http::Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header(header::ACCEPT, "application/json, text/event-stream")
+                .header(header::CONTENT_TYPE, "application/json");
+            if let Some(host) = host {
+                request = request.header(header::HOST, host);
+            }
+            let request = request
+                .body(Body::from(
+                    serde_json::to_vec(&initialize(1)).expect("a test JSON-RPC body serializes"),
+                ))
+                .expect("a well-formed test request builds");
+            let status = app
+                .clone()
+                .oneshot(request)
+                .await
+                .expect("a tower service's Error is Infallible")
+                .status();
+            let expected = if host.is_some() {
+                axum::http::StatusCode::OK
+            } else {
+                axum::http::StatusCode::BAD_REQUEST
+            };
+            assert_eq!(status, expected, "Host {host:?}");
+        }
     }
 
     /// The `instructions` an `initialize` result carries.

@@ -1,8 +1,10 @@
 //! Which `Host` this deployment answers.
 //!
 //! One list, derived from the deployment, is checked on every route that answers a caller: `/v1/*`,
-//! the documentation, and `/mcp`. `/health` and `/metrics` are outside it because a probe and a scrape
-//! arrive with the pod's own address as their `Host`.
+//! the documentation, and `/mcp`. Three routes are outside it. `/health` and `/metrics`, because a
+//! probe and a scrape arrive with the pod's own address as their `Host`. And the protected-resource
+//! metadata route, `GET /.well-known/oauth-protected-resource` and the paths under it: it is public
+//! discovery data, mounted with liveness in the public subtree, so it answers whatever `Host` names it.
 //!
 //! **Matched like the agent transport matches**: the `Host` header, else the request's own
 //! authority; the port ignored; the name compared ASCII case-insensitively with an IPv6 literal's
@@ -11,8 +13,11 @@
 //! **Two limits, stated where they bind.** A bind off the loopback that declares no
 //! `server.allowed_hosts` answers every `Host` ([`HostAllowlist::of`] is `None`, and the router says
 //! so at startup): such a bind already needs a credential, so the `Host` is not what guards it. And a
-//! request with no `Host` and no authority is answered, because an HTTP/1.1 client always names one -
-//! the check is for a client that names a host, not for an HTTP/1.0 one.
+//! request with no `Host` and no authority passes this check, because an HTTP/1.1 client always names
+//! one - the check is for a client that names a host, not for an HTTP/1.0 one. That request is
+//! answered on `/v1/*`, the documentation and `/openapi.json`; on `/mcp` it passes this check and the
+//! transport then refuses it with a `400`, because the transport reads the `Host` before it reads its
+//! own (switched-off, empty) list.
 
 use std::sync::Arc;
 
