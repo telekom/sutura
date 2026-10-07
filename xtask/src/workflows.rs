@@ -214,7 +214,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
     let release_builds = reach::release_outputs(&root, ordinary.closure());
     if !release_builds.is_empty() {
-        eprintln!("xtask check-workflows: ordinary CI builds release outputs");
+        eprintln!("xtask check-workflows: ordinary CI builds release outputs, or cachix-push.yml left CACHE_ONLY");
         for found in &release_builds {
             eprintln!("  {found}");
         }

@@ -4,7 +4,7 @@
 # WHY THIS FILE EXISTS. A `with:` key an action does not declare is not an error on the runner. It
 # is `##[warning]Unexpected input(s) '<key>', valid inputs are [...]` and then the action's own
 # DEFAULT for the input the author meant - so the step is green, the log carries the only witness,
-# and the entry looks configured. `.github/actions/causality-target-cache` passed `path:` to
+# and the entry looks configured. A local cache action, since deleted, passed `path:` to
 # `nix-community/cache-nix-action`, whose input is `paths:`, for 21 runs: the action took its
 # default path list and cached a second copy of the Nix store instead of the target directory the
 # key named. Nothing in this repository read that warning, and nothing could.
