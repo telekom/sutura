@@ -78,7 +78,7 @@ pub(crate) const TASKS: &[Task] = &[
     },
     Task {
         name: "check-docs",
-        description: "the nav in mkdocs.yml and the pages under docs/ agree",
+        description: "the nav in mkdocs.yml and the pages under docs/ agree, and site links name a version",
         kind: Kind::Hygiene(Reads::Prose),
         falsifier: Falsifier {
             // The site has a nav, a reachable link, and its required font setting. One page is
