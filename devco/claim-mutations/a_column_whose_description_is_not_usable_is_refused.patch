@@ -2,12 +2,12 @@ diff --git a/crates/sutura-catalog-openmetadata/src/lib.rs b/crates/sutura-catal
 index e9d606bc8..c8ccdf216 100644
 --- a/crates/sutura-catalog-openmetadata/src/lib.rs
 +++ b/crates/sutura-catalog-openmetadata/src/lib.rs
-@@ -226,7 +226,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
+@@ -227,7 +227,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
                  None,
              )
-             .map_err(|cause| OpenMetadataError::ColumnDescription {
+             .map_err(|(column, cause)| OpenMetadataError::ColumnDescription {
 -                on: table.name().to_owned(),
 +                on: String::from("notorders"),
-                 column: column_name,
+                 column,
                  cause,
              })?;

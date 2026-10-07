@@ -392,14 +392,14 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                 })?;
             let metadata = table.column_metadata(column);
             let column = Column::from_metadata(
-                column_name.clone(),
+                column_name,
                 metadata.and_then(ColumnMetadata::data_type),
                 metadata.and_then(ColumnMetadata::description),
                 None,
             )
-            .map_err(|cause| RdbmsError::ColumnDescription {
+            .map_err(|(column, cause)| RdbmsError::ColumnDescription {
                 table: physical_table.to_string(),
-                column: column_name,
+                column,
                 cause,
             })?;
             columns.push(column);

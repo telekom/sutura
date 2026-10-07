@@ -304,7 +304,7 @@ impl DataContractCatalog {
                 .map(str::trim)
                 .filter(|text| !text.is_empty());
             let column = Column::from_metadata(
-                column_name.clone(),
+                column_name,
                 data_type,
                 column_description,
                 // `required` (not-null) maps onto `Column.nullable`; an absent key stays "no claim"
@@ -312,15 +312,15 @@ impl DataContractCatalog {
                 // both state that an absent `required` is not a nullability decision.
                 property.required.map(|required| !required),
             )
-            .map_err(|cause| DataContractError::InvalidColumnDescription {
+            .map_err(|(column, cause)| DataContractError::InvalidColumnDescription {
                 path: path.to_path_buf(),
-                column: column_name.clone(),
+                column,
                 cause,
             })?;
             // Primary key evidence: a column with `primaryKey: true` is part of the key, ordered by
             // `primaryKeyPosition` (1-based). Evidence only, per `Model::with_primary_key`'s own doc.
             if property.primary_key == Some(true) {
-                primary_key.push((property.primary_key_position.unwrap_or(-1), column_name));
+                primary_key.push((property.primary_key_position.unwrap_or(-1), column.name().clone()));
             }
             columns.push(column);
         }
