@@ -124,6 +124,15 @@ mod tests {
             .unwrap_or_else(|e| panic!("the example catalog does not load: {e}"))
     }
 
+    /// The example catalog under the name `sutura catalog` and a served deployment give it, `model`.
+    /// `load` names it `local`, which no cell that reads the digest may use: the name is part of the digest.
+    fn load_as_deployed() -> PinnedDefinitions {
+        let name = sutura_domain::model::SourceName::parse("model").expect("a catalog name is a name");
+        LocalCatalog::new(name, catalog_root(), DefinitionVersion::parse(VERSION).expect("a version"))
+            .load()
+            .unwrap_or_else(|e| panic!("the example catalog does not load as deployed: {e}"))
+    }
+
     /// Settings every snapshot in this file uses.
     ///
     /// The path is set explicitly so the files land in `tests/snapshots/` rather than wherever the
@@ -187,7 +196,7 @@ mod tests {
         //
         // It is also the number the example's README prints on its first line, which is why a
         // reader can tell that the table they got came from the definitions they read.
-        let pinned = load();
+        let pinned = load_as_deployed();
         settings().bind(|| {
             insta::assert_snapshot!("example_digest", pinned.digest().as_str());
             insta::assert_yaml_snapshot!("example_definitions", pinned.definitions());
@@ -590,7 +599,7 @@ mod tests {
         // documented example, so a change to any part of it - a refusal remedy, a bound, a metric's
         // own prose - arrives as a reviewable diff. Both prose settings are pinned, because the
         // difference between them is a governance decision rather than a formatting one.
-        let pinned = load();
+        let pinned = load_as_deployed();
         settings().bind(|| {
             let quoted = prompt(&pinned, sutura_app::prompt::CatalogProse::Quoted);
             let (head, glossary) = quoted.split_at(

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/main.rs b/crates/sutura-cli/src/main.rs
+index f825be1d4..d79fd1f33 100644
+--- a/crates/sutura-cli/src/main.rs
++++ b/crates/sutura-cli/src/main.rs
+@@ -284,7 +284,7 @@ fn main() -> ExitCode {
+     // Every command but `serve` prints a result. `serve` keeps std's hook: with its standard output
+     // gone its banner panics, the deployment did not start, and a supervisor must see a failure
+     // rather than a clean stop.
+-    if args.first().is_none_or(|name| name != "serve") {
++    if true {
+         exit_quietly_on_broken_pipe();
+     }
+     dispatch(&args)

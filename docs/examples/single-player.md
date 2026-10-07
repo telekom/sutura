@@ -154,7 +154,7 @@ sutura query examples/single-player/catalog examples/single-player/questions/rec
 ```
 
 ```text
--- definitions local-working-tree c2f0cf7805dc01ffb6262d1835f4503fdff1512a10175f51d4e8c6491afd81bb
+-- definitions local-working-tree bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4
 period	recurring_revenue
 2026-01-01	237320
 2026-02-01	232822
@@ -178,7 +178,7 @@ sutura query examples/single-player/catalog examples/single-player/questions/rec
 ```
 
 ```text
--- definitions local-working-tree c2f0cf7805dc01ffb6262d1835f4503fdff1512a10175f51d4e8c6491afd81bb
+-- definitions local-working-tree bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4
 region	period	recurring_revenue
 central	2026-06-01	13246
 east	2026-06-01	9727
@@ -273,7 +273,7 @@ sutura query examples/single-player/catalog examples/single-player/questions/rec
 ```
 
 ```text
--- definitions local-working-tree c2f0cf7805dc01ffb6262d1835f4503fdff1512a10175f51d4e8c6491afd81bb
+-- definitions local-working-tree bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4
 sales_area	period	recurring_revenue
 central	2026-06-01	51739
 north_east	2026-06-01	74755
