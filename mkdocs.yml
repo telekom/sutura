@@ -299,7 +299,7 @@ extra:
   version:
     provider: mike
     # Which version the "you are reading an old version" banner points at. `latest` is the
-    # alias mike moves onto each release.
+    # alias mike moves onto each push to main.
     default: latest
   social:
     - icon: fontawesome/brands/github

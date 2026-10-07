@@ -1,0 +1,18 @@
+# A generic dbt project over the single-player CSV files. The seeds are those files; Pulumi loads
+# the same files into BigQuery (infra/Pulumi.yaml). manifest.json is what the loader reads.
+# Regenerate it from examples/ (the image is linux/amd64 only), then copy target/manifest.json here:
+#   docker run --rm --platform linux/amd64 -e DBT_SEND_ANONYMOUS_USAGE_STATS=false -v "$PWD:/examples" \
+#     -w /examples/multi-player/dbt ghcr.io/dbt-labs/dbt-bigquery:1.9.0 parse --profiles-dir .
+name: sutura_example
+version: "1.0.0"
+config-version: 2
+profile: sutura_example
+seed-paths: ["../../single-player/data"]
+model-paths: ["models"]
+seeds:
+  sutura_example:
+    +enabled: false
+    fct_subscription_monthly:
+      +enabled: true
+    dim_customer:
+      +enabled: true

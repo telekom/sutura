@@ -165,6 +165,10 @@ pub(crate) struct RawSource {
     /// `host:port/service_name` string. Not a SID, and not a `database`: the key names what it is.
     #[serde(default)]
     pub(crate) service_name: Option<String>,
+    /// The database file a `duckdb` source opens, read-only. A path, so not `database`, which names
+    /// a database on a server.
+    #[serde(default)]
+    pub(crate) database_file: Option<String>,
     /// The role a `postgres` source connects as.
     #[serde(default)]
     pub(crate) user: Option<String>,
@@ -312,6 +316,9 @@ pub(crate) struct RawServer {
     /// caller reachable there.
     #[serde(default)]
     pub(crate) agent_surface: RawAgentSurface,
+    /// External hosts this deployment answers, beyond the loopback names and its own resource host.
+    #[serde(default)]
+    pub(crate) allowed_hosts: Vec<String>,
 }
 
 /// Whether the agent surface is mounted, with the safe default being off.

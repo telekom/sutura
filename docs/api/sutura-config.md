@@ -883,6 +883,15 @@ The configured value did not name a deployment mode.
 
 The configured value did not name a place TLS is terminated.
 
+## `use AllowedHost`
+
+A `Host` this deployment answers: a name or an address, with no port.
+
+Stored lower case and with an IPv6 literal unbracketed, which is the form the request-side check
+compares in. A port is refused rather than dropped: the check ignores ports, so a declared
+`host:8080` would read as a narrower allowance than it is. No wildcards - a literal name is the
+only thing this admits.
+
 ## `use BindAddress`
 
 The socket the service listens on.
@@ -899,6 +908,10 @@ The largest request body the service will read.
 A modelled question is a metric name, a grain, two dates and at most four dimensions, which
 is a few hundred bytes. The bound exists because a body limit is the cheapest availability
 control there is, and because the default in most stacks is whatever arrives.
+
+## `use InvalidAllowedHost`
+
+Why a declared host is not a name or an address.
 
 ## `use InvalidBindAddress`
 
@@ -5085,6 +5098,54 @@ Why a pair of paths is not usable TLS material.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `struct AllowedHost`
+
+```rust
+pub struct AllowedHost
+```
+
+A `Host` this deployment answers: a name or an address, with no port.
+
+Stored lower case and with an IPv6 literal unbracketed, which is the form the request-side check
+compares in. A port is refused rather than dropped: the check ignores ports, so a declared
+`host:8080` would read as a narrower allowance than it is. No wildcards - a literal name is the
+only thing this admits.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The host, lower case, an IPv6 literal without brackets.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidAllowedHost>
+```
+
+Reads a declared host.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidAllowedHost`
+
+```rust
+pub enum InvalidAllowedHost
+```
+
+Why a declared host is not a name or an address.
+
+#### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `NotAHost` - Not a domain name or an IP address - a scheme, a port, a path and a wildcard all land here.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct ServerSettings`
 
 ```rust
@@ -5112,6 +5173,13 @@ reference `sutura_mcp` at all. This crate cannot see a link, so this is the flag
 refusal is the mechanism.
 
 ```rust
+pub fn allowed_hosts(&self) -> &[AllowedHost]
+```
+
+The external hosts this deployment declared it answers, beyond the loopback names and the
+host of its own resource identifier. Empty unless `server.allowed_hosts` is written.
+
+```rust
 pub const fn bind(&self) -> BindAddress
 ```
 
@@ -5120,7 +5188,7 @@ pub const fn max_body(&self) -> BodyLimit
 ```
 
 ```rust
-pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>, agent_surface_enabled: bool) -> Self
+pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>, agent_surface_enabled: bool, allowed_hosts: Vec<AllowedHost>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -5249,6 +5317,12 @@ legitimate one.
 
   Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
   included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
+- `Duckdb` - A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
+
+  Declarable and openable behind the `duckdb` feature, `Postgres`'s shape. One process holds the
+  file under its own operating-system identity, so `sutura_exec_duckdb`'s
+  `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
+  refused at the composition root's posture cross-check.
 
 #### Methods
 
@@ -5910,6 +5984,7 @@ be skipped" look like the same sentence and are not.
   caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
   widens, so no declared `transport_anchors` could be what the source verifies against. A field
   here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+- `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
 
 ##### Methods
 

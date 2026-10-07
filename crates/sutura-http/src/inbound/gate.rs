@@ -2,8 +2,8 @@
 //!
 //! # Where it sits, and why after the deployment token rather than before
 //!
-//! `crate::router` installs the layers so a request travels: limiter, then the deployment token gate,
-//! then this. Two reasons, and neither is style:
+//! `crate::router` installs the layers so a request travels: limiter, then the `Host` check, then the
+//! deployment token gate, then this. Two reasons, and neither is style:
 //!
 //! - **Cost.** The deployment token comparison is two hashes; this is a signature verification. Doing
 //!   the expensive one first would let an unauthenticated caller spend this deployment's CPU.

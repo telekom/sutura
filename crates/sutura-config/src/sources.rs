@@ -137,6 +137,13 @@ pub enum SourceKind {
     /// Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
     /// included. [`SourcePlacement::Oracle`] carries what the driver cannot be told about TLS.
     Oracle,
+    /// A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
+    ///
+    /// Declarable and openable behind the `duckdb` feature, `Postgres`'s shape. One process holds the
+    /// file under its own operating-system identity, so `sutura_exec_duckdb`'s
+    /// `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
+    /// refused at the composition root's posture cross-check.
+    Duckdb,
 }
 
 /// The configured word did not name a kind of data system.
@@ -148,7 +155,7 @@ pub struct UnknownSourceKind {
 
 impl SourceKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle"];
+    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle", "duckdb"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind> {
@@ -158,6 +165,7 @@ impl SourceKind {
             "postgres" => Ok(Self::Postgres),
             "clickhouse" => Ok(Self::ClickHouse),
             "oracle" => Ok(Self::Oracle),
+            "duckdb" => Ok(Self::Duckdb),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -174,6 +182,7 @@ impl SourceKind {
             Self::Postgres => "postgres",
             Self::ClickHouse => "clickhouse",
             Self::Oracle => "oracle",
+            Self::Duckdb => "duckdb",
         }
     }
 }
@@ -535,6 +544,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) port: Option<u16>,
     pub(crate) database: Option<&'raw str>,
     pub(crate) service_name: Option<&'raw str>,
+    pub(crate) database_file: Option<&'raw str>,
     pub(crate) user: Option<&'raw str>,
     pub(crate) password_file: Option<&'raw str>,
     pub(crate) transport_mode: Option<&'raw str>,

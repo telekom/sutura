@@ -17,7 +17,7 @@ use crate::proxy::{ClientAddressSource, TrustedProxies};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
 use crate::security::{AccessToken, DeploymentIdentity, SecuritySettings, TlsTermination};
-use crate::server::{BindAddress, BodyLimit, RequestTimeout, ServerSettings};
+use crate::server::{AllowedHost, BindAddress, BodyLimit, RequestTimeout, ServerSettings};
 use crate::sources::{RawSourceEntry, SourceRegistry};
 use crate::telemetry::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
 
@@ -27,12 +27,19 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
     let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
     let tls = crate::server::TlsMaterial::parse(raw.server.tls_certificate.as_deref(), raw.server.tls_key.as_deref())
         .map_err(|cause| SettingsError::TlsMaterial { cause })?;
+    let allowed_hosts = raw
+        .server
+        .allowed_hosts
+        .iter()
+        .map(|written| AllowedHost::parse(written).map_err(|cause| SettingsError::AllowedHost { cause }))
+        .collect::<Result<_, _>>()?;
     Ok(ServerSettings::new(
         bind,
         timeout,
         body,
         tls,
         raw.server.agent_surface.enabled,
+        allowed_hosts,
     ))
 }
 
@@ -111,6 +118,7 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             port: source.port,
             database: source.database.as_deref(),
             service_name: source.service_name.as_deref(),
+            database_file: source.database_file.as_deref(),
             user: source.user.as_deref(),
             password_file: source.password_file.as_deref(),
             transport_mode: source.transport_mode.as_deref(),

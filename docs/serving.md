@@ -443,6 +443,12 @@ gates, and every published binary has already cleared the first one:
   `security.inbound` is a startup refusal (`AgentSurfaceWithoutInboundIdentity`) - `/mcp` is never
   served to "everyone".
 
+`/mcp` gets the same rate limit, body cap, deployment token gate and `Host` list as `/v1`: the
+general-tier limiter (its own store, keyed and swept like `/v1`'s), `server.max_body_bytes`,
+`security.access_token` where one is configured, in `/v1`'s order around leg 1, and the one `Host`
+list `server.allowed_hosts` extends, which replaces the transport's own loopback-only list. The
+layers run in the same order on both: the limiter, the `Host` check, the token gate, leg 1.
+
 Its one fixed decision, carried here so it does not arrive as an unstated default:
 `legacy_session_mode: false`, which makes every request self-contained - a `Mcp-Session-Id` header
 is never looked up, by any message type - so a caller can never be answered under an earlier
@@ -469,16 +475,16 @@ would even once one had.
 
 ## The endpoints
 
-| Method and path                                               | Token                                                                                                               | What it is                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`                                                 | no                                                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                                                                                                                       |
-| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                                                              | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                                                                                                                     |
-| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is                                 | The metrics this catalog defines, with grains, dimensions and the values a filter may use, and the catalog's knowledge (glossary, caveats, worked examples) as the caller may see it - the same text `describe_catalog` returns                                                                                                       |
-| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is                                  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity)                                                                                               |
-| `POST /mcp`                                                   | the caller's own bearer, leg 1 (`security.inbound`, `direct`) - **only when `server.agent_surface.enabled` is set** | The agent surface: MCP JSON-RPC over the streamable-HTTP transport (`docs/adr/0023`). `tools/list` answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 `401` every forgery does, before the transport. See [the agent surface over HTTP](#the-agent-surface-over-http) |
-| `GET /metrics`                                                | its own token, never `security.access_token`                                                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                                                                                                                |
-| `GET /openapi.json`                                           | yes, when one is configured                                                                                         | The generated interface description                                                                                                                                                                                                                                                                                                   |
-| `GET /docs`                                                   | yes, when one is configured                                                                                         | A browser interface over that description                                                                                                                                                                                                                                                                                             |
+| Method and path                                               | Token                                                                                         | What it is                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                                 | no                                                                                            | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                                                                                                                       |
+| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                                        | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                                                                                                                     |
+| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is           | The metrics this catalog defines, with grains, dimensions and the values a filter may use, and the catalog's knowledge (glossary, caveats, worked examples) as the caller may see it - the same text `describe_catalog` returns                                                                                                       |
+| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is            | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity)                                                                                               |
+| `POST /mcp`                                                   | yes, when one is configured; plus leg 1 - **only when `server.agent_surface.enabled` is set** | The agent surface: MCP JSON-RPC over the streamable-HTTP transport (`docs/adr/0023`). `tools/list` answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 `401` every forgery does, before the transport. See [the agent surface over HTTP](#the-agent-surface-over-http) |
+| `GET /metrics`                                                | its own token, never `security.access_token`                                                  | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                                                                                                                |
+| `GET /openapi.json`                                           | yes, when one is configured                                                                   | The generated interface description                                                                                                                                                                                                                                                                                                   |
+| `GET /docs`                                                   | yes, when one is configured                                                                   | A browser interface over that description                                                                                                                                                                                                                                                                                             |
 
 `/health` is outside the version prefix on purpose: a probe must keep working across a version bump
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
@@ -825,6 +831,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres once its connection is open. **BigQuery is the exception, and it is one an operator has to know:** what is left is sent as the job's `jobTimeoutMs`, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the `408` a caller sees does not by itself stop the work behind it                                                                                                       |
 | `server.max_body_bytes`                         | `65536`                              | At most one mebibyte. A question is a few hundred bytes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `server.agent_surface.enabled`                  | `false`                              | Mounts the agent surface at `/mcp`. Off by default even in a build with the `agent` feature linked. `true` with no `security.inbound` block refuses to start (the agent surface is only served where a caller can be verified), and `true` on a build without the `agent` feature refuses naming the feature. See [the agent surface over HTTP](#the-agent-surface-over-http)                                                                                                                                                                                                                                                                                                                                                          |
+| `server.allowed_hosts`                          | absent                               | External hosts, as bare names with no port, that `/v1/*`, `/docs`, `/openapi.json` and `/mcp` answer beyond `localhost`, `127.0.0.1`, `::1` and the host of `security.inbound`'s resource identifier. Matched on the `Host` header, case-insensitively, port ignored; any other name is a `403 host_not_allowed`. Checked on a loopback bind, and on any bind that lists a host here. **An off-host bind that lists none answers every `Host`** (startup warns, naming this key): it already needs a credential. A request with no `Host` is answered on `/v1/*`, `/docs` and `/openapi.json`, and refused `400` on `/mcp` by the transport. Not checked: `/health`, `/metrics` and the protected-resource metadata route              |
 | `security.access_token`                         | absent                               | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `security.metrics_token`                        | absent                               | An RFC 6750 `b64token`, at least 32 characters, gating `GET /metrics` and nothing else. Required in production and on a non-loopback bind, like the access token; equal to `security.access_token` is a refusal. See [the metrics endpoint](#the-metrics-endpoint)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `security.tls_termination`                      | `none`                               | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -1139,6 +1146,92 @@ directly:**
   are for the certified path's own source credential.
 - **Which of several open sources a statement runs against.** This build targets the sole registered
   data system and refuses rather than guesses where more than one is open; naming one is future work.
+
+### The raw SQL tool over a duckdb source
+
+A local `DuckDB` database file is the zero-infrastructure source for `run_sql`: no server, no role,
+no password. It needs a build carrying the `duckdb` feature, which every published binary has. A
+musl release links the DuckDB driver; any other build mounts the `libduckdb` that
+`SUTURA_DUCKDB_ADBC_DRIVER` names, and a Nix build on Apple silicon presets it (a value you set
+wins):
+
+```yaml
+sources:
+  local:
+    kind: duckdb
+    database_file: /srv/sutura/warehouse.duckdb
+    posture: shared-service-user
+tools:
+  run_sql:
+    enabled: true
+```
+
+Everything the postgres section above says this service enforces holds here too: the switch and the
+scope, the wire shape with no provenance, the row cap, the multi-user boot refusal and the audit
+record. **What differs is what bounds the statement.** There is no role to grant. A text is screened
+before any of it runs, and the file is opened with two options and two settings made on it before
+anything else runs. Each is measured against the pinned driver by a cell in
+`crates/sutura-exec-duckdb/tests/raw.rs` that is red without it:
+
+- **The screen**: `DuckDB`'s own parser reads the text first (`json_serialize_sql`, the text bound
+  as a value, never spliced in). Every statement must be a `SELECT` - `DESCRIBE`, `SHOW`,
+  `SUMMARIZE`, `FROM t`, `TABLE t` and `VALUES` parse as one - and every table function it calls,
+  at any depth, one of the generators and catalog reads `sutura_exec_duckdb::RAW_TABLE_FUNCTIONS`
+  lists, unqualified. `CALL`, `PRAGMA`, `SET`, `EXPLAIN`, `CREATE`, a `PIVOT` statement, a table function not
+  listed and a tree nested too deep to read are refused before any statement in the text runs.
+- **The nesting bound**: the text's queries may nest at most `sutura_exec_duckdb::MAX_NESTING` deep
+  and number at most `sutura_exec_duckdb::MAX_QUERIES`, across its statements, a reference to a CTE
+  counted as the query it names. A text past either is refused before any of it runs.
+
+- `access_mode = READ_ONLY`: no write and no DDL takes effect, and a file that is not there is
+  refused at boot rather than created.
+- `enable_external_access = false`: nothing outside the database is read or written - `ATTACH`,
+  `COPY ... TO`, `EXPORT DATABASE`, `read_csv`, `read_parquet`, `read_text`, `glob`, `INSTALL` and
+  `LOAD` are refused. **On the pinned driver the disabled local file system below refuses each of
+  these too**: it refuses every file read and `INSTALL` itself, and `LOAD` and `ATTACH 'md:'` once
+  this option is dropped. So no refusal is this option's alone and its cell asserts the setting; it
+  is the barrier for a network file system, which the pinned driver does not link.
+- `SET disabled_filesystems = 'LocalFileSystem'`: no local file is opened once the database is, so
+  the declared file's own bytes - pages a `SELECT` no longer shows included - are not readable
+  either, which external access alone leaves open. A setting rather than an option because the
+  pinned driver (`nix/duckdb.nix`) refuses it at open: DuckDB sets it only on a running database.
+  Both settings are the database's, so each cell asserts its refusal on a connection opened after
+  the open returned, the kind a question runs on.
+- `SET lock_configuration = true`, last: no `SET` or `RESET` of an instance-wide setting (the three
+  above, threads, memory, the spill directory), which would otherwise outlive the statement for
+  every later call.
+
+**The settings do not rely on the screen.** The driver runs every statement of a string but the last
+while preparing it, so `select 1; select 2` is two statements and both run, under the settings; each
+setting's cell runs with the screen left out, so it is red without that setting even where the
+screen would refuse first. Unlike the postgres source, one call is not one statement.
+
+The byte cap is `runtime.working_set_max_bytes`, spent while the result is read: a result over it is
+refused as `result_too_large`.
+
+**What this does not reach:**
+
+- **The deadline stops a statement at the engine's next interrupt check, not at the instant**
+  (`docs/adr/0029`, sixth amendment). A budget spent before the call is refused. Otherwise a
+  watchdog cancels the call's connection when the budget runs out, and the call answers
+  `deadline_exceeded`. It is armed before the driver prepares, so a string's statements before its
+  last are under it too. A cancel that fails leaves the statement to finish, holding its admission
+  slot. Binding a statement is not interrupted, and the optimizer checks for an interrupt only at
+  the start of each of its passes (read in the pinned DuckDB source, not measured); the screen's
+  nesting bound is what keeps their cost small on the shapes measured.
+- **Spilling to disk is not measured.** The spill directory is a local file system, which this open
+  disables, so a statement too large for memory is expected to fail rather than spill.
+- **The screen walks the text, not what the database file declares.** A macro or a view the file
+  holds is expanded after the screen, so what it calls is not walked or counted; the file is the operator's,
+  and the settings still hold under it. Scalar functions are not screened: a pass over the pinned
+  driver's function names found none that acts beyond its call, and that pass is not exhaustive.
+- **A refused statement answers `statement_failed`, never `source_refused`**: the driver's error
+  carries nothing this adapter classifies, so a write refused by the read-only open reads the same as
+  a syntax error.
+- **`DuckDB`'s own memory is bounded by its default `memory_limit`**, not by
+  `runtime.working_set_max_bytes`.
+- **One source.** `run_sql` answers only where this is the deployment's sole source; a deployment with
+  a second source, of any kind, has no raw tool to run, as above.
 
 ### Address families
 

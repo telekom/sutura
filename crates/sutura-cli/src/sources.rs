@@ -89,6 +89,8 @@ mod bigquery;
 /// `crate::clickhouse`, shared with `crate::serve`'s own root, so what is here is the dispatch
 /// wrapper and the refusal for a build that linked no adapter.
 mod clickhouse;
+/// The DUCKDB half of this module: `clickhouse`'s shape, the BUILD shared through `crate::duckdb`.
+mod duckdb;
 /// The ORACLE half of this module: `clickhouse`'s shape - the dispatch wrapper and the feature-off
 /// refusal, with the BUILD shared through `crate::oracle`.
 mod oracle;
@@ -146,6 +148,9 @@ pub(crate) enum Opened {
     /// An Oracle database, reached over its listener.
     #[cfg(feature = "oracle")]
     Oracle(OpenedWith<sutura_exec_oracle::OracleWarehouse>),
+    /// A local `DuckDB` database file, opened read-only.
+    #[cfg(feature = "duckdb")]
+    Duckdb(OpenedWith<sutura_exec_duckdb::DuckDbWarehouse>),
 }
 
 /// What a command opened over one adapter: the registry a plan is looked up in, what was attached,
@@ -454,6 +459,17 @@ fn from_the_registry(
                 ));
             }
             oracle::open(source, configured, registry, working_set(runtime))
+        }
+        sutura_config::SourceKind::Duckdb => {
+            if let Some(given) = data {
+                return Err(format!(
+                    "`sources.{source}` is a DuckDB database file, and {} was given on the command line \
+                     as a data directory - a database file has none, so the argument selects nothing. \
+                     Drop it; the file that entry declares is what will be read",
+                    given.display()
+                ));
+            }
+            duckdb::open(source, configured, registry, working_set(runtime))
         }
     }
 }

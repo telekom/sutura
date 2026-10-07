@@ -236,6 +236,11 @@ pub enum SettingsError {
         #[source]
         cause: crate::audience::InvalidAudienceMapping,
     },
+    #[error("`server.allowed_hosts` holds an entry that is not a host name or an IP address")]
+    AllowedHost {
+        #[source]
+        cause: crate::server::InvalidAllowedHost,
+    },
     #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
     TlsMaterial {
         #[source]

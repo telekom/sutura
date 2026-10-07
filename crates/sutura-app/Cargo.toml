@@ -60,8 +60,9 @@ sutura-catalog-openmetadata = { workspace = true }
 sutura-catalog-wren = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
-# adapter today. The binary links the engine and nothing else.
-sutura-exec-duckdb = { workspace = true }
+# adapter today. The binary links the engine and nothing else. `fixtures` for `write_database`,
+# which the golden row writes the corpus into a file with before opening it read-only.
+sutura-exec-duckdb = { workspace = true, features = ["fixtures"] }
 # A second DATA SOURCE, over the wire, and a development dependency for the same reason: it proves
 # the Postgres statement we render is accepted by a real Postgres. Its corpus cells run against this
 # worktree's provisioned tier and skip where none is up.

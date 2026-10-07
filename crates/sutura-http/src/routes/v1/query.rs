@@ -114,9 +114,9 @@ const TAG: &str = "query";
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
-            description = "THREE THINGS, and the body shape tells the first from the others - \
+            description = "FOUR THINGS, and the body shape tells the first two from the others - \
                            `outcome: refusal` for the first two, `code` with no `outcome` for the \
-                           third.\n\n\
+                           other two.\n\n\
                            REFUSED ABOUT THE METRIC (`outcome: refusal`): the catalog does not \
                            permit this of this metric. `code` says which: \
                            `dimension_not_permitted` (the metric declares no such dimension), \
@@ -133,7 +133,11 @@ const TAG: &str = "query";
                            FAILED (`code: insufficient_scope`): your credential IS valid and does \
                            not carry the scope this operation requires; the detail names it. It \
                            says nothing about any metric - a caller who is granted the scope gets \
-                           exactly the same rows anybody else would.",
+                           exactly the same rows anybody else would.\n\n\
+                           REFUSED BEFORE ANY CREDENTIAL IS READ (`code: host_not_allowed`, no \
+                           `outcome`): this deployment does not answer the `Host` the request names. \
+                           Nothing in your credential or your question changes it; the operator \
+                           lists the name in `server.allowed_hosts`.",
             body = OutcomeBody
         ),
         (

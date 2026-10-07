@@ -415,13 +415,19 @@ impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
 impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
     const NAME: &'static str = "duckdb";
 
+    /// **The open `kind: duckdb` serves**: the CSVs written into a database file, then that file
+    /// opened through `DuckDbWarehouse::open` and its read-only options - so every cell on this row
+    /// runs against the shape a deployment gets, not the writable in-memory one fixtures use.
     fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
-        let warehouse = Self::in_memory(name, posture(), result_budget()).expect("an in-memory database opens");
-        for (table, csv) in tables {
-            warehouse
-                .attach_csv(&table, &csv)
-                .unwrap_or_else(|e| panic!("duckdb could not attach {}: {e}", csv.display()));
-        }
+        static OPENED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+        let at = OPENED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let file = std::env::temp_dir().join(format!("sutura-golden-duckdb-{}-{at}.duckdb", std::process::id()));
+        drop(std::fs::remove_file(&file));
+        sutura_exec_duckdb::write_database(&file, &tables)
+            .unwrap_or_else(|e| panic!("duckdb could not write {}: {e}", file.display()));
+        let warehouse = Self::open(name, posture(), &file, result_budget()).expect("the written database opens read-only");
+        // Unlinked once open: the driver's handle keeps the file readable, and no run leaves one behind.
+        drop(std::fs::remove_file(&file));
         warehouse
     }
 }

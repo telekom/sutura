@@ -139,6 +139,7 @@ mod tests {
             port: Some(8123),
             database: None,
             service_name: None,
+            database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/ch-password"),
             transport_mode: Some("plaintext"),

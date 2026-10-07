@@ -1,6 +1,6 @@
 # Examples
 
-The walkthroughs are on the [documentation site](https://telekom.github.io/sutura/examples/), and
+The walkthroughs are on the [documentation site](https://telekom.github.io/sutura/latest/examples/), and
 in [`docs/examples/`](../docs/examples/index.md). A test runs every directory here.
 
 | Directory             | What it is                                                                                              |

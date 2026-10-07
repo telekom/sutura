@@ -140,6 +140,11 @@ pub(crate) fn mcp() -> ExitCode {
                 // The `clickhouse` arm's reason: `OracleWarehouse` takes the port's default `preflight`.
                 serve(&catalogs, opened, &settings)
             }
+            #[cfg(feature = "duckdb")]
+            Opened::Duckdb(opened) => {
+                // The `clickhouse` arm's reason: `DuckDbWarehouse` takes the port's default `preflight`.
+                serve(&catalogs, opened, &settings)
+            }
         }
     })())
 }
@@ -428,6 +433,8 @@ mod tests {
             crate::sources::Opened::ClickHouse(_) => None,
             #[cfg(feature = "oracle")]
             crate::sources::Opened::Oracle(_) => None,
+            #[cfg(feature = "duckdb")]
+            crate::sources::Opened::Duckdb(_) => None,
         }
         .expect("the example declares a files source");
         (catalogs, opened, settings)
@@ -735,6 +742,8 @@ mod tests {
             crate::sources::Opened::ClickHouse(_) => None,
             #[cfg(feature = "oracle")]
             crate::sources::Opened::Oracle(_) => None,
+            #[cfg(feature = "duckdb")]
+            crate::sources::Opened::Duckdb(_) => None,
         }
         .expect("the okf deployment declares a files source");
         (catalogs, opened, settings)
