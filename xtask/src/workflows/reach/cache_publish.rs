@@ -31,6 +31,10 @@ const CACHE_ONLY: &[(&str, &str)] = &[
     ("downstream-deps", "deps-native-ci"),
     ("downstream-deps", "deps-native-release"),
     ("downstream-deps", "deps-musl-release"),
+    ("downstream-deps", "adbc-driver-bigquery-x86_64-unknown-linux-gnu"),
+    ("downstream-deps", "adbc-driver-bigquery-x86_64-unknown-linux-musl"),
+    ("downstream-deps", "adbc-driver-postgresql-x86_64-unknown-linux-musl"),
+    ("downstream-deps", "adbc-driver-duckdb-x86_64-unknown-linux-musl"),
 ];
 
 /// Every literal release output `cachix-push.yml` builds outside [`CACHE_ONLY`], labelled the way
