@@ -1089,8 +1089,9 @@ were merged into one function and a name nobody can grep for is not a test list.
   distinction, which is the whole reason the declaration exists. **Landed twice**, and no longer
   under the identical name: `sutura_domain::capabilities`'s own tests carry
   `..._over_a_built_bundle`, `tests/golden/catalogs.rs` keeps the bare name over the oracle's real
-  bundle. Split because `check-claim-mutations` refuses a cell name two files declare - the
-  `Claim-Cell:` on `c4a52125d` names the bare one, still resolvable now that only one file carries it.
+  bundle. Split because `check-claim-mutations` then refused a cell name two files declare (a patch
+  now names its file with a `Claim-Cell-File:` line) - the `Claim-Cell:` on `c4a52125d` names the
+  bare one, still resolvable now that only one file carries it.
 - **Declaration fidelity, which is the assertion a declaring adapter gets instead of the oracle:**
   `everything_it_declared_it_produced` and `nothing_of_an_undeclared_kind_appears_in_the_bundle`.
   The second direction already exists for knowledge as `Knowledge::assemble`'s `UndeclaredContent`
