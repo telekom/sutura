@@ -1,22 +1,16 @@
-diff --git a/crates/sutura-domain/src/knowledge/bundle.rs b/crates/sutura-domain/src/knowledge/bundle.rs
-index 928b67b25..da3d8e70a 100644
---- a/crates/sutura-domain/src/knowledge/bundle.rs
-+++ b/crates/sutura-domain/src/knowledge/bundle.rs
-@@ -895,16 +895,10 @@ fn absence_fault(phrase: &Phrase, declared: &Referent) -> InconsistentKnowledge
-     let metric = declared.metric().clone();
-     match (declared.dimension(), declared.value()) {
-         (None, _) => InconsistentKnowledge::AbsenceNamesADefinedMetric { phrase, metric },
--        (Some(dimension), None) => InconsistentKnowledge::AbsenceNamesADeclaredDimension {
-+        (Some(dimension), _) => InconsistentKnowledge::AbsenceNamesADeclaredDimension {
-             phrase,
-             metric,
-             dimension: dimension.clone(),
-         },
--        (Some(dimension), Some(value)) => InconsistentKnowledge::AbsenceNamesADeclaredValue {
--            phrase,
--            metric,
--            dimension: dimension.clone(),
--            value: value.clone(),
--        },
-     }
- }
+diff --git a/crates/sutura-domain/src/knowledge/referent.rs b/crates/sutura-domain/src/knowledge/referent.rs
+--- a/crates/sutura-domain/src/knowledge/referent.rs
++++ b/crates/sutura-domain/src/knowledge/referent.rs
+@@ -143,11 +143,10 @@
+         for (dimension, declared) in metric.dimensions() {
+             for value in declared.allowed_values().into_iter().flatten() {
+                 if identifier_shape(value.as_str()) == shape {
+-                    return Some(InconsistentKnowledge::AbsenceNamesADeclaredValue {
++                    return Some(InconsistentKnowledge::AbsenceNamesADeclaredDimension {
+                         phrase: phrase.clone(),
+                         metric: name.clone(),
+                         dimension: dimension.clone(),
+-                        value: value.clone(),
+                     });
+                 }
+             }

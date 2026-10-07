@@ -317,7 +317,7 @@ fn jobs_in(file: &str, text: &str, in_a_root: bool) -> Vec<Job> {
             let expanded = name.as_ref().is_some_and(|n| n.contains("${{"));
             Job {
                 declared_as: format!("{file}:{id}"),
-                context: name.unwrap_or_else(|| id.clone()),
+                context: name.unwrap_or(id),
                 reports_its_context: in_a_root && !matrix && !expanded,
             }
         })

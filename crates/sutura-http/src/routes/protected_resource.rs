@@ -5,6 +5,7 @@
 //! section 3.3 requires.
 
 use axum::Router;
+use axum::body::Bytes;
 use axum::http::{HeaderMap, Uri};
 use axum::routing::get;
 use serde::Serialize;
@@ -26,7 +27,7 @@ pub(crate) struct ProtectedResource {
     // Serialized once, at startup, and served from a clone - the same choice `openapi::document_json`
     // makes, and for the same reason: this route is unauthenticated, so serializing per request would
     // put allocation and JSON encoding behind a path anyone can poll for free.
-    body: String,
+    body: Bytes,
     path: String,
     resource_path: Option<String>,
     url: String,
@@ -64,7 +65,7 @@ impl ProtectedResource {
             resource: String::from(resource),
             authorization_servers: [String::from(requirement.issuer().as_str())],
         };
-        let body = serde_json::to_string(&document).expect("a two-string struct always serializes");
+        let body = Bytes::from(serde_json::to_string(&document).expect("a two-string struct always serializes"));
 
         Some(Self {
             authority: String::from(authority),

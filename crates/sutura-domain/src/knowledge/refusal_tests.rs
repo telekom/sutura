@@ -12,7 +12,7 @@
 //! and that a well-formed example survives - because a check that refuses everything is as useless as
 //! one that refuses nothing.
 
-use super::bundle::identifier_shape;
+use super::referent::identifier_shape;
 use super::tests::{
     absence, accepts, caveat, declared_value, dimension_name, example, glossary_entry, june, metric_name, note_name,
     only_absences, only_caveats, only_examples, only_glossary, phrase, question, refuses, revenue,
@@ -21,7 +21,7 @@ use super::{
     Capability, Caveat, InconsistentKnowledge, InvalidNoteBody, KnowledgeCapabilities, KnowledgeInput, MAX_KNOWLEDGE_BYTES,
     MAX_NOTE_BODY_BYTES, NoteBody, Referent,
 };
-use crate::model::Grain;
+use crate::model::{ColumnName, Grain, ModelName};
 use crate::query::{Filter, Query};
 
 #[test]
@@ -212,6 +212,87 @@ fn a_caveat_about_nothing_does_not_load() {
             name: note_name("read_this_first"),
         }
     );
+}
+
+#[test]
+fn a_glossary_entry_naming_an_undeclared_model_or_column_does_not_load() {
+    let means = |model: &str, column: Option<&str>| {
+        let model = ModelName::parse(model).expect("a test model is a model");
+        match column {
+            None => Referent::Model { model },
+            Some(column) => Referent::Column {
+                model,
+                column: ColumnName::parse(column).expect("a test column is a column"),
+            },
+        }
+    };
+    let model = |raw: &str| ModelName::parse(raw).expect("a test model is a model");
+    assert_eq!(
+        refuses(only_glossary(vec![glossary_entry("order table", &[], means("orders", None))])),
+        InconsistentKnowledge::GlossaryUnknownModel {
+            term: phrase("order table"),
+            model: model("orders"),
+        }
+    );
+    // A column of an undeclared model is the model's fault, named as the model's.
+    assert_eq!(
+        refuses(only_glossary(vec![glossary_entry(
+            "order amount",
+            &[],
+            means("orders", Some("amount"))
+        )])),
+        InconsistentKnowledge::GlossaryUnknownModel {
+            term: phrase("order amount"),
+            model: model("orders"),
+        }
+    );
+    assert_eq!(
+        refuses(only_glossary(vec![glossary_entry(
+            "area",
+            &[],
+            means("subscriptions", Some("region"))
+        )])),
+        InconsistentKnowledge::GlossaryUnknownColumn {
+            term: phrase("area"),
+            model: model("subscriptions"),
+            column: ColumnName::parse("region").expect("a test column is a column"),
+        }
+    );
+    drop(accepts(only_glossary(vec![
+        glossary_entry("billing table", &[], means("subscriptions", None)),
+        glossary_entry("billed amount", &[], means("subscriptions", Some("mrr_cents"))),
+    ])));
+}
+
+#[test]
+fn a_caveat_about_a_model_or_a_column_does_not_load_declared_or_not() {
+    // A caveat is printed under a metric, and a model has no block to print one in.
+    let model = |raw: &str| ModelName::parse(raw).expect("a test model is a model");
+    let column = ColumnName::parse("mrr_cents").expect("a test column is a column");
+    for (about, named) in [
+        (
+            Referent::Model {
+                model: model("subscriptions"),
+            },
+            "subscriptions",
+        ),
+        (
+            Referent::Column {
+                model: model("subscriptions"),
+                column,
+            },
+            "subscriptions",
+        ),
+        (Referent::Model { model: model("orders") }, "orders"),
+    ] {
+        assert_eq!(
+            refuses(only_caveats(vec![caveat("billing", vec![revenue(), about])])),
+            InconsistentKnowledge::CaveatAboutAModel {
+                name: note_name("billing"),
+                model: model(named),
+            }
+        );
+    }
 }
 
 #[test]

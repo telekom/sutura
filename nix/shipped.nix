@@ -263,6 +263,7 @@ let
       cargoExtraArgs = "--package ${binary.package}${featureArg features}";
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
+      meta.mainProgram = binary.bin;
     } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget)
       // presetMountedDrivers binary (auditable.toolFor args) // {
       cargoBuildCommand = auditable.buildCommand profile;
@@ -297,6 +298,7 @@ let
       pname = binary.bin;
       # One package, and the target. Same reasoning as `nativeFor`.
       cargoExtraArgs = "--package ${binary.package} --target ${target}${featureArg features}";
+      meta.mainProgram = binary.bin;
       # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
       # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
       # that RUNS during the build - `strictDeps = true` above makes that distinction
@@ -506,6 +508,11 @@ let
       {
         name = "${b.bin}-performance";
         value = nativeFor { binary = b; profile = "release-performance"; features = b.features; };
+      }
+      # The local fast build (`just build-dev`): the same features and linked drivers, no optimisation.
+      {
+        name = "${b.bin}-dev";
+        value = nativeFor { binary = b; profile = "fast-install"; features = b.features; };
       }
     ])
     binaries);

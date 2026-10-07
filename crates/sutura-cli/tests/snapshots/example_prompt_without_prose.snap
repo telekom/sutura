@@ -261,15 +261,19 @@ which phrase you resolved and what you resolved it to, so the person can correct
   `data_per_subscription`
 - "monthly recurring revenue", "MRR", "monatlicher Umsatz", "recurring revenue", "wiederkehrender
   Umsatz" -> metric `recurring_revenue`
+- "revenue in cents", "MRR in cents" -> column `mrr_cents` of model `subscriptions` (descriptive
+  only: a request names a metric, never a model or a column)
 - "subscriber count", "Anschluss", "Vertrag", "active lines", "subscribers" -> metric
   `active_subscriptions`
+- "subscription snapshot", "monthly snapshot" -> model `subscriptions` (descriptive only: a request
+  names a metric, never a model or a column)
 - "tariff", "Tarif", "plan", "product name" -> dimension `product_name` of metric
   `recurring_revenue`
 
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19`
+- Definitions digest: `bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -326,6 +330,8 @@ not infer a meaning from the name alone and present it as the definition.
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
 **Caveat `revenue_is_in_minor_units`** - about this metric as a whole.
+
+**Caveat `sales_area_as_of_today__recurring_revenue`** - about its `sales_area`.
 
 ### revenue_per_churned_subscription
 

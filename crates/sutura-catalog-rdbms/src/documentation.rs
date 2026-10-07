@@ -242,13 +242,13 @@ impl TableAccumulator {
     }
 
     fn add(&mut self, column: String, metadata: ColumnMetadata, is_primary_key: bool) {
-        self.columns.push(column.clone());
         if metadata.data_type().is_some() || metadata.description().is_some() {
             self.column_metadata.insert(column.clone(), metadata);
         }
         if is_primary_key && !self.primary_key.contains(&column) {
-            self.primary_key.push(column);
+            self.primary_key.push(column.clone());
         }
+        self.columns.push(column);
     }
 
     fn into_table(self) -> Table {

@@ -165,6 +165,13 @@ mod e2e_adbc;
 #[path = "served/refused.rs"]
 mod refused;
 
+// One digest per catalog across a served answer, `sutura catalog` and `sutura prompt`, for a catalog
+// the configuration names - split out of `mod tests` below for the 1000-line cap.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/one_digest.rs"]
+mod one_digest;
+
 // The golden corpus, over HTTP - `github.com/telekom/sutura#124`. `cfg(feature = "postgres")`
 // because the one cell here needs the provisioned tier, the same reason `harness/postgres.rs` is
 // gated; `cfg(unix)` for the same reason every case spawning `Served` carries it.
@@ -368,6 +375,55 @@ mod tests {
             body["executed_as"],
             serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])
         );
+    }
+
+    #[test]
+    fn the_cli_and_the_served_deployment_report_one_digest_for_one_catalog() {
+        // The digest covers the contribution manifest, whose key is the catalog's name. The CLI
+        // reads a bare directory and the server a declared catalog; both are `model` by default,
+        // so the two surfaces must print the same digest for the same directory.
+        let served = start("one-digest");
+        let reply = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            &recurring_revenue_june(),
+        );
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        let served_digest = body["provenance"]["definition_digest"]
+            .as_str()
+            .expect("an answer carries a digest");
+
+        let listing = std::process::Command::new(env!("CARGO_BIN_EXE_sutura"))
+            .arg("catalog")
+            .arg(example_root().join("catalog"))
+            .env_remove(sutura_config::CONFIG_DIR_VARIABLE)
+            .output()
+            .expect("the catalog command runs");
+        assert!(listing.status.success(), "{}", String::from_utf8_lossy(&listing.stderr));
+        let listing = String::from_utf8_lossy(&listing.stdout);
+        let cli_digest = listing
+            .lines()
+            .find_map(|line| line.strip_prefix("digest  "))
+            .expect("the listing stamps a digest");
+        assert_eq!(cli_digest, served_digest);
+
+        // The page that shows a served response states the digest the served deployment reports.
+        let page = std::fs::read_to_string(example_root().join("../../docs/serving.md")).expect("the serving page reads");
+        let stated: Vec<&str> = page
+            .split(|c: char| !c.is_ascii_hexdigit())
+            .filter(|word| word.len() == 64)
+            .collect();
+        assert!(
+            !stated.is_empty(),
+            "no digest read out of docs/serving.md - the scan is broken"
+        );
+        for word in stated {
+            assert_eq!(
+                word, served_digest,
+                "docs/serving.md states a digest the served deployment does not report"
+            );
+        }
     }
 
     #[test]

@@ -879,7 +879,7 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
         .target_columns()
         .map(|column| qualified(key.table().name(), column))
         .collect();
-    let first = over.first().ok_or(GenerateError::NoPredicate)?.clone();
+    let first = over.first().ok_or(GenerateError::NoPredicate)?;
     // A row's key is non-null only when every column of the whole set is non-null - the same
     // "excluded from both counts" decision the module header states, extended to a compound key:
     // a row where one column of the pair is null cannot match on either side of any join, so it
@@ -899,7 +899,7 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
         builder::count(marker)
     };
     let distinct = if over.len() == 1 {
-        builder::count_distinct(first)
+        builder::count_distinct(first.clone())
     } else {
         // An allowlist, not a denylist: DuckDB and Postgres get polyglot's null-safe
         // `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` rewrite (`multi_arg_distinct: false`
