@@ -3079,9 +3079,10 @@ claims. mimalloc-secure still lands ahead of glibc and well ahead of mallocng, a
 budget here is a warehouse round trip.</p>
 <h2 id="what-exists-today">What exists today<a class="headerlink" href="#what-exists-today" title="Permanent link">&para;</a></h2>
 <p>The shipped binary serves HTTP and MCP, compiles governed questions, executes local files through
-DataFusion, and links the BigQuery and Postgres data-source adapters. It can load local and DataHub
-metadata. <code>nix/shipped.nix</code> holds the exact release feature set; <a href="../integrations/">Integrations</a>
-records what each adapter executes and what identity posture it declares.</p>
+DataFusion, and links the BigQuery, Postgres, DuckDB and ClickHouse data-source adapters. It can
+load local, DataHub and OpenMetadata metadata. <code>nix/shipped.nix</code> holds the exact release feature
+set; <a href="../integrations/">Integrations</a> records what each adapter executes and what identity posture it
+declares.</p>
 <p><code>security.inbound</code> can verify a caller, and every executed question obtains a source credential. The
 BigQuery path can use that verified caller's assertion through a declared per-subject account map.
 Its real served identity venue has no observed run, so the source's acceptance of that identity is

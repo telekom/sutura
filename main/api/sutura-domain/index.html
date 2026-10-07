@@ -10615,14 +10615,14 @@ from a caller; here there is no text for a value to reach at all.</p>
 driver speaks Arrow hands its batches through untouched and the one Arrow-to-<code>Value</code> decode
 happens once, at the presentation edge, in <code>ResultBatches::to_rows</code>.</p>
 <p><strong>What that costs, because it is not free for every adapter and the record only counted the
-half that gains.</strong> The two Arrow-native adapters - <code>BigQuery</code> through ADBC, and the engine -
-stop converting at all, and a federated leg from either reaches the combiner with its driver's
-own types. The four whose drivers speak rows - <code>DuckDB</code>, <code>Postgres</code>, Oracle, <code>ClickHouse</code> -
+half that gains.</strong> The Arrow-native adapters - <code>BigQuery</code>, <code>Postgres</code> and <code>DuckDB</code>, each through
+ADBC, and the engine - stop converting at all, and a federated leg from any of them reaches the
+combiner as batches. The two whose drivers speak rows - Oracle and <code>ClickHouse</code> -
 now convert at their own boundary through <code>arrow::of_rows</code>, which they did not before: on a
 single-source answer that is a conversion out and <code>ResultBatches::to_rows</code> back, for data
 that never left the process. The conversion did not disappear; it moved to the adapter that
 owns the row-speaking driver, which is where the leg's own cost already had to be paid.</p>
-<p><strong>And it carries <code>arrow::arrow_column</code>'s inference limit onto those four adapters' production
+<p><strong>And it carries <code>arrow::arrow_column</code>'s inference limit onto those two adapters' production
 path</strong>: a column mixing <code>Value::Integer</code> and <code>Value::Text</code> cells round-trips as text. No
 data system produces one - a source declares a column's type - so what this reaches is a fake
 that builds one by hand, and the row builder's own doc is where that is stated.</p>
@@ -10745,7 +10745,7 @@ is being asked for.</p>
 <p><strong><code>Self::posture</code>'s limit, stated where it publishes rather than on the method alone:</strong> it
 answers the value the root handed over at construction. Every adapter this workspace ships now
 checks a leg's <code>Presented</code> credential against it before running - <code>Presented::agrees_with</code>,
-called once per leg inside all four adapters' own <code>execute</code> - so the comparison is per LEG, not
+called once per leg inside each adapter's own <code>execute</code> - so the comparison is per LEG, not
 only at boot. What that proves is that the credential offered for this leg matches how the
 source was declared, not that the data system itself evaluated anybody's authorization: there is
 no round trip back from the data system confirming which identity it actually ran as.</p>
@@ -11311,14 +11311,13 @@ under <code>cfg(test)</code> or the default-off <code>agreement</code> feature, 
 but <code>checks.shipped-features</code> establishes that kind of claim by reading crate NAMES out of the
 binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
 fail if a composition root turned the feature on.</p>
-<p><strong>An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
-than as the range question it is.</strong> Four are live: <code>sutura-exec-duckdb</code>'s <code>UBigInt</code> and
-<code>HugeInt</code> arms and <code>sutura-exec-datafusion</code>'s <code>UInt64</code> arm answer <code>Value::Integer</code> while the
-value fits an <code>i64</code> and <code>Value::Text</code> when it does not; <code>sutura-exec-postgres</code> answers a
-scale-0 <code>NUMERIC</code> the same way against a <code>Decimal</code>; and <code>sutura-exec-bigquery</code> answers its own
-<code>NUMERIC</code>/<code>BIGNUMERIC</code> fields the identical way, added once its <code>execute_packs!</code> binding
-(<code>telekom/sutura#710</code>) exercised the same class its own corpus already carried. Under the
-display form all four compare EQUAL, and that was the RECORDED reason for the display form.
+<p><strong>A decoder's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.</strong> It is live wherever a decoder answers <code>Value::Integer</code>
+while the value fits an <code>i64</code> and <code>Value::Text</code> when it does not: the domain's Arrow reader,
+<code>ResultBatches::to_rows</code>, does it for a <code>UInt64</code> and for a zero-scale <code>Decimal128</code> or
+<code>Decimal256</code>, which covers every adapter that hands its batches on; <code>sutura-exec-postgres</code> does
+it for a scale-0 <code>NUMERIC</code>; and <code>sutura-exec-oracle</code> does it for a <code>NUMBER</code>. Under the display
+form they compare EQUAL, and that was the RECORDED reason for the display form.
 Here they are <code>ContentDisagreement::Multiplicity</code> - <em>one side answered a row 1 time(s) and the
 other 0</em> - naming neither the fallback nor the overflow behind it. So a <code>Multiplicity</code> over a
 wide count or a decimal column is a range question first: check whether one side overflowed
@@ -12161,8 +12160,9 @@ and will cost to convert.</p>
 <p>One column's Arrow array, built from domain values.</p>
 <p><strong>No longer behind the <code>fixtures</code> feature, and <code>docs/adr/0039</code> step 2's second half is why.</strong>
 With <code>Warehouse::execute</code> returning <code>ResultBatches</code>,
-the four adapters whose drivers speak rows - <code>DuckDB</code>, <code>Postgres</code>, Oracle, <code>ClickHouse</code> - call
-this on their own production path. An adapter whose driver speaks Arrow still calls none of it.</p>
+the two adapters whose drivers speak rows - Oracle and <code>ClickHouse</code> - call this on their own
+production path. An adapter whose driver speaks Arrow hands its batches on; <code>Postgres</code> calls this
+only to rebuild an exact <code>NUMERIC</code> column.</p>
 <p><strong>The inference is deliberately narrow and stated where it is made.</strong> All-<code>Integer</code> is <code>Int64</code>,
 all-<code>Real</code> is <code>Float64</code>, a column that mixes <code>Integer</code> with EXACT INTEGRAL TEXT is
 <code>Decimal128(38, 0)</code>, and anything else is <code>Utf8</code> with each value rendered. An all-null column,
@@ -12170,13 +12170,13 @@ and every column of a result with no rows at all, reads as <code>Int64</code> - 
 from, so the type is arbitrary rather than wrong.</p>
 <p><strong>The <code>Decimal128</code> arm exists because the "no source produces a mixed column" argument is
 FALSE here, and it was measured rather than reasoned.</strong> A data system does declare one type per
-column - but a row-speaking adapter maps that column PER CELL: <code>sutura-exec-duckdb</code> and
-<code>sutura-exec-postgres</code> both answer a whole number that fits an <code>i64</code> as <code>Value::Integer</code> and
-one that does not as an exact <code>Value::Text</code>, so one <code>DECIMAL</code>/<code>HUGEINT</code> column arrives mixed.
+column - but a row-speaking adapter maps that column PER CELL: <code>sutura-exec-oracle</code> answers a
+<code>NUMBER</code> that fits an <code>i64</code> as <code>Value::Integer</code> and one that does not as an exact
+<code>Value::Text</code>, and <code>sutura-exec-postgres</code> splits a <code>NUMERIC</code> column the same way before it
+rebuilds the column with this function, so one such column arrives mixed.
 The conformance corpus has two such cases (<code>wide-total-by-day</code>,
 <code>overflowing-integer-total-by-day</code>), and rendering them to <code>Utf8</code> turned <code>Integer(15)</code> into
-<code>Text("15")</code> - a conformance failure against the reference rows, on the production path, for
-two of the four adapters the Arrow port makes convert.</p>
+<code>Text("15")</code> - a conformance failure against the reference rows, on the production path.</p>
 <p><code>Decimal128(38, 0)</code> round-trips both halves exactly, because <code>ResultBatches::to_rows</code>'s
 zero-scale arm widens a
 value that fits an <code>i64</code> back to <code>Value::Integer</code> and leaves one that does not as its exact
@@ -12190,8 +12190,9 @@ its leading zero, and text a source declared as text is not a number this may de
 </span></code></pre></div>
 <p>A <code>RowSet</code> as Arrow batches: what an adapter whose driver speaks rows returns from
 <code>Warehouse::execute</code>.</p>
-<p><strong>One function, named, in the interior - which is what makes the four adapters paying for the
-Arrow port a single place to measure and a single place to delete.</strong> <code>docs/adr/0007</code> asked for
+<p><strong>One function, named, in the interior - which is what makes the cost of the Arrow port to the
+two row-speaking adapters, Oracle and <code>ClickHouse</code>, a single place to measure and a single place
+to delete.</strong> <code>docs/adr/0007</code> asked for
 exactly that when it still expected the conversion to live in a combiner crate; the port moved
 and the property did not.</p>
 <p>It carries <code>arrow_column</code>'s inference limit.</p>
@@ -12212,8 +12213,9 @@ invariant makes the ragged case unreachable.</p>
 would be the one nobody had read.
 <strong>It charges nothing against a <code>ResultBudget</code>, and that is a limit rather than an oversight.</strong>
 Its input is rows the caller already holds, so a budget here would check after the spend.
-<code>DuckDB</code>, <code>ClickHouse</code>, and <code>Oracle</code> charge their decode loops before calling this conversion.
-Postgres still builds a whole <code>RowSet</code> first; this function does not bound it or fakes.</p>
+<code>ClickHouse</code> and <code>Oracle</code> charge their decode loops before calling this conversion.
+<code>Postgres</code> does not call this function: it rebuilds only a <code>NUMERIC</code> column, through
+<code>arrow_column</code>.</p>
 <h3 id="module-raw_1">Module <code>raw</code><a class="headerlink" href="#module-raw_1" title="Permanent link">&para;</a></h3>
 <p><code>Warehouse::execute_raw</code>'s own types - split out of
 <code>warehouse.rs</code> because that file hit the thousand-line limit <code>cargo xtask max-lines</code> enforces.</p>

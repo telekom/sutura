@@ -819,6 +819,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#verifying-the-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying the chart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-sbom-covers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2352,6 +2363,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#verifying-the-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying the chart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-sbom-covers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2444,15 +2466,17 @@ lock file.</strong> Why that distinction is worth the sentence is under
 <p><strong>One registry repository</strong>, <code>ghcr.io/telekom/sutura</code>. The unsuffixed tags have always resolved to
 this binary and still do - there is nothing else for them to resolve to now. Which libc you get is
 still something you have to type: <code>:latest-musl</code> for the static pair, <code>:latest</code> for glibc.</p>
-<p><strong>Built with every optional feature on</strong>, since <code>github.com/telekom/sutura#685</code> step 5 - the
-published binary carries the HTTP surface, the caller-token verification, the rate limiter, the
-generated interface description, in-process TLS, and the BigQuery, Postgres and DataHub adapters,
-all at once. Configuring a deployment to use one is a settings-tree entry, not a build: which
-adapters a deployment uses is configuration, and a binary with fewer of them is a source build a
-contributor chooses, not what a release ships. <code>nix/shipped.nix</code> is where that decision is written,
-and <code>nix build .#checks.x86_64-linux.shipped-features</code> is what asserts it, out of the shipped
-binary's own embedded dependency list rather than out of a manifest - including that <code>ring</code> and
-<code>ureq</code>, the crates the earlier default-off decision existed to keep out, are now genuinely present.</p>
+<p><strong>Built with the optional features <code>nix/shipped.nix</code> lists on</strong>, since
+<code>github.com/telekom/sutura#685</code> step 5 - the published binary carries the HTTP surface, the
+caller-token verification, the rate limiter and the generated interface description, which are not
+optional features and are always linked, plus every entry of that file's <code>features</code> list. Configuring
+a deployment to use an adapter is a settings-tree entry, not a build: which adapters a deployment
+uses is configuration, and a binary with fewer of them is a source build a contributor chooses, not
+what a release ships. A feature absent from that list is a source build only. <code>nix/shipped.nix</code> is
+where that decision is written, and <code>nix build .#checks.x86_64-linux.shipped-features</code> is what
+asserts it, out of the shipped binary's own embedded dependency list rather than out of a manifest -
+including that <code>ring</code> and <code>ureq</code>, the crates the earlier default-off decision existed to keep out,
+are now genuinely present.</p>
 <p><strong>The musl pair also carries OpenSSL 3</strong>, statically, inside the PostgreSQL ADBC driver they link -
 libpq has no other TLS backend. Its fixes arrive with a <code>nixpkgs</code> bump, not with rustls'. That libpq
 signs in with Kerberos through a static MIT krb5, carried the same way, and has no OAuth flow.
@@ -2535,6 +2559,12 @@ the two documents answers is under <a href="#the-licence-statement">The licence 
 <td><code>cosign sign</code>, by digest</td>
 </tr>
 <tr>
+<td>the chart</td>
+<td>n/a</td>
+<td>no</td>
+<td><code>cosign sign</code>, by digest</td>
+</tr>
+<tr>
 <td>each leaf image's CycloneDX SBOM</td>
 <td>n/a</td>
 <td>n/a</td>
@@ -2566,7 +2596,8 @@ produced it.</p>
 <code>docker pull</code> resolves and what the release notes tell you to pin. The leaves are what a list points
 at, they are signed by <code>cosign</code> individually, and pinning one means asking for a single architecture
 on purpose. There are two lists, one per libc, because there is one binary; a second shipped binary
-would add two more rather than changing this one.</p>
+would add two more rather than changing this one. Provenance does not cover the chart either: the
+chart is signed by digest with <code>cosign sign</code>, and the table shows nothing more.</p>
 <p><strong>The images get <code>cosign</code> and the assets get a bundle.</strong> By default, <code>gh attestation verify</code>
 fetches provenance from GitHub. With <code>--bundle</code>, it reads the exported JSONL instead; retain that
 asset alongside mirrored files. Verification still needs an independently trusted Sigstore root
@@ -2651,13 +2682,37 @@ meant when you ran it.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0-musl<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
 </span></code></pre></div>
+<h2 id="verifying-the-chart">Verifying the chart<a class="headerlink" href="#verifying-the-chart" title="Permanent link">&para;</a></h2>
+<p>The Helm chart is pushed as an OCI artefact beside the images, to <code>ghcr.io/telekom/charts/sutura</code>
+(<code>.github/actions/publish-chart</code>), and signed by digest in the same release run, keyless like the
+images. The release notes do not list it: take the digest from the <code>chart</code> line of
+<code>image-digests.txt</code>, the signed asset, which reads
+<code>chart sutura ghcr.io/telekom/charts/sutura@sha256:...</code>. <strong>Verify by digest, not by tag</strong>, for the
+reason the images give.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>ghcr.io/telekom/charts/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
+</span></code></pre></div>
+<p>Run against the <code>v0.6.1</code> chart (<code>sha256:d71cda143c71c64a4675b8bb3943df83ee1632e92f31728de0818b48ab2ced14</code>)
+with the <code>cosign</code> the flake pins (<code>nix run .#cosign</code>), this exited 0 and reported the claims
+validated, the transparency-log entry verified offline and the certificate verified against the
+trusted authorities. The regexp pins the repository and not the tag. Against the same chart,
+<code>--certificate-identity</code> in place of the regexp flag, with
+<code>https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/v0.6.1</code>, also
+exits 0, and the same flag naming <code>@refs/tags/v0.4.1</code> is refused (<code>expected SAN value ... got
+...@refs/tags/v0.6.1</code>), so prefer the exact identity once you know the tag.</p>
+<p><strong>Limits.</strong> The chart carries a signature and nothing else: no SBOM attestation, no SLSA provenance
+and no Sigstore bundle asset. No Helm <code>.prov</code> file is produced, so <code>helm install --verify</code> does not
+apply. Whether the registry package is readable without a login is a registry setting this page does
+not establish. <code>docs/adr/0021</code>'s third amendment records the decision.</p>
 <h2 id="what-the-sbom-covers">What the SBOM covers<a class="headerlink" href="#what-the-sbom-covers" title="Permanent link">&para;</a></h2>
 <p>Each leaf image ships two inventories of the same scan - CycloneDX and SPDX, so the two cannot
 disagree - attached to the release and, for CycloneDX, attached to the image itself:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify-attestation<span class="w"> </span>--type<span class="w"> </span>cyclonedx<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cosign<span class="w"> </span>verify-attestation<span class="w"> </span>--type<span class="w"> </span>cyclonedx<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
 </span></code></pre></div>
 <p>It covers two things, and they come from two places.</p>
 <p><strong>The files in the image</strong> - the binary, the CA certificate bundle and tzdata. There is no shell and
@@ -2713,11 +2768,11 @@ runs in CI on every dependency change and weekly regardless - a run, not a prope
 </tbody>
 </table>
 <p>It is signed and carries provenance, so it verifies exactly like a binary tarball:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-attribution.md.sigstore.json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>sutura-attribution.md
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-attribution.md.sigstore.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>sutura-attribution.md
 </span></code></pre></div>
 <p><strong>The attribution document is deliberately WIDER than the SBOM, and that is not a contradiction.</strong>
 The SBOM says what is <em>in</em> one binary, so overstating it would be a false statement about the file
