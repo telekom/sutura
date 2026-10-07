@@ -71,4 +71,19 @@ mod tests {
             "the prompt does not carry the digest the served deployment reports ({digest}): {stated:?}"
         );
     }
+
+    #[test]
+    fn a_catalog_named_in_the_configuration_has_one_digest_in_sutura_catalog_and_in_a_served_answer() {
+        // The configuration directory reaches the command through the variable, which is the one
+        // place `sutura catalog` reads its settings from.
+        let (_served, digest) = served_as_sales("one-digest-catalog");
+        let catalog = example_root().join("catalog");
+        let config_dir = config_path("one-digest-catalog");
+        let listing = sutura(&[OsStr::new("catalog"), catalog.as_os_str()], Some(&config_dir));
+        let printed = listing
+            .lines()
+            .find_map(|line| line.strip_prefix("digest  "))
+            .expect("the listing stamps a digest");
+        assert_eq!(printed, digest);
+    }
 }
