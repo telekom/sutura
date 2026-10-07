@@ -3401,6 +3401,11 @@ gates, and every published binary has already cleared the first one:</p>
   <code>security.inbound</code> is a startup refusal (<code>AgentSurfaceWithoutInboundIdentity</code>) - <code>/mcp</code> is never
   served to "everyone".</li>
 </ul>
+<p><code>/mcp</code> gets the same rate limit, body cap, deployment token gate and <code>Host</code> list as <code>/v1</code>: the
+general-tier limiter (its own store, keyed and swept like <code>/v1</code>'s), <code>server.max_body_bytes</code>,
+<code>security.access_token</code> where one is configured, in <code>/v1</code>'s order around leg 1, and the one <code>Host</code>
+list <code>server.allowed_hosts</code> extends, which replaces the transport's own loopback-only list. The
+layers run in the same order on both: the limiter, the <code>Host</code> check, the token gate, leg 1.</p>
 <p>Its one fixed decision, carried here so it does not arrive as an unstated default:
 <code>legacy_session_mode: false</code>, which makes every request self-contained - a <code>Mcp-Session-Id</code> header
 is never looked up, by any message type - so a caller can never be answered under an earlier
@@ -3455,7 +3460,7 @@ would even once one had.</p>
 </tr>
 <tr>
 <td><code>POST /mcp</code></td>
-<td>the caller's own bearer, leg 1 (<code>security.inbound</code>, <code>direct</code>) - <strong>only when <code>server.agent_surface.enabled</code> is set</strong></td>
+<td>yes, when one is configured; plus leg 1 - <strong>only when <code>server.agent_surface.enabled</code> is set</strong></td>
 <td>The agent surface: MCP JSON-RPC over the streamable-HTTP transport (<code>docs/adr/0023</code>). <code>tools/list</code> answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 <code>401</code> every forgery does, before the transport. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
 </tr>
 <tr>
@@ -3944,6 +3949,11 @@ selects which file is layered, so a file that could change it would be self-refe
 <td><code>server.agent_surface.enabled</code></td>
 <td><code>false</code></td>
 <td>Mounts the agent surface at <code>/mcp</code>. Off by default even in a build with the <code>agent</code> feature linked. <code>true</code> with no <code>security.inbound</code> block refuses to start (the agent surface is only served where a caller can be verified), and <code>true</code> on a build without the <code>agent</code> feature refuses naming the feature. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
+</tr>
+<tr>
+<td><code>server.allowed_hosts</code></td>
+<td>absent</td>
+<td>External hosts, as bare names with no port, that <code>/v1/*</code>, <code>/docs</code>, <code>/openapi.json</code> and <code>/mcp</code> answer beyond <code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code> and the host of <code>security.inbound</code>'s resource identifier. Matched on the <code>Host</code> header, case-insensitively, port ignored; any other name is a <code>403 host_not_allowed</code>. Checked on a loopback bind, and on any bind that lists a host here. <strong>An off-host bind that lists none answers every <code>Host</code></strong> (startup warns, naming this key): it already needs a credential. A request with no <code>Host</code> is answered on <code>/v1/*</code>, <code>/docs</code> and <code>/openapi.json</code>, and refused <code>400</code> on <code>/mcp</code> by the transport. Not checked: <code>/health</code>, <code>/metrics</code> and the protected-resource metadata route</td>
 </tr>
 <tr>
 <td><code>security.access_token</code></td>
