@@ -48,8 +48,8 @@ members = [
   "crates/sutura-exec-bigquery",
   "crates/sutura-exec-datafusion",
   # A network data system over an existing `Dialect::Postgres` rendering. THE DATA SOURCE, not an
-  # engine, and (like `sutura-exec-duckdb`) not shipped: it proves the Postgres statement we render
-  # is accepted by a real Postgres, reached through the compose tier.
+  # engine, and shipped (`nix/shipped.nix` lists its feature): it proves the Postgres statement we
+  # render is accepted by a real Postgres, reached through the compose tier.
   "crates/sutura-exec-postgres",
   # A network data system over the third rendering, `Dialect::ClickHouse`. Shipped since the
   # release linked by `github.com/telekom/sutura#1237`. It proves the ClickHouse statement we render is accepted by

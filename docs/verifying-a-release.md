@@ -106,7 +106,8 @@ produced it.
 `docker pull` resolves and what the release notes tell you to pin. The leaves are what a list points
 at, they are signed by `cosign` individually, and pinning one means asking for a single architecture
 on purpose. There are two lists, one per libc, because there is one binary; a second shipped binary
-would add two more rather than changing this one.
+would add two more rather than changing this one. Provenance does not cover the chart either: the
+chart is signed by digest with `cosign sign`, and the table shows nothing more.
 
 **The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`
 fetches provenance from GitHub. With `--bundle`, it reads the exported JSONL instead; retain that
@@ -239,8 +240,9 @@ cosign verify \
 Run against the `v0.6.1` chart (`sha256:d71cda143c71c64a4675b8bb3943df83ee1632e92f31728de0818b48ab2ced14`)
 with the `cosign` the flake pins (`nix run .#cosign`), this exited 0 and reported the claims
 validated, the transparency-log entry verified offline and the certificate verified against the
-trusted authorities. The regexp pins the repository and not the tag. Against the same chart, `--certificate-identity` in place of the regexp
-flag, with `https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/v0.6.1`, also
+trusted authorities. The regexp pins the repository and not the tag. Against the same chart,
+`--certificate-identity` in place of the regexp flag, with
+`https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/v0.6.1`, also
 exits 0, and the same flag naming `@refs/tags/v0.4.1` is refused (`expected SAN value ... got
 ...@refs/tags/v0.6.1`), so prefer the exact identity once you know the tag.
 

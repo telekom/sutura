@@ -461,9 +461,9 @@ wrote `Shared`, and a mode with two names in one document is how it acquires two
 
 - **Which shipped artifact links a native driver.** Open in two ADRs. A missing musl `libduckdb` is
   no obstacle to a native DuckDB driver: nixpkgs' `duckdb` cross-builds for both musl triples
-  (`docs/adr/0007`'s eleventh amendment). A Postgres driver has the same question with a different
-  answer available: a pure-Rust client links nothing, which may make the cross-build matrix a
-  non-issue for this source and *not* for the next one. Answering it against real code beats
+  (`docs/adr/0007`'s eleventh amendment). A Postgres source has the same question: it answers over
+  ADBC (`telekom/sutura#1242`), so it links a driver library and the cross-build matrix applies to
+  it too. Answering it against real code beats
   answering it in prose.
 - **The rendered SQL meets a real Postgres.** 21 statement goldens and 21 parameter goldens exist and
   every statement is parse-checked, and parse-checked is

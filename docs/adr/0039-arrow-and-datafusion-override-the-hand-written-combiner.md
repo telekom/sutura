@@ -454,7 +454,8 @@ Step 4's "proposed and OPEN", and Step 5's "blocked ahead of an upstream manifes
 **What did not change is that step 4 is not built.** `datafusion-federation` is in neither
 `Cargo.toml` nor `Cargo.lock`. Its caller, a `FederationProvider`/`SQLExecutor` implementation with a
 per-subject compute context, does not exist, and the `unused-deps` hygiene task still fails a
-declared dependency no crate references. What holds step 4 back now is that caller, not the upstream manifest.
+declared dependency no crate references. What holds step 4 back now is that caller, not the
+upstream manifest.
 
 **What this amendment does not claim.** That 0.5.7 builds against this workspace's `datafusion` pin:
 nothing was built. What adopting it costs in lockfile entries: the estimate of three after the

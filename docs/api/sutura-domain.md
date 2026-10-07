@@ -11990,7 +11990,7 @@ is being asked for.
 **`Self::posture`'s limit, stated where it publishes rather than on the method alone:** it
 answers the value the root handed over at construction. Every adapter this workspace ships now
 checks a leg's `Presented` credential against it before running - `Presented::agrees_with`,
-called once per leg inside all four adapters' own `execute` - so the comparison is per LEG, not
+called once per leg inside each adapter's own `execute` - so the comparison is per LEG, not
 only at boot. What that proves is that the credential offered for this leg matches how the
 source was declared, not that the data system itself evaluated anybody's authorization: there is
 no round trip back from the data system confirming which identity it actually ran as.
@@ -14138,8 +14138,9 @@ pub fn of_row_set(rows: &crate::warehouse::rows::RowSet) -> Result<ResultBatches
 A `RowSet` as Arrow batches: what an adapter whose driver speaks rows returns from
 `Warehouse::execute`.
 
-**One function, named, in the interior - which is what makes the four adapters paying for the
-Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+**One function, named, in the interior - which is what makes the cost of the Arrow port to the
+two row-speaking adapters, Oracle and `ClickHouse`, a single place to measure and a single place
+to delete.** `docs/adr/0007` asked for
 exactly that when it still expected the conversion to live in a combiner crate; the port moved
 and the property did not.
 

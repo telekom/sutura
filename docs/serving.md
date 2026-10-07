@@ -1310,10 +1310,10 @@ telemetry:
   format: bunyan
 ```
 
-The start-up line with `log_format` and `log_format_explicit` says which one decided: `true` means
-the configuration set the format, `false` means the environment did. The log goes to standard output,
-one JSON object per line, so Bunyan tools can read it (the `tracing-bunyan-formatter` crate writes
-it). A start-up line looks like this:
+The start-up line with `log_format` and `log_format_explicit` says where the format came from:
+`true` means the configuration set it, `false` means it is the default for `SUTURA_ENVIRONMENT`. The
+log goes to standard output, one JSON object per line, so Bunyan tools can read it (the
+`tracing-bunyan-formatter` crate writes it). A start-up line looks like this:
 
 ```json
 {"v":0,"name":"sutura","msg":"catalog and log","level":30,"hostname":"sutura","pid":1,"time":"2026-10-07T17:56:41.705816761Z","target":"sutura_runtime::banner","line":227,"file":"crates/sutura-runtime/src/banner.rs","data_dir":"Some(\"data\")","definition_version":"unversioned","catalog_kind":"markdown","catalog_dir":"Some(\"catalog\")","log_format_explicit":true,"log_format":"bunyan","catalog_name":"model"}
@@ -1321,9 +1321,10 @@ it). A start-up line looks like this:
 
 Every line carries `v` (format version), `name` (`telemetry.service_name`), `msg`, `level` (30 is
 info, 40 is warn), `hostname`, `pid`, `time` (UTC), `target`, `file` and `line`, then the fields of
-the event. Audit records (`answered`, `refused`) and records from dependencies that use the `log`
-crate come out in the same stream and format. Only `bunyan` and `pretty` exist; any other value stops
-the process at start-up.
+the event. Audit records (`answered`, `refused`, and `raw_answered` and `raw_refused` for raw SQL)
+and records from dependencies that use the `log` crate come out in the same stream and format. Only
+`bunyan` and `pretty` exist, though `json` and `human` are accepted as other spellings, in any case;
+any other value stops the process at start-up.
 
 ## Stopping
 

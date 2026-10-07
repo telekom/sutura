@@ -656,8 +656,9 @@ fn exact_integers(values: &[Value]) -> Option<(DataType, arrow_array::ArrayRef)>
 /// A [`RowSet`] as Arrow batches: what an adapter whose driver speaks rows returns from
 /// [`Warehouse::execute`](crate::warehouse::Warehouse::execute).
 ///
-/// **One function, named, in the interior - which is what makes the four adapters paying for the
-/// Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+/// **One function, named, in the interior - which is what makes the cost of the Arrow port to the
+/// two row-speaking adapters, Oracle and `ClickHouse`, a single place to measure and a single place
+/// to delete.** `docs/adr/0007` asked for
 /// exactly that when it still expected the conversion to live in a combiner crate; the port moved
 /// and the property did not.
 ///
