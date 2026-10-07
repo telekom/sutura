@@ -2,8 +2,9 @@
 //! parser, every table function it calls one of [`RAW_TABLE_FUNCTIONS`], and its queries nested no
 //! deeper than [`MAX_NESTING`] and no more than [`MAX_QUERIES`] of them.
 //!
-//! The parser is asked through [`SERIALIZED`], so the tree read here is the one the engine itself
-//! builds from the same text - not a second grammar that could read it differently.
+//! The parser is asked through [`SERIALIZED`], so the tree read here is `DuckDB`'s own serialised
+//! parse of the same text the driver then runs. Whether the driver's split of that text into
+//! statements always reads it as this parse does is not measured.
 
 use serde_json::Value;
 
