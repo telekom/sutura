@@ -1006,7 +1006,7 @@ pub fn description(&self) -> &str
 ```
 
 ```rust
-pub fn from_metadata(name: ColumnName, data_type: Option<&str>, description: Option<&str>, nullable: Option<bool>) -> Result<Self, InvalidDescription>
+pub fn from_metadata(name: ColumnName, data_type: Option<&str>, description: Option<&str>, nullable: Option<bool>) -> Result<Self, ColumnRefusal>
 ```
 
 Builds a column from raw type/description text an adapter read off its own source, so the
@@ -1026,7 +1026,8 @@ held to the same rule every other quoted description in this crate is.
 
 # Errors
 
-`InvalidDescription`, if `description` is `Some` and not usable.
+`ColumnRefusal`, if `description` is `Some` and not usable: the `InvalidDescription` with
+`name` handed back beside it.
 
 ```rust
 pub const fn name(&self) -> &ColumnName
@@ -1043,6 +1044,28 @@ pub const fn nullable(&self) -> Option<bool>
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct ColumnRefusal`
+
+```rust
+pub struct ColumnRefusal
+```
+
+A column `Column::from_metadata` refused: the name it was handed, returned beside the
+`InvalidDescription` that refused it, so a caller that reports the column keeps no copy of the
+name aside for it.
+
+#### Methods
+
+```rust
+pub fn into_parts(self) -> (ColumnName, InvalidDescription)
+```
+
+The name and the refusal, owned - for a caller that reports both in an error of its own.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
 
 ### `struct Model`
 

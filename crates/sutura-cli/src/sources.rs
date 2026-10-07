@@ -333,7 +333,7 @@ pub(crate) fn open_engine(
 ) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
     let named = match sources.as_slice() {
-        [only] => (*only).clone(),
+        [only] => *only,
         [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
         many => {
             // **The remedy is offered again, and the round trip it used to send an operator on is
@@ -360,10 +360,10 @@ pub(crate) fn open_engine(
     // A `let`-else rather than a match on the `Option`, because `clippy::option_if_let_else` asks for
     // `map_or_else` and the two closures it wants read as an expression where this reads as an order:
     // the deployment's declaration first, this command's own only if there was none.
-    let Some(declared) = registry.get(&named) else {
-        return files::from_the_built_in_declaration(pinned, &named, data, runtime);
+    let Some(declared) = registry.get(named) else {
+        return files::from_the_built_in_declaration(pinned, named, data, runtime);
     };
-    from_the_registry(pinned, &named, declared, data, registry, runtime, request_timeout, outbound)
+    from_the_registry(pinned, named, declared, data, registry, runtime, request_timeout, outbound)
 }
 
 /// Opens a source the deployment declared, under the identity that declaration names.

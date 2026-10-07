@@ -221,15 +221,18 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name())?;
             let metadata = table.column_metadata(column);
             let column = Column::from_metadata(
-                column_name.clone(),
+                column_name,
                 metadata.and_then(document::ColumnMetadata::data_type),
                 metadata.and_then(document::ColumnMetadata::description),
                 None,
             )
-            .map_err(|cause| OpenMetadataError::ColumnDescription {
-                on: table.name().to_owned(),
-                column: column_name.clone(),
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                OpenMetadataError::ColumnDescription {
+                    on: table.name().to_owned(),
+                    column,
+                    cause,
+                }
             })?;
             columns.push(column);
         }

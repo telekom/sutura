@@ -446,7 +446,7 @@ impl Catalogs {
         }
         let mut seen = std::collections::BTreeSet::new();
         for entry in &entries {
-            if !seen.insert(entry.name.clone()) {
+            if !seen.insert(&entry.name) {
                 return Err(InvalidCatalogSettings::DuplicateName {
                     name: entry.name.clone(),
                 });

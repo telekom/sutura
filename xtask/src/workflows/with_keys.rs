@@ -97,13 +97,13 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
                 ));
                 continue;
             }
-            seen.insert(action.clone());
             if !declared.contains_key(&action) {
                 found.push(format!(
                     "{}:{line}  `uses: {action}` has no entry in {RECORD} - run `cargo xtask refresh-action-inputs {action}` to file its declared inputs, or this gate is passing over the one action nobody checked",
                     source.label
                 ));
             }
+            seen.insert(action);
         }
     }
 

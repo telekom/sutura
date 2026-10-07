@@ -328,7 +328,7 @@ pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
 /// keyed store. It starts no thread, so a test suite that assembles one router per test does not
 /// accumulate one sweeper per test.
 pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
-    let settings = state.settings().clone();
+    let settings = state.settings();
     let limits = settings.rate_limit();
     let key = ClientAddress::from_settings(limits);
     announce_rate_limiting(settings.environment(), limits.enabled());
@@ -433,7 +433,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         metrics.layer(middleware::disabled_rate_limit_layer())
     };
 
-    let (documentation, documentation_limiter) = documentation(state, &settings, &key)?;
+    let (documentation, documentation_limiter) = documentation(state, settings, &key)?;
     limiters.extend(documentation_limiter);
 
     // The agent surface. Mounted at `/mcp` only when this build and deployment carry one, and only
@@ -728,7 +728,7 @@ fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress)
     // Serialized once, at startup, and served from a clone. Serializing per request would put a few
     // hundred kilobytes of work behind a path a caller can poll.
     let json = match crate::openapi::document_json(settings.tools().run_sql_enabled()) {
-        Ok(json) => json,
+        Ok(json) => axum::body::Bytes::from(json),
         Err(cause) => {
             // Not fatal, and deliberately not: this service's job is answering questions, and a
             // document that will not serialize is a bug in a description of it. Loud, then carry on
