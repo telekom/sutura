@@ -27,8 +27,10 @@ pub const SWAGGER_UI_PATH: &str = "/docs";
 /// Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it is mounted at all.
 ///
 /// **Only compiled when the `agent` feature is on**, and only mounted when the deployment set
-/// `server.agent_surface.enabled: true` AND declared `security.inbound` - the latter is a startup
-/// refusal (`AgentSurfaceWithoutInboundIdentity`), not a silent skip. `/mcp` is the streamable-HTTP
+/// `server.agent_surface.enabled: true`. Without `security.inbound` it is served only on a
+/// `single-user` deployment that is loopback or behind the token and the limiter, with no
+/// impersonating source; anything else is a startup refusal (`AgentSurfaceWithoutInboundIdentity`),
+/// not a silent skip. `/mcp` is the streamable-HTTP
 /// transport's own conventional endpoint name, which is what an off-the-shelf MCP client already
 /// tries by default. Not versioned under `API_V1_PREFIX`: MCP versions its own tool set by the
 /// protocol's `protocolVersion` negotiation, a different axis, and it is not a route this crate

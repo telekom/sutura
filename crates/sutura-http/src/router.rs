@@ -154,24 +154,20 @@ pub enum RouterNotBuilt {
          naming its `sutura_app::Capability`"
     )]
     RouteNotGoverned { method: String, route: String },
-    /// The agent surface is mounted and the deployment declared no inbound identity to verify a
-    /// caller with.
+    /// An agent surface is mounted on a deployment that may not serve one without an inbound
+    /// identity.
     ///
-    /// **The mechanism that makes "the agent surface is only served where a caller can be verified"
-    /// un-forgettable.** `sutura-mcp`'s streamable-HTTP transport is a network-reachable surface;
-    /// serving it on a deployment with no `security.inbound` block would expose every tool it offers
-    /// to whoever can route a packet, answered as the deployment. Leg 1's own assembly guard
-    /// (`InboundIdentityNotAttached`) covers the reverse direction - declared, no gate; this covers
-    /// mounted transport with no declaration at all. The composition root builds one `AgentMount`
-    /// from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
-    /// when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
+    /// **The last door, over the SAME predicate `Settings::refusals` asks.** That check is keyed on
+    /// `server.agent_surface.enabled`; this one on a mount being attached, because no type ties
+    /// `ServiceState::with_agent_surface` to the switch. Both call
+    /// `sutura_config::Settings::agent_surface_refusals`, so the two cannot disagree about which
+    /// deployment may serve `/mcp` without leg 1.
     #[cfg(feature = "agent")]
     #[error(
-        "an agent surface is mounted and no `security.inbound` block is declared, so nobody could be \
-         verified before reaching it. A deployment that serves `/mcp` must also establish a caller \
-         identity: set `security.inbound.mode`"
+        "an agent surface is mounted and this deployment may not serve it:\n  - {}",
+        refusals.iter().map(ToString::to_string).collect::<Vec<String>>().join("\n  - ")
     )]
-    AgentSurfaceWithoutInboundIdentity,
+    AgentSurfaceNotFitToServe { refusals: Vec<sutura_config::NotFitToServe> },
     /// The mounted agent surface's spend-headroom declaration disagrees with the state it is
     /// attached to.
     ///
@@ -442,9 +438,9 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     let (documentation, documentation_limiter) = documentation(state, settings, &key, hosts.as_ref())?;
     limiters.extend(documentation_limiter);
 
-    // The agent surface. Mounted at `/mcp` only when this build and deployment carry one, and only
-    // where a caller can be verified - a mount with no `security.inbound` block is a refusal, not a
-    // silently open surface. See `AgentSurfaceWithoutInboundIdentity`. The same feature-gated block
+    // The agent surface. Mounted at `/mcp` only when this build and deployment carry one, and with no
+    // `security.inbound` only where `Settings::agent_surface_refusals` is empty - see
+    // `AgentSurfaceNotFitToServe`. The same feature-gated block
     // runs the ungoverned-route allowlist: every subtree merged outside the versioned subtree is
     // recorded and checked against `ungoverned_routes()`, so a route `governed()`'s per-route table
     // cannot see cannot ride in unseen.
@@ -671,11 +667,13 @@ fn inbound_layered(
     )))
 }
 
-/// The agent surface subtree, or no mount when this build and deployment carry one.
+/// The agent surface subtree, or no mount when this build and deployment carry none.
 ///
-/// **Refuses to assemble when a mount is present and no inbound identity is declared.** A
-/// network-reachable agent surface with no leg 1 is a surface "everyone is" - refused here rather
-/// than served by accident. When leg 1 IS declared the transport runs behind the SAME
+/// **Refuses to assemble where this deployment may not serve `/mcp` without leg 1**
+/// ([`RouterNotBuilt::AgentSurfaceNotFitToServe`], the predicate `Settings::refusals` asks). Where it
+/// may - `single-user`, loopback or token-and-limiter, no impersonating source - `inbound_layered`
+/// installs nothing and `establish_asked` answers as the deployment, as on `/v1`. When leg 1 IS
+/// declared the transport runs behind the SAME
 /// `establish_asked` and `inbound_layered` layers the versioned surface runs behind; `route_layer`
 /// wraps, so `establish_asked` (added first) is the inner layer and `require_verified_caller` is
 /// the outer one - an unverified caller is refused with leg 1's own `401` challenge before the
@@ -704,10 +702,11 @@ fn agent_subtree(
     let Some(mount) = state.agent_surface() else {
         return Ok(None);
     };
-    if declared.is_none() {
-        return Err(RouterNotBuilt::AgentSurfaceWithoutInboundIdentity);
+    let refusals = state.settings().agent_surface_refusals();
+    if !refusals.is_empty() {
+        return Err(RouterNotBuilt::AgentSurfaceNotFitToServe { refusals });
     }
-    // After the leg 1 refusal above and before any layering, so a state with both problems still
+    // After the refusal above and before any layering, so a state with both problems still
     // reports the security one. `AgentMount::new` required a declaration and only this state can
     // produce the gauge inside it - what is left to be wrong is the declaration being a truthful
     // `NoCeilingConfigured` for some OTHER deployment, and this is where the two are in one place.
@@ -917,42 +916,50 @@ mod tests {
         );
     }
 
-    /// The agent surface cannot be assembled where no caller can be verified - the reason it must
-    /// never be mounted without `security.inbound`.
+    /// A mounted agent surface is refused at assembly by the same predicate `Settings::refusals`
+    /// asks, even where `server.agent_surface.enabled` was never set - and assembles on a
+    /// single-user loopback deployment with no inbound identity.
     ///
-    /// The fake service below never runs: this asserts on the REFUSAL, which fires at assembly from
-    /// the mount-plus-no-declaration shape, ahead of any request.
+    /// The fake service below never runs: this asserts on the assembly decision, ahead of any request.
     #[cfg(feature = "agent")]
     #[test]
-    fn an_agent_surface_mounted_where_no_caller_can_be_verified_does_not_assemble() {
-        let service = crate::surface::LocalService::start(
-            &crate::testing::catalog_of(crate::testing::bundle()),
-            crate::testing::fake_warehouse(),
-            crate::testing::sink(),
-            crate::testing::broker(),
-            sutura_domain::plan::RefusingCombiner,
-            1 << 30,
-        )
-        .expect("the test bundle validates");
-        let state = crate::testing::state_over(std::sync::Arc::new(service), crate::testing::settings_with(""));
-        // `settings_with("")` configures no spend ceiling and the service carries the default
-        // `SpendLedger::no_budget()`, so `ServiceState::new` registered no
-        // `sutura_spend_headroom_bytes` and this declaration is the true one.
-        let mount = crate::state::AgentMount::new(
-            tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
-                let _request = request;
-                async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
-            }),
-            crate::state::SpendHeadroomPush::NoCeilingConfigured,
+    fn a_mounted_agent_surface_is_refused_where_the_deployment_may_not_serve_it_without_leg_one() {
+        let mounted = |overlay: &str| {
+            let service = crate::surface::LocalService::start(
+                &crate::testing::catalog_of(crate::testing::bundle()),
+                crate::testing::fake_warehouse(),
+                crate::testing::sink(),
+                crate::testing::broker(),
+                sutura_domain::plan::RefusingCombiner,
+                1 << 30,
+            )
+            .expect("the test bundle validates");
+            let state = crate::testing::state_over(std::sync::Arc::new(service), crate::testing::settings_with(overlay));
+            // No spend ceiling is configured, so `ServiceState::new` registered no
+            // `sutura_spend_headroom_bytes` and this declaration is the true one.
+            let mount = crate::state::AgentMount::new(
+                tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
+                    let _request = request;
+                    async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
+                }),
+                crate::state::SpendHeadroomPush::NoCeilingConfigured,
+            );
+            let state = state.with_agent_surface(mount);
+            let key = crate::client_address::ClientAddress::from_settings(state.settings().rate_limit());
+            super::agent_subtree(&state, None, &key, None, &mut Vec::new()).map(|mount| mount.is_some())
+        };
+        // No mode declared, and the switch never set, so `Settings::load` had nothing to refuse.
+        let refused = mounted("").expect_err("a mount on a deployment with no declared mode assembles nothing");
+        let RouterNotBuilt::AgentSurfaceNotFitToServe { refusals } = refused else {
+            panic!("expected the agent-surface refusal, got {refused:?}");
+        };
+        assert_eq!(
+            refusals,
+            vec![sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity]
         );
-        let state = state.with_agent_surface(mount);
-        let key = crate::client_address::ClientAddress::from_settings(state.settings().rate_limit());
-        let refused = super::agent_subtree(&state, None, &key, None, &mut Vec::new())
-            .expect_err("a mount with no inbound identity assembles no subtree");
-        assert!(
-            matches!(refused, RouterNotBuilt::AgentSurfaceWithoutInboundIdentity),
-            "expected the no-inbound refuse, got {refused:?}"
-        );
+        let assembled = mounted("security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n")
+            .expect("a single-user loopback deployment serves /mcp without leg 1");
+        assert!(assembled, "the mount is handed back for merging");
     }
 
     /// The ungoverned-route allowlist is not vacuous: a merged route with no `ungoverned_routes()`

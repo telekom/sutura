@@ -5167,9 +5167,9 @@ Whether the agent surface is mounted at `/mcp`. Off unless the deployment wrote
 `server.agent_surface.enabled: true`.
 
 Read by the composition root, which decides whether to build and attach an `AgentMount` to
-the service state; `sutura_http` then refuses to assemble when a mount is attached and no
-`security.inbound` gateway is declared, and a build without the `agent` feature cannot
-reference `sutura_mcp` at all. This crate cannot see a link, so this is the flag and the
+the service state; `Settings::load` and `sutura_http`'s assembly both refuse where
+`Settings::agent_surface_refusals` is not empty, and a build without the `agent` feature
+cannot reference `sutura_mcp` at all. This crate cannot see a link, so this is the flag and the
 refusal is the mechanism.
 
 ```rust

@@ -25,7 +25,7 @@ tls = ["dep:tokio-rustls", "sutura-config/tls"]
 
 # The agent-surface mount point and its governing mechanism: the `AgentMount` carried in the
 # `ServiceState`, the `/mcp` merge behind leg 1 and `establish_asked`, the
-# `AgentSurfaceWithoutInboundIdentity` assembly refusal, and the ungoverned-route allowlist.
+# `AgentSurfaceNotFitToServe` assembly refusal, and the ungoverned-route allowlist.
 #
 # Empty, and deliberately: it gates CODE, not a dependency. This crate must not depend on
 # `sutura-mcp` (a transport never links another transport - see `.agents/skills/sutura/crate-map`),

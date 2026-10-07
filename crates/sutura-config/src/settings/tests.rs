@@ -988,3 +988,8 @@ mod merge_depth;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod allowed_hosts;
+
+/// `server.agent_surface.enabled` with no inbound identity: its two refusals and their serving
+/// twins. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod agent_surface;

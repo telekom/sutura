@@ -207,6 +207,7 @@ exclude_docs: |
   adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md
   adr/20260926112245-opt-in-physical-schema-listing.md
   adr/20261001045714-cube-documents.md
+  adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md
   crap.md
   what-a-bpmn-file-actually-carries.md
   what-an-rdf-graph-can-carry.md

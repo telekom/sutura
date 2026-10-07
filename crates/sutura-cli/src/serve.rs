@@ -436,9 +436,9 @@ pub(crate) fn run() -> Result<(), String> {
 /// rather than of this comment.
 ///
 /// `None` is the deployment having left the surface off: a build carrying the `agent` feature is
-/// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
-/// attached, so "the agent surface is only served where a caller can be verified" cannot be
-/// un-paired by a later edit.
+/// still off by default. Where `/mcp` may run without leg 1 is `Settings::agent_surface_refusals`,
+/// asked by `Settings::load` for the switch and by `sutura_http::router` again for the mount, so a
+/// later edit that attaches a mount without the switch is refused by the same rule.
 #[cfg(feature = "agent")]
 fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, String> {
     if !state.settings().server().agent_surface_enabled() {
