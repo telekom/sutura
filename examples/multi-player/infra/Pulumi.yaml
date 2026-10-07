@@ -199,6 +199,8 @@ resources:
       source:
         fn::fileAsset: ../../single-player/data/dim_customer.csv
     options: { provider: "${google}" }
+  # Appends into the empty table Pulumi made: Google keeps a table's row access policies through a
+  # WRITE_APPEND load. A changed CSV appends again, so run `pulumi destroy` before you change one.
   subscriptionsLoad:
     type: gcp:bigquery:Job
     properties:
@@ -214,7 +216,7 @@ resources:
         sourceFormat: CSV
         skipLeadingRows: 1
         createDisposition: CREATE_NEVER
-        writeDisposition: WRITE_TRUNCATE
+        writeDisposition: WRITE_APPEND
     options: { provider: "${google}" }
   customersLoad:
     type: gcp:bigquery:Job
