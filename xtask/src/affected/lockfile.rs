@@ -361,20 +361,20 @@ fn sourceless_names(graph: &Graph) -> BTreeSet<String> {
 /// adapter maps to no category and fails closed.
 fn bfs_to_members(start: &Key, reverse: &Reverse, boundaries: &BTreeSet<String>) -> BTreeSet<String> {
     let mut reached: BTreeSet<String> = BTreeSet::new();
-    let mut visited: BTreeSet<Key> = BTreeSet::new();
-    let mut queue: VecDeque<Key> = VecDeque::new();
-    visited.insert(start.clone());
-    queue.push_back(start.clone());
+    let mut visited: BTreeSet<&Key> = BTreeSet::new();
+    let mut queue: VecDeque<&Key> = VecDeque::new();
+    visited.insert(start);
+    queue.push_back(start);
     while let Some(current) = queue.pop_front() {
         // A member or a root is a boundary: record it, never walk through it.
-        let parents = reverse.get(&current);
+        let parents = reverse.get(current);
         if boundaries.contains(&current.0) || parents.is_none() {
-            reached.insert(current.0);
+            reached.insert(current.0.clone());
             continue;
         }
         for parent in parents.into_iter().flatten() {
-            if visited.insert(parent.clone()) {
-                queue.push_back(parent.clone());
+            if visited.insert(parent) {
+                queue.push_back(parent);
             }
         }
     }

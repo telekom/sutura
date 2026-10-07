@@ -189,9 +189,8 @@ pub(super) fn deletion_in(
         .collect();
     let base_scope = crate::causality::regions::scope(before, base);
     for caller in edited_helper_caller(&base_lines, &removed_behaviour, &base_scope) {
-        let name = caller.name().clone();
-        if !deleted.contains(&name) {
-            deleted.push(name);
+        if !deleted.contains(caller.name()) {
+            deleted.push(caller.name().clone());
         }
     }
     if deleted.is_empty() {
