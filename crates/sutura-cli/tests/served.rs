@@ -165,6 +165,13 @@ mod e2e_adbc;
 #[path = "served/refused.rs"]
 mod refused;
 
+// One digest per catalog across a served answer, `sutura catalog` and `sutura prompt`, for a catalog
+// the configuration names - split out of `mod tests` below for the 1000-line cap.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/one_digest.rs"]
+mod one_digest;
+
 // The golden corpus, over HTTP - `github.com/telekom/sutura#124`. `cfg(feature = "postgres")`
 // because the one cell here needs the provisioned tier, the same reason `harness/postgres.rs` is
 // gated; `cfg(unix)` for the same reason every case spawning `Served` carries it.
