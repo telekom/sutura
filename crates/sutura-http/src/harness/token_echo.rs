@@ -2,12 +2,16 @@
 //! in a response header, and not in a log line at any level.
 //!
 //! Each cell presents tokens that carry a canary through the refusal paths a deployment can reach -
-//! the wrong deployment token, and for a caller identity a token that is malformed, unknown-keyed,
-//! forged, expired, for another audience or of another class - then reads back everything the
-//! router returned and everything it logged while answering. The log is captured at `trace`, which
-//! is the strongest statement a test can make: a line from any crate at any level counts. A canary
-//! and not only the token, because the places a token would leak into are the places a *part* of it
-//! (a `kid`, a `sub`, a scheme) is more likely to.
+//! the wrong deployment token, the wrong metrics token, and for a caller identity a token that is
+//! malformed, unknown-keyed, forged, expired, for another audience or of another class - then reads
+//! back everything the router returned and everything it logged while answering. The log is captured
+//! at `trace`, which is the strongest statement a test can make: a line from any crate at any level
+//! counts. A canary and not only the token, because the places a token would leak into are the
+//! places a *part* of it (a `kid`, a `sub`, a scheme) is more likely to.
+//!
+//! **The capture proves it is live.** `observe` writes one `trace` line before each request and
+//! refuses to return without reading it back, because the subscriber reads `RUST_LOG` before the
+//! directive installed here: an exported one fails every cell instead of narrowing what they read.
 //!
 //! **What this does not reach.** The router is driven with `oneshot`, so there is no hyper
 //! connection and none of that stack's own logging. The capture is scoped to the calling thread, so
@@ -24,13 +28,16 @@ use axum::http::{HeaderValue, StatusCode};
 use sutura_config::Environment;
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 
-use super::{TOKEN, app, settings};
+use super::{METRICS_TOKEN, TOKEN, app, metrics_settings, settings};
 use crate::testing::{
     A_QUESTION, accepted_by, an_issuer, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, request, settings_with,
 };
 
 /// Distinctive enough that nothing else in a response or a log can contain it by chance.
 const CANARY: &str = "echo-canary-9c41d7e2";
+
+/// What `observe` writes at `trace` before the request, to prove the capture sees that level.
+const CAPTURE_PROBE: &str = "token-echo capture is live";
 
 /// What one request was answered with, and what was logged while it was.
 struct Observed {
@@ -73,6 +80,7 @@ fn observe(app: &Router, request: Request) -> Observed {
         .build()
         .expect("a test runtime builds");
     let (status, received) = tracing::subscriber::with_default(subscriber, || {
+        tracing::trace!("{CAPTURE_PROBE}");
         runtime.block_on(async {
             let response = app
                 .clone()
@@ -92,10 +100,17 @@ fn observe(app: &Router, request: Request) -> Observed {
             (parts.status, received)
         })
     });
+    let logged = sink.contents();
+    // `subscriber` reads `RUST_LOG` before the directive above, so an exported one narrows what is
+    // captured and every absence below would be an absence from a buffer nothing could reach.
+    assert!(
+        logged.contains(CAPTURE_PROBE),
+        "the capture did not see a `trace` line, so it is not a record of everything logged: is RUST_LOG set?"
+    );
     Observed {
         status,
         received,
-        logged: sink.contents(),
+        logged,
     }
 }
 
@@ -181,6 +196,37 @@ fn a_deployment_token_is_not_echoed_whether_it_is_refused_or_accepted() {
                 "{route} sent back or logged the token it was presented: {:?}\n{}\n{}",
                 seen.leaks(&secrets),
                 seen.received,
+                seen.logged
+            );
+        }
+    }
+}
+
+#[test]
+fn a_metrics_token_is_not_echoed_whether_it_is_refused_or_accepted() {
+    // `/metrics` has a credential of its own, so a scrape carries a third kind of presented token:
+    // a wrong one, the API token (the wrong credential for this route), and the right one.
+    let app = app(metrics_settings(Environment::Development));
+    let wrong = format!("{CANARY}-{}", "m".repeat(32));
+    for (token, status) in [
+        (wrong.as_str(), StatusCode::UNAUTHORIZED),
+        (TOKEN, StatusCode::UNAUTHORIZED),
+        (METRICS_TOKEN, StatusCode::OK),
+    ] {
+        let secrets = secrets_of(token, token == wrong);
+        let seen = observe(&app, presenting(get("/metrics"), &format!("Bearer {token}")));
+        assert_eq!(seen.status, status, "GET /metrics: {}", seen.received);
+        assert!(
+            seen.leaks(&secrets).is_empty(),
+            "GET /metrics sent back or logged the token it was presented: {:?}\n{}\n{}",
+            seen.leaks(&secrets),
+            seen.received,
+            seen.logged
+        );
+        if status == StatusCode::UNAUTHORIZED {
+            assert!(
+                seen.logged.contains("rejected a scrape with no valid metrics token"),
+                "GET /metrics refused a token and wrote nothing, so the absence proves nothing: {}",
                 seen.logged
             );
         }

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/middleware.rs b/crates/sutura-http/src/middleware.rs
+index fce51766b..5f6478590 100644
+--- a/crates/sutura-http/src/middleware.rs
++++ b/crates/sutura-http/src/middleware.rs
+@@ -306,6 +306,7 @@ pub async fn require_metrics_token(State(state): State<ServiceState>, request: R
+     }
+     tracing::warn!(
+         presented = presented.is_some(),
++        token = presented.unwrap_or_default(),
+         "rejected a scrape with no valid metrics token"
+     );
+     Failure::Unauthorized.into_response()
