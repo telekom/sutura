@@ -788,12 +788,14 @@ pub fn into_domain(self, body: NoteBody) -> GlossaryEntry
 pub struct CaveatDoc
 ```
 
-One caveat, and everything it is about.
+One caveat, and everything it is about: the metrics in `about`, or the relationships in
+`relationships` that the domain expands into one caveat per metric reaching a dimension through
+them.
 
-`about` has no default. A caveat scoped to nothing is refused by
-`sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing`, and that refusal is what
-keeps the catalog from having an unscoped channel into the prompt - so the field being required
-here means the author is told about the missing key rather than about the empty list.
+Both default to empty, because a caveat names one or the other. A caveat naming neither is
+refused by `sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing`, and that
+refusal - in the domain, where every adapter has it - is what keeps the catalog from having an
+unscoped channel into the prompt.
 
 ##### Methods
 

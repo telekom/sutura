@@ -3916,16 +3916,20 @@ pub enum Referent
 
 What one note is about: something the pinned bundle declares.
 
-**There is deliberately no variant for a model, a table or a column, and that absence is load
-bearing rather than tidy.** A caller cannot ask about any of the three - `crate::query::Query` has no field
-for one - and a name in an agent's context is a name it will eventually try to use. Every
-STRUCTURED rendering `sutura_app::prompt` builds out of a note - the glossary line, a caveat's
-scope, the request in a worked question - is rendered from a `Referent`, so none of them CAN name
-a model, a table or a column, whatever an author writes. That is the claim the type holds up, and
-it is worth stating at its real width:
+**No note may select, widen or parameterise what executes, and that is restated here for every
+channel a note has.** `crate::query::Query` has no field for a model, a table or a column, and
+knowledge is read only by the prompt, so a name a note carries is a name an agent reads and
+never one a request can use. Every STRUCTURED rendering `sutura_app::prompt` builds out of a
+note - the glossary line, a caveat's scope, the request in a worked question - is rendered from a
+`Referent`, so the names it carries are the names these variants hold. That is the claim the
+type holds up, at its real width:
 
-* **The structured renderings cannot name one.** There is no variant to put it in, so this half
-  is a property of the type rather than a review of each rendering.
+* **A glossary entry may mean a model or a column** - Q2 of
+  `docs/adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md`. That is a new
+  way to NAME a declared model or column in the prompt, not a new way to execute one, and a
+  model or column note is shown only to a caller whose view holds that model
+  (`Knowledge::scoped`). A caveat may not mean one: it is printed under the metric it is about,
+  and `InconsistentKnowledge::CaveatAboutAModel` refuses a caveat that would be printed nowhere.
 * **`Phrase` and `NoteBody` are free text, and both reach the rendered document.** Nothing
   here stops an author writing a column name into a glossary term or a note body, and the
   pre-existing metric-description channel already carries such names into the prompt - the
@@ -3935,10 +3939,9 @@ it is worth stating at its real width:
   claiming otherwise would be claiming the wrong mechanism.
 
 A load-time scan of every phrase and body for the bundle's own model, table and column names
-would close the second half. It is not here: it is a larger change than the type-level property
-needs, it would make an authored note refuse for naming a column in a sentence about why the
-column is not the thing being asked for, and the honest statement of what holds is the cheaper
-half of it.
+would close the second half. It is not here: it would make an authored note refuse for naming a
+column in a sentence about why the column is not the thing being asked for, and the honest
+statement of what holds is the cheaper half of it.
 
 It carries `Deserialize` as well as `Serialize`, for the same reason `crate::measure::Measure`
 does: this IS the on-disk shape, and a mirror of it in the adapter would be a second place to
@@ -3950,9 +3953,8 @@ the rest of this format uses would spell the commonest referent
 `means: { metric: { metric: recurring_revenue } }`: the tag word and the field word are the same
 word, so the nesting says nothing. `#[serde(untagged)]` is not the way out either - it reports
 "data did not match any variant", which names nothing. So a referent is one flat mapping with a
-`deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and the one
-combination that is not a referent - a value with no dimension - is an `InvalidReferent` that
-says so.
+`deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and a
+combination that is not a referent is an `InvalidReferent` that says which.
 
 #### Variants
 
@@ -3966,6 +3968,8 @@ says so.
   check the same thing. It also closes a channel that carried unparsed catalog text -
   `sutura_app::prompt` interpolates this value into the scope line of a caveat, which is the one
   rendering in that document whose continuation lines start at column zero.
+- `Model` - One declared model. A glossary target only - see above.
+- `Column` - One declared column of one declared model. A glossary target only - see above.
 
 #### Methods
 
@@ -3976,10 +3980,13 @@ pub const fn dimension(&self) -> Option<&DimensionName>
 The dimension, when this referent names one.
 
 ```rust
-pub const fn metric(&self) -> &MetricName
+pub const fn metric(&self) -> Option<&MetricName>
 ```
 
-The metric every referent is scoped to.
+The metric this referent is scoped to, or `None` for a model or a column.
+
+`Option` so that every reader deciding where a note is shown, or to whom, has to say what
+`None` means rather than inherit an answer.
 
 ```rust
 pub const fn value(&self) -> Option<&DimensionValue>
@@ -3997,15 +4004,13 @@ The value, when this referent names one.
 pub enum InvalidReferent
 ```
 
-Why a referent was rejected.
-
-One variant, because there is one combination of the three fields that is not a referent. A
-missing `metric` is a serde missing-field error naming the field, which is a better message than
-anything this enum could produce for it.
+Why a referent was rejected: the combinations of the five fields that are not one.
 
 #### Variants
 
 - `ValueWithoutDimension`
+- `NeitherMetricNorModel` - A dimension, a value or a column on its own belongs to nothing.
+- `MetricAndModelMixed`
 
 #### Implements
 
@@ -4196,6 +4201,11 @@ sounds like, a value that means less than it appears to.
 text channel the module documentation refuses. The prompt renders each caveat inside the block of
 the metric it is about rather than as a preamble, so it is read by whoever is about to ask that
 question rather than by whoever is skimming the top of the document.
+
+**Or written about relationships**, with `Self::through`, when the trap is in a join rather
+than in one metric. Such a caveat never reaches a bundle as written: `Knowledge::assemble`
+expands it into one caveat per metric that reaches a dimension through one of them, so every
+caveat a `super::Knowledge` holds names no relationship.
 
 ### `use Example`
 
@@ -6317,6 +6327,12 @@ pub fn metrics(&self) -> impl Iterator<Item> + '_
 ```
 
 Every metric this caller may see.
+
+```rust
+pub fn model(&self, name: &ModelName) -> Option<&'a Model>
+```
+
+One model, if declared AND this caller may see it - the rule `Self::models` lists by.
 
 ```rust
 pub fn models(&self) -> impl Iterator<Item> + '_

@@ -391,3 +391,45 @@ physical-schema listing (`prompt.list_physical_schema`), which quotes them under
 referent is, by default, the first way a model or a column is named in the prompt, and Option B has
 to extend the description channel to models and columns before a phrase can travel through it. The options and
 decisions above stand as decided; this corrects the premise both security arguments share.
+
+## Second amendment, 2026-10-07: what the build of Q2 and Q3 decided where this record was silent
+
+Four points the build had to decide. The A/A/B decision stands; this records how it was built.
+
+- **A caveat about a model or a column is refused at load**, as `CaveatAboutAModel`. Q2 gives the
+  two new referents to the glossary; this record did not say what a caveat naming one means. A
+  caveat is printed under the metric it is about, and a model has no block to print it in, so such
+  a caveat would load and be read by nobody. This is a build-time gap filled conservatively, and
+  the refusal names the model.
+- **A glossary line about a model or a column is rendered in the glossary section, marked
+  descriptive only** - a request names a metric, never a model or a column - so the line cannot
+  read as a name an agent may send.
+- **Q3=B is built as N caveats, each about ONE metric.** A caveat may name `relationships:` in
+  place of `about:`. At load, `Knowledge::assemble` expands it into one caveat per metric that
+  uses one of those relationships, where **uses means a dimension of the metric names the
+  relationship anywhere in its `via` chain**. Each derived caveat is about exactly the dimensions
+  that metric reaches through it (`Referent::Dimension`, not the `Referent::Metric` Option B
+  sketched): a trap in a join is a trap in the questions that walk it, and a total grouped by
+  nothing does not walk it. Each carries the authored body under the name `<caveat>__<metric>`.
+  No `Referent` variant was added and no request-time walk exists; the bundle holds only the
+  expanded caveats, and the digest covers them. Five load refusals name what goes wrong: a
+  relationship the definitions do not declare (`CaveatUnknownRelationship`); one no dimension is
+  reached through (`CaveatRelationshipReachesNoMetric` - a named refusal, not
+  `CaveatAboutNothing` as Option B said); a caveat naming both `about` and `relationships`
+  (`CaveatAboutAndThroughRelationships`); a derived name past the 63 characters a name may have
+  (`DerivedCaveatNotAName` - refused rather than shortened, because two metrics sharing a prefix
+  would shorten to one name); and a derived name that is already a caveat, authored or derived
+  (`DerivedCaveatNameTaken`). The aggregate byte cap counts what the expansion produces, so a
+  bundle composed from several sources, which re-assembles the derived caveats as authored ones,
+  is held to the same total. **The limit:** a cross-model ratio's hop to its shared calendar is
+  matched by model in `sutura_semantic`'s resolver and named in no `via`, so it is not walked - a
+  caveat about that relationship is refused as reaching no metric rather than attached to the
+  ratio.
+- **A derived caveat is shown to a caller only if that caller sees the metric it was derived
+  from.** Its name carries that metric's name, so showing it to anyone else would name a metric
+  the caller cannot see. Two metrics that reach one dimension through one relationship get two
+  caveats, and a caller who sees the dimension under one of them sees that one's caveat and
+  nothing that names the other. It is the rule every caveat is filtered by - a
+  `Referent::Dimension` is visible only where its metric is - and
+  `a_caller_who_sees_one_of_two_metrics_sharing_a_dimension_gets_exactly_that_metrics_caveat`
+  holds it: with the dimension arm of that rule no longer reading the metric, the cell fails.
