@@ -37,6 +37,8 @@
 , duckdbAdbcDrivers
 # The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
 , postgresTier
+# The PostgreSQL driver this host mounts, as a path - see `presetMountedDrivers`.
+, postgresAdbcHostDriver
 # `flake.nix`'s `wholeTree`, for the tier run's test build - see `linkedDriversTests`.
 , wholeTree
 , version
@@ -54,9 +56,12 @@ let
   # musl triples - which have no dynamic loader and therefore no other route at all - get one.
   #
   # **An attrset and not a string, so an absent triple sets nothing** rather than naming a path
-  # that does not exist: a darwin host builds no linux driver, so `nix build .#sutura` there takes
-  # the mounted route and `sutura doctor` says so. `build.rs` refuses a directory holding no
-  # archive, so a wrong value here is a build failure and never a silent fallback.
+  # that does not exist. A darwin host has one: `nix/bigquery-adbc-drivers.nix` builds that host's
+  # own driver natively, so `nix build .#sutura` on a Mac links it as a linux build does
+  # (`telekom/sutura#1295`). A build whose triple has no driver here, and every `cargo` build,
+  # which reads none of this, takes the mounted route, and `sutura doctor` says so. `build.rs`
+  # refuses a directory holding no archive, so a wrong value here is a build failure and never a
+  # silent fallback.
   #
   # ON THE FINAL ATTRSET AND NEVER ON `args`, which is deliberate: `args` reaches
   # `buildDepsOnly`, and the deps derivation compiles third-party code that has no business
@@ -172,16 +177,17 @@ let
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
       features = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
-      # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
-      # dependency of `sutura-cli` and the generator is what renders the statement that
-      # subcommand prints. Nothing extra to forbid here beyond the shared list below.
+      # `tokio-postgres` is banned by name (`github.com/telekom/sutura#1246`). Every Postgres
+      # source and the RDBMS catalog reader answer over the ADBC connector now, so no crate in the
+      # workspace depends on it. This entry keeps it that way: a dependency or feature that brings
+      # it back into the shipped binary fails `checks.shipped-features`. A change that ships it
+      # on purpose lifts the ban in the same diff, the way `permit` below lifts `ring` and `ureq`.
       #
-      # **Also unaffected by the fold.** `sutura-serve` used to ban this edge for itself
-      # (`alsoForbidden = [ "polyglot-sql" ]`) because it had no legitimate reason to link the SQL
-      # generator and `sutura` did; folding the two into one binary makes that ban moot rather than
-      # something to carry over - the one binary that remains is the one that was always allowed to
-      # link it.
-      alsoForbidden = [ ];
+      # Limit: `checks.shipped-features` runs only in `just shipped` and in the tag-triggered
+      # `release.yml` and `release-performance.yml`; `just validate` and every pull-request and
+      # merge-group job skip it. A change that brings the crate back stays green until a release
+      # or a local `just shipped`.
+      alsoForbidden = [ "tokio-postgres" ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
       # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
       # `datahub` and `openmetadata`, and each pulls `ring` and `ureq` - so this entry states BY NAME that
@@ -258,9 +264,27 @@ let
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
       meta.mainProgram = binary.bin;
-    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget) // auditable.toolFor args // {
+    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget)
+      // presetMountedDrivers binary (auditable.toolFor args) // {
       cargoBuildCommand = auditable.buildCommand profile;
     });
+
+  # **A darwin build mounts its PostgreSQL driver and presets where from** (`telekom/sutura#1295`):
+  # only the musl triples link that driver, and a darwin Nix build has no static one, so the
+  # package defaults `SUTURA_POSTGRES_ADBC_DRIVER` to the `.dylib` this flake builds. `--set-default`
+  # sets it only where the operator has not, so an operator's value wins - `sutura doctor` shows
+  # which path it opened. The real binary moves to `bin/.<name>-wrapped`, which is what
+  # `shipped-features` reads there. Nothing is wrapped on linux, where `nativeFor` is the image build.
+  # Static linking of that driver on darwin is not built: MIT krb5 does not link static there.
+  presetMountedDrivers = binary: tool:
+    if !pkgs.stdenv.hostPlatform.isDarwin then tool
+    else tool // {
+      nativeBuildInputs = tool.nativeBuildInputs ++ [ pkgs.makeBinaryWrapper ];
+      postInstall = ''
+        wrapProgram $out/bin/${binary.bin} --inherit-argv0 \
+          --set-default SUTURA_POSTGRES_ADBC_DRIVER ${postgresAdbcHostDriver}
+      '';
+    };
 
   # One cross-compiled package per binary per target. `cargoExtraArgs` pins the target and the
   # cross linker comes from pkgsCross, so no developer needs a local cross setup.
@@ -404,8 +428,14 @@ let
           set -o pipefail
           sh ${./kerberos-tier.sh} "$TMPDIR/kerberos-tier"
           . "$TMPDIR/kerberos-tier/env"
-          cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture 2>&1 | tee kerberos.log
-          grep -qx 'linked-postgres-driver-signed-in-with-kerberos' kerberos.log
+          # One thread, on a HYPOTHESIS no run has measured: both cells share the env's one MEMORY
+          # ccache, so a parallel sign-in may lose its ticket.
+          cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture --test-threads=1 2>&1 | tee kerberos.log
+          # Serial, libtest prints `test <name> ... ` first and the marker lands on that line (parallel,
+          # it has a line to itself), so the marker must END a line and follow either its start or that
+          # `... ` - whole-line `grep -x` refuses the serial log although both cells passed.
+          # `kerberos_verdict` in `nix/bigquery-driver-check.sh` holds the same pattern over both shapes.
+          grep -qE '(^|\.\.\. )linked-postgres-driver-signed-in-with-kerberos$' kerberos.log
         '';
         installPhaseCommand = "install -Dm644 kerberos.log $out/kerberos.log";
       });
@@ -794,8 +824,8 @@ let
         # and `ureq` are in it.
         #
         # Per-binary rather than only shared: a binary's own `alsoForbidden` (declared beside
-        # it above) is appended per binary in `checkOne` below. `sutura`'s is empty - it
-        # legitimately links `polyglot-sql` for `compile`, which used to be `sutura-serve`'s
+        # it above) is appended per binary in `checkOne` below. `sutura`'s names `tokio-postgres`
+        # alone - it legitimately links `polyglot-sql` for `compile`, which used to be `sutura-serve`'s
         # own reason to ban it for ITSELF alone; folding the two binaries into one made that
         # ban moot rather than something to carry forward.
         forbidden = [ "ring" "ureq" ];
@@ -815,7 +845,7 @@ let
         checkOne = b:
           let drv = nativeBinaries.${b.bin}; in ''
           echo "shipped-features: ${b.bin}"
-          rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
+          rust-audit-info ${drv}/bin/${if pkgs.stdenv.hostPlatform.isDarwin then ".${b.bin}-wrapped" else b.bin} > deps-${b.bin}.json
           crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
           # A FLOOR, and the argument is not repeated here. It is what
           # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number:

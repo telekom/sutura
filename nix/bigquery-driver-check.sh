@@ -142,6 +142,26 @@ no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlin
 LOGS
     echo "bigquery-driver-check: linked-driver matcher ok - only a log whose cell passed by its linked"
     echo "  arm passes."
+    # And the Kerberos leg's, over both shapes a passing run prints (the serial one is what CI measured
+    # on run 37564439692) and the logs that must stay refused.
+    while IFS='|' read -r expected log; do
+        [ -n "$expected" ] || continue
+        got="$(kerberos_verdict "$(printf '%b' "$log")")"
+        if [ "$got" != "$expected" ]; then
+            echo "bigquery-driver-check: FAILED its own Kerberos matcher - expected $expected for '$log', got $got" >&2
+            exit 1
+        fi
+    done <<'LOGS'
+ok|running 2 tests\ntest kerberos::refused ... ok\ntest kerberos::signs_in ... linked-postgres-driver-signed-in-with-kerberos\nok\n\ntest result: ok. 2 passed; 0 failed
+ok|running 2 tests\ntest kerberos::refused ... ok\nlinked-postgres-driver-signed-in-with-kerberos\ntest kerberos::signs_in ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest kerberos::refused ... ok\ntest kerberos::signs_in ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest kerberos::signs_in ... linked-postgres-driver-signed-in-with-kerberos and more\nok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest kerberos::signs_in ... xlinked-postgres-driver-signed-in-with-kerberos\nok\n\ntest result: ok. 2 passed; 0 failed
+no|running 0 tests\n\ntest result: ok. 0 passed; 0 failed
+no|running 2 tests\ntest kerberos::refused ... ok\ntest kerberos::signs_in ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed
+LOGS
+    echo "bigquery-driver-check: Kerberos matcher ok - the marker ends a line, serial or parallel, and a"
+    echo "  log without it or with a failed cell is refused."
 }
 
 # Did the linked-drivers test log come from both cells' LINKED arms, passing? Prints `ok` or `no`.
@@ -152,6 +172,22 @@ linked_verdict() {
     if printf '%s\n' "$log" | grep -qx 'linked-postgres-driver-ran-libpq' \
         && printf '%s\n' "$log" | grep -qx 'linked-duckdb-driver-ran-select-1' \
         && printf '%s\n' "$log" | grep -q '^test result: ok\. 2 passed'; then
+        printf 'ok'
+    else
+        printf 'no'
+    fi
+}
+
+# Did the Kerberos test log come from the sign-in cell passing beside its refusal cell? `ok` or `no`.
+# The marker must END a line and follow its start or libtest's `... `: serial (`--test-threads=1`)
+# libtest has printed `test <name> ... ` on that line already, parallel the marker has a line to
+# itself, and whole-line `grep -x` refused the serial log although both cells passed. The derivation
+# in `nix/shipped.nix` holds the same pattern; this is its second reader, so a derivation that
+# stopped asking is still red.
+kerberos_verdict() {
+    local log="$1"
+    if printf '%s\n' "$log" | grep -qE '(^|\.\.\. )linked-postgres-driver-signed-in-with-kerberos$' \
+        && printf '%s\n' "$log" | grep -q '^test result: ok\. 2 passed; 0 failed'; then
         printf 'ok'
     else
         printf 'no'
@@ -313,8 +349,7 @@ if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
     # requires the marker too; reading it here as well means a derivation that stopped asking is
     # still red.
     kerberos="$(nix build --no-link --print-build-logs --print-out-paths .#adbc-postgres-kerberos-x86_64-unknown-linux-musl-test)"
-    if ! grep -qx 'linked-postgres-driver-signed-in-with-kerberos' "$kerberos/kerberos.log" \
-        || ! grep -q '^test result: ok\. 2 passed; 0 failed' "$kerberos/kerberos.log"; then
+    if [ "$(kerberos_verdict "$(cat "$kerberos/kerberos.log")")" != ok ]; then
         echo "bigquery-driver-check: FAILED - the Kerberos sign-in did not pass through the linked driver. Its log:" >&2
         sed 's/^/    /' "$kerberos/kerberos.log" >&2
         exit 1
