@@ -341,7 +341,7 @@ fn worktree_list() -> ExitCode {
 const HOOK_STAGES: &[(&str, &str)] = &[
     ("pre-commit", "fmt, clippy, the structural gates"),
     ("commit-msg", "the conventional-commit subject check"),
-    ("pre-push", "tests, doctests, supply chain, secrets"),
+    ("pre-push", "supply chain, secrets"),
 ];
 
 /// Are the hooks installed, and is git looking where they were installed?

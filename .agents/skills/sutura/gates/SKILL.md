@@ -202,8 +202,18 @@ caught locally. `check-hook-tiers` holds the new shape - every `pre-push` hook i
 security checks, and none of it compiles.
 
 Tiers are bypassable with `--no-verify`, so none of this is an invariant. What the gate holds is
-that the tiers documented here are the tiers `.pre-commit-config.yaml` declares, in both
-directions: a push hook that compiles OR that is outside the security-only set fails the gate.
+the config: it reads `.pre-commit-config.yaml` and nothing else, so a push hook that compiles OR
+that is outside the security-only set fails it. **It does not read the tier prose** - this page and
+`CONTRIBUTING.md`'s table can drift from the config with every gate green; the config is the
+authority.
+
+**The commit stage runs no suite, no doctests, no CRAP score and no fuzz replay**, by owner decision,
+and `check-hook-tiers` refuses any of them back (`SLOW_AT_COMMIT` in `xtask/src/hooks.rs`; it reads
+the hook's entry, not a script the entry calls). The suite runs in `just validate` and CI; CRAP runs in
+`just validate`, CI and - as a no-hook surface row, so only for a diff that reaches the scored crate -
+`just ship-check`; the fuzz replay in `fuzz.yml` and, by the same no-hook mechanism (the "fuzzed tree"
+row), in `just ship-check` for a diff that touches it. **The cost: a commit can hold a failing test,
+and CRAP and the replay run only where `ship-check` runs** - the push stage stays security-only.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests covering it - the combination
 neither a complexity limit nor a coverage percentage catches alone. Split by cost: `check-crap`
@@ -242,10 +252,14 @@ stops meaning anything:
 - **The cost, and it is the whole of the coverage picture.** *Searching* - a budgeted run over
   mutated input - happens at a release and on a manual dispatch, and nowhere else; there is no
   periodic search. *Regression checking* continues on the commits that touch the surface:
-  `just fuzz-smoke` at `-runs=0` over every committed seed, in a path-scoped pre-commit hook, plus
-  `check-fuzz`. **So this repository stops searching for new defects between releases and keeps
-  checking that known ones stay fixed** - a quiet fuzz surface means nobody is searching, not that
-  there is nothing to find.
+  `just fuzz-smoke` at `-runs=0` over every committed seed, in `just ship-check` for a diff that
+  touches the "fuzzed tree" row (it replays every target, not only the ones the diff reaches; the
+  commit hook is gone by owner decision) and in `fuzz.yml`'s `smoke` job, plus `check-fuzz`, which
+  reads the harness and compiles nothing. **So no pull request or merge-queue run replays the seeds,
+  a push that skips `ship-check` is not fuzzed, a change that breaks a target's build is found at
+  the next tag or dispatch, and this repository stops searching for new defects between releases
+  while checking only the harness wiring between them** - a quiet fuzz surface means nobody is
+  searching, not that there is nothing to find.
 
 The `smoke` leg is real but narrow: `-runs=0` replays every tracked seed once with no mutation, so
 its verdict is a function of committed files. Neither `fuzz.yml` job appears in
