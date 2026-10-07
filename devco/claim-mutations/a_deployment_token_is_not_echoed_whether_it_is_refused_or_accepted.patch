@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/middleware.rs b/crates/sutura-http/src/middleware.rs
+index fce51766b..37c7032dc 100644
+--- a/crates/sutura-http/src/middleware.rs
++++ b/crates/sutura-http/src/middleware.rs
+@@ -281,6 +281,7 @@ pub async fn require_token(State(state): State<ServiceState>, request: Request,
+     }
+     tracing::warn!(
+         presented = presented.is_some(),
++        token = presented.unwrap_or_default(),
+         "rejected a request with no valid bearer token"
+     );
+     Failure::Unauthorized.into_response()
