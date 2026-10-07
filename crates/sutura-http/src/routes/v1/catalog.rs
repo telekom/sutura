@@ -23,7 +23,8 @@ use crate::wire::CatalogBody;
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "catalog";
 
-/// The metrics this catalog defines, with the version and digest that identify the snapshot.
+/// The metrics this catalog defines, and its knowledge as this caller may see it, with the version
+/// and digest that identify the snapshot.
 #[utoipa::path(
     get,
     path = "/catalog",

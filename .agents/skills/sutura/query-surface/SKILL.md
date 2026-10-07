@@ -34,7 +34,8 @@ visible in the code; these rules are not:
   `description` and a model reads it; reasoning about the type goes in a plain comment beside it.
 - **Kept equal by review, not a test:** the field lists of the two wire types doing the same job on
   the two transports, and the prose - deliberately, since a tool description and an OpenAPI summary
-  are written for different readers.
+  are written for different readers. The exception is `knowledge`: both call one function, and
+  `a_caller_reads_the_same_knowledge_over_http_as_over_mcp` holds the two equal.
 - **The OpenAPI document is built at startup and served**, not dumped, so a missing path attribute
   fails to compile rather than producing a page with a gap.
 - **The attribution document is deliberately WIDER than any one binary**, which is the opposite of an

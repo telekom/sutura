@@ -4543,6 +4543,10 @@ outside the view is not in `metrics` below, so advertisement and invocation cann
 about which metrics exist; the provenance still names the whole bundle's version and digest,
 because that is what `docs/adr/0028` says the digest continues to identify.
 
+**The knowledge is not scoped here.** It is rendered by `sutura_app::prompt::catalog_knowledge`
+over the same view, the function the agent surface's catalog tool calls, so both transports
+apply one visibility rule and this body holds no second copy of it.
+
 **A named constructor rather than a `From`, and the argument is the reason.**
 `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
 OPEN: it ships the prose of a deployment that asked for none, which is the defect this

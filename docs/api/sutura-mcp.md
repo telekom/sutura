@@ -1005,10 +1005,12 @@ What this deployment measures, as the catalog tool's structured content.
 **A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
 deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
 this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
-that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
-**The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
-operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
-is the structured half alone, rendered by a different reader.
+that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set. The
+knowledge text is not a second copy: both transports call
+`sutura_app::prompt::catalog_knowledge` over the caller's view.
+**The whole type is still WIDER than `CatalogBody`**: it also carries the operator's
+instructions and, where the operator enabled them, the physical models, which the HTTP
+`/v1/catalog` surface does not.
 
 **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
@@ -1104,10 +1106,12 @@ What this deployment measures, as the catalog tool's structured content.
 **A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
 deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
 this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
-that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
-**The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
-operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
-is the structured half alone, rendered by a different reader.
+that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set. The
+knowledge text is not a second copy: both transports call
+`sutura_app::prompt::catalog_knowledge` over the caller's view.
+**The whole type is still WIDER than `CatalogBody`**: it also carries the operator's
+instructions and, where the operator enabled them, the physical models, which the HTTP
+`/v1/catalog` surface does not.
 
 **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
