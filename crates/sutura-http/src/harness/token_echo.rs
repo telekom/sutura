@@ -11,7 +11,10 @@
 //!
 //! **The capture proves it is live.** `observe` writes one `trace` line before each request and
 //! refuses to return without reading it back, because the subscriber reads `RUST_LOG` before the
-//! directive installed here: an exported one fails every cell instead of narrowing what they read.
+//! directive installed here: an exported level directive (`RUST_LOG=info`) fails every cell instead
+//! of narrowing what they read. The probe is written by one target, `sutura_http`, so it proves the
+//! level for that target only: a per-target directive that keeps `sutura_http` at `trace` and drops
+//! another target (`RUST_LOG=sutura_http=trace`) leaves the probe live and narrows what a cell reads.
 //!
 //! **What this does not reach.** The router is driven with `oneshot`, so there is no hyper
 //! connection and none of that stack's own logging. The capture is scoped to the calling thread, so
