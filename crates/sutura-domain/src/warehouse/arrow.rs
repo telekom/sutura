@@ -547,8 +547,9 @@ fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, UnreadableC
 ///
 /// **No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
 /// With [`Warehouse::execute`](crate::warehouse::Warehouse::execute) returning [`ResultBatches`],
-/// the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
-/// this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
+/// the two adapters whose drivers speak rows - Oracle and `ClickHouse` - call this on their own
+/// production path. An adapter whose driver speaks Arrow hands its batches on; `Postgres` calls this
+/// only to rebuild an exact `NUMERIC` column.
 ///
 /// **The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
 /// all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
@@ -682,7 +683,7 @@ pub fn of_row_set(rows: &RowSet) -> Result<ResultBatches, MalformedRowSet> {
 /// would be the one nobody had read.
 /// **It charges nothing against a [`ResultBudget`], and that is a limit rather than an oversight.**
 /// Its input is rows the caller already holds, so a budget here would check after the spend.
-/// `DuckDB`, `ClickHouse`, and `Oracle` charge their decode loops before calling this conversion.
+/// `ClickHouse` and `Oracle` charge their decode loops before calling this conversion.
 /// Postgres still builds a whole `RowSet` first; this function does not bound it or fakes.
 pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches, MalformedRowSet> {
     use std::sync::Arc;

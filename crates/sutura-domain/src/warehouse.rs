@@ -18,15 +18,15 @@
 //! happens once, at the presentation edge, in [`ResultBatches::to_rows`].
 //!
 //! **What that costs, because it is not free for every adapter and the record only counted the
-//! half that gains.** The two Arrow-native adapters - `BigQuery` through ADBC, and the engine -
-//! stop converting at all, and a federated leg from either reaches the combiner with its driver's
-//! own types. The four whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` -
+//! half that gains.** The Arrow-native adapters - `BigQuery`, `Postgres` and `DuckDB`, each through
+//! ADBC, and the engine - stop converting at all, and a federated leg from any of them reaches the
+//! combiner as batches. The two whose drivers speak rows - Oracle and `ClickHouse` -
 //! now convert at their own boundary through [`arrow::of_rows`], which they did not before: on a
 //! single-source answer that is a conversion out and [`ResultBatches::to_rows`] back, for data
 //! that never left the process. The conversion did not disappear; it moved to the adapter that
 //! owns the row-speaking driver, which is where the leg's own cost already had to be paid.
 //!
-//! **And it carries [`arrow::arrow_column`]'s inference limit onto those four adapters' production
+//! **And it carries [`arrow::arrow_column`]'s inference limit onto those two adapters' production
 //! path**: a column mixing [`Value::Integer`] and [`Value::Text`] cells round-trips as text. No
 //! data system produces one - a source declares a column's type - so what this reaches is a fake
 //! that builds one by hand, and the row builder's own doc is where that is stated.
