@@ -166,8 +166,8 @@ pub(crate) struct SchemaObject {
 ///
 /// The union of the `SchemaElement` base and the `SchemaBaseProperty` additions. `name` is required
 /// (a schema-property must name itself); `physicalType`, `physicalName` and `logicalType` are the
-/// type surface; `description`/`businessName` are the prose; `primaryKey`/`primaryKeyPosition`,
-/// `required` and `unique` are the constraint evidence this adapter reads. The transform metadata,
+/// type surface; `description`/`businessName` are the prose; `primaryKey`, `required` and `unique`
+/// are the constraint evidence this adapter reads. The transform metadata, `primaryKeyPosition`,
 /// `classification`, `enum`, `semanticType`, `partitioned`, `examples`, `criticalDataElement` and
 /// `quality` are accepted and unsurfaced; a non-empty property-level `relationships` is detected
 /// and refused by name rather than accepted opaque (`docs/what-a-data-contract-can-carry.md`).
@@ -199,6 +199,7 @@ pub(crate) struct SchemaProperty {
     pub(crate) unique: Option<bool>,
     #[serde(default)]
     pub(crate) primary_key: Option<bool>,
+    #[expect(dead_code, reason = "a model's primary key is a set, so the declared order is not carried")]
     #[serde(default)]
     pub(crate) primary_key_position: Option<i64>,
     #[expect(

@@ -1,0 +1,9 @@
+# `dbt parse` needs a profile and connects to nothing. The project id is a placeholder.
+sutura_example:
+  target: example
+  outputs:
+    example:
+      type: bigquery
+      method: oauth
+      project: example-project
+      dataset: sutura_example

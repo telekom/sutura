@@ -11,7 +11,7 @@
 //! | `publish` runs `attest-and-sign` before the step whose `gh release create` attaches `dist/*` | every attached file has a bundle and provenance before the release exists |
 //! | that `gh release create` line carries `--prerelease` and `--latest=false` | without both, the optimised build becomes the repository's Latest release, which `docs/getting-started.md` downloads from |
 //! | no `gh release upload`, anywhere in the file | an upload onto a published release is `HTTP 422` under immutable releases; one `gh release create` carrying every asset is the only path |
-//! | every workflow's `tags:` trigger that takes `v*` also carries `!v*-performance` | the optimised build's tag matches `v*`, and `release.yml` or `docs.yml` started from one moves `latest` to it |
+//! | every workflow's `tags:` trigger that takes `v*` also carries `!v*-performance` | the optimised build's tag matches `v*`, and `release.yml` started from one moves the `latest` image to it, `docs.yml` publishes a directory for it |
 //!
 //!
 //! And one cell that EXECUTES rather than reads: `push-images`' own shell, run at both profiles
@@ -537,19 +537,19 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
         assert!(!run.calls.contains("imagetools create"), "{}", run.calls);
     }
 
-    /// `docs.yml`'s ref guard, the real step: a release tag takes `latest`, the optimised build's
-    /// tag is refused before it can.
+    /// `docs.yml`'s ref guard, the real step: main takes `latest`, a release tag gets its own
+    /// directory and no alias, and the optimised build's tag is refused.
     #[test]
     fn the_docs_never_publish_the_performance_tag() {
         let body = step_body(".github/workflows/docs.yml", "publish", "What is being published");
-        let run = |name: &str| {
+        let run = |kind: &str, name: &str| {
             let tree = scratch("docs-target", &[]);
             let scratch = tree.root();
             let output = std::process::Command::new("bash")
                 .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", &body])
                 .current_dir(scratch)
                 .env_remove("BASH_ENV")
-                .env("REF_TYPE", "tag")
+                .env("REF_TYPE", kind)
                 .env("REF_NAME", name)
                 .env("GITHUB_OUTPUT", scratch.join("output"))
                 .output()
@@ -559,8 +559,9 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
                 std::fs::read_to_string(scratch.join("output")).unwrap_or_default(),
             )
         };
-        assert_eq!(run("v0.6.1"), (true, String::from("version=0.6.1\nalias=latest\n")));
-        assert_eq!(run("v0.6.1-performance"), (false, String::new()));
+        assert_eq!(run("branch", "main"), (true, String::from("version=main\nalias=latest\n")));
+        assert_eq!(run("tag", "v0.6.1"), (true, String::from("version=0.6.1\nalias=\n")));
+        assert_eq!(run("tag", "v0.6.1-performance"), (false, String::new()));
     }
 
     #[test]

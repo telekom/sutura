@@ -1,16 +1,14 @@
 #![forbid(unsafe_code)]
 //! The multi-player example, exercised through the recorded fixture.
 //!
-//! `examples/multi-player/README.md` is the deployment shape this test proves: a multi-player
-//! deployment whose semantic catalog is `DataHub`. **The shape is not servable in this repository
-//! yet** - no binary links `sutura-catalog-datahub` by default and `sutura` refuses `catalog.kind:
-//! datahub` by name - so what is runnable is the recorded fixture, and that is exactly what this
-//! file is honest about. It is the same division of labour as the single player example
-//! (`crates/sutura-cli/tests/example.rs`): one documented set of input, loaded and asked by the
-//! build, so a quickstart that stops working fails the build instead of failing the next person who
-//! tried it. The difference is that the catalog is not markdown - it is `DataHub`'s recorded entity
-//! aspects served by the fixture reader, which is what a metadata service over HTTP reads once a
-//! real `AspectReader` exists.
+//! `examples/multi-player/` is a multi-player deployment whose semantic catalog is `DataHub`, and
+//! its `compose.yaml` serves it against a live `DataHub`. Nothing in a gate runs that stack, so
+//! what this file runs is the recorded fixture. It is the same division of labour as the single
+//! player example (`crates/sutura-cli/tests/example.rs`): one documented set of input, loaded and
+//! asked by the build, so a quickstart that stops working fails the build instead of failing the
+//! next person who tried it. The difference is that the catalog is not markdown - it is `DataHub`'s
+//! recorded entity aspects served by the fixture reader, which is what a metadata service over HTTP
+//! reads once a real `AspectReader` exists.
 //!
 //! **The documented input is a real file, not a copy in this source.** The question
 //! `examples/multi-player/question.json` is read off disk here exactly as the README names it, and
@@ -22,13 +20,10 @@
 //! fixture can show.** It proves the metadata half of the shape: the deployment-defined `sutura`
 //! structured property (the flat scalar form `DataHub` can actually store) turns a `DataHub` metric
 //! entity into a certified `Metric`, and a question about it compiles all the way down to a plan.
-//! It does NOT prove two callers get two different sets of rows, and it does NOT prove a served
-//! deployment exists: both need things this repository does not have (a data system with grants and
-//! a per-subject execution path; a composition root that links the adapter), which
-//! `examples/multi-player/README.md` and the *Built and not wired* register in
-//! `.agents/skills/sutura/query-surface/SKILL.md` keep naming as
-//! the missing halves. Nothing here is `#[ignore]`d and nothing needs a network, which is what makes
-//! it a gate in `checks.nextest` rather than prose.
+//! It does NOT prove two callers get two different sets of rows, and it does NOT prove the served
+//! deployment works: the first needs a data system with per-caller grants, which no gate runs, and
+//! the second is the compose stack, which no gate starts. Nothing here is `#[ignore]`d and nothing
+//! needs a network, which is what makes it a gate in `checks.nextest` rather than prose.
 //!
 //! **Which of the two cells is a regression proof, and against what - because `test-causality`
 //! cannot answer this one and reports it as green against base.** The gate reverts Rust files, and

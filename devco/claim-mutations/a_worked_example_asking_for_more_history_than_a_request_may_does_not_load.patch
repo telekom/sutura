@@ -5,7 +5,7 @@ index 928b67b25..95693ea85 100644
 @@ -806,7 +806,7 @@ impl Knowledge {
          if days > MAX_RANGE_DAYS {
              return Err(InconsistentKnowledge::ExampleRangeTooLong {
-                 name,
+                 name: name.clone(),
 -                days,
 +                days: MAX_RANGE_DAYS,
                  limit: MAX_RANGE_DAYS,

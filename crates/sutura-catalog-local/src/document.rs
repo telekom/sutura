@@ -20,8 +20,9 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDescription,
-    InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Column, ColumnRefusal, Description, Dimension, DimensionValue, InconsistentDefinitions,
+    InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain, JoinKey, JoinKeys, Metric, Model, Relationship,
+    ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
@@ -250,18 +251,11 @@ pub enum ColumnEntryDoc {
 }
 
 impl ColumnEntryDoc {
-    /// The column's own name, either form.
-    const fn name(&self) -> &ColumnName {
-        match self {
-            Self::Short(name) | Self::Long { name, .. } => name,
-        }
-    }
-
     /// # Errors
     ///
-    /// [`InvalidDescription`], if the long form's `description:` is present and not usable. A
-    /// `type:` that is not usable is dropped rather than refused - see this type's own doc.
-    fn into_domain(self) -> Result<Column, InvalidDescription> {
+    /// [`ColumnRefusal`], if the long form's `description:` is present and not usable. A `type:`
+    /// that is not usable is dropped rather than refused - see this type's own doc.
+    fn into_domain(self) -> Result<Column, ColumnRefusal> {
         match self {
             Self::Short(name) => Ok(Column::from(name)),
             Self::Long {
@@ -341,12 +335,10 @@ impl ModelDoc {
                 })?;
         let mut columns = Vec::with_capacity(self.columns.len());
         for entry in self.columns {
-            let name = entry.name().clone();
-            columns.push(
-                entry
-                    .into_domain()
-                    .map_err(|cause| InvalidModelDocument::ColumnDescription { column: name, cause })?,
-            );
+            columns.push(entry.into_domain().map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                InvalidModelDocument::ColumnDescription { column, cause }
+            })?);
         }
         let mut model = Model::new(self.name, self.source, self.table, columns, description);
         if let Some(audience) = audience {

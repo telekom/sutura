@@ -163,9 +163,9 @@ pub fn infer(text: &str) -> Result<Vec<Column>, InferenceError> {
                 found: cells.len(),
             });
         }
-        for (index, cell) in cells.iter().enumerate() {
+        for (index, cell) in cells.into_iter().enumerate() {
             if let Some(column) = accumulators.get_mut(index) {
-                column.push(cell.clone());
+                column.push(cell);
             }
         }
     }

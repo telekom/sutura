@@ -76,8 +76,10 @@
 [required]
 
 # The validation context the ruleset requires. Everything routed through this job IS gated: the structural
-# gates, the lints, the tests, the doctests, the causality gate, the API pages. A STEP inside it is
-# gated for the same reason, which is how a gate that only runs there is genuinely gating.
+# gates, the lints, the tests, the doctests, the API pages. A STEP inside it is gated for the same
+# reason, which is how a gate that only runs there is genuinely gating. The causality gate and the
+# linked PostgreSQL driver build used to be steps here and are jobs now (#1280): they are gated
+# through `ci-aggregate` below instead, which is one hop further from the ruleset.
 ci
 
 # The category aggregator: a plain job, so its context resolves like any other - the reason the file
@@ -198,6 +200,18 @@ ci.yml:keycloak-served-test
 # allocator. The owner asked for a run rather than a link, and a link-success check would have
 # passed over a driver that cannot initialise.
 ci.yml:bigquery-driver-check
+
+# The red-before-green gate for changed tests, out of `ci` (#1280) so it runs beside it. Advisory for
+# `bigquery-driver-check`'s reason, and the one that matters more here: it was a step of the
+# required `ci` context, so its gating now rests on `ci-aggregate` holding run-or-fail for it -
+# `needs.ci.outputs.rust` selected and this job not `success` is a red aggregate, off a push. It
+# reports nothing on a push, where it never ran.
+ci.yml:causality
+
+# The adapter's tier-backed cells through the LINKED static musl PostgreSQL driver, out of `ci`
+# (#1280) on `ci.yml:causality`'s terms. Selected by `run_all`, `nix` or `data_source_postgres`; held
+# run-or-fail by `ci-aggregate` against `ci`'s own copy of those three flags.
+ci.yml:postgres-linked-driver
 
 # The hosted DataHub/ADBC acceptance runs when a BigQuery, DataHub or identity change selects it
 # and the event can receive the bq-test credential. The required ci-aggregate job refuses a skip

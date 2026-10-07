@@ -331,15 +331,18 @@ impl<R: AspectReader> DataHubCatalog<R> {
             let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;
             let metadata = dataset.column_metadata(column);
             let column = Column::from_metadata(
-                column_name.clone(),
+                column_name,
                 metadata.and_then(document::ColumnMetadata::data_type),
                 metadata.and_then(document::ColumnMetadata::description),
                 None,
             )
-            .map_err(|cause| DataHubError::ColumnDescription {
-                on: dataset.name().to_owned(),
-                column: column_name.clone(),
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                DataHubError::ColumnDescription {
+                    on: dataset.name().to_owned(),
+                    column,
+                    cause,
+                }
             })?;
             columns.push(column);
         }

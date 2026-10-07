@@ -32,7 +32,7 @@
 # host-starved run (line 81) but gets a doubled 600s ceiling from the override it sits beside,
 # re-added 10-02 after it hit the 300s ceiling in two runs. That single cell is not the one the
 # 1.7x above rests on; it carries its own ceiling - so "any test" here means every test but that
-# composite cell, the four per-gate falsifier cells (360s) and the four 10,000-entry cap cells
+# composite cell, the per-gate falsifier cells (360s) and the four 10,000-entry cap cells
 # (600s), both at the foot of this file. (No other gas cell has a special ceiling.)
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
@@ -127,7 +127,7 @@ filter = "package(sutura-app) & test(=tests::leg_executing_data_systems_agree_wi
 slow-timeout = { period = "60s", terminate-after = 2 }
 
 [[profile.default.overrides]]
-# The four per-gate falsifier cells, each running one real gate twice (the control, then one
+# The per-gate falsifier cells, each running one real gate twice (the control, then one
 # own-rule edit) over a scratch copy of the tree. They were one cell that ran all four gates back
 # to back and hit the 300s ceiling three times in one day (300.04s, 300.08s, 300.02s, five lanes
 # sharing the host). Split, a cell is one gate's work: measured at load 16-22, 5.7s (warm-start),
@@ -143,7 +143,7 @@ slow-timeout = { period = "60s", terminate-after = 2 }
 # `warm_start` -> `warmstart` listed 3 of 4, exit 0). `the_nextest_group_names_exactly_the_per_gate_cells`
 # compares these names with the cell functions' own. Limit: it reads this text, not nextest's
 # evaluation of it, and it does not read `binary_id` or the `paired-gate` definition.
-filter = "binary_id(xtask::bin/xtask) & (test(=falsifier::tests::check_boundaries_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_guidance_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_venues_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_warm_start_passes_its_real_inputs_and_refuses_one_violation))"
+filter = "binary_id(xtask::bin/xtask) & (test(=falsifier::tests::check_boundaries_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_docs_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_guidance_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_venues_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_warm_start_passes_its_real_inputs_and_refuses_one_violation))"
 test-group = "paired-gate"
 slow-timeout = { period = "60s", terminate-after = 6 }
 

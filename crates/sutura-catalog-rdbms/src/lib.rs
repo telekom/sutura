@@ -131,6 +131,7 @@ impl DictionaryReader for AnyDictionaryReader {
 }
 
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::num::NonZeroU64;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
@@ -356,10 +357,15 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
         let mut models_by_table = BTreeMap::new();
         for table in &dictionary.tables {
             let (physical_table, model) = self.convert_model(table)?;
-            if models_by_table.insert(physical_table.clone(), model.name().clone()).is_some() {
-                return Err(RdbmsError::DuplicateTable {
-                    table: physical_table.to_string(),
-                });
+            match models_by_table.entry(physical_table) {
+                Entry::Vacant(slot) => {
+                    slot.insert(model.name().clone());
+                }
+                Entry::Occupied(taken) => {
+                    return Err(RdbmsError::DuplicateTable {
+                        table: taken.key().to_string(),
+                    });
+                }
             }
             models.push(model);
         }
@@ -392,15 +398,18 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                 })?;
             let metadata = table.column_metadata(column);
             let column = Column::from_metadata(
-                column_name.clone(),
+                column_name,
                 metadata.and_then(ColumnMetadata::data_type),
                 metadata.and_then(ColumnMetadata::description),
                 None,
             )
-            .map_err(|cause| RdbmsError::ColumnDescription {
-                table: physical_table.to_string(),
-                column: column_name.clone(),
-                cause,
+            .map_err(|refusal| {
+                let (column, cause) = refusal.into_parts();
+                RdbmsError::ColumnDescription {
+                    table: physical_table.to_string(),
+                    column,
+                    cause,
+                }
             })?;
             columns.push(column);
         }

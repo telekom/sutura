@@ -325,7 +325,7 @@ where
         if behind.is_empty() {
             continue;
         }
-        let asked: BTreeSet<QualifiedTable> = behind.keys().cloned().collect();
+        let asked: BTreeSet<QualifiedTable> = behind.keys().copied().cloned().collect();
         let verdict = match engine.preflight(&asked) {
             Ok(TablesPresent::All) => Verdict::Present { asked: asked.len() },
             Ok(TablesPresent::NotAsked) => Verdict::NotReported { asked: asked.len() },
@@ -333,7 +333,10 @@ where
                 missing
                     .named()
                     .iter()
-                    .map(|table| (table.clone(), behind.get(table).cloned().unwrap_or_default()))
+                    .map(|table| {
+                        let names = behind.get(table).map(|models| models.iter().copied().cloned().collect());
+                        (table.clone(), names.unwrap_or_default())
+                    })
                     .collect(),
             )),
             // Carried straight through rather than joined against the bundle, because the models are
@@ -459,11 +462,14 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// Private, because every caller wants [`ask`]'s answer rather than this map - and it lives here
 /// rather than in two composition roots because it names nothing an operator reads and nothing an
 /// adapter declares: it is a query over a bundle.
-fn models_by_table(pinned: &PinnedDefinitions, source: &SourceName) -> BTreeMap<QualifiedTable, BTreeSet<ModelName>> {
-    let mut behind: BTreeMap<QualifiedTable, BTreeSet<ModelName>> = BTreeMap::new();
+fn models_by_table<'bundle>(
+    pinned: &'bundle PinnedDefinitions,
+    source: &SourceName,
+) -> BTreeMap<&'bundle QualifiedTable, BTreeSet<&'bundle ModelName>> {
+    let mut behind: BTreeMap<&QualifiedTable, BTreeSet<&ModelName>> = BTreeMap::new();
     for model in pinned.definitions().models().values() {
         if model.source() == source {
-            behind.entry(model.table().clone()).or_default().insert(model.name().clone());
+            behind.entry(model.table()).or_default().insert(model.name());
         }
     }
     behind

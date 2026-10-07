@@ -422,7 +422,7 @@ fn collisions(needles: &[Needle]) -> Vec<NeedleViolation> {
             }
         }
         let Some(b) = into else { continue };
-        if seen.insert((a.line, a.text.clone())) {
+        if seen.insert((a.line, a.text.as_str())) {
             out.push(NeedleViolation {
                 line: a.line,
                 needle: a.text.clone(),

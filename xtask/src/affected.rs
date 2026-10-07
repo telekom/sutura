@@ -51,6 +51,9 @@ mod datahub_aggregate;
 #[path = "affected/lockfile.rs"]
 mod lockfile;
 #[cfg(test)]
+#[path = "affected/moved_jobs_aggregate.rs"]
+mod moved_jobs_aggregate;
+#[cfg(test)]
 #[path = "affected/mutation_tests.rs"]
 mod mutation_tests;
 #[cfg(test)]
