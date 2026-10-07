@@ -228,7 +228,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             )
             .map_err(|cause| OpenMetadataError::ColumnDescription {
                 on: table.name().to_owned(),
-                column: column_name.clone(),
+                column: column_name,
                 cause,
             })?;
             columns.push(column);

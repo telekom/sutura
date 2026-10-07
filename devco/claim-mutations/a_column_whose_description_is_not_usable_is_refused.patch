@@ -8,6 +8,6 @@ index e9d606bc8..c8ccdf216 100644
              .map_err(|cause| OpenMetadataError::ColumnDescription {
 -                on: table.name().to_owned(),
 +                on: String::from("notorders"),
-                 column: column_name.clone(),
+                 column: column_name,
                  cause,
              })?;
