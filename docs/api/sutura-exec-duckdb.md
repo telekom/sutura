@@ -43,6 +43,8 @@ place the habit started.
   starts before the driver prepares, so a raw string's statements before its last are under it
   too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
   cancel leaves the statement to finish; `dry_run` only prepares and carries the deadline.
+  Binding and planning a statement are not interrupted; on the raw path the nesting bound is
+  what keeps their cost small on the shapes measured.
 - **The driver runs every statement of a string but the last at `set_sql_query`**, and prepares
   the last (the pinned `StatementSetSqlQuery`). A raw statement may be several; the screen reads
   every one before any runs, and `READ_ONLY` and `THEN_LOCKED` are what each of them runs

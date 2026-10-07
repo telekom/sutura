@@ -371,7 +371,9 @@ is now also the optional dependency behind `sutura-cli`'s default-off `duckdb` f
 `kind: duckdb` source opens.
 
 **Limit.** The stop lands at the engine's next interrupt check, not at the instant, and a failed
-cancel leaves the statement to finish. The cells are
+cancel leaves the statement to finish. Binding and planning a statement are not interrupted; on the
+raw path the screen's nesting bound is what keeps their cost small on the shapes measured. The
+cells are
 `a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name` and, for the raw path
 and a long statement placed before a raw string's last,
 `a_raw_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name`. A spent budget is
