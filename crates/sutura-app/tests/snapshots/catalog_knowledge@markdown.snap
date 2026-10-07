@@ -127,6 +127,12 @@ caveats:
       - metric: revenue_per_customer
       - metric: revenue_per_churned_subscription
     body: "Every revenue figure in this catalog is in MINOR UNITS - cents, not currency.\n\nA June figure of 202121 for `recurring_revenue` is 2021.21. The underlying column is stored that way\nso that a sum is exact integer arithmetic rather than a decimal somebody has to decide where to\nround, and no question ever names that column, so this note is the only place a caller learns it.\n\nDivide by a hundred before quoting a figure to a person, and say which unit you are quoting. A\nrevenue number a hundred times too large is the kind of wrong answer nobody thinks to check."
+  sales_area_as_of_today__recurring_revenue:
+    name: sales_area_as_of_today__recurring_revenue
+    about:
+      - metric: recurring_revenue
+        dimension: sales_area
+    body: "Each region rolls up into one sales area, and this catalog records that with no date beside it. A\nbreakdown by sales area files every month of a region's history under the area it rolls up into as\nrecorded: a region moved to another area takes all of its earlier months with it.\n\nSo a trend by sales area shows how the regions are grouped as recorded, not how they were grouped\neach month. Say so when a question asks how a sales area changed over time."
   subscriber_is_not_customer:
     name: subscriber_is_not_customer
     about:

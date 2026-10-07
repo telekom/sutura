@@ -49,7 +49,9 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
 /// system and there is nowhere for hop 2 to be planned. With `customers` moved onto
 /// [`LOOKUP_SOURCE`] the chain would cross at hop 1 and come back at hop 2 -
 /// `sutura_domain::catalog` refuses that bundle by name, so `sutura serve` would stop at boot
-/// rather than answer, which is exactly what it did before this call existed.
+/// rather than answer, which is exactly what it did before this call existed. The caveat written
+/// about `customer_region` goes with it: `sales_area` was the one dimension reached through that
+/// relationship, so the caveat would reach no metric and the load would refuse it by name.
 ///
 /// Applied only here, and not inside [`derived_catalog`]: `two_kind`'s and `bigquery.rs`'s
 /// deployments move `daily_usage` instead, and [`without_the_product_family_dimension`] is their
@@ -68,6 +70,8 @@ fn without_the_chained_dimension(root: &Path) {
         metric.display()
     );
     std::fs::write(&metric, stripped).expect("the derived metric document is writable");
+    std::fs::remove_file(root.join("knowledge").join("caveats").join("sales-area-as-of-today.md"))
+        .expect("the derived catalog carries the caveat written about the chain's second hop");
 }
 
 /// The block [`without_the_chained_dimension`] removes, as `examples/single-player` writes it.

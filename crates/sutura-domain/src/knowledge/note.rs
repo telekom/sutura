@@ -13,6 +13,7 @@
 use std::collections::BTreeSet;
 
 use super::{NoteBody, NoteName, Phrase, Referent, phrase_bytes, sum_bytes};
+use crate::model::RelationshipName;
 use crate::query::Query;
 
 /// One entry of the business glossary: the words people use, and the one thing they mean.
@@ -78,16 +79,37 @@ impl GlossaryEntry {
 /// text channel the module documentation refuses. The prompt renders each caveat inside the block of
 /// the metric it is about rather than as a preamble, so it is read by whoever is about to ask that
 /// question rather than by whoever is skimming the top of the document.
+///
+/// **Or written about relationships**, with [`Self::through`], when the trap is in a join rather
+/// than in one metric. Such a caveat never reaches a bundle as written: `Knowledge::assemble`
+/// expands it into one caveat per metric that reaches a dimension through one of them, so every
+/// caveat a [`super::Knowledge`] holds names no relationship.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Caveat {
     name: NoteName,
     about: Vec<Referent>,
+    // Skipped when empty, which every caveat a bundle holds is - so the serialized form, and every
+    // digest taken over it, is what it was before the field existed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    relationships: Vec<RelationshipName>,
     body: NoteBody,
 }
 
 impl Caveat {
     pub const fn new(name: NoteName, about: Vec<Referent>, body: NoteBody) -> Self {
-        Self { name, about, body }
+        Self {
+            name,
+            about,
+            relationships: Vec::new(),
+            body,
+        }
+    }
+
+    /// The same caveat, written about the metrics that reach a dimension through these relationships.
+    #[must_use]
+    pub fn through(mut self, relationships: Vec<RelationshipName>) -> Self {
+        self.relationships = relationships;
+        self
     }
 
     #[inline]
@@ -100,6 +122,12 @@ impl Caveat {
         &self.about
     }
 
+    /// The relationships this caveat was written about. Empty on every caveat a bundle holds.
+    #[inline]
+    pub fn relationships(&self) -> &[RelationshipName] {
+        &self.relationships
+    }
+
     #[inline]
     pub const fn body(&self) -> &NoteBody {
         &self.body
@@ -107,6 +135,7 @@ impl Caveat {
 
     pub(super) fn authored_bytes(&self) -> usize {
         sum_bytes(self.about.iter().map(Referent::authored_bytes))
+            .saturating_add(sum_bytes(self.relationships.iter().map(|name| name.as_str().len())))
             .saturating_add(self.name.as_str().len())
             .saturating_add(self.body.as_str().len())
     }

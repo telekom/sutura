@@ -219,7 +219,8 @@ fn glossary() -> Vec<GlossaryEntry> {
 
 // -------------------------------------------------------------------------------- the caveats ---
 
-/// The five caveats, each scoped to every metric its prose is about.
+/// The five caveats written about metrics, each scoped to every metric its prose is about, and the
+/// one a caveat about a relationship loads as.
 ///
 /// The scope is the part to transcribe carefully: a caveat attached to three of the four metrics it
 /// warns about is a warning that does not appear on the fourth, and nothing but this comparison would
@@ -261,6 +262,15 @@ fn caveats() -> Vec<Caveat> {
                 about("revenue_per_customer"),
                 about("revenue_per_churned_subscription"),
             ],
+        ),
+        // "A region rolls up into one sales area" - written once about `customer_region`, and loaded
+        // as one caveat per metric reaching a dimension through it: only `recurring_revenue`, whose
+        // `sales_area` chain is `[subscription_customer, customer_region]`. Stated here in that
+        // EXPANDED form, under the name the load derives, so the comparison checks the expansion
+        // rather than repeating it.
+        caveat(
+            "sales_area_as_of_today__recurring_revenue",
+            vec![about_dimension("recurring_revenue", "sales_area")],
         ),
     ]
 }

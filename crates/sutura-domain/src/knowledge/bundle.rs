@@ -28,13 +28,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::referent::{caveat_fault, declared_as, fault_in, glossary_fault, visible};
+use super::referent::{caveat_fault, declared_as, fault_in, glossary_fault, reached_through, visible};
 use super::{
     Absence, Absences, Capability, Caveat, Caveats, Example, Examples, Glossary, GlossaryEntry, KnowledgeCapabilities,
     MAX_KNOWLEDGE_BYTES, NoteName, Phrase, Referent, phrase_identity, sum_bytes,
 };
 use crate::catalog::{Definitions, DimensionValue};
-use crate::model::{ColumnName, DimensionName, Grain, MetricName, ModelName};
+use crate::model::{ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, ModelName, RelationshipName};
 use crate::pinned::view::ScopedView;
 use crate::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 
@@ -122,9 +122,11 @@ impl KnowledgeInput {
     /// indices - each phrase's identity computed and cloned into a map, each referent cloned, the
     /// claim map walked for a collision. An oversized input paid for all of that before it was
     /// refused. Measuring the input costs one pass over `Vec`s the caller already allocated, and it
-    /// is the same number: nothing here drops a note before the cap is checked, so summing before
-    /// indexing and summing after are the same total by construction, not by the assumption
-    /// `Knowledge::assemble`'s check used to rest on.
+    /// is the same number for every note but one kind: nothing here drops a note before the cap is
+    /// checked, so summing before indexing and summing after are the same total by construction. The
+    /// exception is a caveat written about relationships, which indexing EXPANDS into one caveat per
+    /// metric - counted here as written, and re-counted as expanded by `index_caveats`, which checks
+    /// the cap again on what the bundle will hold.
     fn authored_bytes(&self) -> usize {
         let glossary = sum_bytes(self.glossary.iter().map(GlossaryEntry::authored_bytes));
         let caveats = sum_bytes(self.caveats.iter().map(Caveat::authored_bytes));
@@ -224,6 +226,38 @@ pub enum InconsistentKnowledge {
     /// nobody. Only a glossary entry may mean a model or a column.
     #[error("caveat {name} is about model {model}, and a caveat is printed under a metric: name the metrics it warns about")]
     CaveatAboutAModel { name: NoteName, model: ModelName },
+    #[error("caveat {name} is about relationship {relationship}, which is not defined")]
+    CaveatUnknownRelationship { name: NoteName, relationship: RelationshipName },
+    /// A caveat about a relationship no dimension is reached through. It would expand into no caveat
+    /// at all and load read by nobody, which is [`Self::CaveatAboutAModel`]'s argument one step
+    /// along. A cross-model ratio's hop to its shared calendar does not count as reaching: nothing
+    /// names it in a `via`.
+    #[error("caveat {name} is about relationship {relationship}, and no metric reaches a dimension through it")]
+    CaveatRelationshipReachesNoMetric { name: NoteName, relationship: RelationshipName },
+    /// A caveat naming both `about` and `relationships`. The second is expanded into one caveat per
+    /// metric under a name derived from this one, and the first would be printed under this name,
+    /// so one document would become notes that warn about one metric twice under two names.
+    #[error("caveat {name} names metrics and relationships: a caveat is about one or the other")]
+    CaveatAboutAndThroughRelationships { name: NoteName },
+    /// The name a relationship caveat is printed under for one metric, `<caveat>__<metric>`, is not
+    /// a note name - which, both halves being names already, means it is past the 63 characters an
+    /// identifier may have. Refused rather than shortened: two metrics sharing a prefix would shorten
+    /// to one name.
+    #[error("caveat {caveat} would be printed under metric {metric} as {caveat}__{metric}, which is not a note name")]
+    DerivedCaveatNotAName {
+        caveat: NoteName,
+        metric: MetricName,
+        #[source]
+        cause: InvalidIdentifier,
+    },
+    /// The name a relationship caveat is printed under for one metric is already a caveat's: an
+    /// authored one, or another relationship caveat's under another metric.
+    #[error("caveat {caveat} would be printed under metric {metric} as {name}, which is already a caveat")]
+    DerivedCaveatNameTaken {
+        name: NoteName,
+        caveat: NoteName,
+        metric: MetricName,
+    },
     /// One phrase, claimed by TWO glossary entries. A phrase resolves to at most one thing across the
     /// whole glossary, and the check is on the CLAIM rather than on what it resolves to: two entries
     /// claiming one phrase are two bodies for it, and a map would keep the second silently.
@@ -533,7 +567,8 @@ impl Knowledge {
         // refused before it pays for what indexing costs: parsing every phrase's identity, cloning
         // every referent into a map, walking the claim index for a collision. `KnowledgeInput` owns
         // its `Vec`s, so this reads memory the caller already allocated rather than allocating more -
-        // the check itself is not what was expensive.
+        // the check itself is not what was expensive. The one index that GROWS its input - a caveat
+        // written about relationships, expanded per metric - re-checks this cap on what it produces.
         let bytes = input.authored_bytes();
         if bytes > MAX_KNOWLEDGE_BYTES {
             return Err(InconsistentKnowledge::KnowledgeTooLarge {
@@ -547,7 +582,7 @@ impl Knowledge {
         // worked question was asked.
         let mut claims: BTreeMap<String, Claim> = BTreeMap::new();
         let glossary = Self::index_glossary(definitions, input.glossary, &mut claims)?;
-        let caveats = Self::index_caveats(definitions, input.caveats)?;
+        let caveats = Self::index_caveats(definitions, input.caveats, bytes)?;
         let absences = Self::index_absences(definitions, input.absences, &mut claims)?;
         let examples = Self::index_examples(definitions, input.examples, &claims)?;
         Ok(Self {
@@ -601,9 +636,37 @@ impl Knowledge {
         Ok(indexed)
     }
 
-    fn index_caveats(definitions: &Definitions, notes: Vec<Caveat>) -> Result<Caveats, InconsistentKnowledge> {
+    /// The caveats, with every one written about relationships expanded into one per metric.
+    ///
+    /// **Two passes, and the order is what makes a collision a named refusal.** Every authored name
+    /// is claimed in the first, so a derived name that is already a note is refused as
+    /// [`InconsistentKnowledge::DerivedCaveatNameTaken`] whichever document arrived first, rather
+    /// than as a duplicate of whichever was indexed second.
+    ///
+    /// `bytes` is what the input was measured at. A relationship caveat is counted there as written;
+    /// here its own count is taken back and each caveat it expands into is added and checked as it is
+    /// built - so the cap bounds what the bundle holds, an expansion stops at the first caveat over
+    /// it, and a composed bundle re-assembling these derived caveats as authored ones arrives at the
+    /// same total.
+    fn index_caveats(definitions: &Definitions, notes: Vec<Caveat>, bytes: usize) -> Result<Caveats, InconsistentKnowledge> {
         let mut indexed: Caveats = BTreeMap::new();
+        let mut authored: BTreeSet<NoteName> = BTreeSet::new();
+        let mut written_through: Vec<Caveat> = Vec::new();
         for note in notes {
+            if !authored.insert(note.name().clone()) {
+                return Err(InconsistentKnowledge::DuplicateCaveat {
+                    name: note.name().clone(),
+                });
+            }
+            if !note.relationships().is_empty() {
+                if !note.about().is_empty() {
+                    return Err(InconsistentKnowledge::CaveatAboutAndThroughRelationships {
+                        name: note.name().clone(),
+                    });
+                }
+                written_through.push(note);
+                continue;
+            }
             if note.about().is_empty() {
                 return Err(InconsistentKnowledge::CaveatAboutNothing {
                     name: note.name().clone(),
@@ -620,10 +683,43 @@ impl Knowledge {
                     return Err(caveat_fault(&fault, note.name()));
                 }
             }
-            if let Some(existing) = indexed.insert(note.name().clone(), note) {
-                return Err(InconsistentKnowledge::DuplicateCaveat {
-                    name: existing.name().clone(),
-                });
+            // `authored` has already refused a second note with this name.
+            drop(indexed.insert(note.name().clone(), note));
+        }
+        let mut bytes = bytes;
+        for note in written_through {
+            bytes = bytes.saturating_sub(note.authored_bytes());
+            for (metric, dimensions) in reached_through(definitions, note.name(), note.relationships())? {
+                let name = NoteName::parse(format!("{}__{metric}", note.name())).map_err(|cause| {
+                    InconsistentKnowledge::DerivedCaveatNotAName {
+                        caveat: note.name().clone(),
+                        metric: metric.clone(),
+                        cause,
+                    }
+                })?;
+                if indexed.contains_key(&name) {
+                    return Err(InconsistentKnowledge::DerivedCaveatNameTaken {
+                        name,
+                        caveat: note.name().clone(),
+                        metric: metric.clone(),
+                    });
+                }
+                let about = dimensions
+                    .into_iter()
+                    .map(|dimension| Referent::Dimension {
+                        metric: metric.clone(),
+                        dimension: dimension.clone(),
+                    })
+                    .collect();
+                let derived = Caveat::new(name, about, note.body().clone());
+                bytes = bytes.saturating_add(derived.authored_bytes());
+                if bytes > MAX_KNOWLEDGE_BYTES {
+                    return Err(InconsistentKnowledge::KnowledgeTooLarge {
+                        bytes,
+                        limit: MAX_KNOWLEDGE_BYTES,
+                    });
+                }
+                drop(indexed.insert(derived.name().clone(), derived));
             }
         }
         Ok(indexed)

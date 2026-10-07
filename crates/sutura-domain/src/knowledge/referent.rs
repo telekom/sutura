@@ -4,9 +4,11 @@
 //! the walks from a note's names to what the bundle declares under them, and `bundle` holds the
 //! value they are collected into and the order the checks run in.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use super::{InconsistentKnowledge, NoteName, Phrase, Referent};
 use crate::catalog::{Definitions, DimensionValue};
-use crate::model::{ColumnName, DimensionName, MetricName, ModelName};
+use crate::model::{ColumnName, DimensionName, MetricName, ModelName, RelationshipName};
 use crate::pinned::view::ScopedView;
 
 /// What a referent got wrong, before the note that wrote it dresses it as its own error.
@@ -225,3 +227,53 @@ pub(super) fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName) -> Incons
         }
     }
 }
+
+/// The dimensions each metric reaches through any of these relationships: what a caveat written
+/// about them is expanded into, one caveat per metric.
+///
+/// **"Reaches" is read off a dimension's `via` and nothing else.** A metric uses a relationship when
+/// one of its dimensions names it anywhere in its chain, so the second hop of a two-hop chain counts.
+/// A cross-model ratio's hop to its shared calendar does not: `sutura_semantic`'s resolver matches
+/// that relationship by model rather than by a name in a `via`, so a caveat about it finds no metric
+/// here and is refused rather than attached to the ratio.
+///
+/// Ordered maps, so the derived caveats and the dimensions each is about come out in one order
+/// every load.
+pub(super) fn reached_through<'d>(
+    definitions: &'d Definitions,
+    name: &NoteName,
+    relationships: &[RelationshipName],
+) -> Result<Reached<'d>, InconsistentKnowledge> {
+    let mut reached = Reached::new();
+    for relationship in relationships {
+        if definitions.relationship(relationship).is_none() {
+            return Err(InconsistentKnowledge::CaveatUnknownRelationship {
+                name: name.clone(),
+                relationship: relationship.clone(),
+            });
+        }
+        let mut reaches_any = false;
+        for (metric, declared) in definitions.metrics() {
+            let through: Vec<&DimensionName> = declared
+                .dimensions()
+                .iter()
+                .filter(|&(_, dimension)| dimension.via().is_some_and(|hops| hops.contains(relationship)))
+                .map(|(dimension, _)| dimension)
+                .collect();
+            if !through.is_empty() {
+                reaches_any = true;
+                reached.entry(metric).or_default().extend(through);
+            }
+        }
+        if !reaches_any {
+            return Err(InconsistentKnowledge::CaveatRelationshipReachesNoMetric {
+                name: name.clone(),
+                relationship: relationship.clone(),
+            });
+        }
+    }
+    Ok(reached)
+}
+
+/// Each metric a relationship caveat reaches, and the dimensions it reaches through it.
+pub(super) type Reached<'d> = BTreeMap<&'d MetricName, BTreeSet<&'d DimensionName>>;
