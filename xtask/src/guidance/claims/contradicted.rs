@@ -709,7 +709,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         evidence: &[
             Evidence {
                 path: "nix/shipped.nix",
-                holds: "probeFeatures = [ \"bigquery\" \"postgres\" \"clickhouse\" ]",
+                holds: "probeFeatures = [ \"bigquery\" \"postgres\" \"duckdb\" \"clickhouse\" ]",
             },
             Evidence {
                 path: "crates/sutura-cli/Cargo.toml",

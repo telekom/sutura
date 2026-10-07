@@ -80,10 +80,9 @@ oracle = ["dep:sutura-exec-oracle"]
 
 # A local DuckDB database file, opened read-only - the zero-infrastructure source, raw SQL included.
 #
-# Default-off, and not in `nix/shipped.nix`'s `features`: this decides what a source build can
-# open, not what a release carries. The adapter opens DuckDB as its own ADBC driver - the archive a
-# musl link carries or the `libduckdb` `SUTURA_DUCKDB_ADBC_DRIVER` names - so the feature adds no
-# driver crate of its own.
+# Default-off for a source build, and in `nix/shipped.nix`'s `features`, so every release carries
+# it. The adapter opens DuckDB as its own ADBC driver - the archive a musl link carries or the
+# `libduckdb` `SUTURA_DUCKDB_ADBC_DRIVER` names - so the feature adds no driver crate of its own.
 duckdb = ["dep:sutura-exec-duckdb"]
 
 # The DataHub metadata adapter's HTTP reader (issue #202), for `sutura serve`'s `catalog.kind:

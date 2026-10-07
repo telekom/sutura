@@ -83,12 +83,12 @@ dimensions compiles to a plan and executes, and every metric that declares a cer
 reproduces it before the bundle can be served.
 
 The plan can also be *rendered* as SQL for `DuckDB`, Postgres or `ClickHouse`, and there is a `DuckDB`
-adapter that pushes a statement down - but no published binary links it: a `kind: duckdb` source
-needs a build carrying the default-off `duckdb` feature. Which DATA SYSTEM is opened is a
-declaration - `sources.<alias>.kind`, the same tree the service reads - and which KINDS a given build
-can open is a compile-time decision: a published binary opens `files`, `bigquery`, `postgres` and `clickhouse`,
-while `kind: oracle` and `kind: duckdb` still need a build carrying their own default-off feature.
-A build without one refuses that kind by name rather than silently falling back.
+adapter that pushes a statement down: a `kind: duckdb` source opens one local database file. Which
+DATA SYSTEM is opened is a declaration - `sources.<alias>.kind`, the same tree the service reads -
+and which KINDS a given build can open is a compile-time decision: a published binary opens `files`,
+`bigquery`, `postgres`, `clickhouse` and `duckdb`, while `kind: oracle` still needs a build carrying
+its own default-off feature. A build without the feature refuses that kind by name rather than
+silently falling back.
 [What can be plugged in today](architecture.md#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
 is the table, and it is the section to read before assuming otherwise.
 

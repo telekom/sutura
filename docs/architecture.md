@@ -133,14 +133,14 @@ That heading records an earlier direction; the implemented boundary is the plan 
 Postgres and ClickHouse use their own drivers. The domain returns
 `ResultBatches` (Arrow) rather than a `RowSet`, decoded to rows once at the
 presentation edge. DuckDB proves rendered SQL in the test suites and is also the adapter a
-`kind: duckdb` source opens behind a default-off feature, while the shipped BigQuery and Postgres
-adapters are runtime dependencies.
+`kind: duckdb` source opens, a runtime dependency of the shipped binary like the BigQuery and
+Postgres adapters.
 
 ### What can be plugged in today, and what the shipped binary actually uses
 
 The composition root chooses adapters at build time, then `sources.<alias>.kind` selects among
 those linked by the binary. `nix/shipped.nix` is the release feature list: it enables `bigquery`,
-`postgres`, `datahub`, `agent`, `tls`, `openmetadata` and `clickhouse` for the shipped binary. A local Cargo build without those
+`postgres`, `duckdb`, `datahub`, `agent`, `tls`, `openmetadata` and `clickhouse` for the shipped binary. A local Cargo build without those
 features has a narrower set; `sutura doctor` reports the adapters it links. Oracle remains
 default-off and absent from the shipped binary. [Integrations](integrations.md) records each
 adapter's capability and identity posture.
@@ -161,9 +161,9 @@ credential; it does not prove the served per-subject hop. [Where identity is pro
 keeps those venues separate. Postgres, DataFusion and the other shared adapters execute under a
 source identity declared by the deployment.
 
-DuckDB is not a shipped runtime adapter: a `kind: duckdb` source needs a build carrying the
-default-off `duckdb` feature. Rendering a dialect is
-also separate from executing it: `sutura compile` can produce SQL for a system whose adapter the
+DuckDB is a shipped runtime adapter for one local database file: a musl release links its driver,
+and any other build mounts the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. Rendering a
+dialect is also separate from executing it: `sutura compile` can produce SQL for a system whose adapter the
 binary cannot open. The real-server and conformance limits for each adapter belong in
 [Integrations](integrations.md), not in a claim about every shipped source.
 

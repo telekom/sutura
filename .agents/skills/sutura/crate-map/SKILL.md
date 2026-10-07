@@ -116,8 +116,8 @@ Rules that are not visible from a manifest:
 ## Why a driver is a dev-dependency
 
 DataFusion is the one data-system adapter `sutura-cli` links unconditionally, every other behind a
-default-off feature - `sutura-exec-duckdb` behind `duckdb`, for a `kind: duckdb` source, and in no
-published binary. Nothing links `libduckdb` any more:
+default-off feature - `sutura-exec-duckdb` behind `duckdb`, for a `kind: duckdb` source, which
+`nix/shipped.nix` turns on for every release. Nothing links `libduckdb` any more:
 `sutura-exec-duckdb` opens DuckDB as its own ADBC driver (`telekom/sutura#913`), the archive a musl
 link carries (`nix/duckdb-adbc.nix`) or the `libduckdb` `SUTURA_DUCKDB_ADBC_DRIVER` names.
 `nix/duckdb.nix` is the single path from nixpkgs to that library, imported by `flake.nix` and

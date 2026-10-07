@@ -1143,7 +1143,10 @@ directly:**
 ### The raw SQL tool over a duckdb source
 
 A local `DuckDB` database file is the zero-infrastructure source for `run_sql`: no server, no role,
-no password. It needs a build carrying the `duckdb` feature (default-off, in no published binary):
+no password. It needs a build carrying the `duckdb` feature, which every published binary has. A
+musl release links the DuckDB driver; any other build mounts the `libduckdb` that
+`SUTURA_DUCKDB_ADBC_DRIVER` names, and a Nix build on Apple silicon presets it (a value you set
+wins):
 
 ```yaml
 sources:
