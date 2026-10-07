@@ -1776,3 +1776,16 @@ runs every statement of a string except the last one, so this adapter sends it o
 statements and its own one-statement `attach_*` views. A certified answer goes on unread, so the
 domain's reader refuses a `REAL` or a non-finite `DOUBLE` downstream, with the engine's error,
 rather than the adapter refusing it.
+
+## Twentieth amendment, 2026-10-07: a `kind: duckdb` source opens the DuckDB adapter, and its deadline is enforced
+
+**What moved.** Two sentences in the seventeenth and nineteenth amendments are no longer true.
+"`sutura-exec-duckdb` stays a dev-dependency": `sutura-cli` now names the crate as an optional
+dependency behind its default-off `duckdb` feature, which a `kind: duckdb` source opens
+(`telekom/sutura#1292`). And "carry-only deadlines" and "Deadlines stay carried-only": the DuckDB
+adapter now stops a statement at the deadline with a watchdog that cancels the call's connection
+([0029](0029-where-a-deadline-lives.md)'s sixth amendment, `telekom/sutura#1236`).
+
+**What does NOT move.** The `duckdb` feature is not among `nix/shipped.nix`'s features, so nothing
+shipped links the adapter or calls the linked DuckDB driver, and the musl archive stays a carry-only
+cost. The adapter still declares `NoPlaceForASubject`.

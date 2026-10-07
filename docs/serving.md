@@ -1168,8 +1168,9 @@ it:
 - `enable_external_access = false`: nothing outside the database is read or written - `ATTACH`,
   `COPY ... TO`, `EXPORT DATABASE`, `read_csv`, `read_parquet`, `read_text`, `glob`, `INSTALL` and
   `LOAD` are refused. **On the pinned driver the disabled local file system below refuses each of
-  these first**, so no refusal is this option's alone and its cell asserts the setting; it is the
-  barrier for a network file system, which the pinned driver does not link.
+  these too**: it refuses every file read and `INSTALL` itself, and `LOAD` and `ATTACH 'md:'` once
+  this option is dropped. So no refusal is this option's alone and its cell asserts the setting; it
+  is the barrier for a network file system, which the pinned driver does not link.
 - `SET disabled_filesystems = 'LocalFileSystem'`: no local file is opened once the database is, so
   the declared file's own bytes - pages a `SELECT` no longer shows included - are not readable
   either, which external access alone leaves open. A setting rather than an option because the

@@ -81,10 +81,12 @@ pub const MOUNTED_DRIVER: &str = "SUTURA_DUCKDB_ADBC_DRIVER";
 /// without it. `access_mode` refuses a write or DDL. `enable_external_access` refuses every file and
 /// network read or write outside the database and every extension install or load (`ATTACH`,
 /// `COPY ... TO`, `read_csv`, `glob`, `INSTALL`, `LOAD`) - **and so does [`THEN_LOCKED`]'s disabled
-/// local file system, first**, so on the pinned driver no refusal is external access's alone and its
-/// cell asserts the setting rather than an effect. It stays for the file system that is not local:
-/// a network one a driver build links, which the pinned one does not. `DuckDB` itself refuses
-/// turning either option back while the database is open, locked or not.
+/// local file system**: a file read, `INSTALL` included, is refused by the file system, while `LOAD`
+/// and `ATTACH 'md:'` are refused by external access and, with it dropped, by the file system
+/// instead. So on the pinned driver no refusal is external access's alone, and its cell asserts the
+/// setting rather than an effect. It stays for the file system that is not local: a network one a
+/// driver build links, which the pinned one does not. `DuckDB` itself refuses turning either option
+/// back while the database is open, locked or not.
 pub const READ_ONLY: [(&str, &str); 2] = [("access_mode", "READ_ONLY"), ("enable_external_access", "false")];
 
 /// What [`DuckDbWarehouse::open`] runs on the database once it is open, in order, before the
@@ -532,7 +534,9 @@ impl DuckDbWarehouse {
     /// **The connection is cancelled, not the statement**: the driver manager holds a statement's
     /// lock for the whole `execute`, so a statement cancel waits for the very call it should stop.
     /// **And the watchdog is armed before `set_sql_query`**, which runs every statement of a string
-    /// but the last, so a raw string's earlier statements are under it as well.
+    /// but the last, so a raw string's earlier statements are under it as well. The pinned driver's
+    /// `execute` returns only once the statement has finished - a stop lands there even when the
+    /// first rows are ready at once - so a read of the stream is never what the cancel interrupts.
     fn watched(
         &self,
         sql: &str,
@@ -573,9 +577,6 @@ impl DuckDbWarehouse {
                 DuckDbError::Prepare { ref cause } | DuckDbError::Execute { ref cause }
                     if fired.load(Ordering::Acquire) && interrupted(cause) =>
                 {
-                    DuckDbError::DeadlineExceeded
-                }
-                DuckDbError::Batch { ref cause } if fired.load(Ordering::Acquire) && cause.to_string().contains("Interrupt") => {
                     DuckDbError::DeadlineExceeded
                 }
                 other => other,

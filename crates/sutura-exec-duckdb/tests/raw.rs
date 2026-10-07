@@ -109,11 +109,22 @@ mod raw {
             .expect("the probe answers one cell")
     }
 
+    /// **The watchdog lets go of a call when its answer arrives**, not when the budget runs out: the
+    /// call runs on a thread of its own, and an answer later than a third of its 30s budget fails
+    /// this cell's own bound.
     #[test]
     fn a_raw_select_answers_the_declared_database_rows() {
         let scratch = Scratch::new("select");
+        let (answered, answers) = mpsc::channel();
         let warehouse = scratch.open();
-        let (columns, rows) = answer(&warehouse, "SELECT id, amount FROM t ORDER BY id").into_parts();
+        std::thread::spawn(move || {
+            let rows = answer(&warehouse, "SELECT id, amount FROM t ORDER BY id");
+            drop(answered.send((rows, warehouse)));
+        });
+        let (rows, warehouse) = answers
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a two-row SELECT is answered well inside its 30s budget");
+        let (columns, rows) = rows.into_parts();
         assert_eq!(columns, ["id", "amount"]);
         assert_eq!(rows, table(&warehouse));
         assert_eq!(rows.len(), 2, "{rows:?}");
@@ -131,6 +142,8 @@ mod raw {
     }
 
     /// `access_mode`: no write and no DDL takes effect - asserted on the table, read afterwards.
+    /// `ATTACH ':memory:'` is refused by this option alone: without it a writable catalog would
+    /// join the database, for every later call.
     #[test]
     fn a_write_or_ddl_is_refused_and_leaves_the_database_unchanged() {
         let scratch = Scratch::new("write");
@@ -144,6 +157,7 @@ mod raw {
             "CREATE TABLE u AS SELECT 1 AS x",
             "CREATE VIEW v AS SELECT 1 AS x",
             "ALTER TABLE t ADD COLUMN extra INTEGER",
+            "ATTACH ':memory:' AS m",
         ] {
             let refused = refusal(&warehouse, sql);
             assert!(
@@ -156,6 +170,13 @@ mod raw {
             .into_parts()
             .1;
         assert_eq!(tables, [[Value::Text(String::from("t"))]], "{tables:?}");
+        assert_eq!(
+            one(
+                &warehouse,
+                "SELECT count(*) FROM duckdb_databases() WHERE database_name = 'm'"
+            ),
+            Value::Integer(0)
+        );
     }
 
     /// Nothing outside the declared database is read or written.
@@ -200,8 +221,9 @@ mod raw {
         );
     }
 
-    /// No extension is fetched or loaded - refused, on the pinned driver, by the disabled local
-    /// file system an install or load would read, before external access is asked.
+    /// No extension is fetched or loaded. On the pinned driver `INSTALL` is refused by the disabled
+    /// local file system and `LOAD` by external access - and, with external access dropped, by the
+    /// file system instead - so `disabled` matches either barrier's message.
     #[test]
     fn an_extension_is_neither_installed_nor_loaded() {
         let scratch = Scratch::new("extension");
@@ -332,6 +354,26 @@ mod raw {
             &corpus::presented(),
         );
         assert!(warehouse.result_did_not_fit(&error), "{error:?}");
+    }
+
+    /// A budget already spent is refused by the adapter itself, on a statement that would answer at
+    /// once - so the refusal is the check before the statement starts, not a stop while it runs.
+    #[test]
+    fn a_raw_statement_whose_budget_is_already_spent_is_refused_by_name() {
+        let scratch = Scratch::new("spent");
+        let warehouse = scratch.open();
+        let statement = RawStatement::parse("SELECT 1").expect("a test statement is a statement");
+        let spent = Deadline::opened_at(
+            Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .expect("ten seconds before now does not underflow the monotonic clock"),
+            Budget::parse(Duration::from_secs(1)).expect("a second is a budget"),
+        );
+        let executed = warehouse.execute_raw(&statement, &corpus::presented(), spent);
+        assert!(
+            matches!(&executed, Some(Err(error)) if warehouse.deadline_exceeded(error)),
+            "a spent budget must be refused as deadline_exceeded, got {executed:?}"
+        );
     }
 
     /// The deadline: the watchdog `execute` runs under cancels the connection on the raw path too,

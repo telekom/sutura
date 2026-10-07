@@ -364,8 +364,17 @@ is armed before the driver prepares, because the driver runs every statement of 
 the last while preparing it; an interrupt there carries the message and no detail, so the message is
 read too. `dry_run` only prepares and still carries the deadline.
 
+**What this supersedes.** Decision 1's table row for `sutura-exec-duckdb` - "(dev-dependency)",
+"Nothing in the first slices" and "It is a test venue" - and the limit "The DuckDB adapter observes
+nothing". The mechanism is the watchdog above, the stop is the engine's own interrupt, and the crate
+is now also the optional dependency behind `sutura-cli`'s default-off `duckdb` feature, which a
+`kind: duckdb` source opens.
+
 **Limit.** The stop lands at the engine's next interrupt check, not at the instant, and a failed
 cancel leaves the statement to finish. The cells are
 `a_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name` and, for the raw path
 and a long statement placed before a raw string's last,
-`a_raw_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name`.
+`a_raw_statement_still_running_at_its_deadline_is_stopped_and_refused_by_name`. A spent budget is
+`a_raw_statement_whose_budget_is_already_spent_is_refused_by_name`. The pinned driver's `execute`
+returns only once a statement has finished, even one whose first rows are ready at once, so the
+stop is always an `execute` or prepare failure and never one of the stream it hands back.
