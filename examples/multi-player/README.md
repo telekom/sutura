@@ -8,8 +8,9 @@ progress; it will be on the
 ## Setup requirements
 
 - **This demo:** Docker, Pulumi, and a Google Cloud test project. The Pulumi credential needs
-  permission to enable APIs, create the seed bucket, dataset, identity pool, provider, and test
-  accounts, and set IAM grants and row policies. These permissions are for setup only.
+  permission to read the project and enable APIs. It must create and remove the seed bucket,
+  objects, dataset, tables, identity pool, provider, and test accounts. It must run load jobs and
+  set IAM grants and row policies. Use these permissions for setup and teardown only.
 - **Enterprise:** Operators pre-create the accounts, identity provider, pool, data, and grants.
   Configure token exchange and the per-caller account map in sutura. The MCP runtime uses these
   existing resources. Grant query and read access to the source accounts, and approved impersonation

@@ -59,10 +59,11 @@ def jwks():
     signing = {"keys": [key for key in certs["keys"] if key.get("use") == "sig"]}
     if not signing["keys"]:
         sys.exit("the realm publishes no signing key")
-    # Google drops certificate fields from an uploaded JWKS.
-    for key in signing["keys"]:
-        for member in ("x5c", "x5t", "x5t#S256"):
-            key.pop(member, None)
+    # Google accepts only these members in an uploaded JWKS.
+    google = ("kty", "alg", "use", "kid", "n", "e", "x", "y", "crv")
+    signing["keys"] = [
+        {m: key[m] for m in google if m in key} for key in signing["keys"]
+    ]
     text = json.dumps(signing)
     write_for_sutura("jwks.json", text)
     if os.path.isdir(OUT):

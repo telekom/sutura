@@ -14,7 +14,7 @@
 </p>
 
 sutura is a semantic data runtime written in Rust. It serves queries over HTTP and MCP.
-Queries use certified metric definitions. Metadata and data sources connect through adapters.
+By default, queries use certified metric definitions. Metadata and data sources connect through adapters.
 A query can combine data from several sources.
 
 Deployments can verify caller tokens. Each data source declares the identity it uses.
