@@ -328,7 +328,7 @@ pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
 /// keyed store. It starts no thread, so a test suite that assembles one router per test does not
 /// accumulate one sweeper per test.
 pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
-    let settings = state.settings().clone();
+    let settings = state.settings();
     let limits = settings.rate_limit();
     let key = ClientAddress::from_settings(limits);
     announce_rate_limiting(settings.environment(), limits.enabled());
@@ -433,7 +433,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         metrics.layer(middleware::disabled_rate_limit_layer())
     };
 
-    let (documentation, documentation_limiter) = documentation(state, &settings, &key)?;
+    let (documentation, documentation_limiter) = documentation(state, settings, &key)?;
     limiters.extend(documentation_limiter);
 
     // The agent surface. Mounted at `/mcp` only when this build and deployment carry one, and only
