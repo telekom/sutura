@@ -366,3 +366,50 @@ fn push_prose(out: &mut String, prose: &str, heading: &str) {
         out.push('\n');
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sutura_app::prompt::CatalogProse;
+    use sutura_domain::pinned::view::ScopedView;
+
+    use super::CatalogContent;
+
+    /// Note bodies - the glossary, caveat, worked-example and undefined-term prose - follow the same
+    /// `prompt.catalog_prose` setting the metric and dimension descriptions do, on both halves of
+    /// one result.
+    ///
+    /// The omission cells over descriptions read a bundle that holds no note, so a
+    /// `describe_catalog` that quoted every note body under `omitted` stayed green until this cell.
+    /// Both settings are read here so the omission is a control and not an empty fixture.
+    #[test]
+    fn note_bodies_reach_the_mcp_catalog_only_under_the_quoted_prose_setting() {
+        // The glossary, caveat, undefined-term and worked-example bodies of the fixture's four notes.
+        const BODIES: [&str; 4] = [
+            "the finance-only meaning of capex",
+            "only a finance-granted caller should trust this number",
+            "CLV is deliberately undefined here",
+            "ask exactly this",
+        ];
+        let bundle = crate::testing::bundle_with_restricted_metric_and_glossary();
+        let view = ScopedView::everything(&bundle);
+
+        for (prose, carried) in [(CatalogProse::Quoted, true), (CatalogProse::Omitted, false)] {
+            let content = CatalogContent::of(&view, prose, None);
+            let rendered = serde_json::to_value(&content).expect("the catalog serializes");
+            let structured = rendered["knowledge"]
+                .as_str()
+                .expect("the catalog carries a knowledge section");
+            let text = content.as_text();
+            for half in [structured, text.as_str()] {
+                for body in BODIES {
+                    assert_eq!(
+                        half.contains(body),
+                        carried,
+                        "under `{}` a note body must be carried: {carried}; {body}: {half}",
+                        prose.as_str()
+                    );
+                }
+            }
+        }
+    }
+}

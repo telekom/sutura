@@ -37,8 +37,9 @@ visible in the code; these rules are not:
   are written for different readers. The exception is `knowledge`: both call one function, and
   `a_caller_reads_the_same_knowledge_over_http_as_over_mcp` holds the two texts equal for one caller
   under the default `catalog_prose: quoted`. HTTP under `omitted` is held by
-  `note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting`, MCP by its own omission
-  cells; no cell compares the two transports under `omitted`.
+  `note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting`, MCP by
+  `note_bodies_reach_the_mcp_catalog_only_under_the_quoted_prose_setting`; no cell compares the two
+  transports under `omitted`.
 - **The OpenAPI document is built at startup and served**, not dumped, so a missing path attribute
   fails to compile rather than producing a page with a gap.
 - **The attribution document is deliberately WIDER than any one binary**, which is the opposite of an
