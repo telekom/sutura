@@ -399,7 +399,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             )
             .map_err(|cause| RdbmsError::ColumnDescription {
                 table: physical_table.to_string(),
-                column: column_name.clone(),
+                column: column_name,
                 cause,
             })?;
             columns.push(column);
