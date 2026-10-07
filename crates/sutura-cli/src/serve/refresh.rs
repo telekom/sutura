@@ -114,22 +114,26 @@ where
     /// (`load_each`). On success with a changed digest, adopts the new bundle and audits the
     /// digest transition; on an unchanged digest, does nothing; on a refusal, keeps the bundle
     /// already in use and logs loudly rather than tearing anything down.
+    ///
+    /// The compare and the swap are one write lock (`send_if_modified`), so two concurrent callers
+    /// cannot both pass the compare and let the older load land last: a single poller is not what
+    /// keeps this correct.
     pub(crate) fn poll_once(&self) -> Outcome {
         match load_each(&self.catalogs) {
             Ok(next) => {
-                {
-                    let current = self.sender.borrow();
+                let rotated = self.sender.send_if_modified(|current| {
                     if next.digest() == current.digest() {
-                        return Outcome::Unchanged;
+                        return false;
                     }
                     tracing::info!(
                         previous_digest = current.digest().as_str(),
                         digest = next.digest().as_str(),
                         "a declared catalog refresh re-pinned this bundle"
                     );
-                }
-                drop(self.sender.send_replace(Arc::new(next)));
-                Outcome::Rotated
+                    *current = Arc::new(next);
+                    true
+                });
+                if rotated { Outcome::Rotated } else { Outcome::Unchanged }
             }
             Err(cause) => {
                 {
