@@ -4,7 +4,8 @@
 //! Its own fixture, because the shared one declares no relationship. Three models and two
 //! relationships, of which `customer_region` is declared and reached by no dimension; three metrics,
 //! two reaching the same `region` dimension through `subscription_customer` - one of them restricted
-//! to an audience - and one reaching nothing.
+//! to an audience - and one reaching nothing. A second fixture has one metric and one dimension two
+//! hops away, for the caveat that names either hop.
 
 use std::collections::BTreeSet;
 
@@ -28,9 +29,12 @@ fn relationship(raw: &str) -> RelationshipName {
     RelationshipName::parse(raw).expect("a test relationship is one")
 }
 
-/// `open` reaches `segment` and `region` through `subscription_customer`, `restricted` reaches
-/// `region` through it and is visible only to `finance`, and `own_total` reaches nothing.
-fn definitions_with(open: &str, restricted: &str) -> Definitions {
+/// The models and the relationships between them.
+type Declared = (Vec<Model>, Vec<Relationship>);
+
+/// Three models and the two relationships between them: `subscription_customer`, from
+/// `subscriptions` to `customers`, and `customer_region`, from `customers` to `regions`.
+fn declared() -> Declared {
     let source = SourceName::parse("local").expect("a test source is a source");
     let table = |raw: &str| TableName::parse(raw).expect("a test table is a table");
     let models = vec![
@@ -69,48 +73,68 @@ fn definitions_with(open: &str, restricted: &str) -> Definitions {
             .expect("a test relationship declares one key"),
         )
     };
-    let through_customer = |name: &str| {
-        Dimension::new(
-            dimension_name(name),
-            column(name),
-            Some(ViaChain::of(vec![relationship("subscription_customer")]).expect("a one-hop chain has hops")),
-            None,
-            Description::default(),
-        )
-    };
-    let metric = |name: &str, dimensions: Vec<Dimension>, audience: Audience| {
-        Metric::new(
-            metric_name(name),
-            model_name("subscriptions"),
-            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
-            Vec::new(),
-            column("month"),
-            BTreeSet::from([Grain::Month]),
-            dimensions,
-            None,
-            Description::default(),
-            audience,
-        )
-        .expect("these fixture dimensions are distinct")
-    };
-    let finance = Audience::Restricted(AudienceGrant::parse(BTreeSet::from([audience_id("finance")])).expect("one id grants"));
-    Definitions::assemble(
+    (
         models,
         vec![
             join("subscription_customer", "subscriptions", "customers", "customer_key"),
             join("customer_region", "customers", "regions", "region"),
         ],
+    )
+}
+
+/// A dimension on `column`, reached through `hops` in the order given.
+fn reached(name: &str, on: &str, hops: &[&str]) -> Dimension {
+    let chain = hops.iter().map(|hop| relationship(hop)).collect();
+    Dimension::new(
+        dimension_name(name),
+        column(on),
+        Some(ViaChain::of(chain).expect("a test chain has hops")),
+        None,
+        Description::default(),
+    )
+}
+
+fn metric(name: &str, dimensions: Vec<Dimension>, audience: Audience) -> Metric {
+    Metric::new(
+        metric_name(name),
+        model_name("subscriptions"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
+        Vec::new(),
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        dimensions,
+        None,
+        Description::default(),
+        audience,
+    )
+    .expect("these fixture dimensions are distinct")
+}
+
+/// `open` reaches `segment` and `region` through `subscription_customer`, `restricted` reaches
+/// `region` through it and is visible only to `finance`, and `own_total` reaches nothing.
+fn definitions_with(open: &str, restricted: &str) -> Definitions {
+    let (models, joins) = declared();
+    let customer = |name: &str| reached(name, name, &["subscription_customer"]);
+    let finance = Audience::Restricted(AudienceGrant::parse(BTreeSet::from([audience_id("finance")])).expect("one id grants"));
+    Definitions::assemble(
+        models,
+        joins,
         vec![
-            metric(
-                open,
-                vec![through_customer("segment"), through_customer("region")],
-                Audience::Open,
-            ),
-            metric(restricted, vec![through_customer("region")], finance),
+            metric(open, vec![customer("segment"), customer("region")], Audience::Open),
+            metric(restricted, vec![customer("region")], finance),
             metric("own_total", Vec::new(), Audience::Open),
         ],
     )
     .expect("the relationship fixture is consistent")
+}
+
+/// One metric whose only dimension is two hops away: `sales_area` is `region` on `regions`, reached
+/// through `subscription_customer` and then `customer_region`.
+fn definitions_with_a_chain() -> Definitions {
+    let (models, joins) = declared();
+    let chain = reached("sales_area", "region", &["subscription_customer", "customer_region"]);
+    Definitions::assemble(models, joins, vec![metric("recurring_revenue", vec![chain], Audience::Open)])
+        .expect("the chain fixture is consistent")
 }
 
 fn definitions() -> Definitions {
@@ -226,6 +250,34 @@ fn a_caller_who_sees_one_of_two_metrics_sharing_a_dimension_gets_exactly_that_me
         ]
     );
     assert_eq!(names(&ScopedView::everything(&pinned)).len(), 2);
+}
+
+#[test]
+fn a_caveat_about_either_hop_of_a_chain_is_about_the_dimension_reached_through_it() {
+    let knowledge = Knowledge::assemble(
+        &definitions_with_a_chain(),
+        only_caveats(vec![
+            through("first_hop", &["subscription_customer"]),
+            through("second_hop", &["customer_region"]),
+        ]),
+    )
+    .expect("a dimension is reached through every hop of its chain");
+    let sales_area = vec![Referent::Dimension {
+        metric: metric_name("recurring_revenue"),
+        dimension: dimension_name("sales_area"),
+    }];
+    let about = knowledge
+        .caveats()
+        .iter()
+        .map(|(name, note)| (String::from(name.as_str()), note.about().to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        about,
+        vec![
+            (String::from("first_hop__recurring_revenue"), sales_area.clone()),
+            (String::from("second_hop__recurring_revenue"), sales_area),
+        ]
+    );
 }
 
 #[test]
