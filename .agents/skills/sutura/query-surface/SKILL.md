@@ -35,7 +35,10 @@ visible in the code; these rules are not:
 - **Kept equal by review, not a test:** the field lists of the two wire types doing the same job on
   the two transports, and the prose - deliberately, since a tool description and an OpenAPI summary
   are written for different readers. The exception is `knowledge`: both call one function, and
-  `a_caller_reads_the_same_knowledge_over_http_as_over_mcp` holds the two equal.
+  `a_caller_reads_the_same_knowledge_over_http_as_over_mcp` holds the two texts equal for one caller
+  under the default `catalog_prose: quoted`. HTTP under `omitted` is held by
+  `note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting`, MCP by its own omission
+  cells; no cell compares the two transports under `omitted`.
 - **The OpenAPI document is built at startup and served**, not dumped, so a missing path attribute
   fails to compile rather than producing a page with a gap.
 - **The attribution document is deliberately WIDER than any one binary**, which is the opposite of an

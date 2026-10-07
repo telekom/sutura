@@ -41,8 +41,8 @@ const TAG: &str = "catalog";
             status = 403,
             description = "`code: insufficient_scope`. Your credential is valid and does not carry \
                            the scope this operation requires; the detail names it. Not a statement \
-                           about the catalog - nothing in it is hidden from a caller who may read it \
-                           at all.",
+                           about the catalog: a caller who may read it at all sees the metrics and \
+                           notes its own view holds.",
             body = crate::problem::ProblemBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

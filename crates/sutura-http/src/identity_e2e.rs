@@ -558,7 +558,15 @@ fn direct_overlay_granting_finance(issuer: &MockIssuer, key_set_path: &str) -> S
 /// A router serving [`bundle_with_a_restricted_metric`], behind a real leg-1 gate that maps a
 /// `groups` claim of `finance-team` onto `docs/adr/0028`'s `finance` audience.
 fn app_serving_two_metrics(issuer: &MockIssuer, published: &PublishedKeySet) -> axum::Router {
-    let overlay = direct_overlay_granting_finance(issuer, &published.path().to_string_lossy());
+    app_serving_two_metrics_with(issuer, published, "")
+}
+
+/// [`app_serving_two_metrics`] with more settings written after the inbound block.
+fn app_serving_two_metrics_with(issuer: &MockIssuer, published: &PublishedKeySet, more: &str) -> axum::Router {
+    let overlay = format!(
+        "{}\n{more}",
+        direct_overlay_granting_finance(issuer, &published.path().to_string_lossy())
+    );
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
         .expect("the audience-mapping overlay loads");
     let declaration = declared_inbound(&settings);
@@ -624,6 +632,17 @@ async fn knowledge_over_http(app: &axum::Router, token: &str) -> String {
     knowledge.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
+/// A token for a caller whose `groups` claim grants the `finance` audience, with every scope.
+fn a_finance_caller(issuer: &MockIssuer) -> String {
+    issuer
+        .mint(
+            &sutura_dev::issuer::Token::for_subject("finance-caller@example.com")
+                .granting(&every_scope())
+                .claiming("groups", serde_json::json!(["finance-team"])),
+        )
+        .expect("the issuer signs a token")
+}
+
 #[tokio::test]
 async fn a_caller_who_cannot_see_a_metric_is_sent_no_note_about_it_over_http() {
     // `docs/adr/0028`'s invisible-means-absent, for the notes written about a metric: the glossary
@@ -636,13 +655,7 @@ async fn a_caller_who_cannot_see_a_metric_is_sent_no_note_about_it_over_http() {
     let outsider = issuer
         .mint(&accepted_by("outsider@example.com"))
         .expect("the issuer signs a token");
-    let finance = issuer
-        .mint(
-            &sutura_dev::issuer::Token::for_subject("finance-caller@example.com")
-                .granting(&every_scope())
-                .claiming("groups", serde_json::json!(["finance-team"])),
-        )
-        .expect("the issuer signs a token");
+    let finance = a_finance_caller(&issuer);
 
     let seen_by_outsider = knowledge_over_http(&app, &outsider).await;
     let seen_by_finance = knowledge_over_http(&app, &finance).await;
@@ -663,6 +676,27 @@ async fn a_caller_who_cannot_see_a_metric_is_sent_no_note_about_it_over_http() {
         seen_by_outsider.contains("none of it is visible to you"),
         "the scoped glossary does not say it is scoped: {seen_by_outsider}"
     );
+}
+
+#[tokio::test]
+async fn note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting() {
+    // Both directions for one caller who may see every note: a handler that ignored the setting
+    // would pass either half alone, and `omitted` is the half the default-setting cells never run.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "notes-prose").expect("the key set publishes");
+    let finance = a_finance_caller(&issuer);
+
+    let quoted = knowledge_over_http(&app_serving_two_metrics(&issuer, &published), &finance).await;
+    let omitted = knowledge_over_http(
+        &app_serving_two_metrics_with(&issuer, &published, "prompt:\n  catalog_prose: omitted\n"),
+        &finance,
+    )
+    .await;
+
+    for body in [GLOSSARY_BODY, CAVEAT_BODY, EXAMPLE_BODY] {
+        assert!(quoted.contains(body), "`quoted` did not send a note body: {body}");
+        assert!(!omitted.contains(body), "`omitted` sent a note body: {body}");
+    }
 }
 
 #[tokio::test]
