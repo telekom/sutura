@@ -65,7 +65,7 @@ const RETIRED: &[&str] = &[
 ];
 
 /// The repository root, from this test binary's own manifest directory - the idiom
-/// `xtask/tests/cache_witness.rs` uses, and READ AT RUN TIME for the reason `flake.nix`'s source
+/// `xtask/tests/chart_gate.rs` uses, and READ AT RUN TIME for the reason `flake.nix`'s source
 /// filter states in its own header: `include_str!` resolves against the FILTERED copy in a nix
 /// build, and `checks.clippy` compiles every test target against it. `dprint.json` is not a Cargo
 /// input, so a compile-time include of it failed with `couldn't read xtask/tests/../../dprint.json`

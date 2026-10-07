@@ -3,7 +3,7 @@
 //! **A key an action does not declare is not an error on the runner.** It is
 //! `##[warning]Unexpected input(s) '<key>', valid inputs are [...]`, and then the action's own
 //! DEFAULT for whatever the author meant to set. The step is green, the job is green, and the only
-//! witness is a line in a log nothing reads. `.github/actions/causality-target-cache` passed
+//! witness is a line in a log nothing reads. A local cache action, since deleted, passed
 //! `path:` to `nix-community/cache-nix-action`, whose input is `paths:`, on every run it ever made
 //! - so the action took its default path list (`["/nix"]`) and the entry held a second copy of the
 //!   Nix store instead of the directory its key named. Twenty-one runs, one warning each,
