@@ -684,12 +684,14 @@ else - the reference adapter, the goldens, an adapter over a fixed external sche
 unconditionally through `Self::of`, which is why the serialized form below carries only the
 declared set and why no existing digest moves.
 
-**The conditional marking is a property of the CODE, not of the serialized declaration.** It is
+**The conditional marking is a property of the CODE, or of what a source states about itself,
+not of the serialized declaration.** It is
 deliberately absent from the `Serialize`/`Deserialize` below, which emit and read the declared
 set exactly as the previous newtype did - the contribution manifest's digest therefore records
 which kinds a source declared (so widening any declaration moves the digest) and not whether a
-kind was conditional (a property `sutura-app`'s assembler and the conformance suite read off the
-adapter's own `capabilities()`, never off a wire). A value that round-trips through serde loses
+kind was conditional (a property `sutura-app`'s assembler reads off the in-memory manifest entry
+and the conformance suite off the adapter's own `capabilities()`, never off a wire). So a markdown
+tree's `may_provide` list is not under the digest. A value that round-trips through serde loses
 the marking and reads as unconditionally declared, which is the stricter direction and the honest
 one: nothing in this repository deserializes a live declaration to serve with.
 
@@ -830,7 +832,8 @@ prompt, and a copy of it would be a second thing to keep in step.
 
 **This value duplicates nothing and derives nothing.** The knowledge capabilities a *bundle*
 carries (`crate::knowledge::Knowledge::declares`) are under the definition digest and travel
-with the answer; the declaration here is a property of the linked code. That the two agree is
+with the answer; the declaration here is a property of the linked code, or of what a source
+states about itself (a markdown tree's `kind: declaration` document). That the two agree is
 exactly what `Self::checked_against` checks, and it is a check rather than a derivation because
 a derivation could not fail.
 
@@ -11072,7 +11075,7 @@ Why text sent as a raw statement was refused before it ever reached a data syste
 
 - `Empty` - Nothing a data system could run: empty, or made entirely of whitespace.
 - `TooLong` - Over `MAX_RAW_STATEMENT_BYTES`. Refused rather than truncated: a statement cut at the byte bound is not the statement the caller sent, and running part of it would answer a different question under the caller's own name.
-- `EmbeddedNul` - Contains an embedded NUL byte, which no text-protocol statement can carry - `tokio-postgres` itself refuses one at the wire. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.
+- `EmbeddedNul` - Contains an embedded NUL byte, which no text-protocol statement can carry - libpq reads a statement as a NUL-terminated string, so the text after one would never be sent. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.
 
 #### Implements
 

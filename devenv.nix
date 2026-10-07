@@ -522,6 +522,12 @@ in
         ran+=(--ran "$task")
       done
 
+      # The fuzz replay is git-delta: it runs only for a diff in the "fuzzed tree" row. Said aloud
+      # when skipped, because no commit hook and no pull-request job replays the seeds either.
+      if ! grep -qx fuzz-smoke "$logs/tasks"; then
+        echo "== fuzz-smoke SKIPPED: the diff touches none of the fuzzed tree (surfaces.rs, 'fuzzed tree')"
+      fi
+
       echo "== what the hooks covered, and what they did not"
       cargo run -q -p xtask -- hook-coverage --since "$merge_base" \
         --log "pre-commit:$logs/pre-commit.log" \

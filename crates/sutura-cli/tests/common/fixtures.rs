@@ -5,6 +5,8 @@ use sutura_domain::catalog::{Column, Definitions, Description, Model};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{ColumnName, ModelName, QualifiedTable, SourceName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+use sutura_exec_postgres::adbc::{Channel, FixtureAdmin, PostgresDriver};
+use sutura_exec_postgres::fixture::FixtureCredential;
 
 /// The catalog's declared name.
 pub(crate) const CATALOG: &str = "dictionary";
@@ -17,8 +19,9 @@ pub(crate) const ENVIRONMENT: &str = "test";
 
 /// Installs the documentation-schema fixture: a per-run schema with a `columns` table whose
 /// rows describe `public.orders` (model `orders`, one primary-key column and one `amount`
-/// column), bound to `ENVIRONMENT` and not soft-deleted.
-pub(crate) fn install_documentation_schema(config: &tokio_postgres::Config) -> String {
+/// column), bound to `ENVIRONMENT` and not soft-deleted - over the tier's published endpoint at
+/// `host` and `port`, as the fixture role.
+pub(crate) fn install_documentation_schema(host: &str, port: u16) -> String {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the clock is after the epoch")
@@ -49,29 +52,17 @@ pub(crate) fn install_documentation_schema(config: &tokio_postgres::Config) -> S
            ('{ENVIRONMENT}', 'public', 'orders', 'orders', 'Customer orders.', \
             'amount', 2, 'numeric', 'The order total.', false, false)"
     );
-    run_sql(config, &statement);
-    schema
-}
-
-fn run_sql(config: &tokio_postgres::Config, statement: &str) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("a runtime builds");
-    let (client, connection) = runtime
-        .block_on(config.connect(tokio_postgres::NoTls))
-        .expect("the tier opens");
-    runtime.spawn(async move {
-        #[expect(
-            clippy::let_underscore_must_use,
-            clippy::let_underscore_untyped,
-            reason = "the connection driver task's own error has no caller in this setup path"
-        )]
-        let _ = connection.await;
-    });
-    runtime
-        .block_on(client.batch_execute(statement))
+    let source = SourceName::parse(CATALOG).expect("the catalog name parses");
+    let conninfo = FixtureCredential::from_env()
+        .unwrap_or_else(|unconfigured| panic!("{unconfigured}"))
+        .conninfo(&source, host, port, Channel::Plaintext)
+        .expect("the tier's published endpoint builds a connection string");
+    let driver = PostgresDriver::from_host().expect("the tier is up, so a driver is named");
+    FixtureAdmin::open(&driver, &conninfo)
+        .expect("the tier opens")
+        .run(&statement)
         .expect("the documentation-schema fixture installs");
+    schema
 }
 
 /// The bundle a cell expects, built independently of the binary under test from the same

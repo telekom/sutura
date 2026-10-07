@@ -18,11 +18,13 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
+use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
     Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDescription,
     InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
+use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
@@ -69,6 +71,9 @@ pub enum DocumentKind {
     NotDefined,
     /// A worked question: how somebody asked it, and what to send.
     Example,
+    /// What the tree supplies, when that is less than every kind the format can carry
+    /// ([`DeclarationDoc`]).
+    Declaration,
 }
 
 impl DocumentKind {
@@ -82,7 +87,54 @@ impl DocumentKind {
             Self::Caveat => "caveat",
             Self::NotDefined => "not_defined",
             Self::Example => "example",
+            Self::Declaration => "declaration",
         }
+    }
+}
+
+/// What one tree declares it supplies, in place of the format's whole declaration.
+///
+/// **Optional, and at most one per tree.** A tree without one declares every kind the format can
+/// carry, so every tree written before this document existed records the manifest it always did. A
+/// tree with one is held to it when it composes, in both directions, like any declaring source.
+/// `sutura import wren` writes one, because the model it converts is narrower than this format
+/// (`github.com/telekom/sutura#1278`).
+///
+/// `definitions:` must list `structure` and not under `may_provide:`: a tree always carries models,
+/// and one that did not would be an empty bundle, or notes rendered deployment-wide against
+/// `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`. A load without it is refused
+/// as `LocalCatalogError::DeclarationWithoutStructure`.
+///
+/// The knowledge half is also the bundle's own [`sutura_domain::knowledge::Knowledge`] declaration,
+/// which the agent-facing prompt renders: a kind left out reads as *nothing is kept here*. A kind
+/// listed must carry at least one note, because a knowledge kind cannot be declared and empty: the
+/// tree is refused at load when it carries a note of a kind it left out, and at composition when it
+/// lists a kind and carries no note of it.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeclarationDoc {
+    #[expect(
+        dead_code,
+        reason = "the tag is read by KindProbe; it is declared here so deny_unknown_fields does \
+                  not reject the document it dispatched on"
+    )]
+    kind: DocumentKind,
+    /// Definition kinds every bundle of this tree carries.
+    definitions: Vec<DefinitionKind>,
+    /// Definition kinds a bundle of this tree may carry none of.
+    #[serde(default)]
+    may_provide: Vec<DefinitionKind>,
+    /// The knowledge lists this tree keeps.
+    knowledge: Vec<Capability>,
+}
+
+impl DeclarationDoc {
+    /// The declaration this document states.
+    pub fn into_domain(self) -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of(self.definitions).and_may_provide(self.may_provide),
+            KnowledgeCapabilities::of(self.knowledge),
+        )
     }
 }
 

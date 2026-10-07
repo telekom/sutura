@@ -1,16 +1,14 @@
 diff --git a/crates/sutura-cli/src/catalog.rs b/crates/sutura-cli/src/catalog.rs
-index 144b658..2ddbd31 100644
+index 101c6a20c..3015ccd6d 100644
 --- a/crates/sutura-cli/src/catalog.rs
 +++ b/crates/sutura-cli/src/catalog.rs
-@@ -491,10 +491,3 @@ fn postgres_dictionary_reader(
-     }
--    .transpose()
--    .map_err(|cause| {
--        format!(
--            "`catalogs.{}.connection` is declared TLS and its material is not usable: {}",
--            settings.name(),
--            crate::commands::render(&cause)
--        )
--    })?;
-+    .and_then(Result::ok);
- 
+@@ -489,8 +489,7 @@ fn postgres_dictionary_reader(
+     };
+     let channel = match (declared.as_ref(), pair.as_ref()) {
+         (None, _) => Channel::Plaintext,
+-        (Some(anchors), None) => Channel::Verified(anchors),
+-        (Some(anchors), Some(pair)) => Channel::Mutual(anchors, pair),
++        (Some(_), _) => Channel::Plaintext,
+     };
+     // The connector's refusal names `sources.<name>`, its own key space; the catalog's key leads.
+     let conninfo = Conninfo::new(

@@ -202,12 +202,14 @@ impl core::fmt::Display for DefinitionKind {
 /// unconditionally through [`Self::of`], which is why the serialized form below carries only the
 /// declared set and why no existing digest moves.
 ///
-/// **The conditional marking is a property of the CODE, not of the serialized declaration.** It is
+/// **The conditional marking is a property of the CODE, or of what a source states about itself,
+/// not of the serialized declaration.** It is
 /// deliberately absent from the `Serialize`/`Deserialize` below, which emit and read the declared
 /// set exactly as the previous newtype did - the contribution manifest's digest therefore records
 /// which kinds a source declared (so widening any declaration moves the digest) and not whether a
-/// kind was conditional (a property `sutura-app`'s assembler and the conformance suite read off the
-/// adapter's own `capabilities()`, never off a wire). A value that round-trips through serde loses
+/// kind was conditional (a property `sutura-app`'s assembler reads off the in-memory manifest entry
+/// and the conformance suite off the adapter's own `capabilities()`, never off a wire). So a markdown
+/// tree's `may_provide` list is not under the digest. A value that round-trips through serde loses
 /// the marking and reads as unconditionally declared, which is the stricter direction and the honest
 /// one: nothing in this repository deserializes a live declaration to serve with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -386,7 +388,8 @@ pub enum UnfaithfulDeclaration {
 ///
 /// **This value duplicates nothing and derives nothing.** The knowledge capabilities a *bundle*
 /// carries ([`crate::knowledge::Knowledge::declares`]) are under the definition digest and travel
-/// with the answer; the declaration here is a property of the linked code. That the two agree is
+/// with the answer; the declaration here is a property of the linked code, or of what a source
+/// states about itself (a markdown tree's `kind: declaration` document). That the two agree is
 /// exactly what [`Self::checked_against`] checks, and it is a check rather than a derivation because
 /// a derivation could not fail.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

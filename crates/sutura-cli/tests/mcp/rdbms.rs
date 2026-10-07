@@ -81,8 +81,8 @@ mod tests {
         }
     }
 
-    /// What the fixture and the deployment need from the provisioned tier: a unix-socket config
-    /// for the fixture install (`local all all trust`, no TLS), and the TCP port plus credentials
+    /// What the fixture and the deployment need from the provisioned tier: the unix socket the
+    /// fixture installs over (`local all all trust`, no TLS), and the TCP port plus credentials
     /// for the spawned binary's own `verified` connections. `None` where nothing is provisioned
     /// (the `SKIPPED` notice is already on stderr).
     fn tier() -> Option<Tier> {
@@ -95,15 +95,8 @@ mod tests {
         let password = required(PASSWORD);
         let database = required(DATABASE);
         let anchor = required(ANCHOR);
-        let mut fixture_config = tokio_postgres::Config::new();
-        fixture_config
-            .host(endpoint.host())
-            .port(endpoint.port())
-            .user(&user)
-            .password(&password)
-            .dbname(&database);
         Some(Tier {
-            fixture_config,
+            socket: String::from(endpoint.host()),
             port: endpoint.port(),
             user,
             password,
@@ -114,7 +107,7 @@ mod tests {
 
     /// Everything the test reads off the provisioned tier.
     struct Tier {
-        fixture_config: tokio_postgres::Config,
+        socket: String,
         port: u16,
         user: String,
         password: String,
@@ -181,7 +174,7 @@ mod tests {
             return;
         };
         let data = DataDir::prepared("mcp-rdbms-boot-and-list");
-        let documentation_schema = install_documentation_schema(&tier.fixture_config);
+        let documentation_schema = install_documentation_schema(&tier.socket, tier.port);
         let dir = settings(&data.0, &tier, &documentation_schema);
 
         let mut agent = spawn_configured(&dir);

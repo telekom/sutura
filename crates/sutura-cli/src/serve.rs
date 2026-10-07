@@ -539,7 +539,7 @@ async fn serve_until_stopped(
     pinned: PinnedDefinitions,
     declared_catalogs: sutura_config::Catalogs,
 ) -> Result<(), String> {
-    refresh::drive(&catalogs, &pinned, &declared_catalogs);
+    refresh::drive(catalogs, pinned, &declared_catalogs);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.

@@ -122,6 +122,8 @@ finer split is a cheap change if a caller ever needs the branch.
   serialize, and the resulting hex failing to parse as a digest - are now both inside the
   domain's own hashing, and neither is a fact about reading a directory. The chain still says
   which one happened.
+- `SecondDeclaration` - A second `kind: declaration` document. A tree states one declaration; two would need a rule for which one wins, and a silent winner is the failure a declaration exists to prevent.
+- `DeclarationWithoutStructure` - A `kind: declaration` document whose `definitions:` does not list `structure` as always carried. A tree with no models is an empty bundle, and one with notes alone would render them deployment-wide, which `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md` rules out: knowledge speaks through a metric.
 
 ### Implements
 
@@ -219,6 +221,7 @@ which is what keeps "which directory is this in" from becoming part of the forma
   is `Absence`, which says what the thing is. Two names for two audiences, and the format's one
   is the one that appears in an error about a file.
 - `Example` - A worked question: how somebody asked it, and what to send.
+- `Declaration` - What the tree supplies, when that is less than every kind the format can carry (`DeclarationDoc`).
 
 #### Methods
 
@@ -229,6 +232,43 @@ pub const fn as_str(self) -> &'static str
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+### `struct DeclarationDoc`
+
+```rust
+pub struct DeclarationDoc
+```
+
+What one tree declares it supplies, in place of the format's whole declaration.
+
+**Optional, and at most one per tree.** A tree without one declares every kind the format can
+carry, so every tree written before this document existed records the manifest it always did. A
+tree with one is held to it when it composes, in both directions, like any declaring source.
+`sutura import wren` writes one, because the model it converts is narrower than this format
+(`github.com/telekom/sutura#1278`).
+
+`definitions:` must list `structure` and not under `may_provide:`: a tree always carries models,
+and one that did not would be an empty bundle, or notes rendered deployment-wide against
+`docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`. A load without it is refused
+as `LocalCatalogError::DeclarationWithoutStructure`.
+
+The knowledge half is also the bundle's own `sutura_domain::knowledge::Knowledge` declaration,
+which the agent-facing prompt renders: a kind left out reads as *nothing is kept here*. A kind
+listed must carry at least one note, because a knowledge kind cannot be declared and empty: the
+tree is refused at load when it carries a note of a kind it left out, and at composition when it
+lists a kind and carries no note of it.
+
+#### Methods
+
+```rust
+pub fn into_domain(self) -> MetadataCapabilities
+```
+
+The declaration this document states.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
 
 ### `struct KindProbe`
 

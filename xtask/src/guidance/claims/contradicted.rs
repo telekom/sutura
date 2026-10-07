@@ -154,7 +154,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     },
     Contradicted {
         // `telekom/sutura#1292` and `#1236`, landed together. Both records keep the sentence and
-        // correct it in a later amendment (0018's twentieth, 0029's sixth), so they are exempt and
+        // correct it in a later amendment (0018's twenty-first, 0029's sixth), so they are exempt and
         // this stops the wording coming back anywhere else.
         name: "the DuckDB adapter only carries its deadline and is a dev-dependency",
         wordings: &[

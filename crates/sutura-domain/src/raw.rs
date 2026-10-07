@@ -55,8 +55,8 @@ pub enum InvalidRawStatement {
     /// question under the caller's own name.
     #[error("a raw statement may be at most {limit} bytes, this one has {len}")]
     TooLong { len: usize, limit: usize },
-    /// Contains an embedded NUL byte, which no text-protocol statement can carry - `tokio-postgres`
-    /// itself refuses one at the wire. Named here, rather than left to surface as a driver error,
+    /// Contains an embedded NUL byte, which no text-protocol statement can carry - libpq reads a
+    /// statement as a NUL-terminated string, so the text after one would never be sent. Named here, rather than left to surface as a driver error,
     /// because a bound this deployment can decide before opening a connection should not wait for one.
     #[error("a raw statement may not contain a NUL byte")]
     EmbeddedNul,

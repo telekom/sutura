@@ -1777,7 +1777,36 @@ statements and its own one-statement `attach_*` views. A certified answer goes o
 domain's reader refuses a `REAL` or a non-finite `DOUBLE` downstream, with the engine's error,
 rather than the adapter refusing it.
 
-## Twentieth amendment, 2026-10-07: a `kind: duckdb` source opens the DuckDB adapter, and its deadline is enforced
+## Twentieth amendment, 2026-10-06: the catalog reader is on the connector, and `tokio-postgres` is gone
+
+**What moved.** Stage 3 of `telekom/sutura#913`: `sutura-catalog-rdbms`'s live Postgres reader dials
+through `sutura-adbc-postgres`. One read is one connection: autocommit off, `SET TRANSACTION
+ISOLATION LEVEL REPEATABLE READ READ ONLY` through `execute_update` (a fixed literal, under
+`clippy.toml`'s row), the select through `execute` with the environment and any equals value bound
+by `sutura_adbc::parameter_batch`, then a rollback. `postgres_channel` and its `rustls::ClientConfig`
+are deleted: the composition root builds the catalog's `Conninfo` from its declared channel the way
+it builds a source's. `tokio-postgres`, `tokio-postgres-rustls` and the 21 packages only they pulled
+leave `Cargo.lock`; the served-binary fixtures lock and install through `sutura-exec-postgres`'s
+`FixtureAdmin`.
+
+**What holds it.** `tests/provisioned.rs`, against the tier: a documentation view whose function
+writes is refused `25006`, and a read-write transaction mode turns that cell red; the row and byte
+caps refuse. `postgres_reader`'s unit cell bills a batch at its exact size and at one byte short,
+and skipping the bill turns it red.
+
+**What changed for an operator.** A catalog connection meets the connector's refusals at boot:
+`transport_anchors: system`, TLS over a unix socket or while `OPENSSL_CONF` is set, and an empty
+password. A key that does not match its certificate fails at libpq's connect, which the boot load
+reaches.
+
+**Limits.** With bound parameters the pinned driver executes through `PQexecPrepared` and returns
+the whole result as one batch (`bind_stream.h`, `result_reader.cc`), so the byte cap refuses a
+result libpq already holds; the select's `LIMIT`, one past the row cap, is what bounds the read, in
+rows and not in bytes. Neither bound limits elapsed time, and no statement timeout is set. The
+connector's refusal text names `sources.<catalog name>`, its own key space, behind the catalog's own
+key.
+
+## Twenty-first amendment, 2026-10-07: a `kind: duckdb` source opens the DuckDB adapter, and its deadline is enforced
 
 **What moved.** Two sentences in the seventeenth and nineteenth amendments are no longer true.
 "`sutura-exec-duckdb` stays a dev-dependency": `sutura-cli` now names the crate as an optional

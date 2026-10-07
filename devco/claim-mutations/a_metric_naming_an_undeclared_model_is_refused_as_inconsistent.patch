@@ -1,11 +1,10 @@
 diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
-index 00cc49974..2cc72853e 100644
 --- a/crates/sutura-catalog-local/src/lib.rs
 +++ b/crates/sutura-catalog-local/src/lib.rs
-@@ -551,8 +551,11 @@ impl Collected {
-     /// what keeps a fifth kind from needing an edit here. An adapter mapping a fixed external schema
-     /// gets the opposite treatment - `of([..])`, so a new kind leaves its declaration alone.
-     fn assemble(self) -> Result<Content, LocalCatalogError> {
+@@ -597,8 +597,11 @@
+     /// edit here.
+     fn assemble(self) -> Result<Declared, LocalCatalogError> {
+         let declared = self.declared.unwrap_or_else(<LocalCatalog as SemanticCatalog>::capabilities);
 -        let definitions = Definitions::assemble(self.models, self.relationships, self.metrics)
 -            .map_err(|cause| LocalCatalogError::Inconsistent { cause })?;
 +        let definitions =

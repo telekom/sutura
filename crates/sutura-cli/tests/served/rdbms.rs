@@ -130,7 +130,7 @@ mod tests {
             return;
         };
         let data = DataDir::prepared(case);
-        let documentation_schema = install_documentation_schema(&tier.config);
+        let documentation_schema = install_documentation_schema(&tier.host, tier.port);
         let deployment = start_configured(case, &settings(&data, &tier, &documentation_schema));
 
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
