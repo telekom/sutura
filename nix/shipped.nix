@@ -177,6 +177,11 @@ let
       # workspace depends on it. This entry keeps it that way: a dependency or feature that brings
       # it back into the shipped binary fails `checks.shipped-features`. A change that ships it
       # on purpose lifts the ban in the same diff, the way `permit` below lifts `ring` and `ureq`.
+      #
+      # Limit: `checks.shipped-features` runs only in `just shipped` and in the tag-triggered
+      # `release.yml` and `release-performance.yml`; `just validate` and every pull-request and
+      # merge-group job skip it. A change that brings the crate back stays green until a release
+      # or a local `just shipped`.
       alsoForbidden = [ "tokio-postgres" ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
       # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
