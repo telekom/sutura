@@ -5,8 +5,8 @@ caller's own service account (built, not yet proven against Google). The walkthr
 progress; it will be on the
 [documentation site](https://telekom.github.io/sutura/latest/examples/multi-player/).
 
-Quick start, from this directory: `./setup.sh`, then the Pulumi program in `infra/`, then
-`SUTURA_VERSION=<version> docker compose up -d`. The image must read
+Quick start, from this directory: `SUTURA_VERSION=<version> ./setup.sh`, then the Pulumi program in
+`infra/`, then `docker compose up -d`. The image must read
 `workload_identity.delegation`, and a release can predate it. If `sutura serve` refuses that key,
 build the image from this tree (`nix build .#oci && ./result | docker load`), then tag the loaded
 `sutura:latest` as `ghcr.io/telekom/sutura:<version>`.
