@@ -77,7 +77,7 @@ fn a_multi_user_agent_surface_with_no_inbound_identity_stops_the_process() {
 }
 
 /// A `single-user` loopback deployment serves `/mcp` with no `security.inbound`, as the deployment:
-/// every tool, and no token asked for because none is configured.
+/// every tool, `run_sql` included, and no token asked for because none is configured.
 ///
 /// The posture `/v1` already has there. Red on a tree that refused every inbound-less mount.
 #[cfg(feature = "agent")]
@@ -89,7 +89,11 @@ fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_
     let tools = tool_names(&served.mcp(None, &tools_list(2)));
     assert_eq!(
         tools,
-        vec![String::from("describe_catalog"), String::from("ask_metric")],
+        vec![
+            String::from("describe_catalog"),
+            String::from("ask_metric"),
+            String::from("run_sql")
+        ],
         "a deployment with no inbound identity answers with every tool it enables"
     );
 }

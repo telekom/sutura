@@ -12,6 +12,7 @@ use super::{METRICS_TOKEN, TOKEN};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 const AGENT: &str = "server:\n  agent_surface:\n    enabled: true\n";
+const LIMITED: &str = "rate_limit:\n  enabled: true\n";
 const SINGLE_USER: &str = "  identity: \"single-user\"\n  single_user_because: \"one operator, their own files\"\n";
 
 /// The settings an overlay loads to.
@@ -86,7 +87,7 @@ fn an_off_host_agent_surface_with_no_inbound_identity_needs_the_token_and_the_li
         ]
     );
     assert_eq!(
-        refused(&off_host("", "")),
+        refused(&off_host("", LIMITED)),
         vec![
             NotFitToServe::AccessTokenRequired {
                 because: TokenRequiredBy::OffHost
@@ -94,7 +95,7 @@ fn an_off_host_agent_surface_with_no_inbound_identity_needs_the_token_and_the_li
             NotFitToServe::AgentSurfaceWithoutInboundIdentity,
         ]
     );
-    serves(&off_host(&token, ""));
+    serves(&off_host(&token, LIMITED));
 }
 
 #[test]
