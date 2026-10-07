@@ -1,4 +1,4 @@
-//! Assembling the router: three tiers, and what guards each.
+//! Assembling the router: four tiers, and what guards each.
 //!
 //! # The tiers
 //!
@@ -29,9 +29,10 @@
 //! authentication attempts against a 32-character shared secret is the one thing a rate limiter in
 //! front of a bearer token is for.
 //!
-//! The order below is therefore: limiter, then gate, then the handler. Both subtrees that have a
-//! gate - the versioned API and the documentation - are assembled the same way, because the
-//! documentation router had the same inversion.
+//! The order below is therefore: limiter, then the `Host` check (where this deployment enforces
+//! one), then gate, then the handler. The three subtrees that have a gate - the versioned API, the
+//! documentation and the agent surface - are assembled the same way, because the documentation
+//! router had the same inversion.
 //!
 //! **This is why the sweeper is started here and in the same change.** With the gate outermost, an
 //! unauthenticated request was refused before it could create a bucket, so the only unauthenticated
@@ -680,11 +681,12 @@ fn inbound_layered(
 /// the outer one - an unverified caller is refused with leg 1's own `401` challenge before the
 /// transport is ever reached.
 ///
-/// **And the two outer layers `/v1` has, in `/v1`'s order**: the deployment token gate outside leg
-/// 1, and a general-tier limiter outside the gate, keyed by the same [`ClientAddress`] and swept by
-/// the same reaper. So `/mcp` gets the same rate limit and deployment token gate as `/v1`. The body
-/// cap is the transport's own, read from the same `server.max_body_bytes` (`sutura_mcp::http::config`),
-/// because a `DefaultBodyLimit` binds an `axum` extractor and the transport reads its own body.
+/// **And the three outer layers `/v1` has, in `/v1`'s order**: the deployment token gate outside leg
+/// 1, the `Host` check outside the gate, and a general-tier limiter outside the `Host` check, keyed
+/// by the same [`ClientAddress`] and swept by the same reaper. So `/mcp` gets the same rate limit,
+/// `Host` list and deployment token gate as `/v1`. The body cap is the transport's own, read from the
+/// same `server.max_body_bytes` (`sutura_mcp::http::config`), because a `DefaultBodyLimit` binds an
+/// `axum` extractor and the transport reads its own body.
 ///
 /// Returns `Option<Ungoverned>` rather than a bare router so the mount and its allowlist row stay
 /// one value end to end: `assemble` merges what this hands back and records the path it rides

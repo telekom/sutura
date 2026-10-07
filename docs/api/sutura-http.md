@@ -1578,8 +1578,8 @@ The layer that turns a presented token into a verified caller, or answers `401` 
 
 # Where it sits, and why after the deployment token rather than before
 
-`crate::router` installs the layers so a request travels: limiter, then the deployment token gate,
-then this. Two reasons, and neither is style:
+`crate::router` installs the layers so a request travels: limiter, then the `Host` check, then the
+deployment token gate, then this. Two reasons, and neither is style:
 
 - **Cost.** The deployment token comparison is two hashes; this is a signature verification. Doing
   the expensive one first would let an unauthenticated caller spend this deployment's CPU.
@@ -3186,7 +3186,7 @@ pub const fn code(&self) -> &'static str
 
 ## Module `router`
 
-Assembling the router: three tiers, and what guards each.
+Assembling the router: four tiers, and what guards each.
 
 # The tiers
 
@@ -3217,9 +3217,10 @@ wrong-token attempt never reached the limiter and never cost a cell. An unlimite
 authentication attempts against a 32-character shared secret is the one thing a rate limiter in
 front of a bearer token is for.
 
-The order below is therefore: limiter, then gate, then the handler. Both subtrees that have a
-gate - the versioned API and the documentation - are assembled the same way, because the
-documentation router had the same inversion.
+The order below is therefore: limiter, then the `Host` check (where this deployment enforces
+one), then gate, then the handler. The three subtrees that have a gate - the versioned API, the
+documentation and the agent surface - are assembled the same way, because the documentation
+router had the same inversion.
 
 **This is why the sweeper is started here and in the same change.** With the gate outermost, an
 unauthenticated request was refused before it could create a bucket, so the only unauthenticated

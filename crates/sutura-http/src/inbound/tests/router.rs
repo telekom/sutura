@@ -690,6 +690,26 @@ async fn the_protected_resource_metadata_route_answers_a_host_the_versioned_surf
     );
 }
 
+/// Liveness and the metrics scrape arrive with the pod's own address as their `Host`, so they answer a
+/// `Host` the versioned surface beside them refuses.
+#[tokio::test]
+async fn the_liveness_and_metrics_routes_answer_a_host_the_versioned_surface_refuses() {
+    let issuer = an_issuer();
+    let app = app_verifying(&issuer);
+    let token = granting(&issuer, "sutura:catalog.read");
+    assert_eq!(
+        status_of(&app, ("GET", "/v1/catalog"), Some(&token), None, Some("rebound.example.net")).await,
+        StatusCode::FORBIDDEN
+    );
+    for path in ["/health", "/metrics"] {
+        assert_eq!(
+            status_of(&app, ("GET", path), None, None, Some("rebound.example.net")).await,
+            StatusCode::OK,
+            "{path}"
+        );
+    }
+}
+
 /// The body of one GET carrying `host`.
 async fn asked_with_host(app: &axum::Router, path: &str, host: &str) -> String {
     use tower::ServiceExt as _;
