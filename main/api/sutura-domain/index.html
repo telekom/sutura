@@ -10080,7 +10080,7 @@ empty statement look non-empty.</p>
 <ul>
 <li><code>Empty</code> - Nothing a data system could run: empty, or made entirely of whitespace.</li>
 <li><code>TooLong</code> - Over <code>MAX_RAW_STATEMENT_BYTES</code>. Refused rather than truncated: a statement cut at the byte bound is not the statement the caller sent, and running part of it would answer a different question under the caller's own name.</li>
-<li><code>EmbeddedNul</code> - Contains an embedded NUL byte, which no text-protocol statement can carry - <code>tokio-postgres</code> itself refuses one at the wire. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.</li>
+<li><code>EmbeddedNul</code> - Contains an embedded NUL byte, which no text-protocol statement can carry - libpq reads a statement as a NUL-terminated string, so the text after one would never be sent. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.</li>
 </ul>
 <h4 id="implements_136">Implements<a class="headerlink" href="#implements_136" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>

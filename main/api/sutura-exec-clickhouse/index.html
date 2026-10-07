@@ -2146,8 +2146,7 @@ half, like <code>sutura_exec_postgres</code>: no OAuth, no impersonation.</p>
 runtime there, while <code>ureq</code> can execute the request directly. <code>ClickHouse</code>'s
 own HTTP interface asks for nothing more than one request/response per statement, which is
 <code>ureq</code>'s whole job. <strong>A pure-Rust driver either way</strong>: <code>ureq</code> with the <code>rustls</code> feature links
-no C TLS library, and this crate's own <code>tls</code> module (over <code>sutura-tls</code>) is what most of
-<code>sutura_catalog_rdbms::postgres_channel::client_config</code>'s reasoning transfers to.</p>
+no C TLS library, and this crate's own <code>tls</code> module (over <code>sutura-tls</code>) builds the verifier.</p>
 <h1 id="why-a-driver-shaped-seam-and-not-just-a-hand-rolled-client">Why a driver-shaped seam, and not just a hand-rolled client<a class="headerlink" href="#why-a-driver-shaped-seam-and-not-just-a-hand-rolled-client" title="Permanent link">&para;</a></h1>
 <p><code>transport::ClickHouseTransport</code> is the port this adapter's own port methods call through -
 <code>transport::Http</code> for a real connection, and a canned implementor for the
@@ -2320,9 +2319,8 @@ fixture. No committed fixture has one; a future one is refused rather than rewri
 <p>This process's fixture credential, as the tier exported it.</p>
 <h2 id="module-tls">Module <code>tls</code><a class="headerlink" href="#module-tls" title="Permanent link">&para;</a></h2>
 <p>Building the <code>ureq::tls::TlsConfig</code> a TLS <code>clickhouse</code> source channel verifies with.</p>
-<p>This is the TLS half of <code>sutura_config::sources::transport</code>, turned into a verifier - the same
-job <code>sutura_catalog_rdbms::postgres_channel::client_config</code> does for <code>rustls</code>, so that module's
-own header is this one's rather than restated: configuration owns the three-state DECLARATION (<code>plaintext</code> /
+<p>This is the TLS half of <code>sutura_config::sources::transport</code>, turned into a verifier:
+configuration owns the three-state DECLARATION (<code>plaintext</code> /
 <code>verified</code> / <code>mutual</code>), and this module owns turning a declared <code>verified</code> or <code>mutual</code> channel
 into the thing the client connects with. <strong>The declared-trust-store rule extends rather than
 forks</strong> (<code>docs/adr/0010</code>): a PEM bundle or the host's system store, read once by <code>config</code> and
