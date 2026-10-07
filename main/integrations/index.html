@@ -2389,7 +2389,8 @@ job once the ClickHouse ADBC migration (#1250) lands, and is not built (#1263).<
 <p><strong>Postgres is answered over ADBC.</strong> Every <code>kind: postgres</code> source runs through the ADBC PostgreSQL
 driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
 build mounts one named by <code>SUTURA_POSTGRES_ADBC_DRIVER</code> (a source refuses at boot where neither is
-there). <code>sutura doctor</code>'s <code>pg driver</code> line says which driver this process would open and whether it
+there; a Nix build on Apple silicon presets it to a driver the flake builds, and a value you set
+wins). <code>sutura doctor</code>'s <code>pg driver</code> line says which driver this process would open and whether it
 initialises. <strong>A source signs in only as its declared shared service account</strong>: with a password or
 a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
 credential cache <code>KRB5CCNAME</code> names, filled from <code>KRB5_CLIENT_KTNAME</code>'s keytab - which the
