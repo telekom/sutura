@@ -213,16 +213,18 @@ fn orphaned_lines(remove: &[&String], files: &[ChangedFile], read: &PostImage<'_
             continue;
         };
         let post: Vec<&str> = text.lines().collect();
-        let Some(Declares::OutOfLine(candidates)) = accounted_for(file, &post) else {
+        let Some(Declares::OutOfLine(declarations)) = accounted_for(file, &post) else {
             continue;
         };
-        if let Some(child) = candidates
-            .into_iter()
-            .find(|candidate| files.iter().any(|f| &f.path == candidate))
-        {
-            lines.push(format!(
-                "  orphaned:  {child}  (its `mod` is declared in {path}, which is new here - nothing to attach to at base)"
-            ));
+        for candidates in declarations {
+            if let Some(child) = candidates
+                .into_iter()
+                .find(|candidate| files.iter().any(|f| &f.path == candidate))
+            {
+                lines.push(format!(
+                    "  orphaned:  {child}  (its `mod` is declared in {path}, which is new here - nothing to attach to at base)"
+                ));
+            }
         }
     }
     lines
