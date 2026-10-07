@@ -338,7 +338,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
             )
             .map_err(|cause| DataHubError::ColumnDescription {
                 on: dataset.name().to_owned(),
-                column: column_name.clone(),
+                column: column_name,
                 cause,
             })?;
             columns.push(column);

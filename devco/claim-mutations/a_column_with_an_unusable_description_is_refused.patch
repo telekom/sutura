@@ -15,7 +15,7 @@ index a96e82f63..a391a460d 100644
 -            .map_err(|cause| DataHubError::ColumnDescription {
 +            .map_err(|cause| DataHubError::Description {
                  on: dataset.name().to_owned(),
--                column: column_name.clone(),
+-                column: column_name,
                  cause,
              })?;
              columns.push(column);
