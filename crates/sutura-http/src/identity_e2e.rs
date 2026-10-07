@@ -679,27 +679,6 @@ async fn a_caller_who_cannot_see_a_metric_is_sent_no_note_about_it_over_http() {
 }
 
 #[tokio::test]
-async fn note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting() {
-    // Both directions for one caller who may see every note: a handler that ignored the setting
-    // would pass either half alone, and `omitted` is the half the default-setting cells never run.
-    let issuer = an_issuer();
-    let published = PublishedKeySet::of(&issuer, "notes-prose").expect("the key set publishes");
-    let finance = a_finance_caller(&issuer);
-
-    let quoted = knowledge_over_http(&app_serving_two_metrics(&issuer, &published), &finance).await;
-    let omitted = knowledge_over_http(
-        &app_serving_two_metrics_with(&issuer, &published, "prompt:\n  catalog_prose: omitted\n"),
-        &finance,
-    )
-    .await;
-
-    for body in [GLOSSARY_BODY, CAVEAT_BODY, EXAMPLE_BODY] {
-        assert!(quoted.contains(body), "`quoted` did not send a note body: {body}");
-        assert!(!omitted.contains(body), "`omitted` sent a note body: {body}");
-    }
-}
-
-#[tokio::test]
 async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
     // `docs/adr/0028`'s "invisible means absent at both doors": resolving a metric this caller was
     // not granted has to reach the SAME refusal, with the SAME detail, as a metric this catalog
@@ -736,4 +715,25 @@ async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
 async fn ask_about(app: &axum::Router, token: &str, metric: &str) -> (StatusCode, String) {
     let body = format!(r#"{{"metrics":["{metric}"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
     call(app, request("POST", "/v1/query", Some(token), axum::body::Body::from(body))).await
+}
+
+#[tokio::test]
+async fn note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting() {
+    // Both directions for one caller who may see every note: a handler that ignored the setting
+    // would pass either half alone, and `omitted` is the half the default-setting cells never run.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "notes-prose").expect("the key set publishes");
+    let finance = a_finance_caller(&issuer);
+
+    let quoted = knowledge_over_http(&app_serving_two_metrics(&issuer, &published), &finance).await;
+    let omitted = knowledge_over_http(
+        &app_serving_two_metrics_with(&issuer, &published, "prompt:\n  catalog_prose: omitted\n"),
+        &finance,
+    )
+    .await;
+
+    for body in [GLOSSARY_BODY, CAVEAT_BODY, EXAMPLE_BODY] {
+        assert!(quoted.contains(body), "`quoted` did not send a note body: {body}");
+        assert!(!omitted.contains(body), "`omitted` sent a note body: {body}");
+    }
 }
