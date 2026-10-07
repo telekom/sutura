@@ -280,8 +280,13 @@ enum Requested<'a> {
 }
 
 fn main() -> ExitCode {
-    exit_quietly_on_broken_pipe();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Every command but `serve` prints a result. `serve` keeps std's hook: with its standard output
+    // gone its banner panics, the deployment did not start, and a supervisor must see a failure
+    // rather than a clean stop.
+    if args.first().is_none_or(|name| name != "serve") {
+        exit_quietly_on_broken_pipe();
+    }
     dispatch(&args)
 }
 

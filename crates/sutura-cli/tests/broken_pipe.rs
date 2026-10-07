@@ -64,4 +64,35 @@ mod tests {
             output.status
         );
     }
+
+    #[test]
+    fn serve_whose_standard_output_is_gone_fails_instead_of_stopping_cleanly() {
+        // The shell holds `serve` back until this test has dropped the read end of its standard
+        // output, so the banner meets a closed pipe on every run rather than on most of them. It
+        // reads one line from standard input, and the drop of that handle is the end of the input.
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "read _; exec \"$0\" \"$@\""])
+            .arg(env!("CARGO_BIN_EXE_sutura"))
+            .arg("serve")
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the shell runs the sutura binary");
+        drop(child.stdout.take());
+        drop(child.stdin.take());
+        let output = child.wait_with_output().expect("the child exits");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            stderr.contains("failed printing to stdout"),
+            "serve did not report that it could not print: {stderr}"
+        );
+        assert!(
+            !output.status.success(),
+            "serve ended cleanly with nothing to print to: {}",
+            output.status
+        );
+    }
 }
