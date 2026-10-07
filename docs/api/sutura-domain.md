@@ -1140,7 +1140,9 @@ The table's own name, without whatever sits above it.
 pub fn with_audience(self, audience: Audience) -> Self
 ```
 
-Declares who may see this model in an opted-in physical-schema listing.
+Declares who may see this model: in an opted-in physical-schema listing, and in a glossary
+entry that names the model or one of its columns. The second does not depend on
+`prompt.list_physical_schema`. A model that declares none is shown to no caller-scoped view.
 
 ```rust
 pub fn with_primary_key(self, primary_key: impl IntoIterator<Item>) -> Result<Self, InconsistentDefinitions>

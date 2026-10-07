@@ -394,7 +394,7 @@ decisions above stand as decided; this corrects the premise both security argume
 
 ## Second amendment, 2026-10-07: what the build of Q2 and Q3 decided where this record was silent
 
-Four points the build had to decide. The A/A/B decision stands; this records how it was built.
+Five points the build had to decide. The A/A/B decision stands; this records how it was built.
 
 - **A caveat about a model or a column is refused at load**, as `CaveatAboutAModel`. Q2 gives the
   two new referents to the glossary; this record did not say what a caveat naming one means. A
@@ -433,3 +433,11 @@ Four points the build had to decide. The A/A/B decision stands; this records how
   `Referent::Dimension` is visible only where its metric is - and
   `a_caller_who_sees_one_of_two_metrics_sharing_a_dimension_gets_exactly_that_metrics_caveat`
   holds it: with the dimension arm of that rule no longer reading the metric, the cell fails.
+- **A model or column note follows the model's audience, and `prompt.list_physical_schema` does
+  not gate it.** `Model::with_audience` was written as the audience of the physical-schema listing.
+  A glossary entry about a model or a column reads the same audience, through `ScopedView::model`,
+  so a deployment that declares model audiences for the listing and leaves it off still names those
+  models and columns in the glossary to every caller granted them. A model that declares no
+  audience is shown to no caller-scoped view. The first amendment says a glossary referent is the
+  first way a model or column is named in the prompt by default; this is the limit that follows
+  from it.

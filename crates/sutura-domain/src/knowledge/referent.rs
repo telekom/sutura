@@ -82,6 +82,10 @@ pub(super) fn fault_in<'a>(definitions: &Definitions, referent: &'a Referent) ->
 /// model only when its audience is granted, so a model declared with no audience is withheld from
 /// every caller-scoped view. The view scopes models and not columns, so a column is visible exactly
 /// when its model is.
+///
+/// **The limit:** the model's audience alone gates a model or column note. `prompt.list_physical_schema`
+/// is not read here, so a model whose audience was declared for that listing is also named in the
+/// glossary to every caller granted it, with the listing off.
 pub(super) fn visible(view: &ScopedView<'_>, referent: &Referent) -> bool {
     match *referent {
         Referent::Metric { ref metric } | Referent::Dimension { ref metric, .. } | Referent::Value { ref metric, .. } => {
