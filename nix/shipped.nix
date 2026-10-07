@@ -398,9 +398,14 @@ let
           set -o pipefail
           sh ${./kerberos-tier.sh} "$TMPDIR/kerberos-tier"
           . "$TMPDIR/kerberos-tier/env"
-          # One thread: both cells share the env's one MEMORY ccache, so a parallel sign-in can lose its ticket.
+          # One thread, on a HYPOTHESIS no run has measured: both cells share the env's one MEMORY
+          # ccache, so a parallel sign-in may lose its ticket.
           cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture --test-threads=1 2>&1 | tee kerberos.log
-          grep -qx 'linked-postgres-driver-signed-in-with-kerberos' kerberos.log
+          # Serial, libtest prints `test <name> ... ` first and the marker lands on that line (parallel,
+          # it has a line to itself), so the marker must END a line and follow either its start or that
+          # `... ` - whole-line `grep -x` refuses the serial log although both cells passed.
+          # `kerberos_verdict` in `nix/bigquery-driver-check.sh` holds the same pattern over both shapes.
+          grep -qE '(^|\.\.\. )linked-postgres-driver-signed-in-with-kerberos$' kerberos.log
         '';
         installPhaseCommand = "install -Dm644 kerberos.log $out/kerberos.log";
       });
