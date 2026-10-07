@@ -2632,12 +2632,13 @@ and what it does not cover.</p>
 <code>Warehouse</code>, leaving each adapter to choose its own transport and rendering. BigQuery uses ADBC;
 Postgres and ClickHouse use their own drivers. The domain returns
 <code>ResultBatches</code> (Arrow) rather than a <code>RowSet</code>, decoded to rows once at the
-presentation edge. DuckDB is a development dependency used to prove
-rendered SQL, while the shipped BigQuery and Postgres adapters are runtime dependencies.</p>
+presentation edge. DuckDB proves rendered SQL in the test suites and is also the adapter a
+<code>kind: duckdb</code> source opens, a runtime dependency of the shipped binary like the BigQuery and
+Postgres adapters.</p>
 <h3 id="what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today, and what the shipped binary actually uses<a class="headerlink" href="#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses" title="Permanent link">&para;</a></h3>
 <p>The composition root chooses adapters at build time, then <code>sources.&lt;alias&gt;.kind</code> selects among
 those linked by the binary. <code>nix/shipped.nix</code> is the release feature list: it enables <code>bigquery</code>,
-<code>postgres</code>, <code>datahub</code>, <code>agent</code>, <code>tls</code>, <code>openmetadata</code> and <code>clickhouse</code> for the shipped binary. A local Cargo build without those
+<code>postgres</code>, <code>duckdb</code>, <code>datahub</code>, <code>agent</code>, <code>tls</code>, <code>openmetadata</code> and <code>clickhouse</code> for the shipped binary. A local Cargo build without those
 features has a narrower set; <code>sutura doctor</code> reports the adapters it links. Oracle remains
 default-off and absent from the shipped binary. <a href="../integrations/">Integrations</a> records each
 adapter's capability and identity posture.</p>
@@ -2655,8 +2656,9 @@ that identity is not proven. The real-dataset corpus exercises statement accepta
 credential; it does not prove the served per-subject hop. <a href="../where-identity-is-proven/">Where identity is proven</a>
 keeps those venues separate. Postgres, DataFusion and the other shared adapters execute under a
 source identity declared by the deployment.</p>
-<p>DuckDB remains a test dependency rather than a shipped runtime adapter. Rendering a dialect is
-also separate from executing it: <code>sutura compile</code> can produce SQL for a system whose adapter the
+<p>DuckDB is a shipped runtime adapter for one local database file: a musl release links its driver,
+and any other build mounts the <code>libduckdb</code> that <code>SUTURA_DUCKDB_ADBC_DRIVER</code> names. Rendering a
+dialect is also separate from executing it: <code>sutura compile</code> can produce SQL for a system whose adapter the
 binary cannot open. The real-server and conformance limits for each adapter belong in
 <a href="../integrations/">Integrations</a>, not in a claim about every shipped source.</p>
 <p><strong>A catalogue may name its data system anything, and an UNDECLARED name is still refused - both

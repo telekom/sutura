@@ -931,6 +931,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#the-raw-sql-tool-over-a-duckdb-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The raw SQL tool over a duckdb source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#address-families" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2720,6 +2731,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#the-raw-sql-tool-over-a-duckdb-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The raw SQL tool over a duckdb source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#address-families" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4423,6 +4445,89 @@ directly:</strong></p>
 <li><strong>Which of several open sources a statement runs against.</strong> This build targets the sole registered
   data system and refuses rather than guesses where more than one is open; naming one is future work.</li>
 </ul>
+<h3 id="the-raw-sql-tool-over-a-duckdb-source">The raw SQL tool over a duckdb source<a class="headerlink" href="#the-raw-sql-tool-over-a-duckdb-source" title="Permanent link">&para;</a></h3>
+<p>A local <code>DuckDB</code> database file is the zero-infrastructure source for <code>run_sql</code>: no server, no role,
+no password. It needs a build carrying the <code>duckdb</code> feature, which every published binary has. A
+musl release links the DuckDB driver; any other build mounts the <code>libduckdb</code> that
+<code>SUTURA_DUCKDB_ADBC_DRIVER</code> names, and a Nix build on Apple silicon presets it (a value you set
+wins):</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">local</span><span class="p">:</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">duckdb</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nt">database_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/sutura/warehouse.duckdb</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared-service-user</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span><span class="nt">run_sql</span><span class="p">:</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<p>Everything the postgres section above says this service enforces holds here too: the switch and the
+scope, the wire shape with no provenance, the row cap, the multi-user boot refusal and the audit
+record. <strong>What differs is what bounds the statement.</strong> There is no role to grant. A text is screened
+before any of it runs, and the file is opened with two options and two settings made on it before
+anything else runs. Each is measured against the pinned driver by a cell in
+<code>crates/sutura-exec-duckdb/tests/raw.rs</code> that is red without it:</p>
+<ul>
+<li><strong>The screen</strong>: <code>DuckDB</code>'s own parser reads the text first (<code>json_serialize_sql</code>, the text bound
+  as a value, never spliced in). Every statement must be a <code>SELECT</code> - <code>DESCRIBE</code>, <code>SHOW</code>,
+  <code>SUMMARIZE</code>, <code>FROM t</code>, <code>TABLE t</code> and <code>VALUES</code> parse as one - and every table function it calls,
+  at any depth, one of the generators and catalog reads <code>sutura_exec_duckdb::RAW_TABLE_FUNCTIONS</code>
+  lists, unqualified. <code>CALL</code>, <code>PRAGMA</code>, <code>SET</code>, <code>EXPLAIN</code>, <code>CREATE</code>, a <code>PIVOT</code> statement, a table function not
+  listed and a tree nested too deep to read are refused before any statement in the text runs.</li>
+<li>
+<p><strong>The nesting bound</strong>: the text's queries may nest at most <code>sutura_exec_duckdb::MAX_NESTING</code> deep
+  and number at most <code>sutura_exec_duckdb::MAX_QUERIES</code>, across its statements, a reference to a CTE
+  counted as the query it names. A text past either is refused before any of it runs.</p>
+</li>
+<li>
+<p><code>access_mode = READ_ONLY</code>: no write and no DDL takes effect, and a file that is not there is
+  refused at boot rather than created.</p>
+</li>
+<li><code>enable_external_access = false</code>: nothing outside the database is read or written - <code>ATTACH</code>,
+  <code>COPY ... TO</code>, <code>EXPORT DATABASE</code>, <code>read_csv</code>, <code>read_parquet</code>, <code>read_text</code>, <code>glob</code>, <code>INSTALL</code> and
+  <code>LOAD</code> are refused. <strong>On the pinned driver the disabled local file system below refuses each of
+  these too</strong>: it refuses every file read and <code>INSTALL</code> itself, and <code>LOAD</code> and <code>ATTACH 'md:'</code> once
+  this option is dropped. So no refusal is this option's alone and its cell asserts the setting; it
+  is the barrier for a network file system, which the pinned driver does not link.</li>
+<li><code>SET disabled_filesystems = 'LocalFileSystem'</code>: no local file is opened once the database is, so
+  the declared file's own bytes - pages a <code>SELECT</code> no longer shows included - are not readable
+  either, which external access alone leaves open. A setting rather than an option because the
+  pinned driver (<code>nix/duckdb.nix</code>) refuses it at open: DuckDB sets it only on a running database.
+  Both settings are the database's, so each cell asserts its refusal on a connection opened after
+  the open returned, the kind a question runs on.</li>
+<li><code>SET lock_configuration = true</code>, last: no <code>SET</code> or <code>RESET</code> of an instance-wide setting (the three
+  above, threads, memory, the spill directory), which would otherwise outlive the statement for
+  every later call.</li>
+</ul>
+<p><strong>The settings do not rely on the screen.</strong> The driver runs every statement of a string but the last
+while preparing it, so <code>select 1; select 2</code> is two statements and both run, under the settings; each
+setting's cell runs with the screen left out, so it is red without that setting even where the
+screen would refuse first. Unlike the postgres source, one call is not one statement.</p>
+<p>The byte cap is <code>runtime.working_set_max_bytes</code>, spent while the result is read: a result over it is
+refused as <code>result_too_large</code>.</p>
+<p><strong>What this does not reach:</strong></p>
+<ul>
+<li><strong>The deadline stops a statement at the engine's next interrupt check, not at the instant</strong>
+  (<code>docs/adr/0029</code>, sixth amendment). A budget spent before the call is refused. Otherwise a
+  watchdog cancels the call's connection when the budget runs out, and the call answers
+  <code>deadline_exceeded</code>. It is armed before the driver prepares, so a string's statements before its
+  last are under it too. A cancel that fails leaves the statement to finish, holding its admission
+  slot. Binding a statement is not interrupted, and the optimizer checks for an interrupt only at
+  the start of each of its passes (read in the pinned DuckDB source, not measured); the screen's
+  nesting bound is what keeps their cost small on the shapes measured.</li>
+<li><strong>Spilling to disk is not measured.</strong> The spill directory is a local file system, which this open
+  disables, so a statement too large for memory is expected to fail rather than spill.</li>
+<li><strong>The screen walks the text, not what the database file declares.</strong> A macro or a view the file
+  holds is expanded after the screen, so what it calls is not walked or counted; the file is the operator's,
+  and the settings still hold under it. Scalar functions are not screened: a pass over the pinned
+  driver's function names found none that acts beyond its call, and that pass is not exhaustive.</li>
+<li><strong>A refused statement answers <code>statement_failed</code>, never <code>source_refused</code></strong>: the driver's error
+  carries nothing this adapter classifies, so a write refused by the read-only open reads the same as
+  a syntax error.</li>
+<li><strong><code>DuckDB</code>'s own memory is bounded by its default <code>memory_limit</code></strong>, not by
+  <code>runtime.working_set_max_bytes</code>.</li>
+<li><strong>One source.</strong> <code>run_sql</code> answers only where this is the deployment's sole source; a deployment with
+  a second source, of any kind, has no raw tool to run, as above.</li>
+</ul>
 <h3 id="address-families">Address families<a class="headerlink" href="#address-families" title="Permanent link">&para;</a></h3>
 <p><code>server.host</code> takes an address of either family. <code>127.0.0.1</code> and <code>::1</code> are both recognised as
 loopback, so neither of them trips the off-host refusal above, and <code>::1</code> may be written bracketed or
@@ -4486,7 +4591,7 @@ mutual TLS between pods answers it differently from a flat one, and nothing here
 <p>For the deployment where nothing sits in front. It needs <strong>a build that has a TLS listener in it</strong>,
 which every published binary is, since <code>github.com/telekom/sutura#685</code> step 5 - the plain <code>cargo
 build</code>/<code>cargo run</code> this repository's own commands use is the one that is not:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>tls<span class="w"> </span>--<span class="w"> </span>serve
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>tls<span class="w"> </span>--<span class="w"> </span>serve
 </span></code></pre></div>
 <p>The feature is off by default in a source build because most deployments do not use it, and a TLS
 stack compiled into an artifact that will never present a certificate is cost with no return. With
@@ -4495,11 +4600,11 @@ the feature off the dependency is absent from the build rather than merely unuse
 and a source build without <code>--features tls</code> handed this configuration stops rather than serving
 cleartext.</p>
 <p>Then:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nt">server</span><span class="p">:</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
 </span></code></pre></div>
 <p>Both halves or neither. A certificate with no key is refused rather than half-configured, and a path
 set to the empty string is an error naming the key rather than TLS quietly switching itself off -

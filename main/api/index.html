@@ -2169,7 +2169,8 @@ arrow points inward, at the domain.</p>
 <li><a href="sutura-exec-datafusion/">sutura-exec-datafusion</a> - THE engine. A <code>Warehouse</code> adapter that
   executes a plan over Arrow and generates no SQL</li>
 <li><a href="sutura-exec-duckdb/">sutura-exec-duckdb</a> - a <code>Warehouse</code> adapter over DuckDB as a DATA SOURCE:
-  it renders the plan into DuckDB SQL and pushes it down. A development dependency, not shipped</li>
+  it renders the plan into DuckDB SQL and pushes it down. Shipped in every release: a musl release
+  links the driver, any other build mounts it</li>
 <li><a href="sutura-app/">sutura-app</a> - the service, generic over the ports. Also the <code>Surface</code> driving port
   and its one implementor, so a transport implements nothing another transport owns</li>
 <li><a href="sutura-config/">sutura-config</a> - the settings tree and the startup refusals. Holds no

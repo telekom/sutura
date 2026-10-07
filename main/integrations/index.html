@@ -2331,7 +2331,7 @@ complete one.</p>
 <td>DuckDB</td>
 <td><code>sutura-exec-duckdb</code></td>
 <td>yes</td>
-<td>yes</td>
+<td>yes, behind a <code>duckdb</code> feature every release has; see below</td>
 <td>one process identity - <code>NoPlaceForASubject</code></td>
 </tr>
 <tr>
@@ -2375,6 +2375,19 @@ database agreed to. It signs in only as its declared shared service account - <c
 an <code>impersonation-at-source</code> declaration is refused at the composition root with the reason that no
 build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
 work lands.</p>
+<p><strong>DuckDB is the local kind: one database file, opened read-only, raw SQL included.</strong> A
+<code>kind: duckdb</code> source names one absolute <code>database_file</code>, and a build carrying the <code>duckdb</code>
+feature opens it - every release carries it, and a source build without it refuses the kind by
+name. Every musl release links the DuckDB driver statically; any other build mounts the <code>libduckdb</code>
+that <code>SUTURA_DUCKDB_ADBC_DRIVER</code> names, a source refusing at boot where neither is there, and a Nix
+build on Apple silicon presets it (a value you set wins). A raw <code>run_sql</code> text is screened by
+<code>DuckDB</code>'s own parser - reads only - and runs on the file opened read-only with external access off
+and the configuration locked (<a href="../serving/#the-raw-sql-tool-over-a-duckdb-source">Serving</a>
+says what that refuses and what it does not). The golden row runs against a file opened that way. It
+executes as the one process that holds the file - <code>NoPlaceForASubject</code>, so an
+<code>impersonation-at-source</code> declaration is refused at the composition root. At the deadline a
+watchdog cancels the call's connection, a raw statement's included, and the stop lands at the
+engine's next interrupt check (<code>docs/adr/0029</code>).</p>
 <p><strong>ClickHouse is the newest row and the one whose columns need reading together.</strong> It executes: a
 <code>kind: clickhouse</code> source is declarable and openable by a build carrying the <code>clickhouse</code> feature,
 which every release binary carries now that <code>github.com/telekom/sutura#955</code> landed. The golden and differential suites run the example

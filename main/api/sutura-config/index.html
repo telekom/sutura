@@ -5645,7 +5645,12 @@ legitimate one.</p>
   <code>ClickHouse</code> identity is wanted and not built.
 - <code>Oracle</code> - An Oracle Database, queried by rendering the plan into that dialect and pushing it down.</p>
 <p>Declarable and openable behind the <code>oracle</code> feature - <code>ClickHouse</code>'s shape, identity half
-  included. <code>SourcePlacement::Oracle</code> carries what the driver cannot be told about TLS.</p>
+  included. <code>SourcePlacement::Oracle</code> carries what the driver cannot be told about TLS.
+- <code>Duckdb</code> - A local <code>DuckDB</code> database file, opened read-only, and the one kind with no server at all.</p>
+<p>Declarable and openable behind the <code>duckdb</code> feature, <code>Postgres</code>'s shape. One process holds the
+  file under its own operating-system identity, so <code>sutura_exec_duckdb</code>'s
+  <code>Warehouse::IMPERSONATION</code> is <code>NoPlaceForASubject</code> and an <code>impersonation-at-source</code> entry is
+  refused at the composition root's posture cross-check.</p>
 <h4 id="methods_47">Methods<a class="headerlink" href="#methods_47" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-263-1"><a id="__codelineno-263-1" name="__codelineno-263-1" href="#__codelineno-263-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -6088,7 +6093,8 @@ be skipped" look like the same sentence and are not.</p>
   states it and names the cell that holds it). Plaintext only, because the driver takes no
   caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
   widens, so no declared <code>transport_anchors</code> could be what the source verifies against. A field
-  here that could only ever hold <code>Plaintext</code> would be a choice the type pretends exists.</p>
+  here that could only ever hold <code>Plaintext</code> would be a choice the type pretends exists.
+- <code>Duckdb</code> - A local <code>DuckDB</code> database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.</p>
 <h5 id="methods_55">Methods<a class="headerlink" href="#methods_55" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-300-1"><a id="__codelineno-300-1" name="__codelineno-300-1" href="#__codelineno-300-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
 </span></code></pre></div>

@@ -2424,7 +2424,8 @@ tells what these checks do not prove.</p>
 <p>Nix builds sutura and its drivers from source. Nix must have the <code>nix-command</code> and <code>flakes</code>
 features. The first build takes a long time. On Apple silicon (aarch64-darwin), a Nix build of
 <code>main</code> links the BigQuery driver, and mounts a PostgreSQL driver that it builds and names in
-<code>SUTURA_POSTGRES_ADBC_DRIVER</code> unless you set that variable. Earlier releases do neither.</p>
+<code>SUTURA_POSTGRES_ADBC_DRIVER</code> and a DuckDB driver that it names in <code>SUTURA_DUCKDB_ADBC_DRIVER</code>,
+unless you set those variables. Earlier releases do none of this.</p>
 <p>Install a release:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>nix<span class="w"> </span>profile<span class="w"> </span>install<span class="w"> </span><span class="s2">"github:telekom/sutura/v</span><span class="si">${</span><span class="nv">SUTURA_VERSION</span><span class="si">}</span><span class="s2">"</span>
 </span></code></pre></div>

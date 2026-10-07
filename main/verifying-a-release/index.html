@@ -2670,8 +2670,8 @@ executable. That is worth a sentence, because the obvious way to produce this li
   document says so.</li>
 <li>
 <p>It would also be the <strong>wrong list</strong>. <code>Cargo.lock</code> records what cargo <em>resolved</em>, not what the
-  linker <em>kept</em>: <code>sutura-exec-duckdb</code> proves the SQL a test suite renders and is never wired into
-  a shipped feature, so the DuckDB adapter is in the resolve graph and never in the binary. A
+  linker <em>kept</em>: <code>sutura-exec-oracle</code> sits behind a default-off feature that no release enables,
+  so the Oracle adapter is in the resolve graph and never in the binary. A
   workspace-wide document names it anyway and is wrong in the direction that matters, which is
   overstating what ships.</p>
 </li>

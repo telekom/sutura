@@ -2348,22 +2348,40 @@ engine library defines <code>duckdb_adbc_init</code> - so the driver is the arch
 (<code>nix/duckdb-adbc.nix</code>, both musl triples) or the <code>libduckdb</code> <code>MOUNTED_DRIVER</code> names. A result
 arrives as Arrow batches and is handed on as the driver typed it: which types answer is decided
 once, by the domain's reader (<code>ResultBatches::to_rows</code>), for every Arrow adapter alike.</p>
-<p>Two things this adapter deliberately does not offer:</p>
-<p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes an <code>Executable</code> and renders
-the statement itself, into a <code>GeneratedQuery</code> that carries its parameters separately. There is
-no method that takes a string. A development affordance that ran a statement somebody typed would
-be the shortest path around every check upstream of here.</p>
+<p><strong>A raw statement runs only on a database <code>DuckDbWarehouse::open</code> opened</strong> (<code>docs/adr/0013</code>).
+<code>DuckDbWarehouse::execute</code> takes an <code>Executable</code> and renders the statement itself; the one door
+a caller's text reaches is <code>Warehouse::execute_raw</code>, and it answers <code>None</code> on a database
+<code>DuckDbWarehouse::in_memory</code> opened. The text is screened first - every statement a <code>SELECT</code>
+by <code>DuckDB</code>'s own parser, calling only <code>RAW_TABLE_FUNCTIONS</code> - and a file is opened with
+<code>READ_ONLY</code> and then <code>THEN_LOCKED</code>: no write, no file or network outside the database, no
+extension, and the configuration locked so no statement can turn any of that back. <strong>The
+settings do not rely on the screen</strong>: the driver runs every statement of a string but the last
+while preparing it, and each setting has a cell that runs with the screen left out.</p>
 <p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and
 although this adapter has no row-level security to leak through, adding a cache here would be the
 place the habit started.</p>
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>The deadline is carried, not enforced</strong> (<code>docs/adr/0029</code>): the driver's <code>ConnectionCancel</code>
-  interrupts a running statement, and honouring the deadline needs a watchdog per call
-  (<code>telekom/sutura#1236</code>).</li>
+<li><strong>The deadline is a watchdog per call</strong> (<code>docs/adr/0029</code>, sixth amendment): on
+  <code>DuckDbWarehouse::execute</code> and on the raw path, a thread calls the driver's <code>ConnectionCancel</code>
+  when the budget is spent, the engine answers <code>Interrupt</code>, and that is read as the deadline. It
+  starts before the driver prepares, so a raw string's statements before its last are under it
+  too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
+  cancel leaves the statement to finish; <code>dry_run</code> only prepares and carries the deadline.
+  Binding a statement is not interrupted, and the optimizer checks for an interrupt only at the
+  start of each of its passes (read in the pinned <code>DuckDB</code> source, not measured); on the raw
+  path the nesting bound is what keeps their cost small on the shapes measured.</li>
 <li><strong>The driver runs every statement of a string but the last at <code>set_sql_query</code></strong>, and prepares
-  the last (the pinned <code>StatementSetSqlQuery</code>). Only rendered statements and this crate's own
-  <code>attach_*</code> views reach it, each one statement.</li>
+  the last (the pinned <code>StatementSetSqlQuery</code>). A raw statement may be several; the screen reads
+  every one before any runs, and <code>READ_ONLY</code> and <code>THEN_LOCKED</code> are what each of them runs
+  under.</li>
+<li><strong>What a raw text may be</strong>: reads only - every statement a <code>SELECT</code> by <code>DuckDB</code>'s own parser,
+  calling only <code>RAW_TABLE_FUNCTIONS</code>, its queries nested no deeper than <code>MAX_NESTING</code> and
+  no more than <code>MAX_QUERIES</code> of them. A macro or view the database file declares is expanded
+  after the screen and not walked or counted, and scalar functions are not screened.
+  <code>DuckDB</code>'s own <code>memory_limit</code> is its default, not <code>runtime.working_set_max_bytes</code>, and spilling
+  is unmeasured: no local file opens after the database does, so a statement too large for
+  memory is expected to fail rather than spill.</li>
 <li><strong>A certified answer is handed on unread</strong>, so a <code>REAL</code>, a non-finite <code>DOUBLE</code> or an unmapped
   type is refused by the domain's reader downstream rather than as a <code>DuckDbError</code>.</li>
 </ul>
@@ -2394,6 +2412,8 @@ place the habit started.</p>
   projects two aggregates over no group, so one row of two integers is the only shape it can
   have. It travels as an <code>Err</code> from the port, which the boot path reads as <em>this declaration
   went unchecked</em> rather than as a violated one.
+- <code>DeadlineExceeded</code> - The deadline ran out: spent before the statement started, or the watchdog interrupted it.
+- <code>NotARead</code> - A raw text the screen refused before any of it ran; see <code>RAW_TABLE_FUNCTIONS</code>.
 - <code>Render</code> - The plan could not be rendered as SQL.
 - <code>FixtureRead</code> - The fixture CSV could not be read to name its column types.
 - <code>FixtureSchema</code> - The fixture CSV did not satisfy the shared schema boundary.
@@ -2439,28 +2459,82 @@ from drifting from the other fixture adapters. Available only with the default-o
 feature.</p>
 <h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
 <p><code>DuckDbError::FixtureRead</code>, <code>DuckDbError::FixtureSchema</code>, or <code>DuckDbError::Attach</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_memory</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">execute_unscreened</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">statement</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RawStatement</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">Deadline</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">RawRows</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Opens a database that exists only for this process.</p>
-<p>What the golden suite uses: a fixture that is built from a committed CSV every run cannot
-drift from the CSV, and a database file in the repository would be a binary nobody reviews.
+<p><code>Warehouse::execute_raw</code> with the screen left out and no credential read, so each of
+<code>READ_ONLY</code> and <code>THEN_LOCKED</code> keeps a cell in <code>tests/raw.rs</code> held by a refusal of its own
+rather than the screen's. Fixtures only: no build that serves links it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_memory</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Opens a database that exists only for this process, WRITABLE - so it accepts no raw statement.</p>
+<p>What the conformance packs and the differential use, attaching views over committed CSVs: a
+fixture built from a committed CSV every run cannot drift from the CSV, and a database file
+in the repository would be a binary nobody reviews. The golden row opens <code>Self::open</code>
+instead, over a file <code>write_database</code> wrote.
 <strong>The posture is a parameter and has no default</strong>, for the reason the port gives: a defaulted
 posture would be a claim about who a query runs as that nobody made.</p>
 <h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
 <p>As <code>Self::open</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Opens a database file.</p>
+<p>Opens a database file with <code>READ_ONLY</code>, then runs <code>THEN_LOCKED</code> on it: the one constructor
+a raw statement can run on.</p>
 <h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p><code>DuckDbError::NoDriver</code> or <code>DuckDbError::Load</code> where there is no driver, and
-<code>DuckDbError::Open</code> where the database does not open - a path that is not UTF-8 included,
-refused rather than converted lossily into a path that names another file.</p>
+<code>DuckDbError::Open</code> where the database does not open - a file that is not there included,
+since a read-only open creates nothing, a path that is not UTF-8, and a <code>THEN_LOCKED</code>
+statement the driver refused.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="fn-write_database"><code>fn write_database</code><a class="headerlink" href="#fn-write_database" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">write_database</span><span class="p">(</span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Writes a database file holding one table per CSV, for a fixture to <code>DuckDbWarehouse::open</code>.</p>
+<p>Typed the way <code>DuckDbWarehouse::attach_csv</code> types a view. Available only with the default-off
+<code>fixtures</code> feature.</p>
+<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
+<p><code>DuckDbError::Open</code> where the file cannot be created, and <code>DuckDbError::Attach</code> where a CSV
+cannot be read.</p>
+<h2 id="use-max_nesting"><code>use MAX_NESTING</code><a class="headerlink" href="#use-max_nesting" title="Permanent link">&para;</a></h2>
+<p>The deepest the queries of a raw text may nest, a reference to a CTE counted as the query it
+names, at the depth it is referenced from.</p>
+<p>Binding a nest of subqueries takes time that grows faster than its depth, and the plan nests a
+referenced CTE where the reference is. Every shape measured at this bound on the pinned engine
+binds in well under a second; not every shape is measured.</p>
+<h2 id="use-max_queries"><code>use MAX_QUERIES</code><a class="headerlink" href="#use-max_queries" title="Permanent link">&para;</a></h2>
+<p>The most queries a raw text may hold, across all its statements and counted the same way: a CTE
+once where it is defined and once more for every reference to it.</p>
+<p>Queries side by side add up, and so does a CTE referenced more than once. Measured beside
+<code>MAX_NESTING</code>, with the same limit.</p>
+<h2 id="use-notaread"><code>use NotARead</code><a class="headerlink" href="#use-notaread" title="Permanent link">&para;</a></h2>
+<p>Why a raw text was refused before any of it ran.</p>
+<h2 id="use-raw_table_functions"><code>use RAW_TABLE_FUNCTIONS</code><a class="headerlink" href="#use-raw_table_functions" title="Permanent link">&para;</a></h2>
 <h2 id="constant-mounted_driver"><code>constant MOUNTED_DRIVER</code><a class="headerlink" href="#constant-mounted_driver" title="Permanent link">&para;</a></h2>
 <p>The variable a host that links no driver names a mounted <code>libduckdb</code> with.</p>
 <p><strong>Not a settings key</strong>, for <code>sutura-adbc-postgres</code>'s <code>MOUNTED_DRIVER</code> reason: which driver file a
 host carries is a property of the host, and a build that links one never reads this.</p>
+<h2 id="constant-read_only"><code>constant READ_ONLY</code><a class="headerlink" href="#constant-read_only" title="Permanent link">&para;</a></h2>
+<p>The options <code>DuckDbWarehouse::open</code> hands the driver with a database file's path.</p>
+<p>Each is measured against the pinned driver by <code>tests/raw.rs</code>, with a cell there that is red
+without it. <code>access_mode</code> refuses a write or DDL. <code>enable_external_access</code> refuses every file and
+network read or write outside the database and every extension install or load (<code>ATTACH</code>,
+<code>COPY ... TO</code>, <code>read_csv</code>, <code>glob</code>, <code>INSTALL</code>, <code>LOAD</code>) - <strong>and so does <code>THEN_LOCKED</code>'s disabled
+local file system</strong>: a file read, <code>INSTALL</code> included, is refused by the file system, while <code>LOAD</code>
+and <code>ATTACH 'md:'</code> are refused by external access and, with it dropped, by the file system
+instead. So on the pinned driver no refusal is external access's alone, and its cell asserts the
+setting rather than an effect. It stays for the file system that is not local: a network one a
+driver build links, which the pinned one does not. <code>DuckDB</code> itself refuses turning either option
+back while the database is open, locked or not.</p>
+<h2 id="constant-then_locked"><code>constant THEN_LOCKED</code><a class="headerlink" href="#constant-then_locked" title="Permanent link">&para;</a></h2>
+<p>What <code>DuckDbWarehouse::open</code> runs on the database once it is open, in order, before the
+handle exists for anyone to call.</p>
+<p><code>disabled_filesystems</code> refuses a read of the database's OWN file as bytes, which external access
+alone leaves open, and <code>lock_configuration</code> - last, so it locks what came before - a <code>SET</code> of an
+instance-wide setting, which would otherwise outlive the statement for every later call. Each
+has a cell in <code>tests/raw.rs</code> that is red without it. <strong>Statements, not open options</strong>: the pinned
+driver refuses <code>disabled_filesystems</code> as an option ("Failed to set configuration option" -
+<code>DuckDB</code> sets it only on a running database), and a lock handed over at open would refuse the
+<code>SET</code> after it. So a lock moved first fails the open, rather than leaving the file system on.</p>
 
 
 
