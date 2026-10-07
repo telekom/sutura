@@ -544,6 +544,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 settings.spend_budget(),
                 settings.row_ceiling(),
             ),
+            #[cfg(feature = "duckdb")]
+            crate::sources::Opened::Duckdb(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+                settings.spend_budget(),
+                settings.row_ceiling(),
+            ),
         }
     })())
 }

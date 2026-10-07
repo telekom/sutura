@@ -17,6 +17,8 @@ sutura-domain = { workspace = true }
 # adapter never compiles anything - it renders what it was handed.
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
+# Reads the tree `json_serialize_sql` answers for a raw text, which `src/screen.rs` walks.
+serde_json = { workspace = true }
 # The one transport (`telekom/sutura#913`). `DuckDB` is its own ADBC driver, so the driver manager
 # opens the engine's `duckdb_adbc_init` from this artefact's link or a mounted `libduckdb`;
 # `sutura-adbc` owns the workspace's one `unsafe` ADBC site, so this adapter adds none, and the two
@@ -38,6 +40,10 @@ fixtures = ["sutura-domain/fixtures"]
 
 [[test]]
 name = "conformance"
+required-features = ["fixtures"]
+
+[[test]]
+name = "raw"
 required-features = ["fixtures"]
 
 [lints]

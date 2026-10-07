@@ -78,6 +78,13 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 # passes, and by no release.
 oracle = ["dep:sutura-exec-oracle"]
 
+# A local DuckDB database file, opened read-only - the zero-infrastructure source, raw SQL included.
+#
+# Default-off for a source build, and in `nix/shipped.nix`'s `features`, so every release carries
+# it. The adapter opens DuckDB as its own ADBC driver - the archive a musl link carries or the
+# `libduckdb` `SUTURA_DUCKDB_ADBC_DRIVER` names - so the feature adds no driver crate of its own.
+duckdb = ["dep:sutura-exec-duckdb"]
+
 # The DataHub metadata adapter's HTTP reader (issue #202), for `sutura serve`'s `catalog.kind:
 # datahub`, and with it the outbound HTTP stack that reader needs.
 #
@@ -186,6 +193,8 @@ sutura-exec-clickhouse = { workspace = true, optional = true }
 # The Oracle adapter, behind the `oracle` feature above - optional for `sutura-exec-bigquery`'s
 # reason. The adapter owns its driver's connection, so this root names no `oracledb` type itself.
 sutura-exec-oracle = { workspace = true, optional = true }
+# The DuckDB adapter, behind the `duckdb` feature above - optional for `sutura-exec-bigquery`'s reason.
+sutura-exec-duckdb = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
@@ -266,6 +275,9 @@ sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
 # lock and installs the documentation schema (`tests/served/harness/postgres.rs`,
 # `tests/common/fixtures.rs`). This feature is absent from the shipped binary.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
+# The served DuckDB cells write the example into a database file through the adapter's fixture-only
+# writer. This feature is absent from the shipped binary.
+sutura-exec-duckdb = { workspace = true, features = ["fixtures"] }
 sutura-http-client = { workspace = true, features = ["tls-test"] }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own

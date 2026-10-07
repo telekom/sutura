@@ -535,6 +535,14 @@ pub enum SourcePlacement {
         /// The file that user's password is read from at boot.
         password_file: PathBuf,
     },
+    /// A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in
+    /// this process, read-only, under the process's own operating-system identity.
+    Duckdb {
+        /// The database file, absolute. **Not checked to exist here**, for the reason a `files`
+        /// source's directory is not: the composition root opens it read-only at boot, and a file that
+        /// is not there is refused there rather than created.
+        database_file: PathBuf,
+    },
 }
 
 impl SourcePlacement {
@@ -552,6 +560,7 @@ impl SourcePlacement {
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
             Self::Oracle { .. } => SourceKind::Oracle,
+            Self::Duckdb { .. } => SourceKind::Duckdb,
         }
     }
 }

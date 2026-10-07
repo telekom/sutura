@@ -275,8 +275,8 @@ executable. That is worth a sentence, because the obvious way to produce this li
   can drift - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
   document says so.
 - It would also be the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the
-  linker *kept*: `sutura-exec-duckdb` proves the SQL a test suite renders and is never wired into
-  a shipped feature, so the DuckDB adapter is in the resolve graph and never in the binary. A
+  linker *kept*: `sutura-exec-oracle` sits behind a default-off feature that no release enables,
+  so the Oracle adapter is in the resolve graph and never in the binary. A
   workspace-wide document names it anyway and is wrong in the direction that matters, which is
   overstating what ships.
 
