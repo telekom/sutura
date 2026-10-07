@@ -85,7 +85,8 @@ There is no binary for macOS or Windows. Use Docker Compose or Nix.
 
 Nix builds sutura and its drivers from source. Nix must have the `nix-command` and `flakes`
 features. The first build takes a long time. On Apple silicon (aarch64-darwin), a Nix build of
-`main` includes the BigQuery driver. Earlier releases do not.
+`main` links the BigQuery driver, and mounts a PostgreSQL driver that it builds and names in
+`SUTURA_POSTGRES_ADBC_DRIVER` unless you set that variable. Earlier releases do neither.
 
 Install a release:
 

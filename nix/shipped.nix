@@ -37,6 +37,8 @@
 , duckdbAdbcDrivers
 # The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
 , postgresTier
+# The PostgreSQL driver this host mounts, as a path - see `presetMountedDrivers`.
+, postgresAdbcHostDriver
 # `flake.nix`'s `wholeTree`, for the tier run's test build - see `linkedDriversTests`.
 , wholeTree
 , version
@@ -260,9 +262,27 @@ let
       cargoExtraArgs = "--package ${binary.package}${featureArg features}";
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
-    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget) // auditable.toolFor args // {
+    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget)
+      // presetMountedDrivers binary (auditable.toolFor args) // {
       cargoBuildCommand = auditable.buildCommand profile;
     });
+
+  # **A darwin build mounts its PostgreSQL driver and presets where from** (`telekom/sutura#1295`):
+  # only the musl triples link that driver, and a darwin Nix build has no static one, so the
+  # package defaults `SUTURA_POSTGRES_ADBC_DRIVER` to the `.dylib` this flake builds. `--set-default`
+  # sets it only where the operator has not, so an operator's value wins - `sutura doctor` shows
+  # which path it opened. The real binary moves to `bin/.<name>-wrapped`, which is what
+  # `shipped-features` reads there. Nothing is wrapped on linux, where `nativeFor` is the image build.
+  # Static linking of that driver on darwin is not built: MIT krb5 does not link static there.
+  presetMountedDrivers = binary: tool:
+    if !pkgs.stdenv.hostPlatform.isDarwin then tool
+    else tool // {
+      nativeBuildInputs = tool.nativeBuildInputs ++ [ pkgs.makeBinaryWrapper ];
+      postInstall = ''
+        wrapProgram $out/bin/${binary.bin} --inherit-argv0 \
+          --set-default SUTURA_POSTGRES_ADBC_DRIVER ${postgresAdbcHostDriver}
+      '';
+    };
 
   # One cross-compiled package per binary per target. `cargoExtraArgs` pins the target and the
   # cross linker comes from pkgsCross, so no developer needs a local cross setup.
@@ -811,7 +831,7 @@ let
         checkOne = b:
           let drv = nativeBinaries.${b.bin}; in ''
           echo "shipped-features: ${b.bin}"
-          rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
+          rust-audit-info ${drv}/bin/${if pkgs.stdenv.hostPlatform.isDarwin then ".${b.bin}-wrapped" else b.bin} > deps-${b.bin}.json
           crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
           # A FLOOR, and the argument is not repeated here. It is what
           # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number:

@@ -426,7 +426,7 @@
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
             inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
-            wholeTree;
+            postgresAdbcHostDriver wholeTree;
           inherit (commonArgs) version;
         };
 
