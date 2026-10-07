@@ -137,7 +137,13 @@ slow-timeout = { period = "60s", terminate-after = 2 }
 # its gate, so a host slower than 2x this measurement still reds one; the ceiling and the
 # serialising move the threshold, they do not remove the gate's own cost. The pin cell
 # `the_paired_set_is_the_four_gates_with_a_cell_each` needs neither.
-filter = "binary_id(xtask::bin/xtask) & test(/^falsifier::tests::check_(boundaries|guidance|venues|warm_start)_passes_its_real_inputs_and_refuses_one_violation$/)"
+#
+# Each cell is named exactly, and nextest accepts a filter that matches nothing: a typo or a rename
+# would put a cell back on the 300s default and out of the group with no red anywhere (measured:
+# `warm_start` -> `warmstart` listed 3 of 4, exit 0). `the_nextest_group_names_exactly_the_per_gate_cells`
+# compares these names with the cell functions' own. Limit: it reads this text, not nextest's
+# evaluation of it, and it does not read `binary_id` or the `paired-gate` definition.
+filter = "binary_id(xtask::bin/xtask) & (test(=falsifier::tests::check_boundaries_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_guidance_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_venues_passes_its_real_inputs_and_refuses_one_violation) | test(=falsifier::tests::check_warm_start_passes_its_real_inputs_and_refuses_one_violation))"
 test-group = "paired-gate"
 slow-timeout = { period = "60s", terminate-after = 6 }
 

@@ -440,4 +440,33 @@ mod tests {
             "the paired set changed: a gate gained or lost `Falsifier::paired`; add or drop its cell"
         );
     }
+
+    /// `.config/nextest.toml` names the four cells for their group and ceiling, and nextest accepts a
+    /// filter that matches nothing, so a typo or a rename drops a cell from both with no red. The
+    /// expected names are the compiler's own (`type_name_of_val` of each cell), so a rename moves them.
+    #[test]
+    fn the_nextest_group_names_exactly_the_per_gate_cells() {
+        let mut expected = [
+            std::any::type_name_of_val(&check_boundaries_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_guidance_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_venues_passes_its_real_inputs_and_refuses_one_violation),
+            std::any::type_name_of_val(&check_warm_start_passes_its_real_inputs_and_refuses_one_violation),
+        ]
+        .map(|name| name.strip_prefix("xtask::").expect("a cell's path starts at this crate"));
+        let config = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.config/nextest.toml");
+        let config = std::fs::read_to_string(config).expect("the nextest config is in the tree");
+        let group = config
+            .split("[[profile.default.overrides]]")
+            .find(|table| table.contains("test-group = \"paired-gate\""))
+            .expect("an override puts cells in `paired-gate`");
+        let filter: String = group.lines().filter(|line| !line.trim_start().starts_with('#')).collect();
+        let mut named: Vec<&str> = filter
+            .split("test(=")
+            .skip(1)
+            .filter_map(|rest| rest.split(')').next())
+            .collect();
+        named.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(named, expected, "`paired-gate`'s filter must name exactly the per-gate cells");
+    }
 }
