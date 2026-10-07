@@ -850,7 +850,11 @@ panic-free.
   `security-audit.yml`'s `audit` and `crap-comment` - **are required by
   nothing**, and a red one has never blocked a merge, in the queue or out of it, with no override
   and nobody clicking anything. Everything routed through the `ci` job IS gated, which is how a
-  step added there is genuinely gating. `devco/required-contexts` is the record and
+  step added there is genuinely gating. A step moved OUT of `ci` loses that: `causality` and
+  `postgres-linked-driver` (#1280) are gated only because `ci-aggregate` requires them wherever
+  `ci`'s own classification selects them, which `xtask/src/affected/moved_jobs_aggregate.rs` and the
+  `aggregate_inputs` table hold - and the ruleset that requires `ci-aggregate` is still unreadable
+  from here. `devco/required-contexts` is the record and
   `check-workflows` holds it against the jobs: a required context nothing reports fails the gate,
   because that state is a permanently pending merge rather than an ungated leg. **The
   organisation-level caveat this row used to carry is resolved, and the endpoint is the point:**

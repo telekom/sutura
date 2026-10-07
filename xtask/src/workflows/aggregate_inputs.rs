@@ -48,6 +48,10 @@ const REQUIRED: &[(&str, &str)] = &[
     ("DH_SELECTED", "ci"),
     ("BQC_RESULT", "bigquery-conformance"),
     ("BQC_REQUIRED", "ci"),
+    ("CAUS_RESULT", "causality"),
+    ("CAUS_REQUIRED", "ci"),
+    ("PGD_RESULT", "postgres-linked-driver"),
+    ("PGD_REQUIRED", "ci"),
 ];
 
 /// The job key of the aggregate.
@@ -287,6 +291,10 @@ mod tests {
             "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
             "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
             "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
+            "          CAUS_RESULT: ${{ needs.causality.result }}",
+            "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
+            "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
+            "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
         ]
         .join("\n")
     }
