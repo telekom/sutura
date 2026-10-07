@@ -41,7 +41,7 @@ pub(super) enum Attribution {
 type Key = (String, String);
 
 /// Each package, and the packages that list it as a dependency.
-type Reverse = BTreeMap<Key, BTreeSet<Key>>;
+type Reverse<'graph> = BTreeMap<Key, BTreeSet<&'graph Key>>;
 
 /// One parsed `[[package]]` block: its raw dependency strings, optional `source`, and optional
 /// `checksum`. A workspace member has no `source`; a `checksum` change is a content change.
@@ -334,12 +334,12 @@ fn diff_packages(base: &Graph, head: &Graph) -> Vec<Changed> {
 
 /// Reverse adjacency: for each package, the set of package keys that list it as a dependency.
 /// An edge it cannot resolve is an `Err`, never a skip: a dropped edge could hide a shared dependent.
-fn reverse_closure(graph: &Graph) -> Result<Reverse, String> {
-    let mut reverse: Reverse = BTreeMap::new();
+fn reverse_closure(graph: &Graph) -> Result<Reverse<'_>, String> {
+    let mut reverse: Reverse<'_> = BTreeMap::new();
     for (key, pkg) in &graph.packages {
         for dep in &pkg.deps {
             let dep_key = graph.resolve(dep).ok_or_else(|| dep.clone())?;
-            reverse.entry(dep_key).or_default().insert(key.clone());
+            reverse.entry(dep_key).or_default().insert(key);
         }
     }
     Ok(reverse)
@@ -359,7 +359,7 @@ fn sourceless_names(graph: &Graph) -> BTreeSet<String> {
 /// The members a reverse walk from `start` stops at: packages with no `source` (path
 /// dependencies). A package nothing depends on is a root and is returned too, so a root that is no
 /// adapter maps to no category and fails closed.
-fn bfs_to_members(start: &Key, reverse: &Reverse, boundaries: &BTreeSet<String>) -> BTreeSet<String> {
+fn bfs_to_members(start: &Key, reverse: &Reverse<'_>, boundaries: &BTreeSet<String>) -> BTreeSet<String> {
     let mut reached: BTreeSet<String> = BTreeSet::new();
     let mut visited: BTreeSet<&Key> = BTreeSet::new();
     let mut queue: VecDeque<&Key> = VecDeque::new();
@@ -373,8 +373,8 @@ fn bfs_to_members(start: &Key, reverse: &Reverse, boundaries: &BTreeSet<String>)
             continue;
         }
         for parent in parents.into_iter().flatten() {
-            if visited.insert(parent) {
-                queue.push_back(parent);
+            if visited.insert(*parent) {
+                queue.push_back(*parent);
             }
         }
     }
