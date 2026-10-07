@@ -35,7 +35,8 @@
 # `src` must be the repository's `go/` directory (the Go module root).
 { pkgs, src, crossSystemName, vendorHash }:
 let
-  # `pkgs` here is the cross package set the caller chose for this release triple.
+  # `pkgs` here is the cross package set the caller chose for this release triple, or a darwin
+  # host's own.
   # The driver advertises a go newer than nixpkgs' default; pin `go_1_27` here so
   # the driver and its toolchain cannot drift apart from this file's pin.
   buildGoModule = pkgs.buildGoModule.override { go = pkgs.buildPackages.go_1_27; };
@@ -65,6 +66,11 @@ buildGoModule {
     # with `running ar failed: exec: "ar": executable file not found in $PATH`, measured.
     # The archive has to be the TARGET's, so `$AR` is the only correct value here.
     go build -tags driverlib -buildmode=c-archive -ldflags "-extar=$AR" -o libadbc_driver_bigquery.a ./pkg
+  ''
+  # Linux only, and the darwin host's archive is left as Go built it: it is Mach-O, and dyld calls
+  # its `__mod_init_func` entry with argc/argv. A comment here and not in the script, so the four
+  # linux derivations are byte-identical to what they were before darwin got one.
+  + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
     # The archive's runtime must not start from its own `.init_array` entry: musl passes that entry
     # no argc/argv and every static musl artefact died on SIGSEGV before `main` (measured). Swap it
     # for `nix/go-archive-init.c`, linked into the same `go.o` so it is pulled in whenever the
@@ -82,6 +88,7 @@ buildGoModule {
     $CC -c -fPIC -O2 -Wall -Wextra -Werror ${./go-archive-init.c} -o go-archive-init.o
     $LD -r go-noinit.o go-archive-init.o -o go.o
     $AR rs libadbc_driver_bigquery.a go.o
+  '' + ''
     runHook postBuild
   '';
   installPhase = ''
