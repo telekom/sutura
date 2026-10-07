@@ -12776,14 +12776,13 @@ but `checks.shipped-features` establishes that kind of claim by reading crate NA
 binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
 fail if a composition root turned the feature on.
 
-**An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
-than as the range question it is.** Four are live: `sutura-exec-duckdb`'s `UBigInt` and
-`HugeInt` arms and `sutura-exec-datafusion`'s `UInt64` arm answer `Value::Integer` while the
-value fits an `i64` and `Value::Text` when it does not; `sutura-exec-postgres` answers a
-scale-0 `NUMERIC` the same way against a `Decimal`; and `sutura-exec-bigquery` answers its own
-`NUMERIC`/`BIGNUMERIC` fields the identical way, added once its `execute_packs!` binding
-(`telekom/sutura#710`) exercised the same class its own corpus already carried. Under the
-display form all four compare EQUAL, and that was the RECORDED reason for the display form.
+**A decoder's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.** It is live wherever a decoder answers `Value::Integer`
+while the value fits an `i64` and `Value::Text` when it does not: the domain's Arrow reader,
+`ResultBatches::to_rows`, does it for a `UInt64` and for a zero-scale `Decimal128` or
+`Decimal256`, which covers every adapter that hands its batches on; `sutura-exec-postgres` does
+it for a scale-0 `NUMERIC`; and `sutura-exec-oracle` does it for a `NUMBER`. Under the display
+form they compare EQUAL, and that was the RECORDED reason for the display form.
 Here they are `ContentDisagreement::Multiplicity` - *one side answered a row 1 time(s) and the
 other 0* - naming neither the fallback nor the overflow behind it. So a `Multiplicity` over a
 wide count or a decimal column is a range question first: check whether one side overflowed
@@ -14112,13 +14111,13 @@ from, so the type is arbitrary rather than wrong.
 
 **The `Decimal128` arm exists because the "no source produces a mixed column" argument is
 FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
-column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
-`sutura-exec-postgres` both answer a whole number that fits an `i64` as `Value::Integer` and
-one that does not as an exact `Value::Text`, so one `DECIMAL`/`HUGEINT` column arrives mixed.
+column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-oracle` answers a
+`NUMBER` that fits an `i64` as `Value::Integer` and one that does not as an exact
+`Value::Text`, and `sutura-exec-postgres` splits a `NUMERIC` column the same way before it
+rebuilds the column with this function, so one such column arrives mixed.
 The conformance corpus has two such cases (`wide-total-by-day`,
 `overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
-`Text("15")` - a conformance failure against the reference rows, on the production path, for
-two of the four adapters the Arrow port makes convert.
+`Text("15")` - a conformance failure against the reference rows, on the production path.
 
 `Decimal128(38, 0)` round-trips both halves exactly, because `ResultBatches::to_rows`'s
 zero-scale arm widens a
@@ -14172,7 +14171,8 @@ would be the one nobody had read.
 **It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
 Its input is rows the caller already holds, so a budget here would check after the spend.
 `ClickHouse` and `Oracle` charge their decode loops before calling this conversion.
-Postgres still builds a whole `RowSet` first; this function does not bound it or fakes.
+`Postgres` does not call this function: it rebuilds only a `NUMERIC` column, through
+`arrow_column`.
 
 ### Module `raw`
 

@@ -361,19 +361,21 @@ impl ResultBatches {
         // null reaches it and is answered: a `TIMESTAMP` column came back as a successful EMPTY
         // result, and whether this workspace maps a type depended on what the data happened to be.
         // `sutura-exec-bigquery`'s own decoder had this pass and the engine did not; it is here now,
-        // so **both ARROW adapters** get it - the engine and `BigQuery`, which are the two that
+        // so **every adapter that hands its Arrow batches on** gets it - the engine, `BigQuery` and
+        // the two ADBC adapters, `sutura-exec-duckdb` and `sutura-exec-postgres`, all of which
         // decode through this function.
         //
-        // **NOT every adapter, which is what this comment used to claim.** The other three decode
-        // their own driver's vocabulary and never reach here, so the hole is open behind them to
-        // different depths, and a reader of this paragraph should not infer otherwise:
+        // **NOT every adapter, which is what this comment used to claim.** A row-speaking adapter
+        // decodes its own driver's vocabulary and builds Arrow from the rows it read, so the hole
+        // is open behind it to a depth that is its own, and a reader of this paragraph should not
+        // infer otherwise:
         //
-        //   * `sutura-exec-duckdb`'s `cell` takes a `DuckValue` and never sees a column type at
-        //     all - `DuckValue::Null` is its first arm - so BOTH halves are still open there;
-        //   * `sutura-exec-postgres`' and `sutura-exec-oracle`'s `cell` dispatch on the column's
-        //     declared type, so the all-null half is closed and the ZERO-ROW half is not: no rows
-        //     means `cell` is never called, and an unmapped column passes as a successful empty
-        //     result exactly as it used to here.
+        //   * `sutura-exec-oracle`'s `cell` dispatches on the column's declared type, so the
+        //     all-null half is closed and the ZERO-ROW half is not: no rows means `cell` is never
+        //     called, `of_rows` types every column of a zero-row result as `Int64`, and an unmapped
+        //     column passes as a successful empty result exactly as it used to here;
+        //   * `sutura-exec-clickhouse` is the other row-speaking adapter, and this paragraph does
+        //     not measure it.
         for (label, field) in columns.iter().zip(self.schema.fields()) {
             mapped(label, field.data_type())?;
         }
@@ -559,13 +561,13 @@ fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, UnreadableC
 ///
 /// **The `Decimal128` arm exists because the "no source produces a mixed column" argument is
 /// FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
-/// column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
-/// `sutura-exec-postgres` both answer a whole number that fits an `i64` as [`Value::Integer`] and
-/// one that does not as an exact [`Value::Text`], so one `DECIMAL`/`HUGEINT` column arrives mixed.
+/// column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-oracle` answers a
+/// `NUMBER` that fits an `i64` as [`Value::Integer`] and one that does not as an exact
+/// [`Value::Text`], and `sutura-exec-postgres` splits a `NUMERIC` column the same way before it
+/// rebuilds the column with this function, so one such column arrives mixed.
 /// The conformance corpus has two such cases (`wide-total-by-day`,
 /// `overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
-/// `Text("15")` - a conformance failure against the reference rows, on the production path, for
-/// two of the four adapters the Arrow port makes convert.
+/// `Text("15")` - a conformance failure against the reference rows, on the production path.
 ///
 /// `Decimal128(38, 0)` round-trips both halves exactly, because [`ResultBatches::to_rows`]'s
 /// zero-scale arm widens a
@@ -684,7 +686,8 @@ pub fn of_row_set(rows: &RowSet) -> Result<ResultBatches, MalformedRowSet> {
 /// **It charges nothing against a [`ResultBudget`], and that is a limit rather than an oversight.**
 /// Its input is rows the caller already holds, so a budget here would check after the spend.
 /// `ClickHouse` and `Oracle` charge their decode loops before calling this conversion.
-/// Postgres still builds a whole `RowSet` first; this function does not bound it or fakes.
+/// `Postgres` does not call this function: it rebuilds only a `NUMERIC` column, through
+/// [`arrow_column`].
 pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches, MalformedRowSet> {
     use std::sync::Arc;
 
