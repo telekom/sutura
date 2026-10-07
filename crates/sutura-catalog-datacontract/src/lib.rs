@@ -326,7 +326,7 @@ impl DataContractCatalog {
         }
         // Sort the primary-key columns by their declared position so a composite key's order is
         // deterministic; an author who left positions out sorts by column name as a stable tiebreak.
-        primary_key.sort_by_key(|(position, column)| (*position, column.clone()));
+        primary_key.sort();
 
         // Descriptions is a may-provide kind here, so an undecorated object is a faithful model
         // rather than a refusal: `Description::default()` carries no prose and the declaration's
