@@ -399,7 +399,13 @@ mod tests {
         paired_gates.sort_unstable();
         assert_eq!(
             paired_gates,
-            ["check-boundaries", "check-guidance", "check-venues", "check-warm-start"],
+            [
+                "check-boundaries",
+                "check-docs",
+                "check-guidance",
+                "check-venues",
+                "check-warm-start"
+            ],
             "the paired set changed: a gate gained or lost `Falsifier::paired`"
         );
     }

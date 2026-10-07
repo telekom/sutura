@@ -7,6 +7,7 @@
 //! **Limits.** Reads every tracked `.md` file as text, code blocks included, and matches the
 //! literal host and path prefix. A link in another file type, or one spelled another way (an
 //! encoded slash, another host that redirects here), is not read.
+//! Whether the page exists is not read: a versioned link to a page the site does not build passes.
 
 use crate::repo;
 

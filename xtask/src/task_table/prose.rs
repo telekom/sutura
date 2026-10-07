@@ -19,6 +19,16 @@ const CHECK_GUIDANCE_PAIRED: Paired = Paired {
     }],
 };
 
+/// `site_links`' own rule: a README link into the site with its version segment removed.
+const CHECK_DOCS_PAIRED: Paired = Paired {
+    inputs: &["."],
+    violation: &[Edit {
+        path: "examples/README.md",
+        find: "sutura/latest/examples/",
+        replace: "sutura/examples/",
+    }],
+};
+
 pub(crate) const TASKS: &[Task] = &[
     Task {
         name: "check-skills",
@@ -92,7 +102,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("docs/orphan.md", "A page with no nav entry.\n"),
             ],
             in_scope: Some("docs/orphan.md"),
-            paired: None,
+            paired: Some(&CHECK_DOCS_PAIRED),
         },
         run: docs::run,
     },
