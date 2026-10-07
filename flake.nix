@@ -426,15 +426,16 @@
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
             inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
-            wholeTree;
+            postgresAdbcHostDriver wholeTree;
           inherit (commonArgs) version;
         };
 
         inherit (shipped) binaries crossPackages imageTargets;
 
         # The ADBC BigQuery driver packages, some binding-visible here so `packages.*`, a `checks`
-        # entry and every SHIPPED artefact's link point at the same four triples. `shipped` above
-        # reads this for the `c-archive` half - a release artefact carries its own driver.
+        # entry and every SHIPPED artefact's link point at the same triples: the four release
+        # triples, and a darwin host's own. `shipped` above reads this for the `c-archive` half - a
+        # release artefact carries its own driver.
         adbcDrivers = import ./nix/bigquery-adbc-drivers.nix {
           pkgs = pkgs;
           bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
@@ -559,16 +560,17 @@
           # The self-built ADBC BigQuery driver, as a gate with a REAL venue: the
           # reviewer found nothing in CI realised these packages, so a broken driver
           # would sail a green PR. `nix flake check` realises this derivation, which
-          # has each of the four cross-triple `libadbc_driver_bigquery.so` builds as
-          # an input and fails if any of them is missing. This is the one place the
-          # driver has to build before a PR can be green.
+          # has each cross-triple `libadbc_driver_bigquery.so` build (four, and a darwin
+          # host's own) as an input and fails if any of them is missing. This is the one
+          # place the driver has to build before a PR can be green.
           #
           # **It was fail-open and the message was the tell.** The first shape looped
           # over `$buildInputs` and then printed a literal "all four triples built",
           # so `buildInputs = [ ]` exited 0 over zero drivers - and so does any
           # expected count DERIVED from the same list (`0 -eq 0`). The floor is
           # therefore a literal: four is what `nix/bigquery-adbc-drivers.nix`
-          # declares, and a fifth triple has to fail here until somebody bumps it,
+          # declares (five on a darwin host, which also builds its own), and a
+          # further triple has to fail here until somebody bumps it,
           # which is the right amount of friction for a release-artefact set.
           # `attrValues` rather than four hand-written attribute names so this gate
           # cannot name a driver the driver file no longer builds.
@@ -583,14 +585,15 @@
           # out, on every pull request and on every system.
           #
           # **The limit, beside the claim: this LOADS nothing.** It is a
-          # file-existence test plus a literal count, so it establishes that the
-          # four triples' two files build and no more - a driver that builds and
+          # file-existence test plus a literal count, so it establishes that each
+          # triple's two files build and no more - a driver that builds and
           # cannot be opened passes here. The venue that RUNS one is `ci.yml`'s
           # `bigquery-driver-check` job (`bash nix/bigquery-driver-check.sh`,
           # `sutura doctor` against the release artefacts), and it is
           # `x86_64-linux` only.
           adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
             buildInputs = builtins.attrValues adbcDrivers;
+            declared = if pkgs.stdenv.hostPlatform.isDarwin then 5 else 4;
           } ''
             found=0
             for d in $buildInputs; do
@@ -600,8 +603,8 @@
               done
               found=$((found + 1))
             done
-            test "$found" -eq 4 \
-              || { echo "built $found ADBC driver triples and this release declares 4" >&2; exit 1; }
+            test "$found" -eq "$declared" \
+              || { echo "built $found ADBC driver triples and this system declares $declared" >&2; exit 1; }
             mkdir -p "$out"
             printf '%d ADBC driver triples built\n' "$found" > "$out/result"
           '';

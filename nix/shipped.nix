@@ -37,6 +37,8 @@
 , duckdbAdbcDrivers
 # The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
 , postgresTier
+# The PostgreSQL driver this host mounts, as a path - see `presetMountedDrivers`.
+, postgresAdbcHostDriver
 # `flake.nix`'s `wholeTree`, for the tier run's test build - see `linkedDriversTests`.
 , wholeTree
 , version
@@ -54,9 +56,12 @@ let
   # musl triples - which have no dynamic loader and therefore no other route at all - get one.
   #
   # **An attrset and not a string, so an absent triple sets nothing** rather than naming a path
-  # that does not exist: a darwin host builds no linux driver, so `nix build .#sutura` there takes
-  # the mounted route and `sutura doctor` says so. `build.rs` refuses a directory holding no
-  # archive, so a wrong value here is a build failure and never a silent fallback.
+  # that does not exist. A darwin host has one: `nix/bigquery-adbc-drivers.nix` builds that host's
+  # own driver natively, so `nix build .#sutura` on a Mac links it as a linux build does
+  # (`telekom/sutura#1295`). A build whose triple has no driver here, and every `cargo` build,
+  # which reads none of this, takes the mounted route, and `sutura doctor` says so. `build.rs`
+  # refuses a directory holding no archive, so a wrong value here is a build failure and never a
+  # silent fallback.
   #
   # ON THE FINAL ATTRSET AND NEVER ON `args`, which is deliberate: `args` reaches
   # `buildDepsOnly`, and the deps derivation compiles third-party code that has no business
@@ -258,9 +263,27 @@ let
       cargoExtraArgs = "--package ${binary.package}${featureArg features}";
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
-    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget) // auditable.toolFor args // {
+    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget)
+      // presetMountedDrivers binary (auditable.toolFor args) // {
       cargoBuildCommand = auditable.buildCommand profile;
     });
+
+  # **A darwin build mounts its PostgreSQL driver and presets where from** (`telekom/sutura#1295`):
+  # only the musl triples link that driver, and a darwin Nix build has no static one, so the
+  # package defaults `SUTURA_POSTGRES_ADBC_DRIVER` to the `.dylib` this flake builds. `--set-default`
+  # sets it only where the operator has not, so an operator's value wins - `sutura doctor` shows
+  # which path it opened. The real binary moves to `bin/.<name>-wrapped`, which is what
+  # `shipped-features` reads there. Nothing is wrapped on linux, where `nativeFor` is the image build.
+  # Static linking of that driver on darwin is not built: MIT krb5 does not link static there.
+  presetMountedDrivers = binary: tool:
+    if !pkgs.stdenv.hostPlatform.isDarwin then tool
+    else tool // {
+      nativeBuildInputs = tool.nativeBuildInputs ++ [ pkgs.makeBinaryWrapper ];
+      postInstall = ''
+        wrapProgram $out/bin/${binary.bin} --inherit-argv0 \
+          --set-default SUTURA_POSTGRES_ADBC_DRIVER ${postgresAdbcHostDriver}
+      '';
+    };
 
   # One cross-compiled package per binary per target. `cargoExtraArgs` pins the target and the
   # cross linker comes from pkgsCross, so no developer needs a local cross setup.
@@ -815,7 +838,7 @@ let
         checkOne = b:
           let drv = nativeBinaries.${b.bin}; in ''
           echo "shipped-features: ${b.bin}"
-          rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
+          rust-audit-info ${drv}/bin/${if pkgs.stdenv.hostPlatform.isDarwin then ".${b.bin}-wrapped" else b.bin} > deps-${b.bin}.json
           crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
           # A FLOOR, and the argument is not repeated here. It is what
           # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number:
