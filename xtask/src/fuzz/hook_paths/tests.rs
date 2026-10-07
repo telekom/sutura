@@ -1,4 +1,4 @@
-use super::{missing_from_hook, missing_from_surface, target_crates};
+use super::{missing_from_surface, target_crates};
 
 #[test]
 fn every_real_targets_imports_match_the_issues_own_mapping() {
@@ -18,13 +18,6 @@ fn every_real_targets_imports_match_the_issues_own_mapping() {
 fn a_doc_comment_mention_still_counts_the_over_inclusive_direction() {
     let found = target_crates("//! mentions sutura_exec_bigquery in prose only\n");
     assert!(found.contains("sutura-exec-bigquery"));
-}
-
-#[test]
-fn a_crate_present_in_the_hooks_files_string_is_not_missing() {
-    let files = "^(fuzz/|crates/sutura-domain/src/query\\.rs|crates/sutura-sql/)";
-    assert!(!missing_from_hook("sutura-sql", files));
-    assert!(missing_from_hook("sutura-config", files));
 }
 
 #[test]

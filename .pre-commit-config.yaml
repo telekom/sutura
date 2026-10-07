@@ -79,36 +79,13 @@ repos:
         # cheaper here, and one line.
         require_serial: true
 
-      # A commit is the claim that the change works, so the tests run BEFORE it, not on push.
-      # They were on pre-push, which inverts that: the claim is already in history by the time
-      # anything checks it, and a failure then needs a second commit to undo the first.
-      #
-      # THROUGH THE DEVENV ENVIRONMENT, so the pinned duckdb (`DUCKDB_*_DIR`) and the nightly
-      # cargo are present however git invoked the hook. macOS does not pass the interactive
-      # shell's exported variables to a hook subprocess the way Linux does, and `libduckdb-sys`
-      # needs `DUCKDB_LIB_DIR` to link the nix duckdb rather than fall back to compiling duckdb's
-      # C++ from source (which fails for want of the toolchain). The `command -v devenv` guard
-      # preserves the previous tiering on a host without devenv: `run-gate.sh` uses the shell's
-      # local tools, else the same pinned nix route CI uses, else - with neither - a skip with a
-      # notice, because CI runs the suite on every push.
-      - id: rust-tests
-        name: cargo nextest (all features)
-        entry: >-
-          bash -c 'command -v devenv >/dev/null 2>&1 &&
-          exec devenv shell bash nix/run-gate.sh tests || exec bash nix/run-gate.sh tests'
-        language: system
-        pass_filenames: false
-
-      # nextest does not run doctests. Separate hook so its absence is visible rather than
-      # assumed to be covered above. Not routed through devenv here: the duckdb dependency the
-      # macOS env fix targets is linked by the SUITE (nextest above), not by doc builds, and this
-      # hook has no self-skip guard - leaving its entry a plain command keeps the abstain coverage
-      # model from miscounting it as a self-deciding hook.
-      - id: rust-doctests
-        name: doctests
-        entry: bash -c 'exec cargo test --doc --workspace --all-features'
-        language: system
-        pass_filenames: false
+      # NO TEST SUITE, NO DOCTESTS, NO CRAP SCORE AND NO FUZZ REPLAY ON COMMIT, by owner decision:
+      # a commit may hold a failing test until `just validate` or CI runs it. The suite and the
+      # doctests run in `just validate` and CI; CRAP runs in `just validate`, in CI and, scoped to
+      # a diff that reaches it, in `just ship-check`; the fuzz replay runs in `just ship-check` for
+      # a diff that touches the fuzzed tree, and in `.github/workflows/fuzz.yml`. `cargo xtask
+      # check-hook-tiers` refuses any of them back on the commit stage, and `check-fuzz` still
+      # holds the harness itself on every pull request.
 
       # The jscpd copy/paste gate (issue #474). Scoped by `files:` to every tracked `.rs` plus
       # the things that decide the verdict - the allowlist, the gate, and the nix provisioning.
@@ -123,7 +100,7 @@ repos:
       # `(no files to check)`, and `hook-coverage` then failed `ship-check` with a coverage gap
       # over Rust it had correctly classified.
       #
-      # Through nix/run-gate.sh, the same tiering the tests and CRAP hooks use - and jscpd is
+      # Through nix/run-gate.sh, the same tiering the other nix-backed hooks use - and jscpd is
       # the only pin for the version, so `cargo xtask check-pins` fails if it reappears in
       # pixi.toml. The fail-closed verdict with the allowlist is `checks.hygiene`; where this
       # host cannot run the gate, it delays the finding to CI rather than blocking the commit.
@@ -134,38 +111,13 @@ repos:
         files: ^(.*\.rs|devco/dup-ignore|nix/(jscpd\.nix|run-gate\.sh)|flake\.nix)$
         pass_filenames: false
 
-      # The CRAP score: cyclomatic complexity weighted by the tests that cover it.
-      #
-      # SCOPED BY `files:` so it does not fire on unrelated edits. The regex is the scored crate
-      # plus everything that can change the verdict without touching it - the policy, the gate,
-      # the pin, and the manifests that decide what compiles. Editing the HTTP crate must not pay
-      # for a coverage build; editing `.cargo-crap.toml` must.
-      #
-      # COMMIT STAGE, not push, and that is affordable rather than brave: the scope is
-      # `sutura-domain`, whose whole instrumented build is 11 s cold and 4 s warm. Every wider
-      # scope was measured and is in docs/crap.md; `--workspace` is over six minutes and never
-      # reached a test.
-      #
-      # Through `nix/run-gate.sh`, which falls back to `nix run .#crap`, and to a notice only for
-      # a configured toolchain that lacks the coverage tools on a host with no nix. With neither
-      # route the helper refuses, so this hook is a wall there too. The gate itself FAILS when a
-      # tool is missing - a score is the whole point and a run that produced none has judged
-      # nothing - so the tiering belongs here, in the bypassable layer, and not in the gate.
-      - id: rust-crap
-        name: CRAP score (complexity weighted by coverage)
-        entry: bash nix/run-gate.sh crap
-        language: system
-        files: ^(crates/sutura-domain/.*\.rs|\.cargo-crap\.toml|xtask/src/crap\.rs|nix/(crap\.nix|run-gate\.sh)|rust-toolchain\.toml|Cargo\.(toml|lock))$
-        pass_filenames: false
-        require_serial: true
-
       # Every shell script we ship, and the glob IS the list.
       #
       # It was two hand-written lists - two files named in the justfile, one in ci.yml - under a
       # comment claiming to be exhaustive, which it was of neither. `nix/run-gate.sh` was in
-      # neither, and that file decides whether the tests, the secret sweep, the supply-chain gate
-      # and now the CRAP score run AT ALL: a `set -eu` slip there turns four gates into silent
-      # no-ops at once. A `files:` glob cannot drift the way a transcribed list does.
+      # neither, and that file decides whether the secret sweep, the supply-chain gate, the
+      # copy/paste gate and the chart gate run AT ALL: a `set -eu` slip there turns them into
+      # silent no-ops at once. A `files:` glob cannot drift the way a transcribed list does.
       #
       # Through nix, the only pin for shellcheck - its version decides what it reports, so
       # `cargo xtask check-pins` fails if it reappears in pixi.toml. Skipped with a notice where
@@ -185,42 +137,6 @@ repos:
         language: system
         files: \.sh$
         pass_filenames: true
-
-      # Fuzz WHAT THE GIT DELTA REACHES, and only the DETERMINISTIC half. A commit that touches
-      # none of the surface below pays nothing - `files:` scopes this to the six targets' reach
-      # (`fuzz/`, the harness, and the crates each target header names). What runs is `fuzz-smoke`:
-      # replay every committed seed once, mutating nothing, so the verdict is a function of the
-      # committed files rather than a fresh random path - the only fuzz half that belongs anywhere
-      # near a merge gate (fuzz.yml says so at length). The exhaustive, mutating search runs at a
-      # release and on a manual dispatch, and nowhere else - this hook and `check-fuzz` are the
-      # regression half in full. This hook is not per-target tuned because the
-      # file->target map is a review claim written in each target's header, and a hand-table would
-      # rot; when the delta lands in a shared crate it replays every target that reaches it.
-      # `require_serial` so two simultaneous prek partitions do not both build the one harness.
-      #
-      # TWO ALTERNATIVES WERE DELETED FROM `files:` ON `telekom/sutura#929`, and the deletion is
-      # the finding: they named `crates/sutura-exec-bigquery/src/wire.rs` and its `wire/document.rs`,
-      # which went with the HTTP transport. Nothing was caught by it and nothing could be - the
-      # paths do not exist, so the hook's reach was unchanged - but **no gate reads the literal path
-      # alternatives in a `files:` filter**, so a deleted surface leaves a claim here that looks
-      # like coverage. `hook_coverage`'s `every_surface_the_real_config_claims_still_exists` holds
-      # the hook IDs a SURFACES row names and not these; that is the limit, stated here because a
-      # reviewer counting paths is the only mechanism there is.
-      #
-      # AND `crates/sutura-domain/src/warehouse/` IS DELIBERATELY ABSENT, which was asked. None of
-      # the five targets reaches it: their reach is the catalog document, a JWK set, a question
-      # body, an authored-SQL fragment and a bearer token, and each header says so. A finding in
-      # `warehouse/` that this hook once reported was incidental - `fuzz/` changed in the same
-      # commit, so the filter matched on that rather than on the crate. The class it was a finding
-      # of - an import reachable only under a non-default feature - is held by
-      # `cargo xtask check-default-features`, which `just gates` runs and `just validate` does not.
-      - id: fuzz
-        name: fuzz (git delta)
-        entry: bash nix/run-fuzz.sh smoke
-        language: system
-        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-domain/src/identity\.rs|crates/sutura-domain/src/identity/|crates/sutura-domain/src/catalog\.rs|crates/sutura-domain/src/catalog/|crates/sutura-domain/src/knowledge\.rs|crates/sutura-domain/src/knowledge/|crates/sutura-domain/src/pinned\.rs|crates/sutura-domain/src/pinned/|crates/sutura-http/src/wire|crates/sutura-http/src/inbound/token\.rs|crates/sutura-http/src/inbound/keys\.rs|crates/sutura-http/src/inbound/keys/|crates/sutura-config/src/inbound\.rs|crates/sutura-config/src/inbound/|crates/sutura-catalog-local/|crates/sutura-sql/|crates/sutura-semantic/)
-        pass_filenames: false
-        require_serial: true
 
       # Markdown, YAML and TOML through dprint; Python through ruff, formatter and linter both.
       #

@@ -228,7 +228,7 @@
         # writer and the check names it as the fix. In `nix/api-docs.nix` because this file was at
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
-        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain duckdb; };
+        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain; };
         fuzzRunner = import ./nix/fuzz.nix { inherit pkgs toolchain; };
 
         # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
@@ -249,10 +249,8 @@
         # from a URL at run time; body and argument in nix/dprint.nix.
         dprint = import ./nix/dprint.nix { inherit pkgs; };
 
-        # The data system the local Warehouse adapter links against, resolved by the SAME file
-        # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
-        # explains why the crate is built without its `bundled` feature, and why the run-time path
-        # is a third variable rather than an afterthought.
+        # The DuckDB the local Warehouse adapter mounts as its ADBC driver, resolved by the SAME file
+        # devenv.nix imports so the dev shell and CI cannot open two different libduckdbs.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
         # The ClickHouse execution venue, on Postgres's pattern: `checks.nextest` and `just test`
@@ -283,13 +281,11 @@
           nativeBuildInputs = [ pkgs.clang pkgs.lld ];
           # `buildInputs` and not `nativeBuildInputs`: a library the built artifact links against,
           # not a tool that runs during the build, and `strictDeps = true` above makes the
-          # distinction load-bearing rather than stylistic.
-          #
-          # Only the NATIVE args carry either. The cross builds below deliberately do not: the `duckdb`
-          # crate links the shared libduckdb, and `sutura-cli` keeps the adapter behind a default-off
-          # feature so the musl artifacts never ask for one. `libiconv` is what `-liconv` resolves to on
-          # a mac, where rustc emits it for every link and nix keeps it out of the SDK.
-          buildInputs = [ duckdb.package ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+          # distinction load-bearing rather than stylistic. `libiconv` is what `-liconv` resolves to
+          # on a mac, where rustc emits it for every link and nix keeps it out of the SDK.
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+          # The mounted DuckDB ADBC driver every DuckDB cell opens (`nix/duckdb.nix`). A run-time path
+          # nothing links: only the NATIVE args carry it, and the cross builds link the archive.
         } // duckdb.env;
 
         # The shipped binary carries its own dependency list: `cargo auditable` adds one ELF

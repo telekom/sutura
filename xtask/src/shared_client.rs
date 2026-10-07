@@ -1,32 +1,26 @@
-//! The outbound HTTP client is shared with a build-dependency, and that is a MEASUREMENT rather than
-//! a property - so it gets a gate.
+//! The outbound HTTP client is ONE client every first-party dialler shares, and that is a MEASUREMENT
+//! rather than a property - so it gets a gate.
 //!
-//! `docs/adr/0018` decides that `sutura-exec-bigquery`'s wire calls `jobs.query` over `ureq`, and the
-//! number that decided it is **zero new packages in `Cargo.lock`**: the same version with the same two
-//! features is already resolved as a build-dependency of `libduckdb-sys`, whose downloader never runs
-//! here. That record's own last consequence said the obvious thing about it:
+//! `docs/adr/0018` decides that outbound calls go over `ureq`. Its first measurement was **zero new
+//! packages in `Cargo.lock`**, because `libduckdb-sys`'s downloader already resolved the same version;
+//! that premise left with the `duckdb` crate (`telekom/sutura#913`), this gate's former second rule
+//! failed exactly as it was written to, and 0018's nineteenth amendment re-took the number: `ureq`,
+//! `ureq-proto` and `utf8-zero` are the three packages only `ureq` brings, and its TLS stack is shared
+//! with the rest of the graph.
 //!
-//! > A future `just update` that moves `ureq` to a version whose feature set no longer matches what
-//! > `libduckdb-sys` resolves would turn the +0 into a real number. Nothing gates that.
-//!
-//! `AGENTS.md` is unambiguous about what to do with a sentence like that - *put deterministic
+//! `AGENTS.md` is unambiguous about what to do with a measurement like that - *put deterministic
 //! requirements in a task, a hook, a lint or a generated contract, never in prose a human is expected
 //! to remember. A rule with no mechanism is a wish.* This is the mechanism.
 //!
-//! # Three rules, and the ones after the first are the ones that would rot silently
+//! # Two rules, and the second is the one that would rot silently
 //!
-//! * **One `ureq` in the lock.** If a `just update` ever resolves two, the +0 is a real number and the
-//!   licence and supply-chain arguments in 0018 are measuring the wrong graph. This is the cheap,
-//!   loud half.
-//! * **`libduckdb-sys` still depends on `ureq`.** This is the PREMISE of the +0, and it can stop being
-//!   true without anything else breaking: upstream could drop the downloader, or the `DuckDB` adapter
-//!   could stop being a dev-dependency. Nothing would fail - `ureq` would simply become a first-party
-//!   dependency with a first-party cost - and 0018 would go on claiming a measurement whose reason had
-//!   evaporated. Failing here forces the record to be re-taken rather than quietly inherited.
+//! * **One `ureq` in the lock.** If a `just update` ever resolves two, the three-package cost is a
+//!   larger number and the licence and supply-chain arguments in 0018 are measuring the wrong graph.
+//!   This is the cheap, loud half.
 //! * **None of the crates `docs/adr/0023`'s no-client measurement names resolves in the lock.**
 //!   That record measures the agent surface's transport and says it pulls no HTTP client because
 //!   `server-side-http` names neither `reqwest` nor `oauth2` and neither resolves in
-//!   `Cargo.lock`. The same rot the second rule watches: a future resolve could add one of the two
+//!   `Cargo.lock`. A future resolve could add one of the two
 //!   without anything else breaking, and 0023 would go on claiming a no-client property its own
 //!   feature closure no longer has. The list is the ADR's own two names - a gate that refused
 //!   other crates would enforce a property no record measures.
@@ -37,11 +31,11 @@
 //! `Cargo.lock`, which records resolved packages and their dependency names and not the feature
 //! selection that produced them. Checking it needs `cargo metadata`'s resolve graph, which is a
 //! process invocation and a JSON parser in a crate that has one dependency. So the gate checks the
-//! facts a text scan can establish exactly - the two about `ureq` and the two names 0023 forbids -
+//! facts a text scan can establish exactly - the one about `ureq` and the two names 0023 forbids -
 //! and this paragraph is why the feature sets are absent, which is better than a gate that reads as
 //! if it covered them.
 //!
-//! **A client under another name.** The lock records the name `cargo` RESOLVED, so the third rule
+//! **A client under another name.** The lock records the name `cargo` RESOLVED, so the second rule
 //! holds the two names the ADR's measurement used and nothing wider: a fork of a forbidden client
 //! published under its own name, or a crate that re-exports one, resolves under a name this scan
 //! cannot see. A client arriving under another name is the same second client 0018's *Why `ureq`
@@ -59,22 +53,19 @@ use crate::repo;
 /// The lock file, read as text. The same choice `arrow_major` makes and for the same reason.
 const LOCK: &str = "Cargo.lock";
 
-/// The client whose sharing 0018 measured.
+/// The client whose cost 0018 measured.
 const CLIENT: &str = "ureq";
 
-/// The build-dependency that already resolved it, which is the +0's premise.
-const SHARER: &str = "libduckdb-sys";
-
-/// The record that would have to be re-taken if either rule fails.
+/// The record that would have to be re-taken if the first rule fails.
 const RECORD: &str = "docs/adr/0018-what-the-bigquery-wire-is-built-from.md";
 
-/// The two crates `docs/adr/0023`'s no-client measurement names, and the only two the third rule
+/// The two crates `docs/adr/0023`'s no-client measurement names, and the only two the second rule
 /// refuses. That record's claim is about its transport's feature closure, so a gate that refused
 /// other names would enforce a property no record measures; a client arriving under another name
 /// is a different defect, and the module header says what this scan cannot see about it.
 const FORBIDDEN: &[&str] = &["reqwest", "oauth2"];
 
-/// The record whose no-client measurement the third rule protects.
+/// The record whose no-client measurement the second rule protects.
 const RECORD_0023: &str = "docs/adr/0023-how-the-agent-surface-learns-who-is-asking.md";
 
 /// Every version of `name` the lock holds.
@@ -106,28 +97,8 @@ fn unquote(value: &str) -> Option<&str> {
     value.strip_prefix('"')?.strip_suffix('"')
 }
 
-/// Does `holder`'s stanza list `needed` among its dependencies?
-///
-/// Scoped to one stanza rather than grepping the file, because `"ureq"` appears in its own stanza and
-/// in `ureq-proto`'s, and a whole-file search would answer yes for the wrong reason. A stanza runs from
-/// its `name = ` line to the next `[[package]]`.
-fn depends_on(lock: &str, holder: &str, needed: &str) -> bool {
-    let mut inside = false;
-    let quoted = format!("\"{needed}\",");
-    for line in lock.lines() {
-        if line.starts_with("[[package]]") {
-            inside = false;
-        } else if let Some(value) = line.strip_prefix("name = ") {
-            inside = unquote(value) == Some(holder);
-        } else if inside && line.trim() == quoted {
-            return true;
-        }
-    }
-    false
-}
-
-/// `cargo xtask check-shared-client` - the two facts `docs/adr/0018`'s +0 rests on, and the
-/// `docs/adr/0023` no-client fact that was held by review while this gate checked only `ureq`.
+/// `cargo xtask check-shared-client` - the one-client fact `docs/adr/0018`'s measurement rests on,
+/// and the `docs/adr/0023` no-client fact that was held by review while this gate checked only `ureq`.
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-shared-client: could not determine the repo root");
@@ -144,7 +115,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     check_lock(&lock)
 }
 
-/// The three rules against a lock's text: the entry `run` calls after reading the file, split out
+/// The two rules against a lock's text: the entry `run` calls after reading the file, split out
 /// so a test can drive the gate's real logic on a fixture lock rather than on the helper beneath it.
 fn check_lock(lock: &str) -> Verdict {
     let found = versions_of(lock, CLIENT);
@@ -163,19 +134,9 @@ fn check_lock(lock: &str) -> Verdict {
             eprintln!("  {CLIENT} {version}");
         }
         eprintln!();
-        eprintln!("  {RECORD} states that the wire costs ZERO new packages, because `{SHARER}`");
-        eprintln!("  already resolves the same version with the same features. Two versions means the");
-        eprintln!("  cost is a real number: re-measure it and rewrite that record, or align the two");
-        eprintln!("  requirements so one version resolves again.");
-        return Verdict::Fail;
-    }
-
-    if !depends_on(lock, SHARER, CLIENT) {
-        eprintln!("xtask check-shared-client: FAILED - `{SHARER}` no longer depends on `{CLIENT}`");
-        eprintln!("  That is the PREMISE of the zero-cost measurement in {RECORD}, and nothing else");
-        eprintln!("  breaks when it stops holding: `{CLIENT}` simply becomes a first-party dependency");
-        eprintln!("  with a first-party cost. Re-measure the closure and rewrite that record's");
-        eprintln!("  *Why `ureq` and not `reqwest`* section, which is where the number lives.");
+        eprintln!("  {RECORD} measures `{CLIENT}`'s first-party cost against ONE resolved version. Two");
+        eprintln!("  versions means the cost is a larger number: re-measure it in a new amendment to that");
+        eprintln!("  record, or align the two requirements so one version resolves again.");
         return Verdict::Fail;
     }
 
@@ -201,9 +162,7 @@ fn check_lock(lock: &str) -> Verdict {
     }
 
     let version = found.first().map_or("?", String::as_str);
-    println!(
-        "xtask check-shared-client: ok - one `{CLIENT}` ({version}), still shared with `{SHARER}`, and none of the crates {RECORD_0023} forbids resolves"
-    );
+    println!("xtask check-shared-client: ok - one `{CLIENT}` ({version}), and none of the crates {RECORD_0023} forbids resolves");
     Verdict::Pass
 }
 
@@ -211,7 +170,7 @@ fn check_lock(lock: &str) -> Verdict {
 mod tests {
     use core::fmt::Write as _;
 
-    use super::{check_lock, depends_on, versions_of};
+    use super::{check_lock, versions_of};
 
     /// A lock stanza, so the tests read like the file they parse.
     fn stanza(name: &str, version: &str, deps: &[&str]) -> String {
@@ -257,33 +216,21 @@ mod tests {
     }
 
     #[test]
-    fn the_dependency_check_is_scoped_to_one_stanza() {
-        // **The reason this is not a grep.** `"ureq",` appears inside `ureq-proto`'s own stanza too, so
-        // a whole-file search answers yes for the wrong reason - and would keep answering yes after
-        // `libduckdb-sys` stopped depending on it, which is exactly the drift this rule watches.
+    fn two_versions_of_the_client_trip_the_gate_through_its_entry() {
         let lock = format!(
             "{}{}",
-            stanza("libduckdb-sys", "1.0.0", &["flate2"]),
-            stanza("ureq-proto", "0.6.1", &["ureq"])
+            stanza("ureq", "3.4.0", &["rustls"]),
+            stanza("ureq", "4.0.0", &["rustls"]),
         );
-        assert!(!depends_on(&lock, "libduckdb-sys", "ureq"));
-
-        let lock = format!(
-            "{}{}",
-            stanza("libduckdb-sys", "1.0.0", &["flate2", "ureq"]),
-            stanza("ureq", "3.4.0", &[])
+        assert_eq!(
+            check_lock(&lock),
+            crate::Verdict::Fail,
+            "a lock with two `ureq` versions is not the lock 0018 measured"
         );
-        assert!(depends_on(&lock, "libduckdb-sys", "ureq"));
     }
 
     #[test]
-    fn a_holder_that_is_not_in_the_lock_depends_on_nothing() {
-        let lock = stanza("serde", "1.0.0", &["serde_core"]);
-        assert!(!depends_on(&lock, "libduckdb-sys", "ureq"));
-    }
-
-    #[test]
-    fn the_real_lock_satisfies_both_rules() {
+    fn the_real_lock_resolves_one_client() {
         // The gate against the tree it guards, so a refactor of the parse cannot pass its own fixtures
         // and fail the file. `arrow_major`'s suite does not do this and could; it is cheap here because
         // the lock is committed.
@@ -298,10 +245,6 @@ mod tests {
             1,
             "the workspace resolves more than one ureq"
         );
-        assert!(
-            depends_on(&lock, "libduckdb-sys", "ureq"),
-            "libduckdb-sys no longer shares ureq, so docs/adr/0018's measurement needs re-taking"
-        );
     }
 
     #[test]
@@ -309,7 +252,7 @@ mod tests {
         // The red fixture: a lock the ADR did NOT measure, because one of the two crates it
         // forbids resolves - reached from `sutura-http`, the crate whose `server-side-http` feature
         // is the transport 0023 measured. The assertion drives `check_lock`, the entry `run` calls
-        // after reading the file, so the gate's own third rule trips the verdict rather than a test
+        // after reading the file, so the gate's own second rule trips the verdict rather than a test
         // that only touches the `versions_of` helper beneath it.
         let lock = format!(
             "{}{}{}{}",
@@ -327,7 +270,7 @@ mod tests {
 
     #[test]
     fn the_real_lock_forbids_nothing_the_adr_0023_names() {
-        // The third rule against the tree it guards, beside the existing real-lock test: a
+        // The second rule against the tree it guards, beside the existing real-lock test: a
         // refactor of the parse cannot pass its fixtures and miss the file.
         let Some(root) = crate::repo::root() else {
             return;

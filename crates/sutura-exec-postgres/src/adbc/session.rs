@@ -46,6 +46,9 @@ pub(super) const MOST_RESULT_BYTES: NonZeroUsize = match NonZeroUsize::new(256 *
 /// The SQLSTATE a statement cancelled by `statement_timeout` fails with, `query_canceled`.
 const QUERY_CANCELED: [u8; 5] = *b"57014";
 
+/// What the server's cancel of a statement past `statement_timeout` says, as the driver relays it.
+const STATEMENT_TIMEOUT_TEXT: &str = "canceling statement due to statement timeout";
+
 /// The SQLSTATE `zero_denominator: fails` arrives as on this source, `division_by_zero`.
 const DIVISION_BY_ZERO: [u8; 5] = *b"22012";
 
@@ -246,22 +249,26 @@ where
     drained(statement.execute().map_err(AdbcError::Adbc)?, stop).map_err(|error| timed_out(error, sent, timeout))
 }
 
-/// A failure READING the stream, once the timeout the server was told has run out, is that
-/// timeout.
+/// A failure READING the stream is the timeout when the server's own cancel text says so, and
+/// only once the timeout the server was told has run out.
 ///
-/// **Why a clock and not a SQLSTATE**: the pinned driver reads a parameterless result through
+/// **Why text and a clock, not a SQLSTATE**: the pinned driver reads a parameterless result through
 /// `COPY ... TO STDOUT`, so a statement the server cancels mid-result fails inside the Arrow
 /// stream, and the driver manager hands that back as a C-interface message with no SQLSTATE
 /// (measured: a raw `pg_sleep` past its budget arrived as `Batch(CDataInterface(".. canceling
-/// statement due to statement timeout"))`). The server's timer starts no earlier than `sent`, so a
-/// real timeout always arrives at or past it; and once it has run out the server would have
-/// cancelled the statement before failing it for anything else.
+/// statement due to statement timeout"))`). The text is what separates it from a dropped
+/// connection, a terminated backend or a manual `pg_cancel_backend` (`.. due to user request`); the
+/// clock keeps a message that merely quotes it from counting early.
 ///
-/// **The limit**: a failure this process makes itself while reading - a batch that will not decode -
-/// after the window has passed is read as the timeout too.
+/// **The limit**: the text is the server's English message, so a server running a non-English
+/// `lc_messages` reads its timeout as the batch failure it arrived as - refused all the same, but
+/// not as the deadline.
 fn timed_out(error: AdbcError, sent: Instant, timeout: Option<NonZeroU32>) -> AdbcError {
     match error {
-        AdbcError::Batch(cause) if timeout.is_some_and(|ms| sent.elapsed() >= Duration::from_millis(u64::from(ms.get()))) => {
+        AdbcError::Batch(cause)
+            if cause.to_string().contains(STATEMENT_TIMEOUT_TEXT)
+                && timeout.is_some_and(|ms| sent.elapsed() >= Duration::from_millis(u64::from(ms.get()))) =>
+        {
             AdbcError::TimedOut(cause)
         }
         other => other,
@@ -392,7 +399,11 @@ mod tests {
 
         use super::super::AdbcError;
 
-        let failure = || AdbcError::Batch(arrow_schema::ArrowError::CDataInterface(String::from("the stream failed")));
+        let failure = || {
+            AdbcError::Batch(arrow_schema::ArrowError::CDataInterface(String::from(
+                "ERROR: canceling statement due to statement timeout",
+            )))
+        };
         let ms = NonZeroU32::new(50);
         let long_ago = Instant::now()
             .checked_sub(Duration::from_secs(1))
@@ -411,6 +422,28 @@ mod tests {
             matches!(read, AdbcError::Batch(_)),
             "no timeout was set, so none ran out: {read:?}"
         );
+    }
+
+    #[test]
+    fn a_stream_failure_that_is_not_the_servers_cancel_is_not_the_timeout_after_the_window() {
+        use core::num::NonZeroU32;
+        use std::time::Instant;
+
+        use super::super::AdbcError;
+
+        let long_ago = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .expect("a second ago is representable");
+        for text in [
+            "server closed the connection unexpectedly",
+            "FATAL: terminating connection due to administrator command",
+            "ERROR: canceling statement due to user request",
+        ] {
+            let failure = AdbcError::Batch(arrow_schema::ArrowError::CDataInterface(String::from(text)));
+            let read = super::timed_out(failure, long_ago, NonZeroU32::new(50));
+            assert!(matches!(read, AdbcError::Batch(_)), "{text}: {read:?}");
+            assert!(!super::deadline_exceeded(&read), "{text}");
+        }
     }
 
     #[test]

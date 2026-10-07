@@ -42,8 +42,8 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   directory's `ewallet.pem` when one is configured and from the bundled `webpki-roots` set when
   one is not (measured by reading `oracle/rust-oracledb/src/transport.rs`) - there is no
   constructor that takes an external root store or a caller-built `ClientConfig` at all. So
-  `OracleWarehouse::connect_secured` takes a wallet directory, unlike the `rustls::ClientConfig`
-  `sutura_catalog_rdbms::postgres_channel::client_config` produces for a Postgres TLS channel, and
+  `OracleWarehouse::connect_secured` takes a wallet directory rather than a caller-built
+  `rustls::ClientConfig`, and
   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on

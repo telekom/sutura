@@ -133,6 +133,36 @@ mod tests {
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     }
 
+    /// **`transport_anchors: system` is refused by name** at `postgres::build`'s anchors mapping,
+    /// reached through the command's own composition. The password file is real, so the refusal
+    /// cannot be the file read that precedes the channel.
+    #[test]
+    #[cfg(feature = "postgres")]
+    fn a_postgres_source_declaring_the_system_store_is_refused_by_name() {
+        let directory = std::env::temp_dir().join(format!("sutura-cli-pg-system-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let password = directory.join("password");
+        std::fs::write(&password, "not-a-secret").expect("a password file writes");
+        let registry = declaring(
+            "warehouse",
+            &format!(
+                "    kind: postgres\n    host: \"127.0.0.1\"\n    port: 5432\n    database: \"marts\"\n    \
+                 user: \"sutura\"\n    password_file: \"{}\"\n    transport_mode: \"verified\"\n    \
+                 transport_anchors: \"system\"\n",
+                password.display()
+            ),
+            "shared-service-user",
+        );
+        let opened = open_engine(&bundle_naming("warehouse"), &registry, runtime(), timeout(), None, None).map(|_| ());
+        let _ignored = std::fs::remove_dir_all(&directory);
+        let error = opened.expect_err("libpq's system store is not the host store sutura reads");
+        assert!(
+            error.contains("transport_anchors: system"),
+            "the refusal must name the key: {error}"
+        );
+        assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    }
+
     /// The `workload_identity` block an `impersonation-at-source` entry must carry.
     ///
     /// Its own helper rather than [`super::wif`], which is gated on `bigquery` - this root's

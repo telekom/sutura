@@ -1082,7 +1082,8 @@ jobs:
       # The scope is one line in xtask/src/crap.rs, and docs/crap.md carries the measured cost of
       # every wider option plus what this one does not see. `rust` rather than a narrower
       # classification: the policy file, the pin and the manifests all change the verdict, and the
-      # commit hook is the thing that scopes by path.
+      # `CRAP scope` row in xtask/src/hook_coverage/surfaces.rs is what scopes `just ship-check` by
+      # path.
       #
       # `-o result-crap` AND THE COPY exist so the delta steps below cost NO SECOND COVERAGE RUN.
       # The check writes a path-portable copy of its score report into `$out`, which is the only

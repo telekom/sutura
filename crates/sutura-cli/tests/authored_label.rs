@@ -3,7 +3,7 @@
 //! `commands::computation_label` prints for the authored-SQL case is LOOKED AT rather than merely
 //! compiled against the `const` assertion sitting beside it.
 //!
-//! `just documented` reads `docs/getting-started.md` and `examples/single-player/README.md`
+//! `just documented` reads `docs/getting-started.md` and `docs/examples/single-player.md`
 //! only, and neither prints a metric whose `computation` is `AuthoredSql` - which is exactly how
 //! the label grew to the width of its own column without a build noticing. This pins the one line
 //! that command prints for the one catalog that exercises the other arm.

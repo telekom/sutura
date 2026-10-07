@@ -226,6 +226,10 @@ exclude_docs: |
 # already routes to every page here; three more landing pages would restate that table three
 # times. `navigation.indexes` stays on because a section index is worth having as soon as a
 # section has enough pages to need one.
+# Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
+hooks:
+  - docs/.tools/version.py
+
 nav:
   - Using it:
       - Introduction: index.md
@@ -233,6 +237,9 @@ nav:
       - Getting started: getting-started.md
       - Questions and answers: qa.md
       - The agent prompt: agent-prompt.md
+  - Examples:
+      - examples/index.md
+      - Single player: examples/single-player.md
   - Operating it:
       - Serving over HTTP: serving.md
       - Verifying a release: verifying-a-release.md

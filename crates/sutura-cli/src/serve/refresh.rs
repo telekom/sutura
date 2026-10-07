@@ -169,7 +169,11 @@ fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Dura
 /// **No runtime means it does not poll**, the same shape `crate::rotation::drive_rotation`
 /// documents for the outbound-material rotation: call this from `serve_until_stopped`, where
 /// `runtime.block_on` has already entered one, never from the synchronous boot section above it.
-pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, declared: &sutura_config::Catalogs) {
+///
+/// Takes the opened catalogs and the boot pin BY VALUE: the poll is their last holder, so nothing is
+/// cloned for it - and a catalog holding a credential (the `rdbms` reader's connection string) need
+/// not be `Clone` at all.
+pub(crate) fn drive(catalogs: OpenedCatalogs, pinned: PinnedDefinitions, declared: &sutura_config::Catalogs) {
     let Some(interval) = shortest_declared_interval(declared) else {
         return;
     };
@@ -182,15 +186,15 @@ pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, decla
         "this deployment's catalog will be polled and re-pinned on a declared interval"
     );
     match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs, pinned, interval),
         #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
-        OpenedCatalogs::Okf(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::Okf(catalogs) => spawn(catalogs, pinned, interval),
         #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
-        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, pinned, interval),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs, pinned, interval),
     }
 }
 
@@ -200,7 +204,7 @@ pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, decla
 /// built and immediately discarded.
 fn spawn<K>(catalogs: Vec<K>, initial: PinnedDefinitions, interval: Duration)
 where
-    K: SemanticCatalog + Clone + Send + Sync + 'static,
+    K: SemanticCatalog + Send + Sync + 'static,
     K::Error: Send + Sync,
 {
     let mut refresher = Refresher::new(catalogs, initial);
