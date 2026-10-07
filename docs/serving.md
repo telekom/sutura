@@ -1300,6 +1300,31 @@ A panic is traced before the process gives up on it. The shipped profiles abort,
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
 hand, so the last thing in the log says what happened and where instead of the log just stopping.
 
+### Log format
+
+To get Bunyan JSON outside production, set the format in the configuration file. With
+`SUTURA_ENVIRONMENT=production` it is already the default.
+
+```yaml
+telemetry:
+  format: bunyan
+```
+
+The start-up line with `log_format` and `log_format_explicit` says which one decided: `true` means
+the configuration set the format, `false` means the environment did. The log goes to standard output,
+one JSON object per line, so Bunyan tools can read it (the `tracing-bunyan-formatter` crate writes
+it). A start-up line looks like this:
+
+```json
+{"v":0,"name":"sutura","msg":"catalog and log","level":30,"hostname":"sutura","pid":1,"time":"2026-10-07T17:56:41.705816761Z","target":"sutura_runtime::banner","line":227,"file":"crates/sutura-runtime/src/banner.rs","data_dir":"Some(\"data\")","definition_version":"unversioned","catalog_kind":"markdown","catalog_dir":"Some(\"catalog\")","log_format_explicit":true,"log_format":"bunyan","catalog_name":"model"}
+```
+
+Every line carries `v` (format version), `name` (`telemetry.service_name`), `msg`, `level` (30 is
+info, 40 is warn), `hostname`, `pid`, `time` (UTC), `target`, `file` and `line`, then the fields of
+the event. Audit records (`answered`, `refused`) and records from dependencies that use the `log`
+crate come out in the same stream and format. Only `bunyan` and `pretty` exist; any other value stops
+the process at start-up.
+
 ## Stopping
 
 `SIGTERM` or an interrupt - and the platform equivalent elsewhere - drains in-flight work and logs
