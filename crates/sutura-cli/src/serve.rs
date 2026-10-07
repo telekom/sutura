@@ -189,10 +189,10 @@ pub(crate) fn run() -> Result<(), String> {
     // of the bundle (`outbound::resolve` resolved it once, above).
     let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = crate::catalog::load(&catalogs)?;
-    // Cloned here, before `settings` moves into the state below: `refresh::drive` needs to read
-    // every entry's own `refresh_seconds` from inside `serve_until_stopped`, where a runtime is
-    // already running - `#975`.
-    let declared_catalogs = settings.catalogs().clone();
+    // Read here, before `settings` moves into the state below: all `refresh::drive` needs of the
+    // declared catalogs is their shortest `refresh_seconds`, and it runs from inside
+    // `serve_until_stopped`, where a runtime is already running - `#975`.
+    let refresh_every = refresh::shortest_declared_interval(settings.catalogs());
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
     // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
@@ -419,7 +419,7 @@ pub(crate) fn run() -> Result<(), String> {
         stopping.clone(),
         catalogs,
         pinned,
-        declared_catalogs,
+        refresh_every,
     ));
     stop(runtime, &stopping);
     served
@@ -525,7 +525,7 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 
 /// Spawns the signal listener and serves until it fires.
 ///
-/// `catalogs`/`pinned`/`declared_catalogs` are here rather than read from `serve.rs`'s own boot
+/// `catalogs`/`pinned`/`refresh_every` are here rather than read from `serve.rs`'s own boot
 /// section for `#975`'s reason: `refresh::drive` starts a `tokio::spawn` poll, which needs the
 /// runtime `run` has not yet built at that point in the sync boot code - this function is the
 /// first place one is running.
@@ -537,9 +537,9 @@ async fn serve_until_stopped(
     stopping: Shutdown,
     catalogs: crate::catalog::OpenedCatalogs,
     pinned: PinnedDefinitions,
-    declared_catalogs: sutura_config::Catalogs,
+    refresh_every: Option<std::time::Duration>,
 ) -> Result<(), String> {
-    refresh::drive(catalogs, pinned, &declared_catalogs);
+    refresh::drive(catalogs, pinned, refresh_every);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.

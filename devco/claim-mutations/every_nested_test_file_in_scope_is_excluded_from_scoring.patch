@@ -1,0 +1,12 @@
+diff --git a/.cargo-crap.toml b/.cargo-crap.toml
+index 6016cc64e..698a53b07 100644
+--- a/.cargo-crap.toml
++++ b/.cargo-crap.toml
+@@ -71,7 +71,6 @@ exclude = [
+   # either. Without this, a helper split out of `tests.rs` for `max-lines` and given a concept
+   # name scores as uncovered production code - measured for `catalog/tests/chain.rs`,
+   # `plan/federated/tests/fixtures.rs` and `plan/federated/tests/ranking.rs`.
+-  "**/tests/**",
+ ]
+ 
+ # Functions and files exempt from the score.
