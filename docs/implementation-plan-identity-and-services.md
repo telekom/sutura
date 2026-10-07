@@ -459,12 +459,13 @@ wrote `Shared`, and a mode with two names in one document is how it acquires two
 
 **Why it is its own step, ahead of the OAuth one.** Three things it settles that nothing else can:
 
-- **Which shipped artifact links a native driver.** Open in two ADRs. A missing musl `libduckdb` is
-  no obstacle to a native DuckDB driver: nixpkgs' `duckdb` cross-builds for both musl triples
-  (`docs/adr/0007`'s eleventh amendment). A Postgres source has the same question: it answers over
-  ADBC (`telekom/sutura#1242`), so it links a driver library and the cross-build matrix applies to
-  it too. Answering it against real code beats
-  answering it in prose.
+- **Which shipped artifact links a native driver.** Answered: `nix/shipped.nix` lists `duckdb` and
+  `postgres` in the shipped features (`telekom/sutura#1298`, and `telekom/sutura#1242` for the
+  Postgres source, which answers over ADBC). A musl release links each driver as a static archive
+  (`adbcArchiveFor`); any other build mounts the one `SUTURA_DUCKDB_ADBC_DRIVER` or
+  `SUTURA_POSTGRES_ADBC_DRIVER` names. A missing musl `libduckdb` was no obstacle: nixpkgs
+  `duckdb` cross-builds for both musl triples (`docs/adr/0007`'s eleventh amendment). Answering it
+  against real code beat answering it in prose.
 - **The rendered SQL meets a real Postgres.** 21 statement goldens and 21 parameter goldens exist and
   every statement is parse-checked, and parse-checked is
   [explicitly narrower](adr/0007-federating-across-different-data-systems.md) than accepted: the
