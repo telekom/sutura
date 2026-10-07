@@ -34,6 +34,8 @@ variables:
   aliceSubject: 0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01
   bobSubject: 0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02
   poolPrincipal: principal://iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${pool.workloadIdentityPoolId}/subject
+  subscriptionsGeneration: { fn::toJSON: "${subscriptionsCsv.generation}" }
+  customersGeneration: { fn::toJSON: "${customersCsv.generation}" }
   tableSchema:
     fct_subscription_monthly:
       - { name: month, type: DATE, mode: REQUIRED }
@@ -204,7 +206,7 @@ resources:
   subscriptionsLoad:
     type: gcp:bigquery:Job
     properties:
-      jobId: sutura-mp-subscriptions-${subscriptionsCsv.generation}
+      jobId: sutura-mp-subscriptions-${subscriptionsGeneration}
       location: ${location}
       load:
         sourceUris: ["gs://${seedBucket.name}/${subscriptionsCsv.name}"]
@@ -221,7 +223,7 @@ resources:
   customersLoad:
     type: gcp:bigquery:Job
     properties:
-      jobId: sutura-mp-customers-${customersCsv.generation}
+      jobId: sutura-mp-customers-${customersGeneration}
       location: ${location}
       load:
         sourceUris: ["gs://${seedBucket.name}/${customersCsv.name}"]
