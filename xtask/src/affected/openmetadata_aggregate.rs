@@ -51,4 +51,8 @@ fn a_clean_openmetadata_tier_runs_green() {
         ("OM_SELECTED", "true"),
     ]);
     assert!(ok, "a selected OpenMetadata tier that runs must aggregate GREEN: {text}");
+    assert!(
+        !text.contains("ci-openmetadata-tier"),
+        "a green run names no OpenMetadata failure: {text}"
+    );
 }

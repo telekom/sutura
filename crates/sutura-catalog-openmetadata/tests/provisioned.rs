@@ -9,7 +9,7 @@
 //! the first is `#[ignore]`d, behind `just openmetadata-acceptance` and CI's `ci-openmetadata-tier`
 //! (`nix run .#openmetadata-acceptance`), and a green `just test` says nothing about them.
 //!
-//! * `every_not_carried_row_still_names_something_the_golden_states` - no venue, so it runs in
+//! * `every_openmetadata_not_carried_row_still_names_something_the_golden_states` - no venue, so it runs in
 //!   `just test`: a [`NotCarried`] row whose subject left the golden fails rather than lingers.
 //! * `the_provisioned_openmetadata_serves_the_surface_a_reader_would_call` - the version route
 //!   answers, and the two list routes the reader pages answer a `2xx` to an authenticated caller.
@@ -471,7 +471,7 @@ mod tests {
 
     /// Runs in `just test`: every [`NOT_CARRIED`] row must still name something the golden states.
     #[test]
-    fn every_not_carried_row_still_names_something_the_golden_states() {
+    fn every_openmetadata_not_carried_row_still_names_something_the_golden_states() {
         let golden = golden();
         for row in NOT_CARRIED {
             assert!(

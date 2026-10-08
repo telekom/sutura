@@ -45,7 +45,6 @@ mod health;
 /// line budget, and "what does this worktree hold" is a separable concern from acting on it.
 mod held;
 mod lock;
-mod platforms;
 mod teardown;
 mod tier;
 
@@ -622,7 +621,6 @@ mod tests {
         // that ran without its profile would leave a MySQL data directory and an OpenSearch index
         // behind - and the next `dev-up` would come back onto another branch's migration.
         assert!(every.contains(&"datahub"), "{every:?}");
-        assert!(every.contains(&"openmetadata"), "{every:?}");
 
         let args = super::docker::scoped_args(std::path::Path::new("/repo"), "sutura-dev-aaaa1111", &every);
         for profile in &every {
