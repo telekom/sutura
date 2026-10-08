@@ -28,16 +28,14 @@
 //! not constants** - [`DEFAULT_TIMEOUT_SECONDS`] and [`DEFAULT_MAX_RESPONSE_BYTES`] are the values a
 //! composition root's settings default to, following `sutura-config`'s own convention of a default
 //! function per optional key, not a value baked into this type. [`read`](SnapshotReader::read)
-//! makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
-//! once, and what is left after the first is what the second gets - the same shape
-//! `sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader hold.
-//! **The aggregate byte cost of one `read()` is bounded by construction, not by a third check**:
-//! two requests at `cap` each is at most `2×cap` read into memory before either response is
-//! checked, and `fetch`'s own `ureq` backstop (`limit(2×cap)` per request, ahead of the precise
-//! `len > cap` refusal) makes the true per-request ceiling `2×cap` rather than `cap` - so a single
-//! `read()` never holds more than `4×cap` at once across both in-flight bodies. Stated here rather
-//! than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
-//! raise this number and this sentence would have to move with it.
+//! follows each entity kind's pages (tables, then metrics) and shares ONE deadline across every
+//! request - opened once, and what is left after one request is what the next gets - the same
+//! shape `sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader
+//! hold. **The response-size cap is per page**: `fetch`'s own `ureq` backstop (`limit(2×cap)`, ahead
+//! of the precise `len > cap` refusal) makes the true per-page ceiling `2×cap`, and one page is read
+//! at a time, so a `read()` holds at most `2×cap` of raw response at once. **Stated limit: nothing
+//! bounds the bytes across pages.** What a read keeps is bounded by [`PageLimits`]' entity bound,
+//! and the bytes it transfers by the deadline.
 //!
 //! # Auth
 //!
@@ -47,12 +45,15 @@
 //!
 //! # Paging
 //!
-//! One page per entity kind, at a generous count. A page that SIGNALS more results exist - an
-//! `after` cursor, or a returned count below a reported `paging.total` - is refused
-//! ([`HttpReaderError::MorePages`]) rather than silently read as complete: the same "one page or a
-//! refusal" shape `sutura-catalog-datahub`'s reader and `sutura-exec-bigquery`'s wire hold for
-//! `jobs.query`, because a caller must not certify a bundle built from a `Snapshot` that silently
-//! dropped a model or a metric.
+//! Each entity kind is read page by page at [`PageLimits`]' page size (`limit`, 1000 by default),
+//! following `paging.after` until a page carries none. The list is whole or the read is refused
+//! ([`HttpReaderError::Paging`]): a cursor the service repeats, a page with no entity that still
+//! reports more, more than the entity bound (`PageLimits::DEFAULT`'s 100,000) for one entity kind,
+//! and a last page that leaves the list short of `paging.total` are each refused, never read as
+//! complete. The cursor is the service's own text, so it is percent-encoded into the query.
+//! **Stated limits: the bound is a constant that [`HttpSnapshotReader::with_page_limits`] changes in
+//! code and no settings key does, and a list that ends early on a service that reports no `total`
+//! is not caught.**
 //!
 //! # TLS and the endpoint
 //!
@@ -75,8 +76,9 @@
 use serde_json::Value;
 use sutura_domain::identity::Secret;
 pub use sutura_http_client::{
-    Budget, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, InvalidEndpoint, InvalidReadBounds,
-    OutboundAgent, ReadBounds,
+    Budget, DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_PAGE_SIZE, DEFAULT_TIMEOUT_SECONDS, Endpoint,
+    EndpointMessage, InvalidEndpoint, InvalidPageLimits, InvalidReadBounds, OutboundAgent, PageLimits, PageReport, Pager,
+    PagingRefusal, ReadBounds,
 };
 
 use crate::document::Snapshot;
@@ -141,9 +143,14 @@ pub enum HttpReaderError {
         #[source]
         cause: serde_json::Error,
     },
-    /// The page stated or implied more results exist than the one page this reader will read.
-    #[error("the {entity} page indicated more results than the one page this reader will read")]
-    MorePages { entity: &'static str },
+    /// The pages could not be followed to a whole list: a cursor repeated, a page made no progress,
+    /// the entity bound was passed, or the list ended short of its reported total.
+    #[error("the {entity} pages were refused")]
+    Paging {
+        entity: &'static str,
+        #[source]
+        cause: PagingRefusal,
+    },
 }
 
 /// An `OpenMetadata` deployment, reached over HTTP.
@@ -158,6 +165,7 @@ pub struct HttpSnapshotReader {
     endpoint: Endpoint,
     token: Secret,
     bounds: ReadBounds,
+    limits: PageLimits,
     agent: sutura_tls::Rotating<ureq::Agent>,
 }
 
@@ -189,8 +197,16 @@ impl HttpSnapshotReader {
             endpoint,
             token,
             bounds,
+            limits: PageLimits::DEFAULT,
             agent,
         }
+    }
+
+    /// Replaces the page size and the entity bound, which default to [`PageLimits::DEFAULT`].
+    #[must_use]
+    pub const fn with_page_limits(mut self, limits: PageLimits) -> Self {
+        self.limits = limits;
+        self
     }
 
     /// Builds the reader's rotating agent handle for a declared `security.outbound` set, and (when
@@ -226,24 +242,29 @@ impl HttpSnapshotReader {
     /// `tableConstraints` are relationship-backed and populated only when named there; an empty
     /// slice omits the parameter entirely, for entity kinds (`metrics`) whose fields this reader
     /// needs are always returned.
-    fn fetch(&self, budget: Budget, entity: &'static str, fields: &[&str]) -> Result<Value, HttpReaderError> {
+    ///
+    /// `pager` names the page size and the `after` cursor. The cursor is the service's own text, so
+    /// it is percent-encoded into the query rather than spliced into the URL.
+    fn fetch(&self, budget: Budget, entity: &'static str, fields: &[&str], pager: &Pager) -> Result<Value, HttpReaderError> {
         let left = budget.remaining().ok_or(HttpReaderError::DeadlineSpent {
             entity,
             budget_seconds: self.bounds.timeout().as_secs(),
         })?;
-        // A generous, fixed count rather than a configured one: raising it does not change the
-        // shape of the read, only how large a deployment can be before `MorePages` fires - and a
-        // deployment past this needs a different reader (real paging), not a bigger number here.
         let fields_param = if fields.is_empty() {
             String::new()
         } else {
             format!("&fields={}", fields.join(","))
         };
-        let url = format!("{}/api/v1/{entity}?limit=1000{fields_param}", self.endpoint.as_str());
-        let mut response = self
-            .agent
-            .current()
-            .get(&url)
+        let url = format!(
+            "{}/api/v1/{entity}?limit={}{fields_param}",
+            self.endpoint.as_str(),
+            pager.page_size()
+        );
+        let mut request = self.agent.current().get(&url);
+        if let Some(after) = pager.cursor() {
+            request = request.query("after", after);
+        }
+        let mut response = request
             .config()
             .timeout_global(Some(Budget::socket(left)))
             .build()
@@ -281,24 +302,22 @@ impl HttpSnapshotReader {
         serde_json::from_str(&text).map_err(|cause| HttpReaderError::NotADocument { entity, cause })
     }
 
-    /// Whether a page's own fields say more results exist than the page this reader read.
-    ///
-    /// `OpenMetadata`'s paged list envelope reports `paging.total` (how many match in all) and a
-    /// `paging.after` cursor when there is another page. Either being present beyond what this page
-    /// returned is refused rather than silently read as complete - see the module header's "Paging".
-    fn page_signals_more(page: &Value, returned: usize) -> bool {
+    /// What a page's `paging` block says about the rest of the list: its `after` cursor, absent or
+    /// null or empty on the last page, and the `total` the service reports for the whole list.
+    fn report<'page>(page: &'page Value, returned: usize, entity: &'static str) -> Result<PageReport<'page>, HttpReaderError> {
         let paging = page.get("paging");
-        if paging
-            .and_then(|paging| paging.get("after"))
-            .and_then(Value::as_str)
-            .is_some_and(|after| !after.is_empty())
-        {
-            return true;
-        }
-        paging
-            .and_then(|paging| paging.get("total"))
-            .and_then(Value::as_u64)
-            .is_some_and(|total| total > returned as u64)
+        let next = match paging.and_then(|paging| paging.get("after")) {
+            None | Some(Value::Null) => None,
+            Some(Value::String(after)) => Some(after.as_str()).filter(|after| !after.is_empty()),
+            Some(_) => {
+                return Err(HttpReaderError::UnexpectedShape {
+                    entity,
+                    field: "paging.after",
+                });
+            }
+        };
+        let total = paging.and_then(|paging| paging.get("total")).and_then(Value::as_u64);
+        Ok(PageReport::new(returned, next, total))
     }
 
     fn entities<'page>(page: &'page Value, entity: &'static str) -> Result<&'page [Value], HttpReaderError> {
@@ -308,32 +327,54 @@ impl HttpSnapshotReader {
             .ok_or(HttpReaderError::UnexpectedShape { entity, field: "data" })
     }
 
-    /// The `table` entity kind's page, with the declared relationships already harvested from the
+    /// Follows one entity kind's `after` cursor to the last page, handing each page's entities to
+    /// `take`. The list is whole or the read is refused - see [`Pager`].
+    fn read_pages(
+        &self,
+        budget: Budget,
+        entity: &'static str,
+        fields: &[&str],
+        mut take: impl FnMut(&[Value]) -> Result<(), HttpReaderError>,
+    ) -> Result<(), HttpReaderError> {
+        let mut pager = Pager::new(self.limits);
+        loop {
+            let page = self.fetch(budget, entity, fields, &pager)?;
+            let entities = Self::entities(&page, entity)?;
+            take(entities)?;
+            let report = Self::report(&page, entities.len(), entity)?;
+            if !pager
+                .advance(report)
+                .map_err(|cause| HttpReaderError::Paging { entity, cause })?
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    /// The `table` entity kind's pages, with the declared relationships already harvested from the
     /// same entities' constraints.
     fn read_tables(&self, budget: Budget) -> TablesRead {
         const ENTITY: &str = "tables";
-        let page = self.fetch(budget, ENTITY, &["columns", "tableConstraints"])?;
-        let entities = Self::entities(&page, ENTITY)?;
-        if Self::page_signals_more(&page, entities.len()) {
-            return Err(HttpReaderError::MorePages { entity: ENTITY });
-        }
-        let mut tables = Vec::with_capacity(entities.len());
+        let mut tables = Vec::new();
         let mut relationships = Vec::new();
-        for entity in entities {
-            // The origin model name is read once here so both `harvest_table` (which decodes the
-            // model) and `harvest_relationships` (which decodes the joins on it) agree on which
-            // table a foreign key sits on.
-            let origin_model = entity
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or(HttpReaderError::UnexpectedShape {
-                    entity: ENTITY,
-                    field: "name",
-                })?
-                .to_owned();
-            tables.push(harvest_table(entity)?);
-            relationships.extend(harvest_relationships(entity, &origin_model, ENTITY)?);
-        }
+        self.read_pages(budget, ENTITY, &["columns", "tableConstraints"], |entities| {
+            for entity in entities {
+                // The origin model name is read once here so both `harvest_table` (which decodes the
+                // model) and `harvest_relationships` (which decodes the joins on it) agree on which
+                // table a foreign key sits on.
+                let origin_model = entity
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or(HttpReaderError::UnexpectedShape {
+                        entity: ENTITY,
+                        field: "name",
+                    })?
+                    .to_owned();
+                tables.push(harvest_table(entity)?);
+                relationships.extend(harvest_relationships(entity, &origin_model, ENTITY)?);
+            }
+            Ok(())
+        })?;
         Ok((tables, relationships))
     }
 
@@ -341,15 +382,17 @@ impl HttpSnapshotReader {
     /// free-text binding is reported-not-defined by the crate's declaration.
     fn read_metrics(&self, budget: Budget) -> Result<Vec<crate::document::Metric>, HttpReaderError> {
         const ENTITY: &str = "metrics";
+        let mut metrics = Vec::new();
         // `MetricResource.FIELDS` (measured against `main`) lists neither `metricType`,
         // `granularity`, `metricExpression` nor `measures` - these are core fields the resource
         // always returns, so unlike `tables` this list needs no `?fields=`.
-        let page = self.fetch(budget, ENTITY, &[])?;
-        let entities = Self::entities(&page, ENTITY)?;
-        if Self::page_signals_more(&page, entities.len()) {
-            return Err(HttpReaderError::MorePages { entity: ENTITY });
-        }
-        entities.iter().map(harvest_metric).collect()
+        self.read_pages(budget, ENTITY, &[], |entities| {
+            for entity in entities {
+                metrics.push(harvest_metric(entity)?);
+            }
+            Ok(())
+        })?;
+        Ok(metrics)
     }
 }
 

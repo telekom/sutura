@@ -39,11 +39,14 @@
 //! [`ReadBounds`] carries a request timeout and a response-size cap, both **settings with defaults,
 //! not constants** - [`DEFAULT_TIMEOUT_SECONDS`] and [`DEFAULT_MAX_RESPONSE_BYTES`] are the values a
 //! composition root's settings default to, following `sutura-config`'s own convention of a default
-//! function per optional key, not a value baked into this type. [`read`](AspectReader::read) makes
-//! up to three requests and shares ONE deadline across them - opened once, and what is left after
-//! the first two requests is what the third gets - the same shape `sutura_domain::warehouse::deadline::Deadline`
-//! holds for a job's execution, and for the same reason: a budget opened per request lets three
-//! independent timeouts sum to three times what a deployment declared.
+//! function per optional key, not a value baked into this type. [`read`](AspectReader::read) follows
+//! each entity type's pages (datasets, relationships, then metrics) and shares ONE deadline across
+//! every request - opened once, and what is left after one request is what the next gets - the same
+//! shape `sutura_domain::warehouse::deadline::Deadline` holds for a job's execution, and for the
+//! same reason: a budget opened per request lets independent timeouts sum to several times what a
+//! deployment declared. **The response-size cap is per page**, and one page is read at a time.
+//! **Stated limit: nothing bounds the bytes across pages.** What a read keeps is bounded by
+//! [`PageLimits`]' entity bound, and the bytes it transfers by the deadline.
 //!
 //! # Auth
 //!
@@ -54,16 +57,18 @@
 //!
 //! # Paging
 //!
-//! One page per entity type, at a generous count. A page that SIGNALS more results exist - a
-//! `scrollId`, or a returned count below a reported `total` - is refused
-//! ([`HttpReaderError::MorePages`]) rather than silently read as complete: the same "one page or a
-//! refusal" shape `sutura-exec-bigquery`'s wire holds for `jobs.query`, because a caller must not
-//! certify a bundle built from a `Snapshot` that silently dropped a model, a relationship or a
-//! metric. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own.** If it
-//! does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
-//! `tests/provisioned.rs`) has to measure this before PR2 wires the composition - the `scrollId` arm
-//! is a defensible guess against the platform's own "there is more" convention, not something this
-//! crate has watched a real GMS answer.
+//! Each entity type is read page by page at [`PageLimits`]' page size (`count`, 1000 by default),
+//! following `scrollId` until a page carries none. The list is whole or the read is refused
+//! ([`HttpReaderError::Paging`]): a scroll id the service repeats, a page with no entity that still
+//! reports more, more than the entity bound (`PageLimits::DEFAULT`'s 100,000) for one entity type,
+//! and a last page that leaves the list short of a reported `total` are each refused, never read as
+//! complete. The scroll id is the service's own text, so it is percent-encoded into the query.
+//! **Stated limits: the bound is a constant that [`HttpAspectReader::with_page_limits`] changes in
+//! code and no settings key does, and a list that ends early on a service that reports no `total`
+//! is not caught. Unmeasured: whether a real v3 last page carries a `scrollId` of its own** - the
+//! provisioned tier measured a corpus below `count` and found none. A last page that does is followed
+//! by one more request, and the read completes only if that answers an empty page with none; a
+//! service that keeps handing back a `scrollId` on an empty page is refused as no progress.
 //!
 //! # TLS and the endpoint
 //!
@@ -112,8 +117,9 @@
 use serde_json::Value;
 use sutura_domain::identity::Secret;
 pub use sutura_http_client::{
-    Budget, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, InvalidEndpoint, InvalidReadBounds,
-    OutboundAgent, ReadBounds,
+    Budget, DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_PAGE_SIZE, DEFAULT_TIMEOUT_SECONDS, Endpoint,
+    EndpointMessage, InvalidEndpoint, InvalidPageLimits, InvalidReadBounds, OutboundAgent, PageLimits, PageReport, Pager,
+    PagingRefusal, ReadBounds,
 };
 
 use crate::document::{DatasetAspect, MetricAspect, RelationshipAspect, Snapshot};
@@ -178,9 +184,14 @@ pub enum HttpReaderError {
         #[source]
         cause: serde_json::Error,
     },
-    /// The page stated or implied more results exist than the one page this reader will read.
-    #[error("the {entity} page indicated more results than the one page this reader will read")]
-    MorePages { entity: &'static str },
+    /// The pages could not be followed to a whole list: a cursor repeated, a page made no progress,
+    /// the entity bound was passed, or the list ended short of its reported total.
+    #[error("the {entity} pages were refused")]
+    Paging {
+        entity: &'static str,
+        #[source]
+        cause: PagingRefusal,
+    },
 }
 
 /// A `DataHub` GMS, reached over HTTP.
@@ -198,6 +209,7 @@ pub struct HttpAspectReader {
     property: String,
     token: Secret,
     bounds: ReadBounds,
+    limits: PageLimits,
     agent: sutura_tls::Rotating<ureq::Agent>,
 }
 
@@ -240,8 +252,16 @@ impl HttpAspectReader {
             property,
             token,
             bounds,
+            limits: PageLimits::DEFAULT,
             agent,
         }
+    }
+
+    /// Replaces the page size and the entity bound, which default to [`PageLimits::DEFAULT`].
+    #[must_use]
+    pub const fn with_page_limits(mut self, limits: PageLimits) -> Self {
+        self.limits = limits;
+        self
     }
 
     /// Builds the reader's rotating agent handle for a declared `security.outbound` set, and (when
@@ -275,7 +295,10 @@ impl HttpAspectReader {
 
     /// Requests one entity type's page, checked as far as *the service answered and it fits the
     /// cap*. Everything past that - the envelope, the aspects inside it - is the caller's job.
-    fn fetch(&self, budget: Budget, entity: &'static str, aspects: &[&str]) -> Result<Value, HttpReaderError> {
+    ///
+    /// `pager` names the page size (`count`) and the `scrollId`. The scroll id is the service's own
+    /// text, so it is percent-encoded into the query rather than spliced into the URL.
+    fn fetch(&self, budget: Budget, entity: &'static str, aspects: &[&str], pager: &Pager) -> Result<Value, HttpReaderError> {
         let left = budget.remaining().ok_or(HttpReaderError::DeadlineSpent {
             entity,
             budget_seconds: self.bounds.timeout().as_secs(),
@@ -285,14 +308,16 @@ impl HttpAspectReader {
             .map(|aspect| format!("aspects={aspect}"))
             .collect::<Vec<_>>()
             .join("&");
-        // A generous, fixed count rather than a configured one: raising it does not change the
-        // shape of the read, only how large a deployment can be before `MorePages` fires - and a
-        // deployment past this needs a different reader (real paging), not a bigger number here.
-        let url = format!("{}/openapi/v3/entity/{entity}?{query}&count=1000", self.endpoint.as_str());
-        let mut response = self
-            .agent
-            .current()
-            .get(&url)
+        let url = format!(
+            "{}/openapi/v3/entity/{entity}?{query}&count={}",
+            self.endpoint.as_str(),
+            pager.page_size()
+        );
+        let mut request = self.agent.current().get(&url);
+        if let Some(scroll_id) = pager.cursor() {
+            request = request.query("scrollId", scroll_id);
+        }
+        let mut response = request
             .config()
             .timeout_global(Some(Budget::socket(left)))
             .build()
@@ -333,20 +358,21 @@ impl HttpAspectReader {
         serde_json::from_str(&text).map_err(|cause| HttpReaderError::NotADocument { entity, cause })
     }
 
-    /// Whether a page's own fields say more results exist than the page this reader read.
-    ///
-    /// A `scrollId` is the surface's own "there is more" token; a returned count equal to the
-    /// requested one with a stated `total` above it is the same fact stated the other way, for a
-    /// surface that answers `total` without a scroll token on a short page. Both are checked because
-    /// neither is measured to be the surface's only tell - see the module header's limit on the
-    /// dataset/semanticModel shapes.
-    fn page_signals_more(page: &Value, returned: usize) -> bool {
-        if page.get("scrollId").and_then(Value::as_str).is_some() {
-            return true;
-        }
-        page.get("total")
-            .and_then(Value::as_u64)
-            .is_some_and(|total| total > returned as u64)
+    /// What a page's own fields say about the rest of the list: its `scrollId`, absent or null or
+    /// empty on the last page, and the `total` a surface may report for the whole list.
+    fn report<'page>(page: &'page Value, returned: usize, entity: &'static str) -> Result<PageReport<'page>, HttpReaderError> {
+        let next = match page.get("scrollId") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(scroll_id)) => Some(scroll_id.as_str()).filter(|scroll_id| !scroll_id.is_empty()),
+            Some(_) => {
+                return Err(HttpReaderError::UnexpectedShape {
+                    entity,
+                    field: "scrollId",
+                });
+            }
+        };
+        let total = page.get("total").and_then(Value::as_u64);
+        Ok(PageReport::new(returned, next, total))
     }
 
     fn entities<'page>(page: &'page Value, entity: &'static str) -> Result<&'page [Value], HttpReaderError> {
@@ -359,6 +385,30 @@ impl HttpAspectReader {
             })
     }
 
+    /// Follows one entity type's `scrollId` to the last page, handing each page's entities to
+    /// `take`. The list is whole or the read is refused - see [`Pager`].
+    fn read_pages(
+        &self,
+        budget: Budget,
+        entity: &'static str,
+        aspects: &[&str],
+        mut take: impl FnMut(&[Value]) -> Result<(), HttpReaderError>,
+    ) -> Result<(), HttpReaderError> {
+        let mut pager = Pager::new(self.limits);
+        loop {
+            let page = self.fetch(budget, entity, aspects, &pager)?;
+            let entities = Self::entities(&page, entity)?;
+            take(entities)?;
+            let report = Self::report(&page, entities.len(), entity)?;
+            if !pager
+                .advance(report)
+                .map_err(|cause| HttpReaderError::Paging { entity, cause })?
+            {
+                return Ok(());
+            }
+        }
+    }
+
     /// The `dataset` entity type: `schemaMetadata` for columns, `datasetProperties` for prose.
     ///
     /// **Unmeasured against a live instance** - see the module header. `Model.name` and
@@ -368,12 +418,14 @@ impl HttpAspectReader {
     /// today, which is a real limit and not a placeholder.
     fn read_datasets(&self, budget: Budget) -> Result<Vec<DatasetAspect>, HttpReaderError> {
         const ENTITY: &str = "dataset";
-        let page = self.fetch(budget, ENTITY, &["schemaMetadata", "datasetProperties"])?;
-        let entities = Self::entities(&page, ENTITY)?;
-        if Self::page_signals_more(&page, entities.len()) {
-            return Err(HttpReaderError::MorePages { entity: ENTITY });
-        }
-        entities.iter().map(harvest_dataset).collect()
+        let mut datasets = Vec::new();
+        self.read_pages(budget, ENTITY, &["schemaMetadata", "datasetProperties"], |entities| {
+            for entity in entities {
+                datasets.push(harvest_dataset(entity)?);
+            }
+            Ok(())
+        })?;
+        Ok(datasets)
     }
 
     /// The `semanticModel` entity type's `semanticModelInfo` aspect, whose `relationships[]` array
@@ -390,27 +442,25 @@ impl HttpAspectReader {
     /// the same way a dataset with no annotation contributes an empty description.
     fn read_relationships(&self, budget: Budget) -> Result<Vec<RelationshipAspect>, HttpReaderError> {
         const ENTITY: &str = "semanticModel";
-        let page = self.fetch(budget, ENTITY, &["semanticModelInfo"])?;
-        let entities = Self::entities(&page, ENTITY)?;
-        if Self::page_signals_more(&page, entities.len()) {
-            return Err(HttpReaderError::MorePages { entity: ENTITY });
-        }
         let mut relationships = Vec::new();
-        for entity in entities {
-            let info = entity.get("semanticModelInfo").and_then(|aspect| aspect.get("value")).ok_or(
-                HttpReaderError::UnexpectedShape {
-                    entity: ENTITY,
-                    field: "semanticModelInfo.value",
-                },
-            )?;
-            let list = info
-                .get("relationships")
-                .and_then(Value::as_array)
-                .map_or_default(Vec::as_slice);
-            for relationship in list {
-                relationships.push(harvest_relationship(relationship)?);
+        self.read_pages(budget, ENTITY, &["semanticModelInfo"], |entities| {
+            for entity in entities {
+                let info = entity.get("semanticModelInfo").and_then(|aspect| aspect.get("value")).ok_or(
+                    HttpReaderError::UnexpectedShape {
+                        entity: ENTITY,
+                        field: "semanticModelInfo.value",
+                    },
+                )?;
+                let list = info
+                    .get("relationships")
+                    .and_then(Value::as_array)
+                    .map_or_default(Vec::as_slice);
+                for relationship in list {
+                    relationships.push(harvest_relationship(relationship)?);
+                }
             }
-        }
+            Ok(())
+        })?;
         Ok(relationships)
     }
 
@@ -421,12 +471,14 @@ impl HttpAspectReader {
     /// `tests/provisioned.rs`'s `harvest` compared byte-for-byte against the recorded fixture.
     fn read_metrics(&self, budget: Budget) -> Result<Vec<MetricAspect>, HttpReaderError> {
         const ENTITY: &str = "metric";
-        let page = self.fetch(budget, ENTITY, &["metricInfo", "structuredProperties"])?;
-        let entities = Self::entities(&page, ENTITY)?;
-        if Self::page_signals_more(&page, entities.len()) {
-            return Err(HttpReaderError::MorePages { entity: ENTITY });
-        }
-        entities.iter().map(|entity| harvest_metric(entity, &self.property)).collect()
+        let mut metrics = Vec::new();
+        self.read_pages(budget, ENTITY, &["metricInfo", "structuredProperties"], |entities| {
+            for entity in entities {
+                metrics.push(harvest_metric(entity, &self.property)?);
+            }
+            Ok(())
+        })?;
+        Ok(metrics)
     }
 }
 

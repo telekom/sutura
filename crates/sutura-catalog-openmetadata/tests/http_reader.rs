@@ -25,7 +25,10 @@ mod tests {
     use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
 
     use sutura_catalog_openmetadata::document::Snapshot;
-    use sutura_catalog_openmetadata::http::{Endpoint, HttpReaderError, HttpSnapshotReader, InvalidEndpoint, ReadBounds};
+    use sutura_catalog_openmetadata::http::{
+        DEFAULT_MAX_ENTITIES, DEFAULT_PAGE_SIZE, Endpoint, HttpReaderError, HttpSnapshotReader, InvalidEndpoint, PageLimits,
+        PagingRefusal, ReadBounds,
+    };
     use sutura_catalog_openmetadata::test_support::{FakeServer, Scripted, happy_path_answers, tables_page};
     use sutura_catalog_openmetadata::{OpenMetadataCatalog, OpenMetadataError, SnapshotReader as _};
     use sutura_domain::identity::Secret;
@@ -289,50 +292,195 @@ mod tests {
         );
     }
 
-    /// **A page carrying a non-empty `after` cursor is refused even when `total` matches exactly
-    /// what it returned** - the `after` arm of `page_signals_more` fires independently of the
-    /// `total` arm, so a surface that answers a short page's `total` correctly but still carries a
-    /// cursor is not read as complete.
+    /// The page size the paging cells force, so a few tables span several pages.
+    fn two_per_page() -> PageLimits {
+        PageLimits::parse(2, DEFAULT_MAX_ENTITIES).expect("a page size of two is usable")
+    }
+
+    /// One `tables` page of bare tables named `names`, with `after` as the cursor of the next page.
+    fn tables_of(names: &[&str], after: Option<&str>, total: u64) -> serde_json::Value {
+        let data: Vec<_> = names
+            .iter()
+            .map(|name| {
+                serde_json::json!({
+                    "name": name,
+                    "fullyQualifiedName": format!("warehouse.default.sales.{name}"),
+                    "columns": [{"name": "id", "dataType": "STRING"}],
+                })
+            })
+            .collect();
+        serde_json::json!({"data": data, "paging": {"total": total, "after": after}})
+    }
+
+    /// One `metrics` page of bare metrics named `names`, with `after` as the cursor of the next page.
+    fn metrics_of(names: &[String], after: Option<&str>) -> serde_json::Value {
+        let data: Vec<_> = names
+            .iter()
+            .map(|name| serde_json::json!({"name": name, "metricType": "COUNT"}))
+            .collect();
+        serde_json::json!({"data": data, "paging": {"after": after}})
+    }
+
+    fn reader_of(server: &FakeServer, limits: PageLimits) -> HttpSnapshotReader {
+        reader(server, 10, GENEROUS_CAP).with_page_limits(limits)
+    }
+
+    fn paging_cause(error: &OpenMetadataError) -> (&'static str, PagingRefusal) {
+        match http_cause(error) {
+            HttpReaderError::Paging { entity, cause } => (*entity, *cause),
+            other => panic!("expected a paging refusal, got: {other}"),
+        }
+    }
+
+    /// **A list of several pages loads every page, for tables and for metrics.** The first request
+    /// carries no cursor, each later one carries the `after` the page before it gave - percent-encoded,
+    /// because it is the service's own text - and `limit` is the page size.
     ///
-    /// RED/GREEN mutation: delete `page_signals_more`'s `after`-cursor check on its own (leaving the
-    /// `total` check standing) - this page's `total` already equals what it returned, so only the
-    /// `after` arm can catch it, and this assertion goes red without it.
+    /// RED/GREEN mutation: drop the `.query("after", ..)` in `fetch` - every later request then repeats
+    /// the first page's line, and this assertion goes red.
     #[test]
-    fn a_page_carrying_only_an_after_cursor_is_refused() {
-        let mut page = tables_page();
-        page["paging"]["after"] = serde_json::json!("page-2");
-        let server = FakeServer::start(vec![Scripted::ok(&page)]);
-        let error = reader(&server, 10, GENEROUS_CAP)
-            .read()
-            .expect_err("an after cursor with no more total is still refused");
-        drop(server.finish());
-        assert!(
-            matches!(http_cause(&error), HttpReaderError::MorePages { entity: "tables" }),
-            "expected MorePages{{entity: \"tables\"}}, got: {}",
-            http_cause(&error)
+    fn a_list_of_several_pages_loads_every_page() {
+        let metric_names: Vec<String> = ["m1", "m2", "m3"].into_iter().map(String::from).collect();
+        let server = FakeServer::start(vec![
+            Scripted::ok(&tables_of(&["t1", "t2"], Some("c-1"), 5)),
+            Scripted::ok(&tables_of(&["t3", "t4"], Some("c-2&x=1"), 5)),
+            Scripted::ok(&tables_of(&["t5"], None, 5)),
+            Scripted::ok(&metrics_of(&metric_names[..2], Some("m-1"))),
+            Scripted::ok(&metrics_of(&metric_names[2..], None)),
+        ]);
+        let snapshot = reader_of(&server, two_per_page()).read().expect("every page loads");
+        let seen = server.finish();
+        let tables: Vec<_> = snapshot.tables().iter().map(|table| table.name().to_owned()).collect();
+        assert_eq!(tables, ["t1", "t2", "t3", "t4", "t5"]);
+        let metrics: Vec<_> = snapshot.metrics().iter().map(|metric| metric.name().to_owned()).collect();
+        assert_eq!(metrics, ["m1", "m2", "m3"]);
+        let lines: Vec<_> = seen
+            .iter()
+            .map(sutura_http_client::test_support::CapturedRequest::request_line)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "GET /api/v1/tables?limit=2&fields=columns,tableConstraints HTTP/1.1",
+                "GET /api/v1/tables?limit=2&fields=columns,tableConstraints&after=c-1 HTTP/1.1",
+                "GET /api/v1/tables?limit=2&fields=columns,tableConstraints&after=c-2%26x%3D1 HTTP/1.1",
+                "GET /api/v1/metrics?limit=2 HTTP/1.1",
+                "GET /api/v1/metrics?limit=2&after=m-1 HTTP/1.1",
+            ]
         );
     }
 
-    /// **A page that signals more results than the one page this reader reads is refused, not
-    /// silently truncated.** A `paging.total` above what it returned (or an `after` cursor) is a
-    /// page that has more to it, and this reader reads one page.
+    /// **A cursor the service gives twice is refused, not followed again.**
     ///
-    /// RED/GREEN mutation: delete the `page_signals_more` check in `read_tables` - a page reporting
-    /// a `total` above what it returned would then be read as complete, and this assertion goes red.
+    /// RED/GREEN mutation: delete `Pager::advance`'s repeated-cursor refusal - the second page's
+    /// cursor would be followed and this read would not be refused.
     #[test]
-    fn a_page_reporting_more_results_than_it_returned_is_refused() {
-        let mut truncated = tables_page();
-        truncated["paging"]["total"] = serde_json::json!(3);
-        let data = truncated["data"].as_array_mut().expect("the tables page is an array");
-        assert_eq!(data.len(), 2, "the page returns only two of the three it claims");
-        let server = FakeServer::start(vec![Scripted::ok(&truncated)]);
-        let error = reader(&server, 10, GENEROUS_CAP)
+    fn a_repeated_cursor_is_refused() {
+        let server = FakeServer::start(vec![
+            Scripted::ok(&tables_of(&["t1", "t2"], Some("c-1"), 4)),
+            Scripted::ok(&tables_of(&["t3", "t4"], Some("c-1"), 4)),
+        ]);
+        let error = reader_of(&server, two_per_page())
             .read()
-            .expect_err("a truncated page is refused");
+            .expect_err("a repeated cursor is refused");
+        assert_eq!(
+            server.finish().len(),
+            2,
+            "the second page was read, its cursor was not followed"
+        );
+        assert_eq!(paging_cause(&error), ("tables", PagingRefusal::RepeatedCursor));
+    }
+
+    /// **A page with no entity that still reports more is refused, not followed.**
+    ///
+    /// RED/GREEN mutation: delete `Pager::advance`'s no-progress refusal - the empty page's fresh
+    /// cursor would be followed and this read would not be refused.
+    #[test]
+    fn a_page_with_no_progress_is_refused() {
+        let server = FakeServer::start(vec![
+            Scripted::ok(&tables_of(&["t1", "t2"], Some("c-1"), 3)),
+            Scripted::ok(&tables_of(&[], Some("c-2"), 3)),
+        ]);
+        let error = reader_of(&server, two_per_page())
+            .read()
+            .expect_err("a page with no progress is refused");
+        drop(server.finish());
+        assert_eq!(paging_cause(&error), ("tables", PagingRefusal::NoProgress));
+    }
+
+    /// **A list above the entity bound is refused, never cut short.** One more metric than the bound
+    /// across a hundred and one default-sized pages: the refusal names the bound, and no snapshot of
+    /// the first hundred thousand comes back.
+    ///
+    /// RED/GREEN mutation: raise `DEFAULT_MAX_ENTITIES`, delete `Pager::advance`'s bound check, or
+    /// answer `Ok(false)` where it refuses - the read then returns a snapshot (or runs the script out)
+    /// and this assertion goes red.
+    #[test]
+    fn a_list_above_the_entity_bound_is_refused_not_truncated() {
+        let over = DEFAULT_MAX_ENTITIES + 1;
+        let names: Vec<String> = (0..over).map(|n| format!("m{n}")).collect();
+        let mut answers = vec![Scripted::ok(&tables_page())];
+        let pages: Vec<_> = names.chunks(DEFAULT_PAGE_SIZE).collect();
+        for (n, page) in pages.iter().enumerate() {
+            let after = (n + 1 < pages.len()).then(|| format!("m-{n}"));
+            answers.push(Scripted::ok(&metrics_of(page, after.as_deref())));
+        }
+        let server = FakeServer::start(answers);
+        let error = reader(&server, 60, GENEROUS_CAP)
+            .read()
+            .expect_err("a list over the bound is refused, not truncated");
+        drop(server.finish());
+        assert_eq!(
+            paging_cause(&error),
+            (
+                "metrics",
+                PagingRefusal::TooManyEntities {
+                    max: DEFAULT_MAX_ENTITIES
+                }
+            )
+        );
+    }
+
+    /// **A last page that leaves the list short of the reported total is refused, not read as
+    /// complete.**
+    ///
+    /// RED/GREEN mutation: delete `Pager::advance`'s short-of-total refusal - the two tables would
+    /// be read as the whole list and this assertion goes red.
+    #[test]
+    fn a_last_page_short_of_the_reported_total_is_refused() {
+        let server = FakeServer::start(vec![Scripted::ok(&tables_of(&["t1", "t2"], None, 3))]);
+        let error = reader_of(&server, two_per_page())
+            .read()
+            .expect_err("a list shorter than its total is refused");
+        drop(server.finish());
+        assert_eq!(
+            paging_cause(&error),
+            ("tables", PagingRefusal::ShortOfTotal { read: 2, total: 3 })
+        );
+    }
+
+    /// **An `after` that is not text is refused by name, not read as the last page.**
+    ///
+    /// RED/GREEN mutation: map `report`'s `Some(_)` arm to `None` - the page would be read as the
+    /// last and this assertion goes red.
+    #[test]
+    fn an_after_cursor_that_is_not_text_is_refused() {
+        let mut page = tables_of(&["t1"], None, 1);
+        page["paging"]["after"] = serde_json::json!(7);
+        let server = FakeServer::start(vec![Scripted::ok(&page)]);
+        let error = reader_of(&server, two_per_page())
+            .read()
+            .expect_err("a numeric cursor is refused");
         drop(server.finish());
         assert!(
-            matches!(http_cause(&error), HttpReaderError::MorePages { entity: "tables" }),
-            "expected MorePages{{entity: \"tables\"}}, got: {}",
+            matches!(
+                http_cause(&error),
+                HttpReaderError::UnexpectedShape {
+                    entity: "tables",
+                    field: "paging.after"
+                }
+            ),
+            "{}",
             http_cause(&error)
         );
     }

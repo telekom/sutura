@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-catalog-openmetadata/src/http.rs b/crates/sutura-catalog-openmetadata/src/http.rs
-index 1bdb7090d..15c7c6ed5 100644
 --- a/crates/sutura-catalog-openmetadata/src/http.rs
 +++ b/crates/sutura-catalog-openmetadata/src/http.rs
-@@ -278,7 +278,10 @@ impl HttpSnapshotReader {
+@@ -299,7 +299,10 @@ impl HttpSnapshotReader {
                  detail: EndpointMessage::bounded(&text),
              });
          }
@@ -13,4 +12,4 @@ index 1bdb7090d..15c7c6ed5 100644
 +        })
      }
  
-     /// Whether a page's own fields say more results exist than the page this reader read.
+     /// What a page's `paging` block says about the rest of the list: its `after` cursor, absent or
