@@ -121,5 +121,10 @@ divan = { workspace = true }
 name = "answer_path"
 harness = false
 
+# The second bench, same shape as the one above: divan's own `main`, reached by `just bench` only.
+[[bench]]
+name = "federated_answer"
+harness = false
+
 [lints]
 workspace = true
