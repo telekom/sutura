@@ -791,6 +791,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#which-controls-apply-to-which-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which controls apply to which surface
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2608,6 +2619,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#which-controls-apply-to-which-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which controls apply to which surface
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3086,6 +3108,14 @@ them one at a time.</p>
 <td>the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds</td>
 </tr>
 <tr>
+<td><code>server.agent_surface.enabled</code> with no <code>security.inbound</code>, unless <code>security.identity</code> is <code>single-user</code> and the bind is loopback or both <code>security.access_token</code> and <code>rate_limit.enabled</code> guard it</td>
+<td>without leg 1, <code>/mcp</code> answers every caller as the deployment with every tool. That is accepted only where the operator declared <code>single-user</code> and the surface is local or behind the deployment token and the limiter. A missing mode is not <code>single-user</code> (<code>AgentSurfaceWithoutInboundIdentity</code>)</td>
+</tr>
+<tr>
+<td><code>server.agent_surface.enabled</code> with no <code>security.inbound</code> and a source declaring <code>impersonation-at-source</code></td>
+<td>that source runs each question as the verified caller, and without leg 1 <code>/mcp</code> verifies nobody. Named per source (<code>AgentSurfaceOverAnImpersonatingSource</code>)</td>
+</tr>
+<tr>
 <td><code>GET /metrics</code> reachable with no <code>security.metrics_token</code>, in production or on a non-loopback bind</td>
 <td>the endpoint is on the same listener as the API, so the same argument applies to what a scrape can read. Set <code>security.metrics_token</code></td>
 </tr>
@@ -3421,9 +3451,10 @@ bound that surface exactly as they bound this one.</p>
 <h3 id="the-agent-surface-over-http">The agent surface over HTTP<a class="headerlink" href="#the-agent-surface-over-http" title="Permanent link">&para;</a></h3>
 <p>A second, default-off transport for the same agent surface exists behind <code>sutura-mcp</code>'s own <code>http</code>
 feature: the streamable-HTTP transport <code>docs/adr/0023</code> decided on. Since <code>telekom/sutura#378</code> PR4
-<code>sutura serve</code> mounts it at <code>/mcp</code>, behind this surface's leg 1 and <code>establish_asked</code> -
-which is why it only ever serves where a caller can be verified. It is off by default at two
-gates, and every published binary has already cleared the first one:</p>
+<code>sutura serve</code> mounts it at <code>/mcp</code>, behind this surface's leg 1 and <code>establish_asked</code>. Without
+<code>security.inbound</code> it serves only a declared <code>single-user</code> deployment, as <code>/v1</code> does there - see
+the deployment-time gate below. It is off by default at two gates, and every published binary has
+already cleared the first one:</p>
 <ul>
 <li><strong>Build time (<code>sutura-cli</code>'s <code>agent</code> feature).</strong> A build without the feature cannot reference
   <code>sutura_mcp::http</code> at all, so the route is compiled out of the artefact; setting
@@ -3431,9 +3462,17 @@ gates, and every published binary has already cleared the first one:</p>
   Every published binary carries <code>agent</code> since <code>github.com/telekom/sutura#685</code> step 5; a source
   build without <code>--features agent</code> is the one still gated here.</li>
 <li><strong>Deployment time (<code>server.agent_surface.enabled</code>, default <code>false</code>).</strong> Even a build with the
-  feature linked stays off until an operator sets the key, and setting it without also declaring
-  <code>security.inbound</code> is a startup refusal (<code>AgentSurfaceWithoutInboundIdentity</code>) - <code>/mcp</code> is never
-  served to "everyone".</li>
+  feature linked stays off until an operator sets the key. Setting it without <code>security.inbound</code>
+  is a startup refusal (<code>AgentSurfaceWithoutInboundIdentity</code>) unless <code>security.identity</code> is
+  <code>single-user</code> with its reason AND the bind is loopback or both <code>security.access_token</code> and
+  <code>rate_limit.enabled</code> guard it; a missing mode is refused. A source declaring
+  <code>impersonation-at-source</code> is refused by name on such a deployment
+  (<code>AgentSurfaceOverAnImpersonatingSource</code>), because it has no verified caller to run as. Where
+  it serves, <code>/mcp</code> answers every caller as the deployment with every tool. Both refusals come
+  from <code>Settings::agent_surface_refusals</code>, which <code>sutura_http</code>'s assembly asks again for any
+  attached mount (<code>RouterNotBuilt::AgentSurfaceNotFitToServe</code>). <code>single-user</code> is the operator's
+  written word, not a count of callers. The loopback condition reads only the bind address; a
+  proxy on the same host is outside it.</li>
 </ul>
 <p><code>/mcp</code> gets the same rate limit, body cap, deployment token gate and <code>Host</code> list as <code>/v1</code>: the
 general-tier limiter (its own store, keyed and swept like <code>/v1</code>'s), <code>server.max_body_bytes</code>,
@@ -3454,14 +3493,67 @@ with the mount and are <code>sutura-http</code>'s to state: the mount is on the 
 <code>docs/adr/0015</code>, the same choice <code>/metrics</code> makes), and it is outside the version prefix because
 MCP versions its own tool set by the protocol's <code>protocolVersion</code> negotiation, not by a route
 prefix.</p>
-<p><strong>What a verified caller reaches is narrowed per caller.</strong> <code>establish_asked</code> derives each request's
-<code>Asked</code> from the caller leg 1 verified, and <code>AgentSurface::permitted</code> answers <code>tools/list</code> with only
-the tools that caller's <code>scope</code> grants - so two verified callers with different scopes see two
-different tool lists, and an unverified caller is refused with leg 1's <code>401</code> before the transport
-is reached. Leg 2 - a source executing AS the asking subject - resolves per source for <code>bigquery</code>
+<p><strong>What a verified caller reaches is narrowed per caller.</strong> Where <code>security.inbound</code> is declared,
+<code>establish_asked</code> derives each request's <code>Asked</code> from the caller leg 1 verified, and
+<code>AgentSurface::permitted</code> answers <code>tools/list</code> with only the tools that caller's <code>scope</code> grants - so
+two verified callers with different scopes see two different tool lists, and an unverified caller
+is refused with leg 1's <code>401</code> before the transport is reached. Leg 2 - a source executing AS the asking subject - resolves per source for <code>bigquery</code>
 (<code>#376</code>, <code>docs/where-identity-is-proven.md</code>), but no served binary has executed it yet: every tool
 answers under the deployment's own credential today, and against <code>files</code> or <code>postgres</code> it still
 would even once one had.</p>
+<h3 id="which-controls-apply-to-which-surface">Which controls apply to which surface<a class="headerlink" href="#which-controls-apply-to-which-surface" title="Permanent link">&para;</a></h3>
+<p>Each cell is the condition under which the control runs; the last column is the code that holds it.
+The stdio surface is a local process over a pipe: it has no request headers, so none of the HTTP
+controls exist there, and only <code>server.request_timeout_seconds</code> and
+<code>runtime.max_concurrent_queries</code> bound it.</p>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th><code>/v1</code></th>
+<th><code>/mcp</code> over HTTP</th>
+<th>MCP over stdio (<code>sutura mcp</code>)</th>
+<th>Held by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>inbound identity (leg 1)</td>
+<td>where <code>security.inbound</code> is declared; otherwise every caller is the deployment</td>
+<td>where <code>security.inbound</code> is declared; otherwise only on <code>single-user</code>, loopback or behind both the token and the limiter, with no impersonating source, as the deployment</td>
+<td>never - every capability, as the deployment</td>
+<td><code>inbound_layered</code> from <code>assemble</code> and <code>agent_subtree</code> (<code>crates/sutura-http/src/router.rs</code>); <code>Settings::agent_surface_refusals</code>; <code>Permitted::every_capability()</code> in <code>crates/sutura-cli/src/mcp.rs</code></td>
+</tr>
+<tr>
+<td>deployment token gate</td>
+<td>where <code>security.access_token</code> is set; required in production or off-host unless <code>security.inbound</code> is declared</td>
+<td>the same, in the same order around leg 1</td>
+<td>never</td>
+<td><code>middleware::require_token</code> (<code>crates/sutura-http/src/middleware.rs</code>), layered in <code>assemble</code> and <code>agent_subtree</code>; <code>NotFitToServe::AccessTokenRequired</code></td>
+</tr>
+<tr>
+<td><code>Host</code> check</td>
+<td>on a loopback bind, or where <code>server.allowed_hosts</code> names a host</td>
+<td>the same one list</td>
+<td>never</td>
+<td><code>HostAllowlist::of</code> (<code>crates/sutura-http/src/host.rs</code>), layered by <code>host_checked</code></td>
+</tr>
+<tr>
+<td>limiter</td>
+<td>where <code>rate_limit.enabled</code>; required in production or off-host</td>
+<td>the same general tier, its own store</td>
+<td>never</td>
+<td><code>middleware::api_rate_limit_layer</code>, layered in <code>assemble</code> and <code>agent_subtree</code>; <code>NotFitToServe::RateLimitingDisabled</code></td>
+</tr>
+<tr>
+<td>body cap</td>
+<td>always, <code>server.max_body_bytes</code></td>
+<td>always, the same value, read by the transport itself</td>
+<td>never</td>
+<td><code>DefaultBodyLimit</code> in <code>assemble</code>; <code>max_request_body_bytes</code> in <code>sutura_mcp::http::config</code> (<code>crates/sutura-mcp/src/http.rs</code>)</td>
+</tr>
+</tbody>
+</table>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3494,8 +3586,8 @@ would even once one had.</p>
 </tr>
 <tr>
 <td><code>POST /mcp</code></td>
-<td>yes, when one is configured; plus leg 1 - <strong>only when <code>server.agent_surface.enabled</code> is set</strong></td>
-<td>The agent surface: MCP JSON-RPC over the streamable-HTTP transport (<code>docs/adr/0023</code>). <code>tools/list</code> answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 <code>401</code> every forgery does, before the transport. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
+<td>yes, when one is configured; plus leg 1 where <code>security.inbound</code> is - <strong>only when <code>server.agent_surface.enabled</code> is set</strong></td>
+<td>The agent surface: MCP JSON-RPC over the streamable-HTTP transport (<code>docs/adr/0023</code>). Where <code>security.inbound</code> is declared, <code>tools/list</code> answers with the tools the caller's own scope grants, narrowing per caller, and no verified bearer gets the same leg-1 <code>401</code> every forgery does, before the transport; otherwise every caller is answered as the deployment, with every tool. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
 </tr>
 <tr>
 <td><code>GET /metrics</code></td>
@@ -3982,7 +4074,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>server.agent_surface.enabled</code></td>
 <td><code>false</code></td>
-<td>Mounts the agent surface at <code>/mcp</code>. Off by default even in a build with the <code>agent</code> feature linked. <code>true</code> with no <code>security.inbound</code> block refuses to start (the agent surface is only served where a caller can be verified), and <code>true</code> on a build without the <code>agent</code> feature refuses naming the feature. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
+<td>Mounts the agent surface at <code>/mcp</code>. Off by default even in a build with the <code>agent</code> feature linked. <code>true</code> with no <code>security.inbound</code> block refuses to start unless the deployment is <code>single-user</code> and loopback or behind both the token and the limiter, with no impersonating source, and <code>true</code> on a build without the <code>agent</code> feature refuses naming the feature. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
 </tr>
 <tr>
 <td><code>server.allowed_hosts</code></td>
@@ -4782,7 +4874,8 @@ check it - the number that <em>is</em> checked is that it is neither zero nor ab
   process, offering every capability to whoever can launch it, and saying so at startup. What IS new
   is the network-reachable surface: <code>serve</code> now mounts <code>/mcp</code> behind its own leg 1, so a verified
   caller's scope narrows the tool list and an unverified one gets the same <code>401</code> every forgery gets.
-  It is off by default and refused unless <code>security.inbound</code> is declared. Leg 2 - a source
+  It is off by default, and without <code>security.inbound</code> refused except on a declared <code>single-user</code>
+  deployment, where it answers as the deployment. Leg 2 - a source
   executing AS the asking subject (<code>#376</code>) - resolves per source for <code>bigquery</code>
   (<code>docs/where-identity-is-proven.md</code>), but no served binary has executed it yet, so even a
   verified caller is answered under the deployment's own credential today. See

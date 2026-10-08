@@ -5574,9 +5574,9 @@ the group itself is read once, at assembly time.</p>
 <p>Whether the agent surface is mounted at <code>/mcp</code>. Off unless the deployment wrote
 <code>server.agent_surface.enabled: true</code>.</p>
 <p>Read by the composition root, which decides whether to build and attach an <code>AgentMount</code> to
-the service state; <code>sutura_http</code> then refuses to assemble when a mount is attached and no
-<code>security.inbound</code> gateway is declared, and a build without the <code>agent</code> feature cannot
-reference <code>sutura_mcp</code> at all. This crate cannot see a link, so this is the flag and the
+the service state; <code>Settings::load</code> and <code>sutura_http</code>'s assembly both refuse where
+<code>Settings::agent_surface_refusals</code> is not empty, and a build without the <code>agent</code> feature
+cannot reference <code>sutura_mcp</code> at all. This crate cannot see a link, so this is the flag and the
 refusal is the mechanism.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-261-1"><a id="__codelineno-261-1" name="__codelineno-261-1" href="#__codelineno-261-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">allowed_hosts</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">AllowedHost</span><span class="p">]</span>
 </span></code></pre></div>
