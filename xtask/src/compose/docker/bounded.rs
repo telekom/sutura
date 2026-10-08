@@ -841,6 +841,10 @@ mod tests {
     /// non-zero and one that cannot be started must not get the same report. All three were
     /// `no container runtime (Cli)`, so a red run could not say which it had been.
     ///
+    /// The `failing` stub sleeps two seconds, which pins that only the stall case has a 1s
+    /// budget: a short budget there reads the slow start as `SilentCli`. The `vanishing` stub
+    /// reaches the daemon probe's spawn-failure arm, which a race on a real host reaches.
+    ///
     /// Through `presence` itself, in a child of this test binary, because its only seam is the
     /// process's `PATH`, and setting that here would reach every test sharing this process. Here
     /// rather than beside `presence` because this is the one file of the tier that may wait on a
@@ -855,16 +859,38 @@ mod tests {
             std::fs::write(out, answer).expect("the child's answer is writable");
             return;
         }
+        // The child's PATH holds only the stub directory, so a stub script names the tools it
+        // needs by absolute path.
+        let tool = |name: &str| {
+            std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+                .map(|dir| dir.join(name))
+                .find(|path| path.is_file())
+                .unwrap_or_else(|| panic!("`{name}` is on PATH"))
+        };
         let dir = std::env::temp_dir().join(format!("sutura-presence-{}", std::process::id()));
         let cases = [
-            ("stalled", Some("#!/bin/sh\nwhile :; do :; done\n")),
-            ("failing", Some("#!/bin/sh\nexit 1\n")),
+            ("stalled", Some("#!/bin/sh\nwhile :; do :; done\n".to_owned())),
+            // Two seconds is longer than the stalled case's budget, so a short budget here
+            // reads this as a stall.
+            (
+                "failing",
+                Some(format!("#!/bin/sh\n'{}' 2\nexit 1\n", tool("sleep").display())),
+            ),
             ("unstartable", None),
+            // Answers `--version` and deletes itself on `compose version`, so the daemon probe
+            // cannot start it.
+            (
+                "vanishing",
+                Some(format!(
+                    "#!/bin/sh\ncase \"$1\" in compose) '{}' -f \"$0\" ;; esac\nexit 0\n",
+                    tool("rm").display()
+                )),
+            ),
         ];
         for (name, script) in cases {
             let case = dir.join(name);
             std::fs::create_dir_all(&case).expect("the scratch directory is creatable");
-            if let Some(script) = script {
+            if let Some(script) = &script {
                 let stub = case.join("docker");
                 std::fs::write(&stub, script).expect("the stub is writable");
                 std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("the stub is executable");
@@ -880,7 +906,9 @@ mod tests {
                 ])
                 .env(CHILD, &out)
                 .env("PATH", dir.join(name))
-                .env("SUTURA_DOCKER_PROBE_TIMEOUT_SECS", "1")
+                // Only a stall needs the short budget; any case that must start a process and
+                // exit needs a budget a loaded host cannot exceed.
+                .env("SUTURA_DOCKER_PROBE_TIMEOUT_SECS", if name == "stalled" { "1" } else { "30" })
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -892,10 +920,16 @@ mod tests {
             assert!(status.success(), "the child failed: {status}");
             std::fs::read_to_string(&out).expect("the child wrote its answer")
         };
-        let (stall, failure, refusal) = (report("stalled"), report("failing"), report("unstartable"));
+        let (stall, failure, refusal, vanished) = (
+            report("stalled"),
+            report("failing"),
+            report("unstartable"),
+            report("vanishing"),
+        );
         drop(std::fs::remove_dir_all(&dir));
         assert_eq!(stall, "Err(SilentCli)", "a docker that stalls on `--version`");
         assert_eq!(failure, "Err(FailingCli)", "a docker that exits non-zero");
         assert_eq!(refusal, "Err(Cli)", "a docker that cannot be started");
+        assert_eq!(vanished, "Err(Cli)", "a docker that is gone when the daemon probe starts it");
     }
 }

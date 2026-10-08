@@ -42,7 +42,8 @@ pub(crate) const COMPOSE_FILE: &str = "compose.services.yaml";
 /// What is missing before anything can be provisioned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Missing {
-    /// No `docker` that starts: not on `PATH`, or not executable.
+    /// No `docker` that starts: not on `PATH`, or not executable - at the first probe, or gone
+    /// by the time the daemon probe starts it.
     Cli,
     /// `docker` started and `--version` exited non-zero.
     ///
@@ -148,9 +149,10 @@ fn probe_budget() -> Duration {
 ///
 /// The CLI probe draws three lines: a `--version` that stalls is [`Missing::SilentCli`], one that
 /// exited non-zero is [`Missing::FailingCli`], one that could not be started is [`Missing::Cli`]. All
-/// three may be skipped, because none is a running service. The limit worth stating: the
-/// compose-plugin probe draws none of them, so a hanging or failing `docker compose version` is
-/// reported as no plugin at all.
+/// three may be skipped, because none is a running service. A `docker` that answered those probes
+/// and cannot be started for the daemon probe is [`Missing::Cli`] too. The limit worth stating: the
+/// compose-plugin probe draws none of these lines, so a hanging or failing `docker compose version`
+/// is reported as no plugin at all.
 pub(crate) fn presence() -> Result<(), Missing> {
     let budget = probe_budget();
     match probed(Command::new("docker").arg("--version"), budget) {
@@ -168,8 +170,10 @@ pub(crate) fn presence() -> Result<(), Missing> {
     ) {
         Probe::Answered => Ok(()),
         Probe::Silent => Err(Missing::WedgedDaemon),
-        // The daemon probe has no startability line of its own: `docker` already ran above.
-        Probe::Refused | Probe::Unstartable => Err(Missing::Daemon),
+        Probe::Refused => Err(Missing::Daemon),
+        // `docker` answered the two probes above and cannot be started now: starting a daemon
+        // would not help, and the CLI is the thing that is gone.
+        Probe::Unstartable => Err(Missing::Cli),
     }
 }
 
