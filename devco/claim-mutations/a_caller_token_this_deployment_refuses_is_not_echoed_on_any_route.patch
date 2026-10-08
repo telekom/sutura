@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 12b359961..262e38997 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -306,6 +306,7 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
+         error = %rejected,
+         causes = ?crate::surface::cause_chain(rejected),
+         header = gate.header(),
++        presented = ?headers.get(gate.header()),
+         "no verified caller: the presented token did not establish one"
+     );
+     let mut response = Failure::Unauthorized.into_response();

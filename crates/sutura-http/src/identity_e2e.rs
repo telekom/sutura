@@ -414,7 +414,6 @@ fn finance_metric_name() -> sutura_domain::model::MetricName {
 /// with no test of its own is a file `just causality` cannot hold at HEAD against a reverted base.
 fn bundle_with_a_restricted_metric() -> sutura_domain::pinned::PinnedDefinitions {
     use sutura_domain::catalog::{Audience, AudienceGrant, Definitions, Metric, Model};
-    use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, AudienceId, Grain, ModelName, TableName};
     use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
@@ -469,19 +468,79 @@ fn bundle_with_a_restricted_metric() -> sutura_domain::pinned::PinnedDefinitions
     .expect("no dimensions to duplicate");
     let definitions =
         Definitions::assemble(vec![model], vec![], vec![revenue, finance_only]).expect("the test bundle is consistent");
+    let knowledge = notes_about_the_restricted_metric(&definitions);
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions.clone(),
-        Knowledge::none(),
+        knowledge.clone(),
         ContributionManifest::single(
             source(),
             Contribution::of(sutura_domain::capabilities::MetadataCapabilities::produced(
                 &definitions,
-                &Knowledge::none(),
+                &knowledge,
             )),
         ),
     )
     .expect("the test definitions hash")
+}
+
+// What a catalog author wrote about the restricted metric. Each body is a sentence nothing else in
+// the bundle says, so finding it in a response is finding that note.
+const GLOSSARY_PHRASE: &str = "capital expense";
+const GLOSSARY_BODY: &str = "the finance-only meaning of capex";
+const CAVEAT_BODY: &str = "only a finance-granted caller should trust this number";
+const EXAMPLE_BODY: &str = "ask exactly this";
+
+/// A glossary entry and a worked example about [`finance_metric_name`], and a caveat that also names
+/// the open metric.
+fn notes_about_the_restricted_metric(definitions: &sutura_domain::catalog::Definitions) -> sutura_domain::knowledge::Knowledge {
+    use std::collections::BTreeSet;
+
+    use sutura_domain::knowledge::{
+        Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName, Phrase,
+        Referent,
+    };
+
+    let about = |metric| Referent::Metric { metric };
+    let body = |raw: &str| NoteBody::parse(raw).expect("a test body is a body");
+    let june = sutura_domain::calendar::TimeRange::new(
+        sutura_domain::calendar::Date::parse("2026-06-01").expect("a test date"),
+        sutura_domain::calendar::Date::parse("2026-07-01").expect("a test date"),
+    )
+    .expect("a test range");
+    Knowledge::assemble(
+        definitions,
+        KnowledgeInput::new(
+            KnowledgeCapabilities::of([Capability::Glossary, Capability::Caveats, Capability::Examples]),
+            vec![GlossaryEntry::new(
+                Phrase::parse(GLOSSARY_PHRASE).expect("a test phrase is a phrase"),
+                BTreeSet::new(),
+                about(finance_metric_name()),
+                body(GLOSSARY_BODY),
+            )],
+            vec![Caveat::new(
+                NoteName::parse("finance_only_caveat").expect("a test note name is a name"),
+                // About the open metric too: a caller who sees only `revenue` still loses it, because
+                // one of its referents is invisible to that caller.
+                vec![about(finance_metric_name()), about(crate::testing::metric_name())],
+                body(CAVEAT_BODY),
+            )],
+            Vec::new(),
+            vec![Example::new(
+                NoteName::parse("finance_only_example").expect("a test note name is a name"),
+                vec![Phrase::parse("finance example").expect("a test phrase is a phrase")],
+                sutura_domain::query::Query::single(
+                    finance_metric_name(),
+                    sutura_domain::model::Grain::Month,
+                    june,
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                body(EXAMPLE_BODY),
+            )],
+        ),
+    )
+    .expect("every note names a declared metric")
 }
 
 /// [`crate::testing::direct_overlay`], with `docs/adr/0028`'s deployment mapping added under the
@@ -499,7 +558,15 @@ fn direct_overlay_granting_finance(issuer: &MockIssuer, key_set_path: &str) -> S
 /// A router serving [`bundle_with_a_restricted_metric`], behind a real leg-1 gate that maps a
 /// `groups` claim of `finance-team` onto `docs/adr/0028`'s `finance` audience.
 fn app_serving_two_metrics(issuer: &MockIssuer, published: &PublishedKeySet) -> axum::Router {
-    let overlay = direct_overlay_granting_finance(issuer, &published.path().to_string_lossy());
+    app_serving_two_metrics_with(issuer, published, "")
+}
+
+/// [`app_serving_two_metrics`] with more settings written after the inbound block.
+fn app_serving_two_metrics_with(issuer: &MockIssuer, published: &PublishedKeySet, more: &str) -> axum::Router {
+    let overlay = format!(
+        "{}\n{more}",
+        direct_overlay_granting_finance(issuer, &published.path().to_string_lossy())
+    );
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
         .expect("the audience-mapping overlay loads");
     let declaration = declared_inbound(&settings);
@@ -553,6 +620,64 @@ async fn two_verified_callers_get_two_different_catalogs_from_one_bundle() {
     );
 }
 
+/// The `knowledge` section `GET /v1/catalog` answers `token`, whitespace-joined so a phrase the
+/// renderer wrapped across a line still matches.
+async fn knowledge_over_http(app: &axum::Router, token: &str) -> String {
+    let (status, body) = catalog(app, token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let parsed: serde_json::Value = serde_json::from_str(&body).expect("the catalog is JSON");
+    let knowledge = parsed["knowledge"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the catalog carries no knowledge section: {body}"));
+    knowledge.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+/// A token for a caller whose `groups` claim grants the `finance` audience, with every scope.
+fn a_finance_caller(issuer: &MockIssuer) -> String {
+    issuer
+        .mint(
+            &sutura_dev::issuer::Token::for_subject("finance-caller@example.com")
+                .granting(&every_scope())
+                .claiming("groups", serde_json::json!(["finance-team"])),
+        )
+        .expect("the issuer signs a token")
+}
+
+#[tokio::test]
+async fn a_caller_who_cannot_see_a_metric_is_sent_no_note_about_it_over_http() {
+    // `docs/adr/0028`'s invisible-means-absent, for the notes written about a metric: the glossary
+    // entry, the caveat and the worked example all name `finance_only`, so a caller outside the
+    // `finance` audience must read none of them - and a caller inside it must read all three, or an
+    // empty section would pass for a scoped one.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "notes-scoping").expect("the key set publishes");
+    let app = app_serving_two_metrics(&issuer, &published);
+    let outsider = issuer
+        .mint(&accepted_by("outsider@example.com"))
+        .expect("the issuer signs a token");
+    let finance = a_finance_caller(&issuer);
+
+    let seen_by_outsider = knowledge_over_http(&app, &outsider).await;
+    let seen_by_finance = knowledge_over_http(&app, &finance).await;
+
+    for note in [GLOSSARY_PHRASE, GLOSSARY_BODY, CAVEAT_BODY, EXAMPLE_BODY] {
+        assert!(
+            !seen_by_outsider.contains(note),
+            "a caller outside `finance` was sent a note about `finance_only`: {note}"
+        );
+        assert!(
+            seen_by_finance.contains(note),
+            "a caller inside `finance` was not sent a note about `finance_only`: {note}"
+        );
+    }
+    // And the outsider is told the section is narrowed to what it can see, never that the deployment
+    // has recorded nothing - the second would be a false statement about the catalog.
+    assert!(
+        seen_by_outsider.contains("none of it is visible to you"),
+        "the scoped glossary does not say it is scoped: {seen_by_outsider}"
+    );
+}
+
 #[tokio::test]
 async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
     // `docs/adr/0028`'s "invisible means absent at both doors": resolving a metric this caller was
@@ -590,4 +715,25 @@ async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
 async fn ask_about(app: &axum::Router, token: &str, metric: &str) -> (StatusCode, String) {
     let body = format!(r#"{{"metrics":["{metric}"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
     call(app, request("POST", "/v1/query", Some(token), axum::body::Body::from(body))).await
+}
+
+#[tokio::test]
+async fn note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting() {
+    // Both directions for one caller who may see every note: a handler that ignored the setting
+    // would pass either half alone, and `omitted` is the half the default-setting cells never run.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "notes-prose").expect("the key set publishes");
+    let finance = a_finance_caller(&issuer);
+
+    let quoted = knowledge_over_http(&app_serving_two_metrics(&issuer, &published), &finance).await;
+    let omitted = knowledge_over_http(
+        &app_serving_two_metrics_with(&issuer, &published, "prompt:\n  catalog_prose: omitted\n"),
+        &finance,
+    )
+    .await;
+
+    for body in [GLOSSARY_BODY, CAVEAT_BODY, EXAMPLE_BODY] {
+        assert!(quoted.contains(body), "`quoted` did not send a note body: {body}");
+        assert!(!omitted.contains(body), "`omitted` sent a note body: {body}");
+    }
 }

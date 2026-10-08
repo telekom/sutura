@@ -211,14 +211,9 @@ curl -s -X POST http://127.0.0.1:8080/v1/query \
 }
 ```
 
-`executed_as` tells you which identity read each source. Open <http://127.0.0.1:8080/docs> for the
-API in a browser.
-
-!!! warning "Limit"
-
-    `GET /v1/catalog` does not return the knowledge documents (glossary, caveats, worked examples).
-    MCP returns them. [telekom/sutura#1293](https://github.com/telekom/sutura/issues/1293) tracks
-    this.
+`executed_as` tells you which identity read each source. `GET /v1/catalog` lists the metrics and
+carries the glossary, caveats, worked examples and undefined terms in its `knowledge` field, the
+same text MCP returns. Open <http://127.0.0.1:8080/docs> for the API in a browser.
 
 ## 6. Ask over MCP
 
