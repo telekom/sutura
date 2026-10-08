@@ -137,14 +137,38 @@ fn a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host() {
 
 #[test]
 fn a_loopback_agent_surface_answering_a_host_name_counts_as_off_host() {
-    for host in ["sutura.example.com", "localhost", "10.0.0.5"] {
-        let named = format!("  allowed_hosts: [\"{host}\"]\n");
+    // Every entry is read: a loopback address first does not excuse a name after it.
+    for hosts in [
+        r#""sutura.example.com""#,
+        r#""localhost""#,
+        r#""10.0.0.5""#,
+        r#""127.0.0.1", "sutura.example.com""#,
+    ] {
+        let named = format!("  allowed_hosts: [{hosts}]\n");
         let refusals = refused(&loopback(&named, "", ""));
-        assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity], "{host}");
+        assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity], "{hosts}");
         let rendered = refusals.first().expect("one refusal").to_string();
         assert!(rendered.contains("server.allowed_hosts"), "{rendered}");
         serves(&loopback(&named, &format!("  access_token: \"{TOKEN}\"\n"), LIMITED));
     }
     // A loopback address names no caller from beyond this host.
     serves(&loopback("  allowed_hosts: [\"127.0.0.1\", \"::1\"]\n", "", ""));
+}
+
+#[test]
+fn a_loopback_agent_surface_behind_a_declared_tls_terminator_counts_as_off_host() {
+    for terminator in ["sidecar", "ingress"] {
+        let declared = format!("  tls_termination: \"{terminator}\"\n");
+        let refusals = refused(&loopback("", &declared, ""));
+        assert_eq!(
+            refusals,
+            vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity],
+            "{terminator}"
+        );
+        let rendered = refusals.first().expect("one refusal").to_string();
+        assert!(rendered.contains("security.tls_termination"), "{rendered}");
+        serves(&loopback("", &format!("{declared}  access_token: \"{TOKEN}\"\n"), LIMITED));
+    }
+    // `none` names no terminator, so a loopback bind that says it is still this host only.
+    serves(&loopback("", "  tls_termination: \"none\"\n", ""));
 }

@@ -230,17 +230,18 @@ pub enum NotFitToServe {
     /// capability, the posture `/v1` already has there. That is accepted only where the operator
     /// declared `single-user` with its written reason AND the surface is reachable from loopback
     /// only, or sits behind the deployment token and the limiter. Loopback only means a loopback
-    /// bind, no `rate_limit.trusted_proxies` hop, and no `server.allowed_hosts` entry that is not a
-    /// loopback address. A missing mode is not single-user, so a deployment that says nothing gets
-    /// this refusal. **The limit:** `single-user` is a word an operator writes, not a count of who
-    /// calls.
+    /// bind, no `rate_limit.trusted_proxies` hop, no `security.tls_termination` terminator other than
+    /// this process, and no `server.allowed_hosts` entry that is not a loopback address. A missing
+    /// mode is not single-user, so a deployment that says nothing gets this refusal. **The limit:**
+    /// `single-user` is a word an operator writes, not a count of who calls.
     #[error(
         "server.agent_surface.enabled is true and no security.inbound is declared, so /mcp would \
          answer every caller as the deployment. That is served only where {key} is `single-user` with \
          its written reason AND /mcp is reachable from this host only (a loopback bind, no \
-         rate_limit.trusted_proxies, every server.allowed_hosts entry a loopback address) or both \
-         security.access_token and rate_limit.enabled guard it. Declare security.inbound, meet both \
-         conditions, or turn the agent surface off",
+         rate_limit.trusted_proxies, no security.tls_termination other than none or in-process, every \
+         server.allowed_hosts entry a loopback address) or both security.access_token and \
+         rate_limit.enabled guard it. Declare security.inbound, meet both conditions, or turn the \
+         agent surface off",
         key = DeploymentIdentity::KEY
     )]
     AgentSurfaceWithoutInboundIdentity,

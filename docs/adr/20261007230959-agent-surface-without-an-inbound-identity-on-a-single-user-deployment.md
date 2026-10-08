@@ -90,13 +90,15 @@ whatever `ServiceState::with_agent_surface` attached, and no type ties that moun
   off-host.
 - (2) accepts any enabled limiter; it does not judge its tier.
 
-## First amendment, 2026-10-08: the agent surface counts a declared proxy or a non-loopback host name as off-host
+## First amendment, 2026-10-08: the agent surface counts a declared proxy, TLS terminator or non-loopback host name as off-host
 
 **Status of the amendment: accepted** (issue #1293). (2) first read the bind address alone. For the
-agent surface it now counts three things as off-host, and each one alone does:
+agent surface it now counts four things as off-host, and each one alone does:
 
 - a bind that is not loopback;
 - a `rate_limit.trusted_proxies` hop, which says callers arrive through a proxy;
+- a `security.tls_termination` of `sidecar` or `ingress`, which names a terminator that accepts
+  callers for this process; `none` names none, and `in-process` terminates here;
 - a `server.allowed_hosts` entry that `sutura_domain::source::host_is_loopback` does not accept,
   which says callers reach this deployment by a name. That is the one shared loopback predicate,
   and a name is not an address, so `localhost` counts as off-host too.
@@ -105,11 +107,13 @@ Off-host, (2) still asks for both `security.access_token` and `rate_limit.enable
 stays `AgentSurfaceWithoutInboundIdentity`, from the same `Settings::agent_surface_refusals`, so
 `Settings::refusals` and `agent_subtree` cannot disagree; no variant was added.
 
-| Cell                                                                                                      | Shows                                                                                                   |
-| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `settings::tests::agent_surface::a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host`     | a loopback bind with a proxy hop is refused; with the token and the limiter it serves                   |
-| `settings::tests::agent_surface::a_loopback_agent_surface_answering_a_host_name_counts_as_off_host`       | a name, `localhost` and a non-loopback address are refused; loopback addresses and the two guards serve |
-| `router::tests::a_mounted_agent_surface_is_refused_where_the_deployment_may_not_serve_it_without_leg_one` | the assembly door refuses both shapes on a mount whose switch was never set                             |
+| Cell                                                                                                           | Shows                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `settings::tests::agent_surface::a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host`          | a loopback bind with a proxy hop is refused; with the token and the limiter it serves                                                    |
+| `settings::tests::agent_surface::a_loopback_agent_surface_answering_a_host_name_counts_as_off_host`            | a name, `localhost`, a non-loopback address and a name after a loopback address are refused; loopback addresses and the two guards serve |
+| `settings::tests::agent_surface::a_loopback_agent_surface_behind_a_declared_tls_terminator_counts_as_off_host` | `sidecar` and `ingress` are refused; with the token and the limiter each serves, and `none` serves                                       |
+| `router::tests::a_mounted_agent_surface_is_refused_where_the_deployment_may_not_serve_it_without_leg_one`      | the assembly door refuses the proxy and the host-name shapes on a mount whose switch was never set                                       |
+| `served::agent::a_single_user_loopback_agent_surface_behind_a_declared_tls_terminator_stops_the_process`       | the composed binary exits before it binds, for `sidecar` and for `ingress`                                                               |
 
 Limits:
 

@@ -86,7 +86,7 @@ And on the identity path, now that one exists:
 - a deployment that declares an inbound identity and serves without one
 - `/mcp` served with no inbound identity where the startup refusals should stop it: a `multi-user`
   or undeclared mode, an off-host deployment without both the deployment token and the limiter
-  (for `/mcp`, a declared proxy hop or a non-loopback host name counts as off-host), or a source
+  (for `/mcp`, a declared proxy, TLS terminator or non-loopback host name counts as off-host), or a source
   that runs as the asking subject
 - an operation invoked without the scope that governs it, on either transport
 - an outcome returned without a record having been written first
