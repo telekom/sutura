@@ -904,21 +904,22 @@ combines. This is the in-process half of that gap: a second `divan` bench, `fede
 the derived federated corpus's widest questions through the real `DataFusionCombiner`. **The networked
 half is not here** - it needs a live venue, and a bench cannot supply one.
 
-**Conditions, stated before the numbers.** A 15-core Apple Silicon developer host (arm64, macOS), the
-pinned `nightly-2026-09-27` toolchain, the `bench` profile (optimized), corpus revision `951045642`.
-`just bench` narrowed to this one harness (`-p sutura-app --bench federated_answer`, `--all-features`
-kept). The harness printed `venue: load average 10.98 over 15 core(s)` and its own contention warning
-did not fire. The first reading was 11.24 and the 5- and 15-minute averages were 11.01 and 14.41, so
-this was a host with work on it, not a quiet one: one other top-level build or test step host-wide
-(counted by the lane gate's own census) and one `nice`d fuzz run were live, and the 1-minute figure
-includes this step's own build, which had finished seconds earlier. **The three runs were
-back-to-back, inside five seconds of each other.** They are one condition sampled three times, not
-three venues - the spread below is the noise of that moment and says nothing about the same bench on
-another day. A number taken under this repository's usual multi-lane load is an envelope, not a
-default.
+**Conditions, stated before the numbers.** A 15-core Apple Silicon developer host (arm64, macOS),
+the pinned `nightly-2026-09-27` toolchain, the `bench` profile (optimized), corpus revision
+`951045642`. The `cargo bench` line that `just bench` runs, narrowed to this one harness with
+`-p sutura-app --bench federated_answer` (`--all-features` kept). The harness printed
+`venue: load average 10.98 over 15 core(s)` and its own contention warning did not fire. The first
+reading was 11.24 and the 5- and 15-minute averages were 11.01 and 14.41, so this was a host with
+work on it, not a quiet one: one other top-level build or test step and one `nice`d fuzz run were
+live, and the 1-minute figure includes this step's own build, which had finished seconds earlier.
+**The three runs were back-to-back, inside five seconds of each other.** They are one condition
+sampled three times, not three venues - the spread below is the noise of that moment and says
+nothing about the same bench on another day. A number taken under this repository's usual concurrent
+load is an envelope, not a default.
 
 100 samples of 100 iterations per case, per run. Each question is answered once before it is timed,
-and a refusal would have been reported and skipped rather than timed - all three cases answered.
+and a refusal or an answer with no rows is reported and skipped rather than timed - all three cases
+answered with rows.
 
 | Case (derived two-source corpus) | median, run 1 / 2 / 3    | fastest - slowest, all runs | median of the three medians, as a share of the 29 s budget |
 | -------------------------------- | ------------------------ | --------------------------- | ---------------------------------------------------------- |
@@ -955,4 +956,6 @@ refusal lifts.
   load of 4.34 on an earlier tree, and were not re-taken here, so no ratio between those and these
   figures is drawn.
 - **Held by a reader.** `just bench` is not a gate. Nothing fails if these numbers move, and the
-  figures above are restated in prose, which nobody holds.
+  figures above are restated in prose, which nobody holds. A refused or empty case is printed and
+  skipped; the run still exits 0, and CI compiles the bench (`just lint` builds every target) but
+  does not run it, so nothing fails if it stops measuring.

@@ -37,7 +37,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::plan::RowCeiling;
-use sutura_domain::query::Query;
+use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_exec_datafusion::{DataFusionCombiner, DataFusionWarehouse, WorkingSet};
@@ -256,8 +256,8 @@ fn parse_question(text: &str) -> Option<Query> {
         .ok()
 }
 
-/// A bench of a refusal measures nothing, so the question is answered once before the timing and
-/// only a question that answered is timed.
+/// A bench of a refusal or an answer with no rows measures nothing, so the question is answered
+/// once before the timing and only a question that answered with rows is timed.
 fn run_question(bencher: divan::Bencher, name: &str, question: &str) {
     let Some(fixture) = FIXTURE.as_ref() else { return };
     let Some(query) = parse_question(question) else { return };
@@ -280,8 +280,13 @@ fn run_question(bencher: divan::Bencher, name: &str, question: &str) {
         )
     };
     match ask() {
-        Ok(answered) if !answered.outcome().is_refusal() => bencher.bench_local(ask),
-        Ok(answered) => eprintln!("federated_answer: {name} was refused: {:?}", answered.outcome()),
+        Ok(answered) => match answered.outcome() {
+            ToolOutcome::Answer { rows, .. } if !rows.rows().is_empty() => bencher.bench_local(ask),
+            ToolOutcome::Answer { .. } => eprintln!("federated_answer: {name} answered no rows"),
+            outcome @ ToolOutcome::Refusal { .. } => {
+                eprintln!("federated_answer: {name} was refused: {outcome:?}");
+            }
+        },
         Err(cause) => eprintln!("federated_answer: {name} failed: {cause}"),
     }
 }
