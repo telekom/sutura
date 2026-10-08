@@ -5,6 +5,8 @@ use sutura_domain::plan::{FederatedRowCeiling, InvalidFederatedRowCeiling, RowCe
 
 use crate::settings::{Environment, Settings, SettingsError, SettingsLoadError, Sources};
 
+const KEY: &str = "governance.federated_row_ceiling";
+
 fn loaded(rows: &str) -> Result<Settings, SettingsLoadError> {
     Settings::load(
         &Sources::defaults(Environment::Development).with_overlay(format!("governance:\n  federated_row_ceiling: {rows}\n")),
@@ -40,6 +42,11 @@ fn zero_is_refused_rather_than_read_as_unlimited() {
         ),
         "{error:?}"
     );
+    assert!(
+        error.reason().to_string().contains(KEY),
+        "the refusal must name the key: {}",
+        error.reason()
+    );
 }
 
 #[test]
@@ -54,6 +61,11 @@ fn the_maximum_loads_and_one_above_it_is_refused_naming_the_key() {
             }
         ),
         "{error:?}"
+    );
+    assert!(
+        error.reason().to_string().contains(KEY),
+        "the refusal must name the key: {}",
+        error.reason()
     );
 }
 

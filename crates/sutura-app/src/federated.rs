@@ -42,7 +42,7 @@
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeiling, RowCeilings};
+use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeilings};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -365,20 +365,11 @@ where
     // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
     // is taken once, above the combine.
     if let Some(top) = plan.top() {
-        return ranked_answer::<W, B, C>(plan, &answer, row_ceilings.top(), top, &credentials, pinned, executed_as);
+        return ranked_answer::<W, B, C>(plan, &answer, row_ceilings, top, &credentials, pinned, executed_as);
     }
     let federated_ceiling = row_ceilings.federated().get();
     if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
-        return Ok(Answered::under(
-            &credentials,
-            ToolOutcome::Refusal {
-                reason: RefusalReason::ResultTooLarge {
-                    bound: sutura_domain::query::ResultBound::Rows {
-                        limit: federated_ceiling,
-                    },
-                },
-            },
-        ));
+        return Ok(too_many_rows(&credentials, federated_ceiling));
     }
     // The same third bound the mono-source path checks, over the COMBINED result.
     if let Some(limit_bytes) = exceeds_response_bound(&answer) {
@@ -415,6 +406,18 @@ fn certified_provenance<E, M, C>(pinned: &PinnedDefinitions, executed_as: Execut
         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })
 }
 
+/// The refusal for a combined answer over the federated ceiling, naming that ceiling.
+const fn too_many_rows(credentials: &BoundToTheRequest, limit: u32) -> Answered {
+    Answered::under(
+        credentials,
+        ToolOutcome::Refusal {
+            reason: RefusalReason::ResultTooLarge {
+                bound: ResultBound::Rows { limit },
+            },
+        },
+    )
+}
+
 /// Either case's `top`, applied to an already-answer answer - split out of [`answer_federated`]
 /// for `cargo xtask max-lines`'s per-function cap.
 ///
@@ -424,10 +427,14 @@ fn certified_provenance<E, M, C>(pinned: &PinnedDefinitions, executed_as: Execut
 /// (`sutura_semantic::resolve`), so a `top.n()` this large could not have
 /// compiled at all - this is strictly about the WIDTH of the group-by beneath it, which `top.n()`
 /// says nothing about.
+///
+/// **Two ceilings.** The combined set is held to `top_row_ceiling` (the set a rank is certified
+/// over) first, then to the federated ceiling as every federated answer is. The ranked rows are a
+/// subset of it, so they are bounded too.
 fn ranked_answer<W, B, C>(
     plan: &FederatedPlan,
     combined: &RowSet,
-    row_ceiling: RowCeiling,
+    row_ceilings: RowCeilings,
     top: sutura_domain::query::Top,
     credentials: &BoundToTheRequest,
     pinned: &PinnedDefinitions,
@@ -438,15 +445,18 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
-    if plan.top().is_some() && exceeds_row_cap(combined.rows().len(), row_ceiling.get()) {
+    let top_ceiling = row_ceilings.top().get();
+    if plan.top().is_some() && exceeds_row_cap(combined.rows().len(), top_ceiling) {
         return Ok(Answered::under(
             credentials,
             ToolOutcome::Refusal {
-                reason: RefusalReason::TopOverUncertifiedRows {
-                    ceiling: row_ceiling.get(),
-                },
+                reason: RefusalReason::TopOverUncertifiedRows { ceiling: top_ceiling },
             },
         ));
+    }
+    let federated_ceiling = row_ceilings.federated().get();
+    if exceeds_row_cap(combined.rows().len(), federated_ceiling) {
+        return Ok(too_many_rows(credentials, federated_ceiling));
     }
     let ranked = FederatedPlan::rank(combined, top).map_err(|cause| ServiceError::Miswired {
         cause: crate::FederationMiswired::RankedAnswer { cause },

@@ -9,20 +9,26 @@
 
 use super::*;
 
-/// One case-2 answer, over the two leg-executing fakes and a chosen `top` row ceiling.
-fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome {
+/// `federated_plan()` asking for its top one group by the metric.
+pub(super) fn top_one_plan() -> sutura_domain::plan::FederatedPlan {
     let top = sutura_domain::query::Top::new(
         sutura_domain::query::TopN::parse(1).expect("one is a row count"),
         sutura_domain::query::TopBy::Metric,
         sutura_domain::query::TopDirection::Desc,
     );
+    federated_plan().with_top(top)
+}
+
+/// One case-2 answer, over the two leg-executing fakes and a chosen `top` row ceiling.
+fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome {
     outcome_with(
-        &federated_plan().with_top(top),
+        &top_one_plan(),
         sutura_domain::plan::RowCeilings::new(row_ceiling, sutura_domain::plan::FederatedRowCeiling::DEFAULT),
     )
 }
 
-/// One answer to `plan`, over the two leg-executing fakes and chosen row ceilings.
+/// One answer to `plan`, over the two leg-executing fakes (the shared two-group fixtures) and
+/// chosen row ceilings.
 ///
 /// **One builder rather than copies, and `check-jscpd` is why**: the cells that use it differ in the
 /// plan, the ceilings and what they assert, and the setup around them was byte-identical once the
@@ -32,18 +38,29 @@ pub(super) fn outcome_with(
     plan: &sutura_domain::plan::FederatedPlan,
     row_ceilings: sutura_domain::plan::RowCeilings,
 ) -> ToolOutcome {
+    outcome_over(plan, row_ceilings, federated_fact_rows(), federated_lookup_rows())
+}
+
+/// [`outcome_with`] over chosen leg results, for a cell whose combined answer must be wider than
+/// the shared fixtures'.
+pub(super) fn outcome_over(
+    plan: &sutura_domain::plan::FederatedPlan,
+    row_ceilings: sutura_domain::plan::RowCeilings,
+    fact_rows: RowSet,
+    lookup_rows: RowSet,
+) -> ToolOutcome {
     let fact_source = SourceName::parse("facts").expect("a test source");
     let lookup_source = SourceName::parse("geo").expect("a test source");
     let shared = shared();
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
         fact_source,
         shared.clone(),
-        federated_fact_rows(),
+        fact_rows,
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
         lookup_source,
         shared,
-        federated_lookup_rows(),
+        lookup_rows,
     ))
     .expect("two sources, one registry");
     let broker = crate::tests_support::CountingBroker::default();
