@@ -37,6 +37,7 @@ The crate name prefix tells you the role of the crate.
 | `sutura-runtime`   | Process-wide parts: admission control, the blocking pool, metrics.                                    |
 | `sutura-cli`       | The composition root. It links the adapters and connects them to the ports.                           |
 
+<a id="hexagonal-by-construction"></a>
 The dependencies point inward. `sutura-domain` depends on no other sutura crate and on no
 framework. Only `sutura-cli` links the catalog and data-system adapters, and no adapter depends on
 another adapter of its kind. `cargo xtask check-boundaries` fails when one of these rules breaks.
@@ -44,7 +45,8 @@ another adapter of its kind. `cargo xtask check-boundaries` fails when one of th
 
 ## The path of a question
 
-1. A caller sends a question to `sutura-http` or `sutura-mcp`. A question names metrics,
+1. <a id="where-the-parts-come-from"></a>
+   A caller sends a question to `sutura-http` or `sutura-mcp`. A question names metrics,
    dimensions, a time grain and a bounded time range.
 2. The transport passes the question to `sutura-app` through the `Surface` port.
 3. `sutura-semantic` resolves every name against the pinned catalog snapshot and makes a plan. The
@@ -57,6 +59,7 @@ another adapter of its kind. `cargo xtask check-boundaries` fails when one of th
    includes the digest of the catalog snapshot. A federated answer also reports the identity
    posture of each leg.
 
+<a id="the-engine-and-the-data-systems-behind-a-port"></a>
 A plan reads one or two data systems. A plan that reads two is a federated plan: each data system
 runs its part (a leg), and DataFusion joins the legs. sutura refuses a leg on a data system whose
 adapter cannot run one.
@@ -112,6 +115,7 @@ question would leak rows between callers.
 
 ## What ships
 
+<a id="connectors-arrow-flight-not-a-driver-per-data-system"></a>
 Each release has four artifacts: musl and glibc builds for x86_64 and aarch64. Each artifact is
 a distroless image that holds only the binary. The release binary links the features that
 `nix/shipped.nix` lists, and `sutura doctor` shows which adapters a binary links. The Oracle
@@ -148,6 +152,8 @@ double-free detection. This costs 23-43% against plain mimalloc, and it is still
 - `security.inbound` verifies a caller (leg 1). On BigQuery, a query can run as the caller's mapped
   account (leg 2). Leg 2 is built and not proven. Every other source runs as its declared identity.
 - Results leave the process as rows, not as Arrow. Arrow is used inside the process only.
+- A metric is a computation over a model. sutura cannot take a SQL statement from a catalog and
+  splice it into its query: the metric type has no field for a statement.
 - A source entry says where the data is. It does not prove that the data matches what the catalog
   certifies. Only an anchor checks this, and a metric without an anchor gets no check.
 - The design records are in `docs/adr/`. They are not part of this site.
