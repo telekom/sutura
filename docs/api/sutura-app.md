@@ -220,7 +220,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B, C>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, combiner: &C, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger, row_ceiling: sutura_domain::plan::RowCeiling) -> Answering<W, B, C>
+pub fn answer<W, B, C>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, combiner: &C, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger, row_ceilings: sutura_domain::plan::RowCeilings) -> Answering<W, B, C>
 ```
 
 Answers one question, or says why it will not.
@@ -839,13 +839,14 @@ same letter, and the combiner is a property of the SERVICE while a catalog is a 
 one call.
 
 ```rust
-pub const fn with_row_ceiling(self, row_ceiling: RowCeiling) -> Self
+pub const fn with_row_ceilings(self, row_ceilings: RowCeilings) -> Self
 ```
 
-Replaces the `top` row ceiling, for a composition root that read one out of its settings -
-`github.com/telekom/sutura#777`. `Self::with_spend_ledger`'s reason applies unchanged:
-every existing caller of `Self::start` and `Self::start_composed` keeps `RowCeiling::DEFAULT`,
-which is `sutura_domain::plan::MAX_ROWS` and the behaviour every deployment already had.
+Replaces the row ceilings, for a composition root that read them out of its settings - the
+`top` one is `github.com/telekom/sutura#777`, the federated one `github.com/telekom/sutura#828`.
+`Self::with_spend_ledger`'s reason applies unchanged: every existing caller of
+`Self::start` and `Self::start_composed` keeps `RowCeilings::DEFAULT`, which is
+`sutura_domain::plan::MAX_ROWS` for both and the behaviour every deployment already had.
 
 ```rust
 pub fn with_spend_ledger(self, spend_ledger: SpendLedger) -> Self

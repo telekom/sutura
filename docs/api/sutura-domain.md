@@ -6436,9 +6436,10 @@ name to a caller for a `top` question - which is the one place a message telling
 *"ask your operator to raise this"* has to be true rather than aspirational. A deployment
 configures one in its settings; absent, `Self::DEFAULT` is what every deployment already got.
 
-**The limit, next to the claim.** Nothing here makes the ORDINARY row cap configurable - a
+**The limit, next to the claim.** Nothing here makes the single-source row cap configurable - a
 question with no `top` is still refused against the compiled `MAX_ROWS`. Only the two `top`
-refusals this type feeds read a configured value.
+refusals this type feeds read a configured value; a federated answer's own bound is
+`FederatedRowCeiling`, which has a maximum this type does not.
 
 #### Methods
 
@@ -7213,6 +7214,34 @@ fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBin
     PlanBindings::parse(filters, params)
 }
 ```
+
+### `use FederatedRowCeiling`
+
+How many rows a federated answer may return before it is refused - `github.com/telekom/sutura#828`.
+
+**A refusal and never a truncation:** the combined answer is counted after the combine, and one
+row over this is `RefusalReason::ResultTooLarge`, naming this number. `Self::DEFAULT` is
+`MAX_ROWS`, so a deployment that configures nothing is bounded as it always was.
+
+**Its own type, with a maximum, and `RowCeiling` stays as it is.** A bound an operator can
+raise has to have a ceiling in code, or "configure it high enough" is how a replica holds an
+unbounded answer. `Self::MAX` is a round number stated as one, not a measured one: past it the
+8 MiB `ResponseByteLimit` refuses any row wider than eight bytes anyway. `RowCeiling` is not
+bounded above, which is an asymmetry kept deliberately - a startup refusal on an existing key is a
+breaking change, and this key is new.
+
+**The limit:** this bounds ROWS and not memory. The check runs after the combine, so what holds
+the replica's memory down is still the working-set ceiling. The single-source row cap stays the
+compiled `MAX_ROWS`.
+
+### `use InvalidFederatedRowCeiling`
+
+Why a federated row ceiling did not parse.
+
+### `use RowCeilings`
+
+Both configured row ceilings, carried together so a service hands one argument down rather than
+two.
 
 ### `use AnswerKey`
 
