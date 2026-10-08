@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use datafusion::arrow::array::{ArrayRef, RecordBatch};
+use datafusion::arrow::array::{ArrayRef, Float64Array, RecordBatch, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
@@ -96,13 +96,15 @@ fn bucket() -> PlanBucket {
     )
 }
 
-/// One placeholder [`LegTerm`] per leaf, labelled exactly as [`FederatedPlan::new`]'s own check
-/// requires - the same `labels(&federation)` zip the one production splitter runs. Nothing here
-/// reads the term's computation; only the label.
+/// One placeholder [`LegTerm`] per leaf the leg aggregates, labelled exactly as
+/// [`FederatedPlan::new`]'s own check requires - the same `labels(&federation)` zip the one
+/// production splitter runs. Nothing here reads the term's computation; only the label.
 fn terms_for(federation: &Federation) -> Vec<LegTerm> {
     labels(federation)
         .into_iter()
-        .map(|label| {
+        .zip(federation.carried())
+        .filter(|&(_, leaf)| !leaf.is_pulled_up())
+        .map(|(label, _)| {
             LegTerm::new(
                 PlanTerm::CountIf {
                     column: PlanColumn::new(table(FACT), column("mrr_cents")),
@@ -113,14 +115,32 @@ fn terms_for(federation: &Federation) -> Vec<LegTerm> {
         .collect()
 }
 
-fn fact_leg(terms: Vec<LegTerm>) -> LegPlan {
+/// The fact leg's keys for every pulled-up leaf, each under its own label: what the splitter adds
+/// beside the link for a distinct count.
+fn pulled_keys(federation: &Federation) -> Vec<PlanKey> {
+    labels(federation)
+        .into_iter()
+        .zip(federation.carried())
+        .filter(|&(_, leaf)| leaf.is_pulled_up())
+        .map(|(label, leaf)| {
+            PlanKey::new(
+                ResultLabel::internal(label),
+                PlanColumn::new(table(FACT), leaf.column().clone()),
+            )
+        })
+        .collect()
+}
+
+fn fact_leg(federation: &Federation) -> LegPlan {
+    let mut keys = vec![key("product_family"), link_key()];
+    keys.extend(pulled_keys(federation));
     LegPlan::Fact {
         source: source("facts"),
         metric: metric("revenue"),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
-        keys: vec![key("product_family"), link_key()],
-        terms,
+        keys,
+        terms: terms_for(federation),
         bindings: PlanBindings::none(),
         range: range(),
     }
@@ -143,7 +163,7 @@ pub(super) fn plan_for(measure_name: &str, measure: &Measure, include_unmatched:
         name,
         measure_label,
         bucket(),
-        fact_leg(terms_for(&federation)),
+        fact_leg(&federation),
         None,
         lookup_leg(),
         include_unmatched,
@@ -161,6 +181,28 @@ pub(super) fn sum_plan(include_unmatched: bool) -> FederatedPlan {
         "revenue",
         &Measure::Simple(term(Aggregate::Sum, "mrr_cents")),
         include_unmatched,
+    )
+}
+
+/// Distinct products, a distinct count over one column: the leg carries the column as a key.
+pub(super) fn distinct_plan() -> FederatedPlan {
+    plan_for(
+        "products_in_use",
+        &Measure::Simple(term(Aggregate::CountDistinct, "product_key")),
+        true,
+    )
+}
+
+/// Revenue per distinct product: a sum the leg aggregates over a distinct count it only keys.
+pub(super) fn revenue_per_product_plan() -> FederatedPlan {
+    plan_for(
+        "revenue_per_product",
+        &Measure::Ratio {
+            numerator: term(Aggregate::Sum, "mrr_cents"),
+            denominator: term(Aggregate::CountDistinct, "product_key"),
+            zero_denominator: ZeroDenominator::Null,
+        },
+        true,
     )
 }
 
@@ -200,6 +242,36 @@ pub(super) fn fact(rows: Vec<Vec<Value>>) -> ResultBatches {
             leaf(0),
         ],
         rows,
+    )
+}
+
+/// A link value and the float it carries, `None` for a NULL.
+type FloatRow<'a> = (&'a str, Option<f64>);
+
+/// A fact leg's result whose one leaf is a `Float64` key column, one row per `(link, value)`.
+///
+/// Built from Arrow arrays because a domain `Real` is finite by construction, so neither a NaN nor
+/// two NaNs of different bit patterns can be stated through [`fact`].
+pub(super) fn float_keyed_fact(rows: &[FloatRow<'_>]) -> ResultBatches {
+    let count = rows.len();
+    let links: Vec<&str> = rows.iter().map(|&(link, _)| link).collect();
+    let values: Vec<Option<f64>> = rows.iter().map(|&(_, value)| value).collect();
+    let link = link();
+    let leaf = leaf(0);
+    typed(
+        vec![
+            ("product_family", DataType::Utf8),
+            (link.as_str(), DataType::Utf8),
+            (TIME_BUCKET_LABEL, DataType::Utf8),
+            (leaf.as_str(), DataType::Float64),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["A"; count])),
+            Arc::new(StringArray::from(links)),
+            Arc::new(StringArray::from(vec!["2026-06"; count])),
+            Arc::new(Float64Array::from(values)),
+        ],
+        count,
     )
 }
 

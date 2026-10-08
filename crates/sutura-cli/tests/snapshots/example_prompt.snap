@@ -129,9 +129,6 @@ Every reason you can be given, and what to do about each:
   Nothing you can change. Report it: it is a fact about how the metric is defined.
 - **federation_link_compound** - the crossing relationship declares more than one join key.
   Nothing you can change. Report it: it is a fact about how the relationship is defined.
-- **measure_does_not_federate** - this measure cannot be recombined across two data systems - its
-  aggregate is not additive.
-  Ask the same metric without the dimension on the second data system, or report it.
 - **federated_answer_not_well_formed** - answering this across two data systems hit a division by
   zero, a join key that matched more than one row, or a join key that can never match because the
   two data systems store it as two different types - the same question and the same rows fail the

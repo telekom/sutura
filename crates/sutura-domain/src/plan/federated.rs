@@ -33,13 +33,11 @@
 //! [`FederatedPlan::federation`] hands a combiner that tree rather than a per-leg guard - a guard
 //! applied inside a leg is the wrong number this shape exists to prevent.
 //!
-//! **What no combiner may be asked to express, and the refusal is here rather than there.** The
-//! re-aggregation above the legs covers the leaves a *decomposable* measure produces - a
-//! re-aggregating [`Sum`](crate::model::Aggregate::Sum), [`Min`](crate::model::Aggregate::Min) or
-//! [`Max`](crate::model::Aggregate::Max). A measure that does not decompose at all (an exact
-//! distinct count) has no re-aggregating function, so [`FederatedPlan::new`] refuses such a leaf
-//! before a plan exists and [`reaggregates`] is the whole statement of which do. That keeps an
-//! implementor's own unsupported-aggregate arm unreachable through this constructor.
+//! **A measure that does not decompose is pulled up, and the plan holds that as a key rather than a
+//! term.** An exact distinct count has no function that adds per-group counts back up, so its leaf
+//! ([`Carried::Keys`](crate::federation::Carried::Keys)) is a key of the fact leg - one row per
+//! distinct value - and the combine counts the distinct values above. [`FederatedPlan::new`] checks
+//! that the fact leg projects each such key under the leaf's own label.
 
 /// The second driven port, and the pair of leg results it takes.
 ///
@@ -62,33 +60,12 @@ mod failure;
 pub mod label;
 
 use crate::federation::Federation;
-use crate::model::{Aggregate, MetricName, SourceName};
+use crate::model::{MetricName, SourceName};
 use crate::plan::PlanBucket;
 use crate::plan::ResultLabel;
 use crate::plan::leg::LegPlan;
 use crate::query::{Top, TopBy, TopDirection};
 use crate::warehouse::{MalformedRowSet, RowSet, Value};
-
-/// Whether a re-aggregating function exists for `aggregate` at all.
-///
-/// **The one question a plan asks about the combine, and it stays here rather than moving to the
-/// combiner with everything else.** It is a property of the closed [`Aggregate`] vocabulary, not of
-/// an engine: a distinct count has no function that adds per-group distinct counts back up, whatever
-/// executes the combine. [`FederatedPlan::new`] refuses a carried leaf this answers `false` for, so
-/// no plan a combiner receives names one - which is why a combiner's own unsupported-aggregate arm
-/// is unreachable through this constructor rather than absent.
-///
-/// Named arms rather than a wildcard, so a seventh [`Aggregate`] has to answer here.
-const fn reaggregates(aggregate: Aggregate) -> bool {
-    match aggregate {
-        // Sums add; a minimum is its own re-aggregation, and so is a maximum. A pushed-down `Count`
-        // re-aggregates with a `Sum`, which `Carried::combine` already resolves before this is asked.
-        Aggregate::Sum | Aggregate::Min | Aggregate::Max => true,
-        // A mean of means is not the mean, and no function adds exact distinct counts back up. The
-        // splitter decomposes an `Avg` into a sum and a count, so `Avg` never reaches a leaf.
-        Aggregate::Count | Aggregate::Avg | Aggregate::CountDistinct => false,
-    }
-}
 
 pub use combiner::{FederationCombiner, LegResult, Legs, LegsAreNotOneOfEach};
 #[cfg(any(test, feature = "fixtures"))]
@@ -301,12 +278,6 @@ impl FederatedPlan {
                 label: link,
             });
         }
-        for leaf in federation.carried() {
-            let aggregate = leaf.combine();
-            if !reaggregates(aggregate) {
-                return Err(FederatedPlanError::LeafDoesNotReaggregate { aggregate });
-            }
-        }
         // D9: `bucket` and `fact`'s own embedded bucket and terms are three independently supplied
         // arguments, and the one production splitter (`sutura_semantic::plan::federated_plan`)
         // derives all three from the same local values - the bucket by cloning one `PlanBucket`, the
@@ -340,11 +311,27 @@ impl FederatedPlan {
             .into_iter()
             .zip(all_labels.iter())
             .partition(|(leaf, _)| leaf.model().is_none());
-        let first_expected: Vec<String> = first.iter().map(|(_, l)| l.label()).collect();
-        let second_expected: Vec<String> = second.iter().map(|(_, l)| l.label()).collect();
-        if second_fact.is_none() && !second_expected.is_empty() {
+        // A pulled-up leaf is a key of the first fact leg under its own label, not a term: the
+        // second fact leg of a cross-model ratio carries terms only (the catalog refuses a distinct
+        // count in one at load), and a leaf the first leg does not project cannot be counted above.
+        if (second_fact.is_none() && !second.is_empty()) || second.iter().any(|(leaf, _)| leaf.is_pulled_up()) {
             return Err(FederatedPlanError::TermsDoNotMatchFederation);
         }
+        for (_, label) in first.iter().filter(|(leaf, _)| leaf.is_pulled_up()) {
+            let label = label.label();
+            if !leg_has_key(&fact, &label) {
+                return Err(FederatedPlanError::KeyNotOnLeg {
+                    side: LegSide::Fact,
+                    label,
+                });
+            }
+        }
+        let first_expected: Vec<String> = first
+            .iter()
+            .filter(|(leaf, _)| !leaf.is_pulled_up())
+            .map(|(_, l)| l.label())
+            .collect();
+        let second_expected: Vec<String> = second.iter().map(|(_, l)| l.label()).collect();
         let first_matches = fact_terms.len() == first_expected.len()
             && fact_terms
                 .iter()
@@ -510,13 +497,6 @@ pub enum FederatedPlanError {
     /// An answer key names a column the leg it belongs to does not project.
     #[error("the {side:?} leg projects no key `{label}`")]
     KeyNotOnLeg { side: LegSide, label: String },
-    /// A carried leaf names an aggregate the combine has no re-aggregating function for.
-    ///
-    /// Refused before a plan exists rather than when a group is reduced: it is a defect in this
-    /// workspace's own wiring, and reduced, the same plan refused a group holding a value and
-    /// answered `Null` for a group of nulls, under the metric's own certified name.
-    #[error("a carried leaf re-aggregates with `{aggregate}`, which the combine cannot apply")]
-    LeafDoesNotReaggregate { aggregate: Aggregate },
     /// The bucket handed to this constructor is not the fact leg's own.
     ///
     /// Unreachable through the one production splitter, which builds both from one local value -

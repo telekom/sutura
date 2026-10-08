@@ -201,12 +201,6 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
     remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
-const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
-    reason: "measure_does_not_federate",
-    meaning: "this measure cannot be recombined across two data systems - its aggregate is not additive",
-    remedy: "Ask the same metric without the dimension on the second data system, or report it.",
-};
-
 const SOURCE_UNAVAILABLE: Guide = Guide {
     reason: "source_unavailable",
     meaning: "the data system that metric lives in is not one this deployment opened",
@@ -332,7 +326,6 @@ pub(super) const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
-    &MEASURE_DOES_NOT_FEDERATE,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
     &FEDERATED_ANSWER_NOT_WELL_FORMED,
@@ -389,7 +382,6 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
-        RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,

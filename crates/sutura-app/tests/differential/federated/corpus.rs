@@ -208,15 +208,24 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     ),
     // A distinct value that genuinely SPANS join keys: several customers subscribe to one product,
     // so the number of distinct products in a region is strictly less than the sum of the distinct
-    // products per customer. That is what the combiner cannot re-count and what
-    // `MeasureDoesNotFederate` exists to refuse. `subscription_key` would not have shown it - a
-    // subscription belongs to one customer, so summing per-link distinct counts happens to be right
-    // over this corpus, and a refusal protecting nothing reads as coverage.
+    // products per customer. That is what no re-aggregation of per-link counts can recover, so the
+    // fact leg carries the products as a key and the combine counts them above the join.
+    // `subscription_key` would not have shown it - a subscription belongs to one customer, so
+    // summing per-link distinct counts happens to be right over this corpus, and a pull-up
+    // protecting nothing reads as coverage.
     // `the_refused_distinct_value_spans_two_join_keys` measures both halves of that.
     (
         "metrics/products_in_use.md",
         Edit::Added(
-            "---\nkind: metric\nname: products_in_use\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: product_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nHow many distinct products the period had subscriptions to.\n\nHere because the distinct value spans the join key: one product is subscribed to by several\ncustomers, so no re-aggregation above two legs can recover the count. A two-source question\nover it is refused rather than answered, and the refusal is the assertion.\n",
+            "---\nkind: metric\nname: products_in_use\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: product_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nHow many distinct products the period had subscriptions to.\n\nHere because the distinct value spans the join key: one product is subscribed to by several\ncustomers, so no re-aggregation of per-leg counts can recover the count. A two-source question\nover it is answered from the distinct products themselves, and must equal the one-source answer.\n",
+        ),
+    ),
+    // A distinct value that IS the join key: the fact leg groups by the link column twice, once as the
+    // link and once as the pulled-up key under its own label, and must still return both.
+    (
+        "metrics/customers_with_subscriptions.md",
+        Edit::Added(
+            "---\nkind: metric\nname: customers_with_subscriptions\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: customer_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nHow many distinct customers held a subscription in the period.\n",
         ),
     ),
     // **The two-fact ratio (`telekom/sutura#780`)**: a second fact model and a shared calendar,
@@ -358,10 +367,15 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
         "two-source-a-same-source-orphan-beside-a-remote-one",
         "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region, product_family]\n",
     ),
-    // A distinct value spanning join keys: refused, not answered.
+    // A distinct value spanning join keys: pulled up, and answered the same as one source.
     (
         "two-source-a-distinct-value-spanning-join-keys",
         "metrics: [products_in_use]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
+    ),
+    // The distinct value is the join key itself: one column is both the link and the pulled-up key.
+    (
+        "two-source-a-distinct-count-of-the-link-column",
+        "metrics: [customers_with_subscriptions]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
     // `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce: `region`
     // is on the SECOND data system, so the answer key reads the lookup leg and the rank cannot
@@ -647,12 +661,12 @@ fn every_document(root: &Path) -> Vec<PathBuf> {
 /// Which join keys one (month, region, product) triple was seen under.
 type SeenUnder = std::collections::BTreeMap<(String, String, String), std::collections::BTreeSet<String>>;
 
-/// **The distinct value really does span the join keys**, which is what the refusal is for.
+/// **The distinct value really does span the join keys**, which is what the pull-up is for.
 ///
-/// Read off the derived corpus rather than asserted, because a `MeasureDoesNotFederate` that
-/// protected nothing would read as coverage: over this corpus a distinct SUBSCRIPTION key does
-/// not span a customer, so summing per-link distinct counts would happen to be right and the
-/// refusal would be untested by the case that motivates it. A distinct PRODUCT key does span,
+/// Read off the derived corpus rather than asserted, because a pull-up that protected nothing would
+/// read as coverage: over this corpus a distinct SUBSCRIPTION key does not span a customer, so
+/// summing per-link distinct counts would happen to be right and the differential would be
+/// untested by the case that motivates it. A distinct PRODUCT key does span,
 /// and this is the pair that proves it.
 #[test]
 fn the_refused_distinct_value_spans_two_join_keys() {
@@ -675,7 +689,7 @@ fn the_refused_distinct_value_spans_two_join_keys() {
     assert!(
         widest_span(&spanning) > 1,
         "no product in this corpus is subscribed to by two customers in one region and month, so \
-         `products_in_use` would federate correctly by accident and its refusal proves nothing"
+         `products_in_use` would federate correctly by accident and its differential proves nothing"
     );
     // **The other half of the pair, which is what makes the choice of metric non-arbitrary.** A
     // distinct SUBSCRIPTION key spans no customer over this corpus, so summing per-link distinct

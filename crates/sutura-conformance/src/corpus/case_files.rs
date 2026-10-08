@@ -73,10 +73,7 @@ static FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Every federated case file with an answer, embedded and guarded exactly as [`FILES`] is.
-///
-/// The third federated file ADR 0012 names has no answer: its plan is refused at construction, so
-/// it is registered beside the test that asserts the refusal rather than here.
+/// Every federated case file, embedded and guarded exactly as [`FILES`] is.
 static FEDERATED_FILES: &[(&str, &str)] = &[
     (
         "two-source-remote-filter-with-an-orphan-key",
@@ -85,6 +82,10 @@ static FEDERATED_FILES: &[(&str, &str)] = &[
     (
         "two-source-zero-denominator-in-one-subgroup",
         include_str!("../../corpus/cases/two_source_zero_denominator_in_one_subgroup.case"),
+    ),
+    (
+        "two-source-distinct-value-spanning-join-keys",
+        include_str!("../../corpus/cases/two_source_distinct_value_spanning_join_keys.case"),
     ),
 ];
 
@@ -166,7 +167,7 @@ pub(super) fn load() -> Vec<Case> {
         .collect()
 }
 
-/// Parses every federated case file with an answer, with [`load`]'s posture.
+/// Parses every federated case file, with [`load`]'s posture.
 pub(super) fn load_federated() -> Vec<FederatedCase> {
     FEDERATED_FILES
         .iter()
@@ -255,30 +256,33 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
         ))),
     };
     let federation = Federation::of(&measure);
-    let terms = federation
-        .carried()
-        .into_iter()
-        .zip(labels(&federation))
-        .filter_map(|(leaf, label)| match *leaf {
-            Carried::Aggregated { pushed, ref column, .. } => Some(LegTerm::new(
+    let link = ResultLabel::internal(InternalLabel::Link);
+    let mut terms = Vec::new();
+    let mut fact_keys = vec![PlanKey::new(link.clone(), plan_column(LINK_COLUMN))];
+    for (leaf, label) in federation.carried().into_iter().zip(labels(&federation)) {
+        match *leaf {
+            Carried::Aggregated { pushed, ref column, .. } => terms.push(LegTerm::new(
                 PlanTerm::Aggregate {
                     aggregate: pushed.push(),
                     column: PlanColumn::new(table(), column.clone()),
                 },
                 ResultLabel::internal(label),
             )),
-            // No field spells a conditional count, and a pulled-up column is a key rather than a
-            // term - `FederatedPlan::new` refuses the leaf that needs one.
-            Carried::CountIf { .. } | Carried::Keys { .. } => None,
-        })
-        .collect();
-    let link = ResultLabel::internal(InternalLabel::Link);
+            // A pulled-up column is a key of the fact leg rather than a term.
+            Carried::Keys { ref column, .. } => fact_keys.push(PlanKey::new(
+                ResultLabel::internal(label),
+                PlanColumn::new(table(), column.clone()),
+            )),
+            // No field spells a conditional count.
+            Carried::CountIf { .. } => {}
+        }
+    }
     let fact = LegPlan::Fact {
         source: source(),
         metric: metric.clone(),
         tables: StatementTables::only(table()),
         bucket: bucket(),
-        keys: vec![PlanKey::new(link.clone(), plan_column(LINK_COLUMN))],
+        keys: fact_keys,
         terms,
         bindings: range_bindings(),
         range: range(),
@@ -578,18 +582,7 @@ fn parse_cell(file: &'static str, raw: &str, row: usize, cell: usize) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::Aggregate;
-    use sutura_domain::plan::FederatedPlanError;
-
     use super::{CaseError, FEDERATED_FILES, FILES, load};
-
-    /// The federated case ADR 0012 names whose plan the domain refuses, so it has no answer and no
-    /// place in [`FEDERATED_FILES`]; the refusal is what [`a_count_distinct_across_the_join_is_refused`]
-    /// holds it to.
-    static REFUSED: (&str, &str) = (
-        "two-source-distinct-value-spanning-join-keys",
-        include_str!("../../corpus/cases/two_source_distinct_value_spanning_join_keys.case"),
-    );
 
     /// The loader reads every `.case` file the directory holds.
     ///
@@ -610,7 +603,7 @@ mod tests {
                     .then(|| path.file_stem().unwrap().to_string_lossy().into_owned())
             })
             .count();
-        let loaded = FILES.len() + FEDERATED_FILES.len() + 1;
+        let loaded = FILES.len() + FEDERATED_FILES.len();
         assert_eq!(
             on_disk, loaded,
             "the corpus directory holds {on_disk} `.case` file(s) but the loader reads {loaded} - \
@@ -686,26 +679,6 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("bogus"), "the error should name the bad cell type: {err}");
-    }
-
-    /// ADR 0012's third case: a `CountDistinct` leaf does not re-aggregate, so the plan is refused
-    /// at construction rather than summed into an over-count.
-    #[test]
-    fn a_count_distinct_across_the_join_is_refused() {
-        let (file, content) = REFUSED;
-        let refused = super::parse_federated(file, content);
-        assert!(
-            matches!(
-                refused,
-                Err(CaseError::PlanRefused {
-                    error: FederatedPlanError::LeafDoesNotReaggregate {
-                        aggregate: Aggregate::CountDistinct
-                    },
-                    ..
-                })
-            ),
-            "{refused:?}"
-        );
     }
 
     /// A federated file names the lookup table it reads, and one the corpus does not hold is

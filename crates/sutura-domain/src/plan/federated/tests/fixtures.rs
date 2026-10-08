@@ -89,22 +89,79 @@ pub(super) fn fact_leg(terms: Vec<LegTerm>) -> LegPlan {
     }
 }
 
-/// One placeholder [`LegTerm`] per leaf `federation` carries, labelled exactly as
+/// One placeholder [`LegTerm`] per leaf `federation` carries as a term, labelled exactly as
 /// [`FederatedPlan::new`]'s own D9 check requires - the same `labels(&federation)` zip the one
-/// production splitter runs. The term's computation is never read by anything this suite asserts
-/// on; only the label is.
+/// production splitter runs, which leaves a pulled-up leaf to the leg's keys. The term's computation
+/// is never read by anything this suite asserts on; only the label is.
 pub(super) fn terms_for(federation: &Federation) -> Vec<LegTerm> {
     labels(federation)
         .into_iter()
-        .map(|label| {
-            LegTerm::new(
-                PlanTerm::CountIf {
-                    column: PlanColumn::new(table(FACT), column("mrr_cents")),
-                },
-                ResultLabel::internal(label),
-            )
-        })
+        .zip(federation.carried())
+        .filter(|&(_, leaf)| !leaf.is_pulled_up())
+        .map(|(label, _)| placeholder_term(label))
         .collect()
+}
+
+/// One placeholder [`LegTerm`] for EVERY leaf, pulled up or not - what a leg that carried a distinct
+/// column as a term as well as a key would send.
+pub(super) fn placeholder_terms(federation: &Federation) -> Vec<LegTerm> {
+    labels(federation).into_iter().map(placeholder_term).collect()
+}
+
+fn placeholder_term(label: InternalLabel) -> LegTerm {
+    LegTerm::new(
+        PlanTerm::CountIf {
+            column: PlanColumn::new(table(FACT), column("mrr_cents")),
+        },
+        ResultLabel::internal(label),
+    )
+}
+
+/// The fact leg's key for the distinct column behind leaf `leaf`, under that leaf's own label.
+pub(super) fn distinct_key(leaf: usize) -> PlanKey {
+    PlanKey::new(
+        ResultLabel::internal(InternalLabel::Leaf(leaf)),
+        PlanColumn::new(table(FACT), column("customer_key")),
+    )
+}
+
+/// [`fact_leg`]'s keys and the keys of the distinct columns beside them, carrying `terms`.
+pub(super) fn fact_leg_keyed_by(distinct: Vec<PlanKey>, terms: Vec<LegTerm>) -> LegPlan {
+    let mut keys = vec![key("product_family", FACT), link_key(FACT)];
+    keys.extend(distinct);
+    LegPlan::Fact {
+        source: source(FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys,
+        terms,
+        bindings: PlanBindings::none(),
+        range: range(),
+    }
+}
+
+/// `count_distinct(customer_key)`, which is one pulled-up leaf.
+pub(super) fn distinct_federation() -> Federation {
+    Federation::of(&Measure::Simple(term(Aggregate::CountDistinct, "customer_key")))
+}
+
+/// A plan over [`distinct_federation`] whose fact leg is `fact`.
+pub(super) fn try_distinct_plan(fact: LegPlan) -> Result<FederatedPlan, FederatedPlanError> {
+    FederatedPlan::new(
+        metric("distinct_customers"),
+        ResultLabel::measure(&metric("distinct_customers")),
+        bucket(),
+        fact,
+        None,
+        lookup_leg(),
+        true,
+        distinct_federation(),
+        vec![
+            AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
+            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+        ],
+    )
 }
 
 pub(super) fn lookup_leg() -> LegPlan {
@@ -143,13 +200,22 @@ pub(super) fn linked_fact_leg(terms: Vec<LegTerm>) -> LegPlan {
 
 /// [`second_fact_leg`] on `on`, bucketed by `bucket`.
 pub(super) fn second_fact_on(on: &str, bucket: PlanBucket) -> LegPlan {
+    second_fact(on, bucket, Vec::new())
+}
+
+/// [`second_fact_leg`] carrying `terms`.
+pub(super) fn second_fact_carrying(terms: Vec<LegTerm>) -> LegPlan {
+    second_fact(SECOND_FACT_SOURCE, bucket(), terms)
+}
+
+fn second_fact(on: &str, bucket: PlanBucket, terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(on),
         metric: metric("revenue"),
         tables: StatementTables::only(table("dim_orders")),
         bucket,
         keys: vec![link_key("dim_orders")],
-        terms: Vec::new(),
+        terms,
         bindings: PlanBindings::none(),
         range: range(),
     }

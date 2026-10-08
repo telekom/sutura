@@ -959,3 +959,55 @@ refusal lifts.
   figures above are restated in prose, which nobody holds. A refused or empty case is printed and
   skipped; the run still exits 0, and CI compiles the bench (`just lint` builds every target) but
   does not run it, so nothing fails if it stops measuring.
+
+## Seventh amendment, 2026-10-08: a distinct count across two sources is pulled up to the combine, and refuses at a byte bound instead of truncating
+
+Decision 2 of this record said a distinct count across two sources cannot be answered by
+re-aggregating per-source counts, because a value that spans join keys is counted once per key. That
+gap is now closed. The fact leg returns the distinct column as a key under the leaf's own internal
+label, one row per distinct value per link value and bucket, with no term for it. The combine counts
+the distinct values once, above the join.
+
+`FederatedPlan::new` now requires every pulled-up leaf to be a key of the fact leg under its leaf
+label, and refuses otherwise with `KeyNotOnLeg`. A pulled-up leaf is never also a term. A pulled-up
+leaf in the second leg's partition is refused as `TermsDoNotMatchFederation`. The
+`LeafDoesNotReaggregate` check and the `reaggregates` function are deleted, because every aggregate
+now has a place above the legs.
+
+`RefusalReason::MeasureDoesNotFederate` (wire code `measure_does_not_federate`) is deleted from the
+domain, both transports, the prompt, the OpenAPI text and the docs. **A question that got this
+refusal now gets an answer.** The wire code set shrinks by one; a client that matched on that code
+sees an answer instead.
+
+**The bound.** There is no per-leg row cap; Decision 3 retired it. A pulled-up leg is bounded by the
+per-leg byte budget, the combine's working set and result budget, the shared deadline, and the
+answer's own maximum row count. **Over any of them the service refuses and never truncates**: a
+count over a truncated key set is a smaller number that looks right. No setting was added. A sweep
+cell in the two-engine differential applies ceilings of 2^10 to 2^26 bytes, once to the legs and
+once to the combine, over the derived corpus's distinct question (hundreds of rows). All 34 outcomes
+were either the whole answer or one of `ResourcesExhausted` and `ResultTooLarge`. The legs refused up
+to 2^21 bytes and answered from 2^22. The combine refused up to 2^20 and answered from 2^21. These
+are this corpus's numbers on one developer host, not defaults.
+
+**Floats.** A distinct count accepts every type a single-source distinct count accepts; no type is
+judged. For a float column the combine first canonicalises -0.0 to 0.0 and every NaN to one NaN, so
+the federated count follows SQL equality and does not depend on which signed zero or NaN payload a
+leg kept per link value. Measured, `count(distinct)` over `{0.0, -0.0, NaN, -NaN, 1.0}`:
+
+| Engine                                        | Count |
+| --------------------------------------------- | ----- |
+| DuckDB 1.5.5                                  | 3     |
+| DataFusion 55.1, one source (compares bits)   | 5     |
+| Federated combine (same three classes, below) | 3     |
+
+The combine cell uses `{0.0, -0.0, two NaN payloads, 1.5, NULL}`. **Two shipped sources disagree for
+the same input.** The federated answer follows the semantics of DuckDB. The one-source DataFusion
+path is not changed here. PostgreSQL and BigQuery were not measured.
+
+What this does not show:
+
+- The cell that checks the execution peak is linux-only and was not run on the macOS development
+  host. CI and the nix venue are its evidence.
+- No live-source run was performed.
+- The peak over a network is not measured.
+- The sixth amendment said the pull-up is still refused before execution. That is no longer true.
