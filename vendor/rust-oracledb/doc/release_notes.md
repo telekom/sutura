@@ -15,6 +15,11 @@
     methods on [PoolConfig](crate::PoolConfig)) to control whether a redirect
     sent by the listener is followed, and the error
     [ErrorKind::RedirectNotAllowed](crate::ErrorKind::RedirectNotAllowed).
+1.  The connect phase returns an error when the listener sends a packet type
+    it does not know, a refuse packet whose error number is not a number, or
+    an accept packet that requires native network encryption and data
+    integrity, and added the error
+    [ErrorKind::UnknownPacketType](crate::ErrorKind::UnknownPacketType).
 1.  Added support for specifying the transport connect timeout and ensure it is
     actually used when establishing a connection to the database
     ([issue 35](https://github.com/oracle/rust-oracledb/issues/35)).

@@ -1,4 +1,5 @@
-//! A fake Oracle listener on loopback that answers a driver's CONNECT with a TNS REDIRECT.
+//! Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, or with
+//! one packet a test chooses.
 //!
 //! Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
 //! `sutura-cli`, and the RDBMS catalog's Oracle reader - and both prove the same refusal. `cargo
@@ -75,6 +76,25 @@ impl RedirectingListener {
     pub fn target_was_dialled(&self, wait: Duration) -> bool {
         self.dialled.recv_timeout(wait).is_ok()
     }
+}
+
+/// Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with a single packet of
+/// `packet_type` carrying `body`, then closes, and returns its port.
+///
+/// # Errors
+///
+/// A listener that cannot bind or has no local address.
+pub fn answering(packet_type: u8, body: Vec<u8>) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ignored = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut connect = [0_u8; 4096];
+        let _ignored = stream.read(&mut connect);
+        let _ignored = stream.write_all(&packet(packet_type, &body));
+    }));
+    Ok(port)
 }
 
 /// A REDIRECT packet carrying `data`, then the DATA packet the driver reads it from.

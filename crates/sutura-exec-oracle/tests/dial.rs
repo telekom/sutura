@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-//! The dial, against loopback listeners rather than an Oracle: what the declared anchors admit, and
-//! how long a connect that is never answered may take.
+//! The dial, against loopback listeners rather than an Oracle: what the declared anchors admit, how
+//! long a connect that is never answered may take, and what a listener's answer is refused for.
 
 #[cfg(test)]
 mod dial {
@@ -114,6 +114,42 @@ mod dial {
         )
         .expect_err("a bundle with no certificate is refused");
         assert!(matches!(error, OracleError::TrustAnchors { .. }), "{error:?}");
+    }
+
+    /// The driver's own message for the connect a listener answering with ONE `packet_type` packet
+    /// makes: it must come back as a typed refusal, not stop the process.
+    fn answered_with(packet_type: u8, body: Vec<u8>) -> String {
+        let port = sutura_dev::tns_listener::answering(packet_type, body).expect("the fake listener binds");
+        let error = connect(port, Channel::Plaintext, Duration::from_secs(5)).expect_err("the connect is refused");
+        assert!(matches!(error, OracleError::Connect { .. }), "{error:?}");
+        std::error::Error::source(&error)
+            .expect("the refusal carries the driver's cause")
+            .to_string()
+    }
+
+    #[test]
+    fn a_connect_answered_with_an_unknown_packet_type_is_refused_typed() {
+        let cause = answered_with(3, Vec::new());
+        assert!(cause.contains("unknown packet type 3"), "{cause}");
+    }
+
+    #[test]
+    fn a_refuse_whose_error_number_is_not_a_number_is_refused_typed() {
+        let mut body = vec![0, 0, 0, 9];
+        body.extend(b"(ERR=abc)");
+        let cause = answered_with(4, body);
+        assert!(cause.contains("unexpected error format"), "{cause}");
+    }
+
+    /// Protocol version 315 (`0x013B`), the twelve bytes the driver skips, then the flags byte with
+    /// the network-authentication-required bit set.
+    #[test]
+    fn an_accept_that_requires_network_encryption_is_refused_typed() {
+        let mut body = vec![0x01, 0x3B];
+        body.extend([0; 12]);
+        body.push(0x10);
+        let cause = answered_with(2, body);
+        assert!(cause.contains("native network encryption"), "{cause}");
     }
 
     /// **A connect that is never answered is refused within the deadline.** A listener whose accept

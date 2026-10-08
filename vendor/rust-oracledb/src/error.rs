@@ -94,6 +94,7 @@ pub enum ErrorKind {
     UnexpectedNegativeInteger,
     UnexpectedRefuse(String),
     UnexpectedResult,
+    UnknownPacketType(u8),
     UnknownServerSidePiggyback(u8),
     UnknownTtcMessageType(u8, ResponseLocation),
     UnsupportedArrowType(String),
@@ -385,6 +386,11 @@ impl fmt::Display for Error {
             ErrorKind::UnexpectedResult => {
                 fmt.write_str("unexpected result")?
             }
+            ErrorKind::UnknownPacketType(packet_type) => write!(
+                fmt,
+                "internal error: unknown packet type {packet_type} while \
+                 connecting"
+            )?,
             ErrorKind::UnknownServerSidePiggyback(opcode) => write!(
                 fmt,
                 "internal error: unknown server-side piggyback opcode {opcode}"
@@ -747,6 +753,10 @@ impl Error {
 
     pub(crate) fn unexpected_result() -> Error {
         Error::new(ErrorKind::UnexpectedResult, None)
+    }
+
+    pub(crate) fn unknown_packet_type(packet_type: u8) -> Error {
+        Error::new(ErrorKind::UnknownPacketType(packet_type), None)
     }
 
     pub(crate) fn unknown_server_side_piggyback(opcode: u8) -> Error {
