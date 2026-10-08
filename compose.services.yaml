@@ -611,11 +611,13 @@ services:
   # The one service anything discovers: `sutura_dev::scope::SERVICES` names `openmetadata`, this
   # publishes 8585 ephemerally, and `xtask dev-up` writes back whatever it landed on.
   openmetadata:
-    # CI venue: compose only - the `datahub` block's argument. The server is not packaged in
-    #   `nixpkgs`, it does not run without a relational store and a search index, and a nix
-    #   `checks.*` derivation has no docker socket and no network.
-    # Converges: the `ci-openmetadata-tier` CI job (`ci.yml`), through `nix run .#openmetadata-acceptance`,
-    #   and NO nix check covers it: a green `just validate` says nothing about a live OpenMetadata.
+    # CI venue: compose only - the `datahub` block's argument.
+    # Because: the server is not packaged in `nixpkgs`, it does not run without a relational store
+    #   and a search index, and a nix `checks.*` derivation has no docker socket and no network.
+    # Converges: when the server and its two stores are packaged as nix-native tiers, taking
+    #   `nix/postgres-tier.nix`'s shape. Until then the instance is reached by the `ci-openmetadata-tier`
+    #   CI job (`ci.yml`) through `nix run .#openmetadata-acceptance`, and NO nix check covers it:
+    #   a green `just validate` says nothing about a live OpenMetadata.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/openmetadata/server:1.13.6@sha256:a6505716f264ea54c1bbd3cc4a82ccf052e3b172ec53bd17a5271323f0e61bab
     profiles:
       - openmetadata
