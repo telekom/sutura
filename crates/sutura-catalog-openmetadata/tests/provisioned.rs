@@ -20,7 +20,8 @@
 //!   `examples/single-player/catalog` through the REST API, reads it back through
 //!   `HttpSnapshotReader`, and asserts the certified definitions equal the golden minus the named
 //!   [`NotCarried`] rows - the golden-suite rule: the same catalog, the same certified answer, or a
-//!   named exemption. The metrics are provisioned too, and asserted to be READ and never DEFINED.
+//!   named exemption. The metrics are provisioned too, and asserted to be READ and never DEFINED. The
+//!   read asks for two entities a page, so the tables and the metrics each span several pages.
 //!
 //! **Limits, next to the claims.** The bearer is the image's built-in administrator, logged in with
 //! the upstream container's own default credential - a throwaway tier's, in no shipped or example
@@ -43,13 +44,19 @@ mod tests {
     use sutura_catalog_local::LocalCatalog;
     use sutura_catalog_openmetadata::document::Metric;
     use sutura_catalog_openmetadata::http::{
-        DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpSnapshotReader, ReadBounds,
+        DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpSnapshotReader, PageLimits,
+        ReadBounds,
     };
     use sutura_catalog_openmetadata::{OpenMetadataCatalog, SnapshotReader as _};
     use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, JoinKey, Model, Relationship};
     use sutura_domain::identity::Secret;
     use sutura_domain::model::{ColumnName, JoinType, MetricName, RelationshipName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
+
+    /// The page size the live read asks for. The golden has more than this of both entity kinds the
+    /// reader lists, so the read spans several pages of each and the whole-corpus comparison below is
+    /// a comparison over pages followed to the end.
+    const PAGE_SIZE: usize = 2;
 
     /// How long one request may take: provisioning already gated on the server's health check.
     const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
@@ -502,6 +509,10 @@ mod tests {
             golden.definitions(),
         );
 
+        assert!(
+            golden.definitions().models().len() > PAGE_SIZE && golden.definitions().metrics().len() > PAGE_SIZE,
+            "the golden must hold more than {PAGE_SIZE} tables and metrics, or this read follows no page"
+        );
         let reader = || {
             HttpSnapshotReader::new(
                 Endpoint::parse(&format!("http://{endpoint}")).expect("the loopback endpoint parses"),
@@ -509,6 +520,7 @@ mod tests {
                 ReadBounds::parse(DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES).expect("the default bounds are valid"),
                 None,
             )
+            .with_page_limits(PageLimits::parse(PAGE_SIZE, DEFAULT_MAX_ENTITIES).expect("a page size of two is usable"))
         };
         let mut sources = BTreeMap::new();
         drop(sources.insert(
