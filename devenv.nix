@@ -244,10 +244,32 @@ in
     # cites a task rather than a command line that drifts from the one people run.
     just
 
-    # `gh-stack` describes a stack (PR bodies and cross-links) for one that was built by hand.
-    # It is not a replacement for `st refresh`, which restacks. nixpkgs' version is the one we
-    # want, so unlike `stax` above it needs no pin of its own.
-    gh-stack
+    # Pin the release until nixpkgs catches up.
+    (gh-stack.overrideAttrs (final: old: {
+      version = "0.2.0";
+      src = pkgs.fetchFromGitHub {
+        owner = "github";
+        repo = "gh-stack";
+        tag = "v${final.version}";
+        hash = "sha256-70H1kOdvklTeB8OVFg7g6xQ4rn0gqv+zU7yjDYPd3vo=";
+      };
+      vendorHash = "sha256-Otstml5TSTJeYsP9o94aUperP1MgT2axa/wqALEnXYk=";
+      # 20 modifyview tests (e.g. TestInsertAllowedOutsideFoldRange) call git.BranchExists unmocked;
+      # fetchFromGitHub strips .git, so `git rev-parse` fails "not a git repository" in the sandbox.
+      # An empty repo fixes it, no test is skipped. Upstream: those tests should use git.MockOps.
+      preCheck = (old.preCheck or "") + ''
+        git init --quiet --initial-branch=main
+      '';
+      # go test's 10 min default kills cmd and internal/modify, whose tests spawn thousands of git
+      # processes: under host load ~40 a spawn inside the build costs 0.155-0.215 s (`git --version`)
+      # against 0.016 s outside, sandbox on or off. Measured FAIL cmd 600.8s, FAIL modify 614.5s and,
+      # with 30m, FAIL modify 1800.4s. The limit is raised, no test is skipped.
+      checkFlags = (old.checkFlags or [ ]) ++ [ "-timeout=120m" ];
+      # The skill hook belongs to the package, not its dependency-only derivation.
+      passthru = old.passthru // {
+        overrideModAttrs = _: _: { dontInstallAgentSkills = true; };
+      };
+    }))
 
     # For stax's `use_gh_cli` and for release commands that use `gh` rather than an action.
     gh

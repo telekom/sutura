@@ -240,4 +240,4 @@ sources:
 
 Then `sutura query catalog/ question.yaml` takes no data directory. For BigQuery, Postgres and
 ClickHouse sources, refer to [Serving over HTTP](serving.md#sources) and
-[Integrations](integrations.md#data-sources).
+[Integrations](integrations.md#data-systems).

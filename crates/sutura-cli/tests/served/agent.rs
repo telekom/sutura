@@ -76,6 +76,35 @@ fn a_multi_user_agent_surface_with_no_inbound_identity_stops_the_process() {
     );
 }
 
+/// A `single-user` loopback deployment that declares a TLS terminator in front of it does not boot
+/// with no `security.inbound` and no token gate: the terminator is there for callers from beyond
+/// this host, so the agent surface counts it as off-host.
+///
+/// The composed binary's half of `settings::tests::agent_surface`'s terminator cell, one process per
+/// terminator.
+#[cfg(feature = "agent")]
+#[test]
+fn a_single_user_loopback_agent_surface_behind_a_declared_tls_terminator_stops_the_process() {
+    for terminator in ["sidecar", "ingress"] {
+        let security = format!("{}  tls_termination: \"{terminator}\"\n", crate::harness::SINGLE_USER);
+        let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, &security);
+        let said = refused_to_start(
+            Environment::Development,
+            written(&format!("agent-tls-{terminator}"), &settings),
+            &[],
+        );
+        let told = said.join("\n");
+        assert!(
+            told.contains("server.agent_surface.enabled is true and no security.inbound is declared"),
+            "{terminator}: the refusal did not name the mount and the missing declaration:\n{told}"
+        );
+        assert!(
+            !told.contains("\"msg\":\"listening\""),
+            "{terminator}: a deployment refused for an inbound-less agent surface opened a listener:\n{told}"
+        );
+    }
+}
+
 /// A `single-user` loopback deployment serves `/mcp` with no `security.inbound`, as the deployment:
 /// every tool, `run_sql` included, and no token asked for because none is configured.
 ///

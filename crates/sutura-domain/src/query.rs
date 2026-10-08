@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
-use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use crate::model::{DimensionName, Grain, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use crate::nonempty::NonEmpty;
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
@@ -372,15 +372,6 @@ pub enum RefusalReason {
         source: SourceName,
         relationship: RelationshipName,
     },
-    /// The question's measure cannot be decomposed into one leg per source.
-    ///
-    /// A measure federates only when its aggregate can be recomputed above the legs. A distinct count
-    /// cannot: two exact distinct counts added together over-count every key the two legs share, and
-    /// no re-aggregating function repairs it. The honest answer is to refuse rather than to pull the
-    /// rows up through a combiner that would have to guess.
-    ///
-    /// Carries the metric and the aggregate that cannot descend, so a caller sees why.
-    MeasureDoesNotFederate { metric: MetricName, aggregate: Aggregate },
     /// The combiner could not compute the answer as asked, deterministically.
     ///
     /// **D19 + A4: this used to have no refusal at all.** A non-finite ratio and a link value
@@ -666,7 +657,6 @@ impl RefusalReason {
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
-            Self::MeasureDoesNotFederate { .. } => "measure_does_not_federate",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
             Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
             Self::SourceUnavailable { .. } => "source_unavailable",
@@ -831,7 +821,7 @@ mod tests {
     /// Every variant, so the cross-transport contract is checked over the whole enum and not over
     /// whichever ones somebody remembered.
     fn every_reason() -> Vec<RefusalReason> {
-        use crate::model::{Aggregate, ModelName, SourceName, TableName};
+        use crate::model::{ModelName, SourceName, TableName};
         vec![
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
@@ -892,10 +882,6 @@ mod tests {
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
-            },
-            RefusalReason::MeasureDoesNotFederate {
-                metric: MetricName::parse("active_subscriptions").expect("a test metric"),
-                aggregate: Aggregate::CountDistinct,
             },
             RefusalReason::FederatedAnswerNotWellFormed {
                 federated: crate::plan::FederatedAnswerRefusal::AmbiguousLink,

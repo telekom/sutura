@@ -657,10 +657,11 @@ copied constant.
 
 The three cases `docs/adr/0012` names - a filter on a remote dimension over an orphan key, a
 ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join keys -
-are `.case` files too. `federated_cases` holds the two with an answer; the `CountDistinct` one
-is refused by `FederatedPlan::new` and asserted as that refusal, since there is no plan to
-execute. Only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
-engines of ONE kind, so these rows say nothing yet about any other adapter.
+are `.case` files too, and `federated_cases` holds all three. The `CountDistinct` one is pulled
+up: the fact leg carries the distinct column as a key and the combine counts it, so the expected
+rows are the single-source distinct counts and a sum of per-leg counts would miss them. Only
+`tests/federated_bound.rs` binds the two-warehouse arm, over two in-process engines of ONE kind,
+so these rows say nothing yet about any other adapter.
 
 # Null placement in a group key: decided, and what the null row does and does NOT detect
 
@@ -980,7 +981,7 @@ The one leg in the corpus.
 pub fn federated_cases() -> Vec<FederatedCase>
 ```
 
-Every federated question in the corpus with an answer, read from its `.case` file.
+Every federated question in the corpus, read from its `.case` file.
 
 ### `constant TABLE`
 

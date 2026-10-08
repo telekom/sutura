@@ -80,12 +80,11 @@ pub(crate) enum Plan {
 /// `federated_plan` as it stands - the splitter builds a `Fact` beside a `Lookup` on a source
 /// `is_remote` has already established is not its own, projects `InternalLabel::Link` onto both legs
 /// unconditionally, derives each answer key's side from the same predicate that filled that leg's
-/// keys, and refuses a `Carried::Keys` leaf before this point, so no `combine` other than `Sum`,
-/// `Min` or `Max` reaches the re-aggregation check. So this arm carries no test that can provoke it,
-/// and what it buys is that a future edit which makes one of those reachable produces an error
-/// rather than a governance refusal. `crates/sutura-app/tests/differential/federated.rs` is the
-/// venue that would see such an edit today: it asserts that the only compile-side refusal a
-/// two-source corpus question may get is `MeasureDoesNotFederate`.
+/// keys, and projects a `Carried::Keys` leaf as a fact key under its own label. So this arm carries
+/// no test that can provoke it, and what it buys is that a future edit which makes one of those
+/// reachable produces an error rather than a governance refusal.
+/// `crates/sutura-app/tests/differential/federated.rs` is the venue that would see such an edit
+/// today: it asserts that no two-source corpus question is refused at compile.
 ///
 /// [`NotBound`](PlanError::NotBound) is the fourth arm and carries the same argument for the same
 /// reason. [`predicates_and_params`] and `federated::requested_for` mint every parameter index from the
