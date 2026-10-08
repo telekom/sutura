@@ -130,8 +130,7 @@ pub(crate) fn open_catalog(
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {
-            #[cfg(not(feature = "oracle"))]
-            refuse_oracle_dictionaries(catalogs)?;
+            refuse_oracle_dictionaries(catalogs, cfg!(feature = "oracle"))?;
             open_rdbms_catalogs(catalogs)
         }
     }
@@ -542,9 +541,12 @@ fn postgres_dictionary_reader(
 
 /// Refuses a declared `rdbms` catalog whose dictionary is an Oracle connection, in a build without
 /// the `oracle` feature - whether or not `rdbms` is linked, so the shipped feature set and the
-/// default one answer the same.
-#[cfg(not(feature = "oracle"))]
-fn refuse_oracle_dictionaries(catalogs: &sutura_config::Catalogs) -> Result<(), String> {
+/// default one answer the same. The build's feature state arrives as `oracle_built`, so every
+/// build compiles and tests this refusal rather than only the one that lacks the feature.
+pub(crate) fn refuse_oracle_dictionaries(catalogs: &sutura_config::Catalogs, oracle_built: bool) -> Result<(), String> {
+    if oracle_built {
+        return Ok(());
+    }
     catalogs
         .each()
         .find(|catalog| {
@@ -556,7 +558,6 @@ fn refuse_oracle_dictionaries(catalogs: &sutura_config::Catalogs) -> Result<(), 
 }
 
 /// The refusal for an Oracle dictionary connection in a build that did not enable `oracle`.
-#[cfg(not(feature = "oracle"))]
 fn oracle_dictionary_not_linked(name: &sutura_domain::model::SourceName) -> String {
     format!(
         "`catalogs.{name}` declares an Oracle dictionary connection, which needs a build with the `oracle` feature - \
