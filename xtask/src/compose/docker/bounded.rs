@@ -837,16 +837,16 @@ mod tests {
         }
     }
 
-    /// `github.com/telekom/sutura#1179`: a `docker` that stalls on `--version` and one that cannot
-    /// be started must not get the same report. Both were `no container runtime (Cli)`, so a red
-    /// run could not say which it had been.
+    /// `github.com/telekom/sutura#1179`: a `docker` that stalls on `--version`, one that exits
+    /// non-zero and one that cannot be started must not get the same report. All three were
+    /// `no container runtime (Cli)`, so a red run could not say which it had been.
     ///
     /// Through `presence` itself, in a child of this test binary, because its only seam is the
     /// process's `PATH`, and setting that here would reach every test sharing this process. Here
     /// rather than beside `presence` because this is the one file of the tier that may wait on a
     /// child (`cargo xtask check-bounded-wait`), and the wait is [`super::waited`] with a budget.
     #[test]
-    fn a_stalled_docker_and_an_unstartable_one_report_apart() {
+    fn a_stalled_a_failing_and_an_unstartable_docker_report_apart() {
         use std::os::unix::fs::PermissionsExt as _;
 
         const CHILD: &str = "SUTURA_PRESENCE_CHILD";
@@ -856,19 +856,27 @@ mod tests {
             return;
         }
         let dir = std::env::temp_dir().join(format!("sutura-presence-{}", std::process::id()));
-        for name in ["stalled", "unstartable"] {
-            std::fs::create_dir_all(dir.join(name)).expect("the scratch directory is creatable");
+        let cases = [
+            ("stalled", Some("#!/bin/sh\nwhile :; do :; done\n")),
+            ("failing", Some("#!/bin/sh\nexit 1\n")),
+            ("unstartable", None),
+        ];
+        for (name, script) in cases {
+            let case = dir.join(name);
+            std::fs::create_dir_all(&case).expect("the scratch directory is creatable");
+            if let Some(script) = script {
+                let stub = case.join("docker");
+                std::fs::write(&stub, script).expect("the stub is writable");
+                std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("the stub is executable");
+            }
         }
-        let stub = dir.join("stalled/docker");
-        std::fs::write(&stub, "#!/bin/sh\nwhile :; do :; done\n").expect("the stub is writable");
-        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("the stub is executable");
         // The child's `PATH` is the one directory, so `docker` is the stub or nothing at all.
         let report = |name: &str| {
             let out = dir.join(format!("{name}.answer"));
             let mut child = Command::new(std::env::current_exe().expect("the test executable has a path"))
                 .args([
                     "--exact",
-                    "compose::docker::bounded::tests::a_stalled_docker_and_an_unstartable_one_report_apart",
+                    "compose::docker::bounded::tests::a_stalled_a_failing_and_an_unstartable_docker_report_apart",
                 ])
                 .env(CHILD, &out)
                 .env("PATH", dir.join(name))
@@ -884,9 +892,10 @@ mod tests {
             assert!(status.success(), "the child failed: {status}");
             std::fs::read_to_string(&out).expect("the child wrote its answer")
         };
-        let (stall, refused) = (report("stalled"), report("unstartable"));
+        let (stall, failure, refusal) = (report("stalled"), report("failing"), report("unstartable"));
         drop(std::fs::remove_dir_all(&dir));
         assert_eq!(stall, "Err(SilentCli)", "a docker that stalls on `--version`");
-        assert_eq!(refused, "Err(Cli)", "a docker that cannot be started");
+        assert_eq!(failure, "Err(FailingCli)", "a docker that exits non-zero");
+        assert_eq!(refusal, "Err(Cli)", "a docker that cannot be started");
     }
 }
