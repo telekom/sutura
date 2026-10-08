@@ -403,3 +403,23 @@ that reason". It is not absent: it is a workspace dependency, and `sutura-tls`,
 read the host's certificate store. The serving side still declares no client trust store; the
 reason the sentence gave is still true, and the absence it inferred from it is not. The correction
 under *Consequences* covers `rustls` and `webpki-roots` arriving through `ureq`, not this crate.
+
+## Sixth amendment, 2026-10-02: a Postgres source's TLS is libpq's, set by the string sutura writes
+
+`github.com/telekom/sutura#913` answers every Postgres source over the ADBC driver, so the Postgres
+client this record describes is gone: no `connect_secured`, no `tokio-postgres-rustls`, no
+`sutura_exec_postgres::tls::client_config` (*Consequences*, and the migration onto `sutura-tls`).
+The declared channel is held by `sutura_exec_postgres::adbc::Conninfo` instead: it builds the libpq
+connection string itself, writes `sslmode=verify-full` with the declared bundle as `sslrootcert`
+and, for `mutual`, the client pair as `sslcert`/`sslkey`, quotes every value, and classifies every
+libpq keyword. `sutura_tls`'s read still checks the declared material once, before a driver loads.
+
+Three things differ from the `rustls` channel. `transport_anchors: system` is refused for a Postgres
+source, because libpq's `system` store is OpenSSL's compiled-in default, not the host store. TLS is
+refused while `OPENSSL_CONF` is set: libpq has no cipher knob, and that file can weaken both.
+And libpq re-reads the files at every connect, so what was checked is not what is presented later.
+
+The second amendment's single connection is gone too: a connection is opened per call and closed
+after it, so there is still no pool to drain, and a rotated client pair is presented from the next
+call on. The channel is held by `tests/tls.rs`'s four tier cells and `Conninfo`'s unit cells; no
+cell observes a handshake's protocol or cipher.

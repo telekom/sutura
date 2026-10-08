@@ -5,8 +5,29 @@
 //! for that skip is a classification of what each gate READS. These are the rows that make it
 //! true, so `Reads::Prose` and this file should be read together.
 
-use crate::registry::{Falsifier, Kind, Reads, Task};
+use crate::registry::{Edit, Falsifier, Kind, Paired, Reads, Task};
 use crate::{api_docs, api_links, docs, examples, gate_classification, guidance, inconclusive, skills, tasks};
+
+/// `stale_phrases`' own rule: a `FORBIDDEN` needle in README.md, outside a code span so no
+/// citation rule reads it.
+const CHECK_GUIDANCE_PAIRED: Paired = Paired {
+    inputs: &["."],
+    violation: &[Edit {
+        path: "README.md",
+        find: "Apache-2.0.",
+        replace: "Apache-2.0. Never run cargo fmt --all here.",
+    }],
+};
+
+/// `site_links`' own rule: a README link into the site with its version segment removed.
+const CHECK_DOCS_PAIRED: Paired = Paired {
+    inputs: &["."],
+    violation: &[Edit {
+        path: "examples/README.md",
+        find: "sutura/latest/examples/",
+        replace: "sutura/examples/",
+    }],
+};
 
 pub(crate) const TASKS: &[Task] = &[
     Task {
@@ -26,6 +47,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some(".agents/skills/skill-router.json"),
+            paired: None,
         },
         run: skills::run,
     },
@@ -53,6 +75,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("justfile"),
+            paired: None,
         },
         run: tasks::run,
     },
@@ -60,12 +83,12 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-guidance",
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier::paired(&CHECK_GUIDANCE_PAIRED),
         run: guidance::run,
     },
     Task {
         name: "check-docs",
-        description: "the nav in mkdocs.yml and the pages under docs/ agree",
+        description: "the nav in mkdocs.yml and the pages under docs/ agree, and site links name a version",
         kind: Kind::Hygiene(Reads::Prose),
         falsifier: Falsifier {
             // The site has a nav, a reachable link, and its required font setting. One page is
@@ -79,6 +102,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("docs/orphan.md", "A page with no nav entry.\n"),
             ],
             in_scope: Some("docs/orphan.md"),
+            paired: Some(&CHECK_DOCS_PAIRED),
         },
         run: docs::run,
     },
@@ -101,6 +125,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
             ],
             in_scope: Some("docs/api/generated.md"),
+            paired: None,
         },
         run: api_links::run,
     },
@@ -137,6 +162,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("examples/orphan/README.md", "No test reaches this example.\n"),
             ],
             in_scope: Some("examples/orphan/README.md"),
+            paired: None,
         },
         run: examples::run,
     },
@@ -156,6 +182,7 @@ pub(crate) const TASKS: &[Task] = &[
                 "| Gate | What it reads |\n| --- | --- |\n| `check-pins` | code |\n\n| Gate | On a prose-only pull request |\n| --- | --- |\n| `text-hygiene` | deferred |\n",
             )],
             in_scope: Some("docs/implementation-plan-identity-and-services.md"),
+            paired: None,
         },
         run: gate_classification::run,
     },
@@ -184,6 +211,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("nix/rogue.sh", "#!/usr/bin/env bash\ncargo run -p xtask -- test-causality\n"),
             ],
             in_scope: Some("nix/rogue.sh"),
+            paired: None,
         },
         run: inconclusive::run,
     },

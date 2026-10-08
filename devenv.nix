@@ -36,8 +36,8 @@ let
   };
   toolchains = import ./nix/toolchains.nix { inherit rustPkgs; };
 
-  # The data system the local Warehouse adapter links against, resolved by the SAME file
-  # flake.nix imports so the dev shell and CI cannot link two different libduckdbs.
+  # The DuckDB the local Warehouse adapter mounts as its ADBC driver, resolved by the SAME file
+  # flake.nix imports so the dev shell and CI cannot open two different libduckdbs.
   duckdb = import ./nix/duckdb.nix { inherit pkgs; };
 
   # The CRAP gate's two tools, resolved by the SAME file flake.nix imports. For a tool whose
@@ -161,17 +161,17 @@ in
   # because that file is committed and read by CI too - an `[unstable]` table there would
   # break every CI build.
 
-  # Build-time and run-time paths to libduckdb, from nix/duckdb.nix. Spelled out there, once,
-  # including why the run-time one is separate and what breaks without it.
-  env.DUCKDB_LIB_DIR = duckdb.env.DUCKDB_LIB_DIR;
-  env.DUCKDB_INCLUDE_DIR = duckdb.env.DUCKDB_INCLUDE_DIR;
-  env.LD_LIBRARY_PATH = duckdb.env.LD_LIBRARY_PATH;
+  # The mounted DuckDB ADBC driver, from nix/duckdb.nix, for `just test`.
+  env.SUTURA_DUCKDB_ADBC_DRIVER = duckdb.env.SUTURA_DUCKDB_ADBC_DRIVER;
 
   # The standard library source, from the shell's own toolchain (nix/toolchains.nix). Both
   # are pinned together: rust-analyzer is in the same nightly's bin and rust-src in the same
   # sysroot, so the language server navigates the std of the compiler it is paired with. Set
   # explicitly rather than left to discovery, which is the documented devenv behaviour.
   env.RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+  # The PostgreSQL ADBC driver every `kind: postgres` source is answered over, for `just test` and
+  # a locally run `sutura`: the flake's own host build, the one `checks.nextest` names.
+  env.SUTURA_POSTGRES_ADBC_DRIVER = "${inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.adbc-driver-postgresql-host}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
   # devenv puts its stdenv compiler first on PATH, ahead of packages.
   stdenv = toolPkgs.llvmPackages_latest.stdenv;
@@ -184,10 +184,10 @@ in
     # PATH collision - this is what the gates run on too.
     rustToolchain
 
-    # The data system the local Warehouse adapter links against, and its CLI, which is handy for
-    # looking at a fixture by hand. Listed here rather than inside the `with pkgs` block below
-    # because `duckdb` is a let-binding in this file and reading it as `pkgs.duckdb` in one place
-    # and the binding in another is exactly the drift nix/duckdb.nix exists to remove.
+    # The DuckDB CLI, which is handy for looking at a fixture by hand. Listed here rather than
+    # inside the `with pkgs` block below because `duckdb` is a let-binding in this file and reading
+    # it as `pkgs.duckdb` in one place and the binding in another is exactly the drift
+    # nix/duckdb.nix exists to remove.
     duckdb.package
 
     # The nix-native Postgres tier script, shared with `checks.nextex`'s sandbox. `just test`
@@ -543,6 +543,12 @@ in
         just "$task"
         ran+=(--ran "$task")
       done
+
+      # The fuzz replay is git-delta: it runs only for a diff in the "fuzzed tree" row. Said aloud
+      # when skipped, because no commit hook and no pull-request job replays the seeds either.
+      if ! grep -qx fuzz-smoke "$logs/tasks"; then
+        echo "== fuzz-smoke SKIPPED: the diff touches none of the fuzzed tree (surfaces.rs, 'fuzzed tree')"
+      fi
 
       echo "== what the hooks covered, and what they did not"
       cargo run -q -p xtask -- hook-coverage --since "$merge_base" \

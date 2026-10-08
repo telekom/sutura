@@ -202,8 +202,18 @@ caught locally. `check-hook-tiers` holds the new shape - every `pre-push` hook i
 security checks, and none of it compiles.
 
 Tiers are bypassable with `--no-verify`, so none of this is an invariant. What the gate holds is
-that the tiers documented here are the tiers `.pre-commit-config.yaml` declares, in both
-directions: a push hook that compiles OR that is outside the security-only set fails the gate.
+the config: it reads `.pre-commit-config.yaml` and nothing else, so a push hook that compiles OR
+that is outside the security-only set fails it. **It does not read the tier prose** - this page and
+`CONTRIBUTING.md`'s table can drift from the config with every gate green; the config is the
+authority.
+
+**The commit stage runs no suite, no doctests, no CRAP score and no fuzz replay**, by owner decision,
+and `check-hook-tiers` refuses any of them back (`SLOW_AT_COMMIT` in `xtask/src/hooks.rs`; it reads
+the hook's entry, not a script the entry calls). The suite runs in `just validate` and CI; CRAP runs in
+`just validate`, CI and - as a no-hook surface row, so only for a diff that reaches the scored crate -
+`just ship-check`; the fuzz replay in `fuzz.yml` and, by the same no-hook mechanism (the "fuzzed tree"
+row), in `just ship-check` for a diff that touches it. **The cost: a commit can hold a failing test,
+and CRAP and the replay run only where `ship-check` runs** - the push stage stays security-only.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests covering it - the combination
 neither a complexity limit nor a coverage percentage catches alone. Split by cost: `check-crap`
@@ -242,10 +252,14 @@ stops meaning anything:
 - **The cost, and it is the whole of the coverage picture.** *Searching* - a budgeted run over
   mutated input - happens at a release and on a manual dispatch, and nowhere else; there is no
   periodic search. *Regression checking* continues on the commits that touch the surface:
-  `just fuzz-smoke` at `-runs=0` over every committed seed, in a path-scoped pre-commit hook, plus
-  `check-fuzz`. **So this repository stops searching for new defects between releases and keeps
-  checking that known ones stay fixed** - a quiet fuzz surface means nobody is searching, not that
-  there is nothing to find.
+  `just fuzz-smoke` at `-runs=0` over every committed seed, in `just ship-check` for a diff that
+  touches the "fuzzed tree" row (it replays every target, not only the ones the diff reaches; the
+  commit hook is gone by owner decision) and in `fuzz.yml`'s `smoke` job, plus `check-fuzz`, which
+  reads the harness and compiles nothing. **So no pull request or merge-queue run replays the seeds,
+  a push that skips `ship-check` is not fuzzed, a change that breaks a target's build is found at
+  the next tag or dispatch, and this repository stops searching for new defects between releases
+  while checking only the harness wiring between them** - a quiet fuzz surface means nobody is
+  searching, not that there is nothing to find.
 
 The `smoke` leg is real but narrow: `-runs=0` replays every tracked seed once with no mutation, so
 its verdict is a function of committed files. Neither `fuzz.yml` job appears in
@@ -836,7 +850,11 @@ panic-free.
   `security-audit.yml`'s `audit` and `crap-comment` - **are required by
   nothing**, and a red one has never blocked a merge, in the queue or out of it, with no override
   and nobody clicking anything. Everything routed through the `ci` job IS gated, which is how a
-  step added there is genuinely gating. `devco/required-contexts` is the record and
+  step added there is genuinely gating. A step moved OUT of `ci` loses that: `causality` and
+  `postgres-linked-driver` (#1280) are gated only because `ci-aggregate` requires them wherever
+  `ci`'s own classification selects them, which `xtask/src/affected/moved_jobs_aggregate.rs` and the
+  `aggregate_inputs` table hold - and the ruleset that requires `ci-aggregate` is still unreadable
+  from here. `devco/required-contexts` is the record and
   `check-workflows` holds it against the jobs: a required context nothing reports fails the gate,
   because that state is a permanently pending merge rather than an ungated leg. **The
   organisation-level caveat this row used to carry is resolved, and the endpoint is the point:**
@@ -862,11 +880,13 @@ panic-free.
   squashes and composes `main`'s subject from the title, so `commit-msg` judged every commit except
   the one that becomes history: six of the last hundred landed subjects are outside the vocabulary
   `xtask/src/commit_msg.rs` declares (`batch:` ×3, `batch C:`, `spike(`, and one with no type).
-  `check-pr-title` runs in the `ci` job's `pull_request` event, which is where that string exists,
-  and `obligations::REQUIRED` holds the step's `if:`. **Two limits:** it does not judge LENGTH - 69
-  of those hundred subjects exceed the commit-msg limit, so holding it would refuse most real merges
-  - and a title EDITED after the last push starts no `ci` run, so the verdict is about the title
-  that was there.
+  The title is judged by the required `pr-title` context (`.github/workflows/pr-title.yml`), which
+  fires on `edited` so a rename alone re-judges (#1249) and on `merge_group` so the queue never
+  waits on it; it fetches the live title, never the frozen payload. Its `grep -E` is held to
+  `commit_msg::check_shape` by `pr_title::tests::the_workflow_regex_agrees_with_the_rule`, which
+  runs the step body under a fake `gh`; `obligations::pr_title_check` holds both triggers.
+  **Limits:** length is not judged (69 of those hundred subjects exceed the commit-msg limit), and
+  the agreement is over a corpus - non-ASCII whitespace is outside it.
 - **A COLLISION RULE ONLY REACHES THE NAMES IT CAN READ - #937.** `check-guidance` refuses two ADR
   files claiming one ordinal, and the merge queue's own `hygiene` build is where that fires, because
   only the merged tree holds both files. What got past it was a NAMING: a bare `0037.md` planted in
@@ -1111,13 +1131,14 @@ calls in the same file (`edited_helper_caller`) - never merely a test in a chang
 deletion is `Weakens-Test:`'s. It is the added-test path itself, held through `causality::run` by
 `gas_tests`' four edited-assertion cells on the tests-only arm (no claim refused, no patch refused,
 a non-killing patch refused, claim plus killing patch accepted). Undeclared, a modified test green
-on base REFUSES on the tests-only arm, and on the separable arm when no other scoped test is red on
-base: `AddedTest::is_edited` keeps it out of `provenance::Moved`, so it is a pin, never a move
-(`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). Two limits, for added
-and modified tests alike. The base check is per RUN, not per test: `classify_base` answers
-`RedByAssertion` once ANY scoped test failed, so a pin beside one test that is genuinely red on base
-passes `ok`. And in an INSEPARABLE file either gets the same non-verdict pass - no base run exists
-there to redden it. The gate resolves each cell to a committed mutation at
+on base REFUSES on the tests-only arm, and on the separable arm whether or not another scoped test
+is red on base: `AddedTest::is_edited` keeps it out of `provenance::Moved`, so it is a pin, never a
+move (`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). Two limits, for
+added and modified tests alike. The base check is per test: beside a red one, an added test that
+PASSED on base (not moved, no failing result) is `RedWithGreenSibling` and FAILS, and one with NO
+base result is refused by name unless exempted (*A VERDICT IS OVER A SUBSET*, below). And in an
+INSEPARABLE file either gets the same non-verdict pass - no base run exists there to redden it. The
+gate resolves each cell to a committed mutation at
 `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. The composite half of #954: the reverse direction - an added test no declaration
@@ -1311,8 +1332,18 @@ and NAMES the ones it left out, `NOT MECHANICALLY SEPARABLE` included, where the
 argued: replayed over thirteen recent branch diffs, twelve reached a verdict and ALL TWELVE had
 `measured < M`** - seven at zero, three partial, two on arms that measure nothing at all. A
 fail-on-mismatch rule would have reddened every branch in the sample, and a gate that reddens
-correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
-proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
+correct work gets disabled. **What it therefore is not:** nothing forces the WHOLE remainder to be
+proven - `7 of 8` is an instruction to run a mutation by hand, not a mechanism - with ONE
+exception. A scoped test the base run produced NO PER-TEST RESULT for (`not run at base: <name>`)
+proves nothing on either tree, so the gate REFUSES it by name, after the outcome's own verdict
+has printed, unless `devco/causality-no-base-exemptions` lists it with a reason. Every run refuses
+that file first when it is unreadable, when a line has no reason, or when a name matches no `fn` in
+the working tree. Stale is judged against the tree, never against one diff's added tests, so an
+entry an earlier change committed cannot refuse an unrelated later one. **Limits:** the key is the
+bare fn name, so one entry exempts every scoped test of that name in any package, and any `fn` of
+that name keeps it fresh; an entry whose test does produce a base result exempts nothing and is not
+refused; and when the per-test lines do not account for nextest's `Summary` the gate prints
+`skipped names cannot be identified safely` and refuses nothing - the outcome's verdict stands.
 
 **FIVE passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
 which is the same defect class one level up, so it is worth the row. `no changed tests`,
@@ -1734,6 +1765,26 @@ why it earned the same treatment: a regression cell, measured to fail under exac
 and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
 for the wrong reason.
 
+## The Live-Cell trailer
+
+`Live-Cell: <test-fn-name> <system> <ci-job>` moves a `crates/sutura-app/tests/` matrix cell out of
+the offline scope, as an `#[ignore]` would, when its changed lines run only for a data system
+unavailable offline.
+
+| Shape | Answer |
+| --- | --- |
+| `<system>`'s `Unavailable` entry has no `runs_in: Some("<ci-job>")` | refused |
+| `<ci-job>` is no job under `jobs:` in `ci.yml` | refused |
+| the name is also a `Claim-Cell:` | refused - the mutation is the proof |
+| the cell is outside `crates/sutura-app/tests/` | stays in scope, so the ordinary proof answers |
+| a per-system macro cell | every system's row leaves, the offline ones too - the name is bare |
+
+**What it does not hold:** whether the changed lines run only for that system, and whether the job
+selects the cell - review holds both. The job skips a fork or a Dependabot pull request, and
+`ci-aggregate` requires it only on any other same-repository pull request or a merge group that
+selects its category, so elsewhere nothing that
+gates a merge measures a live cell. A cell whose subject is test code that runs offline is not a live cell.
+
 ## The Claim-Cell trailer
 
 `Claim-Cell: <test-fn-name>` says the test pins behaviour the base tree already has, so it cannot be
@@ -1743,11 +1794,11 @@ What `causality::claim::validate` holds:
 
 | Shape | Answer |
 | --- | --- |
-| trailer on the commit that ADDS the test | measured by its mutation |
-| trailer on a commit that adds no such test - one base already carries, or one the range only edits | `not added:` - read PER COMMIT, so the trailer sits on the commit that adds the test |
+| trailer on the commit that ADDS or MODIFIES the test | measured by its mutation. MODIFIED is `Scan::of`'s answer through `super::edited`: an added line in the test's own span, or in a same-file `#[cfg(test)]` helper it calls (#1286 declared five edited cells this way) |
+| trailer on a commit that neither adds nor modifies that test | `not added:` (*its commit added or modified no such test*) - read PER COMMIT, so the trailer sits on the commit that adds or edits it |
 | trailer, no committed patch | `no patch:` |
 | an EDITED test, renamed | a rename counts as added: `Claim-Cell: <new-name>` on the renaming commit. The old name reads as a deleted test, so the range also carries `Weakens-Test: <old-name> - <reason>` (`causality::weakens`), or causality exits 1 |
-| an EDITED test, not renamed, green on base | `INCONCLUSIVE - these tests were not ADDED here` (exit 3): rename it as above, or change the behaviour it pins |
+| an EDITED test, not renamed, green on base, undeclared | refused by name on the tests-only and the separable arm - `AddedTest::is_edited` keeps it a pin, never a move (`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`): declare it on the editing commit |
 
 **Exit 3 (`INCONCLUSIVE`) is not a verdict.** Quote it verbatim and supply a hand mutation table in
 its place - each mechanism removed, and the cell that goes red. Exit 1 `the base does not compile

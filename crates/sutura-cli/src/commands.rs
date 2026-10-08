@@ -71,19 +71,23 @@ fn render_filters(filters: &[RequiredFilter]) -> String {
     filters.iter().map(ToString::to_string).collect::<Vec<String>>().join(", ")
 }
 
-/// The name the CLI's single catalog is recorded under in its contribution manifest.
+/// The name the contribution manifest records this catalog under, and so part of its digest.
 ///
-/// The CLI reads a raw directory and is markdown by construction - there is no `catalogs:`
-/// declaration to dispatch, and therefore no name an operator wrote. It still needs a manifest key,
-/// because a single-source deployment carries a one-entry manifest, so it is a constant here the way
-/// [`crate::sources::BUILT_IN_SOURCE`] is for the data side.
+/// The first catalog the configuration declares - the embedded default (`model`) unless a
+/// configuration directory says otherwise - so `sutura catalog <dir>` and a served deployment of the
+/// same directory print one digest. A command-line tool reads one directory, so with several
+/// declared catalogs it cannot reproduce the composed digest a server reports.
 ///
-/// The two spell the same word and are not the same declaration: this one names where the DEFINITIONS
-/// came from, and that one names the data system a question executes against. A deployment can
-/// declare the second in its `sources:` tree under any name it likes; nothing declares this one,
-/// because the `sutura` command reads a raw directory of markdown and there is no `catalogs:` entry
-/// to carry an operator's name for it.
-pub(crate) const CATALOG_SOURCE: &str = "local";
+/// Read from the settings the CALLER loaded, so a command that takes its configuration directory as
+/// an argument names the catalog from that directory and not from the environment.
+fn catalog_name(settings: &sutura_config::Settings) -> Result<SourceName, String> {
+    settings
+        .catalogs()
+        .each()
+        .next()
+        .map(|catalog| catalog.name().clone())
+        .ok_or_else(|| String::from("the configuration declares no catalog to name this directory"))
+}
 
 /// The catalog a command reads, built from its directory on the command line.
 ///
@@ -91,16 +95,15 @@ pub(crate) const CATALOG_SOURCE: &str = "local";
 /// catalog itself to hand to the service's constructor, which loads and validates it, rather than
 /// rebuilding it. Named `catalog_reader` because `catalog` is already this module's listing
 /// subcommand. Everything else keeps using `load`.
-pub(crate) fn catalog_reader(root: &Path) -> Result<LocalCatalog, String> {
+pub(crate) fn catalog_reader(root: &Path, settings: &sutura_config::Settings) -> Result<LocalCatalog, String> {
     let version =
         DefinitionVersion::parse(DEFAULT_VERSION).map_err(|e| format!("the built-in default version is not a version: {e}"))?;
-    let name = SourceName::parse(CATALOG_SOURCE).map_err(|e| format!("the built-in catalog name is not a name: {e}"))?;
-    Ok(LocalCatalog::new(name, PathBuf::from(root), version))
+    Ok(LocalCatalog::new(catalog_name(settings)?, PathBuf::from(root), version))
 }
 
 /// Reads a catalog directory into a pinned bundle.
-pub(crate) fn load(root: &Path) -> Result<PinnedDefinitions, String> {
-    catalog_reader(root)?.load().map_err(|e| render(&e))
+pub(crate) fn load(root: &Path, settings: &sutura_config::Settings) -> Result<PinnedDefinitions, String> {
+    catalog_reader(root, settings)?.load().map_err(|e| render(&e))
 }
 
 /// A typed error and every cause beneath it, on one line each.
@@ -147,7 +150,7 @@ pub(crate) fn arg(args: &[String], index: usize, name: &str, usage: &str) -> Res
 pub(crate) fn catalog(args: &[String]) -> ExitCode {
     report((|| {
         let root = arg(args, 0, "catalog-dir", "catalog <catalog-dir>")?;
-        let pinned = load(Path::new(&root))?;
+        let pinned = load(Path::new(&root), &crate::sources::configured()?)?;
         println!("version {}", pinned.version());
         println!("digest  {}", pinned.digest().as_str());
         println!();
@@ -195,7 +198,7 @@ pub(crate) fn describe(args: &[String]) -> ExitCode {
         let usage = "describe <catalog-dir> <metric>";
         let root = arg(args, 0, "catalog-dir", usage)?;
         let wanted = arg(args, 1, "metric", usage)?;
-        let pinned = load(Path::new(&root))?;
+        let pinned = load(Path::new(&root), &crate::sources::configured()?)?;
         let name =
             sutura_domain::model::MetricName::parse(&wanted).map_err(|e| format!("{wanted:?} is not a metric name: {e}"))?;
         let metric = pinned
@@ -271,7 +274,7 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         // deployment WOULD hand out, and a prompt rendered from a configuration directory that was
         // never found is the failure it exists to make visible.
         eprintln!("sutura: configuration from {}", settings.layers());
-        let pinned = load(Path::new(&root))?;
+        let pinned = load(Path::new(&root), &settings)?;
         let (rendered, _operator) = agent_instructions(&pinned, &settings)?;
         print!("{rendered}");
         Ok(())
@@ -412,7 +415,7 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
             Some(name) => Dialect::parse(name).map_err(|e| e.to_string())?,
             None => Dialect::DuckDb,
         };
-        let pinned = load(Path::new(&root))?;
+        let pinned = load(Path::new(&root), &crate::sources::configured()?)?;
         let question = read_question(Path::new(&question_path))?;
         match sutura_semantic::compile(
             &question,
@@ -472,10 +475,10 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         // if the bundle is fit to serve. The bundle is still needed here, before the engine exists,
         // to know which tables to attach - which is the same double load `crate::mcp` and
         // `crate::serve` both do, and `refuse_unattached` below is what closes the gap it leaves.
-        let catalog = catalog_reader(Path::new(&root))?;
+        let settings = crate::sources::configured()?;
+        let catalog = catalog_reader(Path::new(&root), &settings)?;
         let pinned = catalog.load().map_err(|e| render(&e))?;
         let question = read_question(Path::new(&question_path))?;
-        let settings = crate::sources::configured()?;
         // Read ONCE and shared by every `WireAgent` this command builds - `security.outbound`,
         // `github.com/telekom/sutura#125`.
         let outbound = crate::sources::resolve_outbound_anchors(&settings)?;
@@ -533,6 +536,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             ),
             #[cfg(feature = "oracle")]
             crate::sources::Opened::Oracle(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+                settings.spend_budget(),
+                settings.row_ceiling(),
+            ),
+            #[cfg(feature = "duckdb")]
+            crate::sources::Opened::Duckdb(opened) => answered(
                 &catalog,
                 &question,
                 opened,

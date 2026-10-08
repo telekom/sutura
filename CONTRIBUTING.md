@@ -47,6 +47,25 @@ stages (`pre-commit`, `pre-push`, `commit-msg`) through `prek`, installs the pix
 hook runner lives in, warms `xtask` so your first commit is not a cold compile, and ends with
 `doctor`. It is idempotent, so re-run it whenever an environment file changes.
 
+**Hook tiers.** A hook that is too slow for its stage gets switched off, so each stage runs only what
+it can afford. `cargo xtask check-hook-tiers` reads `.pre-commit-config.yaml` and nothing else: it
+holds the stages that file declares, not the table below, which can drift from the config with every
+gate green. A hook is bypassable with `--no-verify`, so this is a tier policy rather than an
+invariant.
+
+| Stage        | Runs                                                                                           | Does not run                                                 |
+| ------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `pre-commit` | fmt, clippy, `cargo check` of the changed packages, the structural gates, text and chart gates | the test suite and doctests, the CRAP score, the fuzz replay |
+| `pre-push`   | the whole-tree secret scan and the supply-chain gate, nothing else                             | anything that compiles                                       |
+| `commit-msg` | the conventional-commit subject                                                                |                                                              |
+
+The suite, the doctests and the CRAP score run in `just validate` and in CI. `just ship-check` also
+runs CRAP for a diff that reaches the scored crate, and the fuzz replay (`just fuzz-smoke`) for a diff
+that touches the fuzzed tree; no pull request or merge-queue run replays the seeds, and
+`.github/workflows/fuzz.yml` does on a release tag and a manual dispatch. So a local commit can hold
+a failing test until `just validate` or CI runs it, and CRAP and the replay run only where
+`ship-check` runs.
+
 Run it before your first commit, because **an uninstalled hook does not complain - it silently never
 fires.** This repo spent a whole session believing hooks ran that had never run: `core.hooksPath`
 pointed at a `.githooks/` directory that had been deleted, so git looked somewhere that did not
@@ -177,9 +196,12 @@ run can never redden, so its place is a declared claim cell: add a `Claim-Cell: 
 commit trailer AND a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`,
 and the gate applies the mutation, requires the cell to fail, and accepts
 `ok - claim cells: N declared, N killed` - a declared cell with no killing mutation is refused.
-Two limits: in the not-separable case above an undeclared pin passes like any other test, because
-no base run exists to redden it; and the base check is per RUN, not per test, so an undeclared pin
-also passes beside any scoped test that is red on base.
+In the not-separable case above an undeclared pin passes like any other test, because no base run
+exists to redden it. An added test the base run produced no result for (`not run at base`) is
+refused by name: make it run at base, or list it with a reason in
+`devco/causality-no-base-exemptions`. Two limits: the key is the bare fn name, so one entry exempts
+every scoped test of that name; and when the per-test lines do not account for nextest's summary the
+gate cannot name the missing tests and refuses none of them.
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already

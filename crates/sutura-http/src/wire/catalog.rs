@@ -6,6 +6,7 @@
 //! rather than a share of lines - the same split `sutura-mcp`'s own `wire::catalog` already made
 //! for the mirror-image reason.
 
+use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::view::ScopedView;
 
@@ -35,6 +36,14 @@ pub struct CatalogBody {
     /// because the word names the SETTING and not this renderer.
     catalog_prose: &'static str,
     metrics: Vec<MetricBody>,
+    /// The catalog's own knowledge - glossary, caveats, terms recorded as undefined and worked
+    /// examples - as text, the same text the agent surface's `describe_catalog` returns for this
+    /// caller.
+    ///
+    /// Narrowed to what this caller may see: a note about a metric outside its view is absent, and
+    /// the text says the withheld part is withheld rather than empty. Note bodies follow
+    /// `catalog_prose`. Descriptive only - no field of a question takes anything from it.
+    knowledge: String,
 }
 
 /// One metric, as much of it as a caller needs to ask a valid question.
@@ -82,21 +91,25 @@ impl CatalogBody {
     /// about which metrics exist; the provenance still names the whole bundle's version and digest,
     /// because that is what `docs/adr/0028` says the digest continues to identify.
     ///
+    /// **The knowledge is not scoped here.** It is rendered by `sutura_app::prompt::catalog_knowledge`
+    /// over the same view, the function the agent surface's catalog tool calls, so both transports
+    /// apply one visibility rule and this body holds no second copy of it.
+    ///
     /// **A named constructor rather than a `From`, and the argument is the reason.**
     /// `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
     /// OPEN: it ships the prose of a deployment that asked for none, which is the defect this
     /// function exists to close. A second argument cannot be left out.
     #[must_use]
     pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self {
-        // Exhaustive rather than `is_quoted()` in an `if`, which is what this line was: a question
-        // asked of one variant reads every future spelling as the `else`, and on this setting the
-        // `else` withholds prose nobody asked to withhold. `sutura-mcp`'s twin makes the same
-        // decision unrepresentable with a field type; this surface has one carrier and no text half,
-        // so the match is where the whole of it fits.
-        let quoted = match prose {
-            sutura_config::CatalogProse::Quoted => true,
-            sutura_config::CatalogProse::Omitted => false,
+        // Exhaustive rather than `is_quoted()` in an `if`: a question asked of one variant reads every
+        // future spelling as the `else`, and on this setting the `else` withholds prose nobody asked
+        // to withhold. The app crate's own type is what `catalog_knowledge` takes, so one mapping
+        // serves the descriptions here and the knowledge below.
+        let shared = match prose {
+            sutura_config::CatalogProse::Quoted => CatalogProse::Quoted,
+            sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
         };
+        let quoted = shared.is_quoted();
         let metrics = view
             .metrics()
             .map(|metric| MetricBody {
@@ -125,6 +138,7 @@ impl CatalogBody {
             provenance: bundle_body(view.pinned()),
             catalog_prose: prose.as_str(),
             metrics,
+            knowledge: sutura_app::prompt::catalog_knowledge(view, shared),
         }
     }
 }

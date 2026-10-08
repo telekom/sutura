@@ -726,7 +726,7 @@ The paragraph at line 506 said *That check cannot be written today* and gave the
 adapter can carry a per-subject credential, so every leg presents the identity this deployment holds
 for that source*. The reason is now false. `BigQueryWarehouse` declares
 `ImpersonationCapability::PerSubjectCredential`
-(`crates/sutura-exec-bigquery/src/lib.rs:666`), and `Presented::SubjectToken` is constructed by the
+(`crates/sutura-exec-bigquery/src/lib.rs`, symbol `BigQueryWarehouse::IMPERSONATION`), and `Presented::SubjectToken` is constructed by the
 shipping broker (`crates/sutura-exec-bigquery/src/principal.rs`). So a published build links an
 adapter that carries a per-subject credential, and the stated justification for why the identity-keyed
 set would hold one element "for a reason that has nothing to do with the asker" no longer holds for
@@ -750,3 +750,12 @@ re-accepts it. AGENTS.md no longer carries the canonical-sources table that para
 
 The section's conclusion does not change: the caller still has no field that names a source, so
 there is still nothing to widen. What changed is that a widening would now also move a snapshot.
+
+## Fourth amendment, 2026-10-02: nixpkgs builds a musl `libduckdb` when asked
+
+"Two costs are inherited rather than retired" gives the first as "nixpkgs has no musl `libduckdb`,
+and the cross-built artifacts link the engine alone for that reason". The first clause is false:
+nixpkgs' `duckdb` cross-builds for both musl triples - the public cache only does not carry it - and
+`nix/duckdb-adbc.nix` links a `-static` probe against the merged archive. The musl artifacts now
+receive that archive as an ADBC driver. Which artifact links a native driver is still answered per
+route, and the `Send`-not-`Sync` connection question is untouched.

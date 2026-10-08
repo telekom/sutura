@@ -120,7 +120,7 @@ pub const fn bounds(&self) -> DictionaryBounds
 
 ### Implements
 
-`Clone`, `Debug`, `DictionaryReader`
+`Debug`, `DictionaryReader`
 
 ## `trait DictionaryReader`
 
@@ -211,9 +211,11 @@ The composition root that links the `live` reader passes the declared
 over a live socket also enforces them inline, but this stays the conversion's own post-decode
 guard over a `Dictionary` whatever the reader did.
 
-**The reading reader holds the caps inline too** (`postgres_reader` abandons a stream that
-crosses the ceiling); this guard is the second, non-network half that a recorded or fetched
-dictionary gets regardless of the transport.
+**The Postgres reader bills each batch** before it decodes it: on the pinned driver
+(`apache-arrow-adbc-24`), the whole result is one batch that libpq already holds, so the
+byte cap refuses a result already fetched; the `LIMIT` bounds what libpq holds in rows. The
+Oracle reader streams row by row. This guard is the second, non-network half that a recorded
+or fetched dictionary gets regardless of the transport.
 
 ```rust
 pub fn with_source_alias(self, source_alias: SourceName) -> Self
@@ -604,13 +606,15 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
 
 # The limits, next to the claims
 
-- **No passing live Oracle run is cited.** No venue that runs `just validate` reaches an
-  Oracle server (`compose.services.yaml`'s `oracle` row says why). The live cells in
-  `tests/oracle_provisioned.rs` exist and the `oracle-tier` CI job runs them. No run of them is
-  cited here yet. The unit cells prove the constructor refusals, the rendered statement, the flag
-  decode, and a golden of the dictionary assembled from positional values handed to the
-  decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
-  transaction and the driver's own type conversion stay unexercised.
+- **One live Oracle run is cited, and no `just validate` venue reaches a server.**
+  `compose.services.yaml`'s `oracle` row says why. The `oracle-tier` CI job ran both cells in
+  `tests/oracle_provisioned.rs` green on 2026-10-02 at `53055e9a4`, the head of the pull request
+  that landed them as #1232 (run 36997951066, job 110814411138, beside the adapter's acceptance
+  cell: `3 tests run: 3 passed`): a read binds models to the declared source alias, and an
+  absent documentation schema is refused by the server. Outside that job the unit cells prove
+  the constructor refusals, the rendered statement, the flag decode, and a golden of the
+  dictionary assembled from positional values handed to the decoder - never a read, because the
+  driver cannot build a row outside a session.
 - **Read-only by statement, not by driver flag.** The pinned driver has no read-only option;
   the reader issues `SET TRANSACTION READ ONLY` before its one `SELECT` and rolls back after it.
   That it makes the transaction read-only is unobserved against a server.
@@ -721,30 +725,35 @@ stated here. It is not an invented uniqueness assertion: single-column primary-k
 read per column (`is_primary_key`) and that alone is ever emitted; nothing in this reader
 fabricates a foreign key or a target-uniqueness claim on the reader's behalf.
 
-# Read-only, streamed, bounded
+# Read-only, bounded
 
-The read runs inside a single read-only transaction (`read_only`, `RepeatableRead`). Rows are
-streamed with `query_raw` - the driver's extended-protocol portal, which does not materialise
-the result set up front - and the row cap and byte cap are enforced **inline**, abandoning the
-stream the moment the declared ceiling is crossed. This bounds the streamed row payload;
-the converter's separate post-decode guard bounds the assembled dictionary. The driver still
-materialises one row before its size is checked. Neither bound limits elapsed read time.
+One read is one connection and one transaction: autocommit off (the driver issues `BEGIN` before
+the first statement), `TRANSACTION_MODE` as that first statement, the select, and a rollback
+whatever happened - nothing this reader sends commits. The select asks for one row past the row
+cap (`LIMIT`), so the server never sends more rows than the cap can refuse, and each Arrow batch
+is billed WHOLE against the byte cap (`RecordBatch::get_array_memory_size`) before its rows are
+counted against the row cap and decoded. The converter's separate post-decode guard bounds the
+assembled dictionary.
+
+**The limits.** With bound parameters the pinned driver (`apache-arrow-adbc-24`) executes through
+`PQexecPrepared` and hands the whole result back as one batch (`bind_stream.h`,
+`result_reader.cc`), so the byte cap refuses a result libpq already holds: what bounds the read
+itself is the `LIMIT`, in rows and not in bytes. Neither bound limits elapsed read time. That the
+driver's `BEGIN` precedes `TRANSACTION_MODE` is read off its source; `tests/provisioned.rs`
+observes the effect - a documentation view that writes is refused `25006`.
 
 # Connection and transport policy
 
-The reader uses the catalog's own declared connection and transport policy. Anchor/identity
-material is resolved by a composition root into a `rustls::ClientConfig` for `verified`/`mutual`
-channels, or `None` for `plaintext`. When a `ClientConfig` is supplied the reader forces
-`SslMode::Require` so a server declining TLS cannot silently downgrade the verifier to
-cleartext - the same hardening `sutura-exec-postgres::connect_secured` applies. There is no
-unconditional `NoTls`: plaintext is reached only through the declared `plaintext` mode, which
-the transport layer already refuses for a remote host.
+The reader dials the `Conninfo` a composition root built from the catalog's own declared
+connection, through the shared connector `sutura_adbc_postgres` - the one `sutura-exec-postgres`
+dials a source through, so both refuse the same declarations and libpq is told the same posture:
+`sslmode=verify-full` for a `verified` or `mutual` channel, `disable` only for a declared
+`plaintext` one, which the settings refuse for a remote host. A connection opens per read.
 
 # Feature gating
 
-This module is `#[cfg(feature = "live")]`. A build without the feature links no
-`tokio-postgres`/`tokio-postgres-rustls`/`rustls`/`ring` stack, and the composition root refuses
-the catalog by name.
+This module is `#[cfg(feature = "live")]`. A build without the feature links no ADBC stack, and
+the composition root refuses the catalog by name.
 
 ### `enum InvalidReaderConfig`
 
@@ -792,10 +801,12 @@ pub struct PostgresReader
 
 A live `crate::DictionaryReader` over a Postgres documentation schema.
 
-Owns the driver configuration and the optional TLS verifier, plus the environment key, the
-optional live-row predicate and the read bounds. The TLS `ClientConfig` is supplied by a
-composition root that resolved the declared `transport_mode`; `None` selects the `plaintext`
-channel. The read-only transaction, parameter binding and inline caps are all this reader's own.
+Owns the driver and the connection string a composition root built from the declared channel,
+plus the environment key, the optional live-row predicate and the read bounds. The read-only
+transaction, parameter binding and caps are all this reader's own.
+
+Not `Clone`: the connection string is a secret, and the one long-lived holder - the serve
+refresh loop - takes the opened catalog by value.
 
 #### Methods
 
@@ -804,17 +815,17 @@ pub const fn bounds(&self) -> DictionaryBounds
 ```
 
 ```rust
-pub fn new(config: tokio_postgres::Config, tls: Option<rustls::ClientConfig>, documentation_schema: String, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
+pub fn new(driver: PostgresDriver, conninfo: Conninfo, documentation_schema: String, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
 ```
 
-Builds the reader. `tls` is `Some(rustls::ClientConfig)` for a `verified`/`mutual` channel
-and `None` for a declared `plaintext` one. `documentation_schema` and `environment` are
-validated identifiers supplied by the composition root. An absent `row_cap`/`byte_cap`
-selects the reader's own documented defaults.
+Builds the reader over `driver` and `conninfo`, which already carries the declared channel.
+`documentation_schema` and `environment` are validated identifiers supplied by the
+composition root. An absent `row_cap`/`byte_cap` selects the reader's own documented
+defaults.
 
 #### Implements
 
-`Clone`, `Debug`, `DictionaryReader`
+`Debug`, `DictionaryReader`
 
 ### `constant DEFAULT_DOCUMENTATION_SCHEMA`
 

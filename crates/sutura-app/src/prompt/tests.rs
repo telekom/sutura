@@ -411,8 +411,10 @@ fn no_model_table_or_column_name_reaches_the_prompt() {
     // **And over the bundle WITH notes attached - which is a NARROWER claim than the name of this
     // test, and the narrow one is the true one.** What the type system holds up is the STRUCTURED
     // half of every knowledge section: a glossary line, a caveat's scope and a worked question's
-    // request are rendered from a `sutura_domain::knowledge::Referent`, which has no variant that
-    // could name a model, a table or a column, so none of them CAN carry one. A `Phrase` and a
+    // request are rendered from a `sutura_domain::knowledge::Referent`, which has no variant for a
+    // table, and names a model or a column only as a glossary entry's target - which no note in
+    // this fixture has, and which the scoped view withholds unless the caller's view holds the
+    // model. A `Phrase` and a
     // `NoteBody` are free text and both reach this document, so what this loop proves about them is
     // that the fixture above does not write those names - not that it could not. The channel is
     // already open and already shipped: a metric DESCRIPTION is prose too, and the example catalog's
@@ -900,9 +902,11 @@ fn notes_carrying(definitions: &Definitions, term: &str, prose: &str) -> Knowled
 
 /// The claim, stated at the width the mechanism actually holds.
 ///
-/// `sutura_domain::knowledge::Referent` has no variant for a model, a table or a column, so the
-/// STRUCTURED half of every knowledge section - the `-> metric x` and `-> filter y = z` targets, and
-/// a worked question's `Send:` line - cannot name one. That half is closed by the type.
+/// `sutura_domain::knowledge::Referent` has no variant for a table, and names a model or a column
+/// only as a glossary entry's target, so the STRUCTURED half of every knowledge section - the
+/// `-> metric x` and `-> filter y = z` targets, and a worked question's `Send:` line - names only
+/// what the bundle declares, and a model or column only where an author wrote a glossary entry
+/// meaning one. That half is closed by the type.
 ///
 /// The prose half is NOT, and this test says so rather than pretending otherwise. A `Phrase` is free
 /// text and a `NoteBody` is free prose; an author who writes a column name into either gets it
@@ -933,7 +937,8 @@ fn a_note_carries_its_author_s_prose_while_the_structured_lines_carry_only_decla
     );
 
     // The TARGET of a structured line - the half after the arrow - names only what the bundle
-    // declares, because `Referent` has no variant that could carry anything else. The PHRASE half is
+    // declares, because `Referent` has no variant that could carry anything else, and these notes
+    // mean no model or column. The PHRASE half is
     // authored free text: this test first asserted on the whole line and failed on
     // `- "zztable" -> metric `revenue``, which is the finding stated precisely. The guarantee is
     // about the referent, not about the line.

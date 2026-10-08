@@ -33,6 +33,7 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         impersonate: std::collections::BTreeMap::new(),
         expected_issuer: None,
         expected_audience: None,
+        delegation: None,
     }
 }
 
@@ -55,6 +56,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         port: None,
         database: None,
         service_name: None,
+        database_file: None,
         user: None,
         password_file: None,
         transport_mode: None,
@@ -423,6 +425,7 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         port: None,
         database: None,
         service_name: None,
+        database_file: None,
         user: None,
         password_file: None,
         transport_mode: None,
@@ -455,7 +458,8 @@ fn a_bigquery_source_declares_its_billing_project_and_dataset() {
         super::placement::SourcePlacement::Files { .. }
         | super::placement::SourcePlacement::Postgres { .. }
         | super::placement::SourcePlacement::ClickHouse { .. }
-        | super::placement::SourcePlacement::Oracle { .. } => {
+        | super::placement::SourcePlacement::Oracle { .. }
+        | super::placement::SourcePlacement::Duckdb { .. } => {
             panic!("the entry declared kind: bigquery");
         }
     }
@@ -742,3 +746,90 @@ fn a_workload_identity_block_with_an_empty_audience_is_refused_naming_the_audien
 }
 
 mod postgres;
+
+/// A `duckdb` entry over an absolute database file, shared and acknowledged by the single-user mode.
+fn duckdb(written: &str) -> RawSourceEntry<'_> {
+    RawSourceEntry {
+        kind: "duckdb",
+        data_dir: None,
+        database_file: Some("/srv/sutura/warehouse.duckdb"),
+        posture: "shared-service-user",
+        workload_identity: None,
+        ..impersonating(written)
+    }
+}
+
+#[test]
+fn a_duckdb_source_parses_its_absolute_database_file() {
+    let registry = SourceRegistry::parse(&[duckdb("local")], Some(&single_user())).expect("a duckdb entry parses");
+    let configured = registry.get(&alias("local")).expect("the entry is registered");
+    assert_eq!(configured.kind(), SourceKind::Duckdb);
+    assert_eq!(
+        *configured.placement(),
+        placement::SourcePlacement::Duckdb {
+            database_file: PathBuf::from("/srv/sutura/warehouse.duckdb")
+        }
+    );
+}
+
+#[test]
+fn a_duckdb_source_without_an_absolute_database_file_does_not_parse() {
+    let missing = RawSourceEntry {
+        database_file: None,
+        ..duckdb("local")
+    };
+    assert_eq!(
+        SourceRegistry::parse(&[missing], Some(&single_user())).expect_err("no file, no source"),
+        InvalidSourceRegistry::MissingForKind {
+            alias: alias("local"),
+            kind: SourceKind::Duckdb,
+            key: "database_file",
+        }
+    );
+    let relative = RawSourceEntry {
+        database_file: Some("warehouse.duckdb"),
+        ..duckdb("local")
+    };
+    assert_eq!(
+        SourceRegistry::parse(&[relative], Some(&single_user())).expect_err("a relative file is refused"),
+        InvalidSourceRegistry::RelativePath {
+            alias: alias("local"),
+            key: "database_file",
+            path: PathBuf::from("warehouse.duckdb"),
+        }
+    );
+}
+
+/// `database_file` is `duckdb`'s alone, and `duckdb` reads no other kind's key - both directions of
+/// `parse_placement`'s foreign-key rule.
+#[test]
+fn a_database_file_belongs_to_duckdb_and_duckdb_reads_no_other_kinds_key() {
+    let on_files = RawSourceEntry {
+        database_file: Some("/srv/sutura/warehouse.duckdb"),
+        posture: "shared-service-user",
+        workload_identity: None,
+        ..impersonating("local")
+    };
+    let with_dir = RawSourceEntry {
+        data_dir: Some(DATA),
+        ..duckdb("local")
+    };
+    let with_host = RawSourceEntry {
+        host: Some("127.0.0.1"),
+        ..duckdb("local")
+    };
+    for (entry, kind, key) in [
+        (on_files, SourceKind::Files, "database_file"),
+        (with_dir, SourceKind::Duckdb, "data_dir"),
+        (with_host, SourceKind::Duckdb, "host"),
+    ] {
+        assert_eq!(
+            SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("a foreign key is refused"),
+            InvalidSourceRegistry::KeyNotForKind {
+                alias: alias("local"),
+                kind,
+                key,
+            }
+        );
+    }
+}

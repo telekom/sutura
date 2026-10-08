@@ -684,12 +684,14 @@ else - the reference adapter, the goldens, an adapter over a fixed external sche
 unconditionally through `Self::of`, which is why the serialized form below carries only the
 declared set and why no existing digest moves.
 
-**The conditional marking is a property of the CODE, not of the serialized declaration.** It is
+**The conditional marking is a property of the CODE, or of what a source states about itself,
+not of the serialized declaration.** It is
 deliberately absent from the `Serialize`/`Deserialize` below, which emit and read the declared
 set exactly as the previous newtype did - the contribution manifest's digest therefore records
 which kinds a source declared (so widening any declaration moves the digest) and not whether a
-kind was conditional (a property `sutura-app`'s assembler and the conformance suite read off the
-adapter's own `capabilities()`, never off a wire). A value that round-trips through serde loses
+kind was conditional (a property `sutura-app`'s assembler reads off the in-memory manifest entry
+and the conformance suite off the adapter's own `capabilities()`, never off a wire). So a markdown
+tree's `may_provide` list is not under the digest. A value that round-trips through serde loses
 the marking and reads as unconditionally declared, which is the stricter direction and the honest
 one: nothing in this repository deserializes a live declaration to serve with.
 
@@ -830,7 +832,8 @@ prompt, and a copy of it would be a second thing to keep in step.
 
 **This value duplicates nothing and derives nothing.** The knowledge capabilities a *bundle*
 carries (`crate::knowledge::Knowledge::declares`) are under the definition digest and travel
-with the answer; the declaration here is a property of the linked code. That the two agree is
+with the answer; the declaration here is a property of the linked code, or of what a source
+states about itself (a markdown tree's `kind: declaration` document). That the two agree is
 exactly what `Self::checked_against` checks, and it is a check rather than a derivation because
 a derivation could not fail.
 
@@ -1003,7 +1006,7 @@ pub fn description(&self) -> &str
 ```
 
 ```rust
-pub fn from_metadata(name: ColumnName, data_type: Option<&str>, description: Option<&str>, nullable: Option<bool>) -> Result<Self, InvalidDescription>
+pub fn from_metadata(name: ColumnName, data_type: Option<&str>, description: Option<&str>, nullable: Option<bool>) -> Result<Self, ColumnRefusal>
 ```
 
 Builds a column from raw type/description text an adapter read off its own source, so the
@@ -1023,7 +1026,8 @@ held to the same rule every other quoted description in this crate is.
 
 # Errors
 
-`InvalidDescription`, if `description` is `Some` and not usable.
+`ColumnRefusal`, if `description` is `Some` and not usable: the `InvalidDescription` with
+`name` handed back beside it.
 
 ```rust
 pub const fn name(&self) -> &ColumnName
@@ -1040,6 +1044,28 @@ pub const fn nullable(&self) -> Option<bool>
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct ColumnRefusal`
+
+```rust
+pub struct ColumnRefusal
+```
+
+A column `Column::from_metadata` refused: the name it was handed, returned beside the
+`InvalidDescription` that refused it, so a caller that reports the column keeps no copy of the
+name aside for it.
+
+#### Methods
+
+```rust
+pub fn into_parts(self) -> (ColumnName, InvalidDescription)
+```
+
+The name and the refusal, owned - for a caller that reports both in an error of its own.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
 
 ### `struct Model`
 
@@ -1137,7 +1163,9 @@ The table's own name, without whatever sits above it.
 pub fn with_audience(self, audience: Audience) -> Self
 ```
 
-Declares who may see this model in an opted-in physical-schema listing.
+Declares who may see this model: in an opted-in physical-schema listing, and in a glossary
+entry that names the model or one of its columns. The second does not depend on
+`prompt.list_physical_schema`. A model that declares none is shown to no caller-scoped view.
 
 ```rust
 pub fn with_primary_key(self, primary_key: impl IntoIterator<Item>) -> Result<Self, InconsistentDefinitions>
@@ -3913,16 +3941,20 @@ pub enum Referent
 
 What one note is about: something the pinned bundle declares.
 
-**There is deliberately no variant for a model, a table or a column, and that absence is load
-bearing rather than tidy.** A caller cannot ask about any of the three - `crate::query::Query` has no field
-for one - and a name in an agent's context is a name it will eventually try to use. Every
-STRUCTURED rendering `sutura_app::prompt` builds out of a note - the glossary line, a caveat's
-scope, the request in a worked question - is rendered from a `Referent`, so none of them CAN name
-a model, a table or a column, whatever an author writes. That is the claim the type holds up, and
-it is worth stating at its real width:
+**No note may select, widen or parameterise what executes, and that is restated here for every
+channel a note has.** `crate::query::Query` has no field for a model, a table or a column, and
+knowledge is read only by the prompt, so a name a note carries is a name an agent reads and
+never one a request can use. Every STRUCTURED rendering `sutura_app::prompt` builds out of a
+note - the glossary line, a caveat's scope, the request in a worked question - is rendered from a
+`Referent`, so the names it carries are the names these variants hold. That is the claim the
+type holds up, at its real width:
 
-* **The structured renderings cannot name one.** There is no variant to put it in, so this half
-  is a property of the type rather than a review of each rendering.
+* **A glossary entry may mean a model or a column** - Q2 of
+  `docs/adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md`. That is a new
+  way to NAME a declared model or column in the prompt, not a new way to execute one, and a
+  model or column note is shown only to a caller whose view holds that model
+  (`Knowledge::scoped`). A caveat may not mean one: it is printed under the metric it is about,
+  and `InconsistentKnowledge::CaveatAboutAModel` refuses a caveat that would be printed nowhere.
 * **`Phrase` and `NoteBody` are free text, and both reach the rendered document.** Nothing
   here stops an author writing a column name into a glossary term or a note body, and the
   pre-existing metric-description channel already carries such names into the prompt - the
@@ -3932,10 +3964,9 @@ it is worth stating at its real width:
   claiming otherwise would be claiming the wrong mechanism.
 
 A load-time scan of every phrase and body for the bundle's own model, table and column names
-would close the second half. It is not here: it is a larger change than the type-level property
-needs, it would make an authored note refuse for naming a column in a sentence about why the
-column is not the thing being asked for, and the honest statement of what holds is the cheaper
-half of it.
+would close the second half. It is not here: it would make an authored note refuse for naming a
+column in a sentence about why the column is not the thing being asked for, and the honest
+statement of what holds is the cheaper half of it.
 
 It carries `Deserialize` as well as `Serialize`, for the same reason `crate::measure::Measure`
 does: this IS the on-disk shape, and a mirror of it in the adapter would be a second place to
@@ -3947,9 +3978,8 @@ the rest of this format uses would spell the commonest referent
 `means: { metric: { metric: recurring_revenue } }`: the tag word and the field word are the same
 word, so the nesting says nothing. `#[serde(untagged)]` is not the way out either - it reports
 "data did not match any variant", which names nothing. So a referent is one flat mapping with a
-`deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and the one
-combination that is not a referent - a value with no dimension - is an `InvalidReferent` that
-says so.
+`deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and a
+combination that is not a referent is an `InvalidReferent` that says which.
 
 #### Variants
 
@@ -3963,6 +3993,8 @@ says so.
   check the same thing. It also closes a channel that carried unparsed catalog text -
   `sutura_app::prompt` interpolates this value into the scope line of a caveat, which is the one
   rendering in that document whose continuation lines start at column zero.
+- `Model` - One declared model. A glossary target only - see above.
+- `Column` - One declared column of one declared model. A glossary target only - see above.
 
 #### Methods
 
@@ -3973,10 +4005,13 @@ pub const fn dimension(&self) -> Option<&DimensionName>
 The dimension, when this referent names one.
 
 ```rust
-pub const fn metric(&self) -> &MetricName
+pub const fn metric(&self) -> Option<&MetricName>
 ```
 
-The metric every referent is scoped to.
+The metric this referent is scoped to, or `None` for a model or a column.
+
+`Option` so that every reader deciding where a note is shown, or to whom, has to say what
+`None` means rather than inherit an answer.
 
 ```rust
 pub const fn value(&self) -> Option<&DimensionValue>
@@ -3994,15 +4029,13 @@ The value, when this referent names one.
 pub enum InvalidReferent
 ```
 
-Why a referent was rejected.
-
-One variant, because there is one combination of the three fields that is not a referent. A
-missing `metric` is a serde missing-field error naming the field, which is a better message than
-anything this enum could produce for it.
+Why a referent was rejected: the combinations of the five fields that are not one.
 
 #### Variants
 
 - `ValueWithoutDimension`
+- `NeitherMetricNorModel` - A dimension, a value or a column on its own belongs to nothing.
+- `MetricAndModelMixed`
 
 #### Implements
 
@@ -4193,6 +4226,11 @@ sounds like, a value that means less than it appears to.
 text channel the module documentation refuses. The prompt renders each caveat inside the block of
 the metric it is about rather than as a preamble, so it is read by whoever is about to ask that
 question rather than by whoever is skimming the top of the document.
+
+**Or written about relationships**, with `Self::through`, when the trap is in a join rather
+than in one metric. Such a caveat never reaches a bundle as written: `Knowledge::assemble`
+expands it into one caveat per metric that reaches a dimension through one of them, so every
+caveat a `super::Knowledge` holds names no relationship.
 
 ### `use Example`
 
@@ -6316,6 +6354,12 @@ pub fn metrics(&self) -> impl Iterator<Item> + '_
 Every metric this caller may see.
 
 ```rust
+pub fn model(&self, name: &ModelName) -> Option<&'a Model>
+```
+
+One model, if declared AND this caller may see it - the rule `Self::models` lists by.
+
+```rust
 pub fn models(&self) -> impl Iterator<Item> + '_
 ```
 
@@ -7882,7 +7926,7 @@ placeholder that names its value, and they are not one case: Postgres writes `$n
 writes `:n`, and `$1` sent to Oracle is not a placeholder at all. The renderer emits predicates
 in filter order and a positional adapter binds the list in list order, so those two agree only
 while the indices run `0, 1, .. n-1` down the filters. Read off the shipped adapters rather
-than reasoned about: `sutura_exec_duckdb::bind` maps
+than reasoned about: `sutura_exec_duckdb` binds
 `QueryPlan::params` in list order against `?`,
 `sutura_exec_bigquery` sends the same list as an ordered array under a positional parameter
 mode, and `sutura_sql`'s `?` placeholder ignores the position it is given. `ClickHouse` is the
@@ -11072,7 +11116,7 @@ Why text sent as a raw statement was refused before it ever reached a data syste
 
 - `Empty` - Nothing a data system could run: empty, or made entirely of whitespace.
 - `TooLong` - Over `MAX_RAW_STATEMENT_BYTES`. Refused rather than truncated: a statement cut at the byte bound is not the statement the caller sent, and running part of it would answer a different question under the caller's own name.
-- `EmbeddedNul` - Contains an embedded NUL byte, which no text-protocol statement can carry - `tokio-postgres` itself refuses one at the wire. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.
+- `EmbeddedNul` - Contains an embedded NUL byte, which no text-protocol statement can carry - libpq reads a statement as a NUL-terminated string, so the text after one would never be sent. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.
 
 #### Implements
 
@@ -11801,15 +11845,15 @@ driver speaks Arrow hands its batches through untouched and the one Arrow-to-`Va
 happens once, at the presentation edge, in `ResultBatches::to_rows`.
 
 **What that costs, because it is not free for every adapter and the record only counted the
-half that gains.** The two Arrow-native adapters - `BigQuery` through ADBC, and the engine -
-stop converting at all, and a federated leg from either reaches the combiner with its driver's
-own types. The four whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` -
+half that gains.** The Arrow-native adapters - `BigQuery`, `Postgres` and `DuckDB`, each through
+ADBC, and the engine - stop converting at all, and a federated leg from any of them reaches the
+combiner as batches. The two whose drivers speak rows - Oracle and `ClickHouse` -
 now convert at their own boundary through `arrow::of_rows`, which they did not before: on a
 single-source answer that is a conversion out and `ResultBatches::to_rows` back, for data
 that never left the process. The conversion did not disappear; it moved to the adapter that
 owns the row-speaking driver, which is where the leg's own cost already had to be paid.
 
-**And it carries `arrow::arrow_column`'s inference limit onto those four adapters' production
+**And it carries `arrow::arrow_column`'s inference limit onto those two adapters' production
 path**: a column mixing `Value::Integer` and `Value::Text` cells round-trips as text. No
 data system produces one - a source declares a column's type - so what this reaches is a fake
 that builds one by hand, and the row builder's own doc is where that is stated.
@@ -11969,7 +12013,7 @@ is being asked for.
 **`Self::posture`'s limit, stated where it publishes rather than on the method alone:** it
 answers the value the root handed over at construction. Every adapter this workspace ships now
 checks a leg's `Presented` credential against it before running - `Presented::agrees_with`,
-called once per leg inside all four adapters' own `execute` - so the comparison is per LEG, not
+called once per leg inside each adapter's own `execute` - so the comparison is per LEG, not
 only at boot. What that proves is that the credential offered for this leg matches how the
 source was declared, not that the data system itself evaluated anybody's authorization: there is
 no round trip back from the data system confirming which identity it actually ran as.
@@ -12755,14 +12799,13 @@ but `checks.shipped-features` establishes that kind of claim by reading crate NA
 binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
 fail if a composition root turned the feature on.
 
-**An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
-than as the range question it is.** Four are live: `sutura-exec-duckdb`'s `UBigInt` and
-`HugeInt` arms and `sutura-exec-datafusion`'s `UInt64` arm answer `Value::Integer` while the
-value fits an `i64` and `Value::Text` when it does not; `sutura-exec-postgres` answers a
-scale-0 `NUMERIC` the same way against a `Decimal`; and `sutura-exec-bigquery` answers its own
-`NUMERIC`/`BIGNUMERIC` fields the identical way, added once its `execute_packs!` binding
-(`telekom/sutura#710`) exercised the same class its own corpus already carried. Under the
-display form all four compare EQUAL, and that was the RECORDED reason for the display form.
+**A decoder's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.** It is live wherever a decoder answers `Value::Integer`
+while the value fits an `i64` and `Value::Text` when it does not: the domain's Arrow reader,
+`ResultBatches::to_rows`, does it for a `UInt64` and for a zero-scale `Decimal128` or
+`Decimal256`, which covers every adapter that hands its batches on; `sutura-exec-postgres` does
+it for a scale-0 `NUMERIC`; and `sutura-exec-oracle` does it for a `NUMBER`. Under the display
+form they compare EQUAL, and that was the RECORDED reason for the display form.
 Here they are `ContentDisagreement::Multiplicity` - *one side answered a row 1 time(s) and the
 other 0* - naming neither the fallback nor the overflow behind it. So a `Multiplicity` over a
 wide count or a decimal column is a range question first: check whether one side overflowed
@@ -14079,8 +14122,9 @@ One column's Arrow array, built from domain values.
 
 **No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
 With `Warehouse::execute` returning `ResultBatches`,
-the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
-this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
+the two adapters whose drivers speak rows - Oracle and `ClickHouse` - call this on their own
+production path. An adapter whose driver speaks Arrow hands its batches on; `Postgres` calls this
+only to rebuild an exact `NUMERIC` column.
 
 **The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
 all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
@@ -14090,13 +14134,13 @@ from, so the type is arbitrary rather than wrong.
 
 **The `Decimal128` arm exists because the "no source produces a mixed column" argument is
 FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
-column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
-`sutura-exec-postgres` both answer a whole number that fits an `i64` as `Value::Integer` and
-one that does not as an exact `Value::Text`, so one `DECIMAL`/`HUGEINT` column arrives mixed.
+column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-oracle` answers a
+`NUMBER` that fits an `i64` as `Value::Integer` and one that does not as an exact
+`Value::Text`, and `sutura-exec-postgres` splits a `NUMERIC` column the same way before it
+rebuilds the column with this function, so one such column arrives mixed.
 The conformance corpus has two such cases (`wide-total-by-day`,
 `overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
-`Text("15")` - a conformance failure against the reference rows, on the production path, for
-two of the four adapters the Arrow port makes convert.
+`Text("15")` - a conformance failure against the reference rows, on the production path.
 
 `Decimal128(38, 0)` round-trips both halves exactly, because `ResultBatches::to_rows`'s
 zero-scale arm widens a
@@ -14117,8 +14161,9 @@ pub fn of_row_set(rows: &crate::warehouse::rows::RowSet) -> Result<ResultBatches
 A `RowSet` as Arrow batches: what an adapter whose driver speaks rows returns from
 `Warehouse::execute`.
 
-**One function, named, in the interior - which is what makes the four adapters paying for the
-Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+**One function, named, in the interior - which is what makes the cost of the Arrow port to the
+two row-speaking adapters, Oracle and `ClickHouse`, a single place to measure and a single place
+to delete.** `docs/adr/0007` asked for
 exactly that when it still expected the conversion to live in a combiner crate; the port moved
 and the property did not.
 
@@ -14149,8 +14194,9 @@ invariant makes the ragged case unreachable.
 would be the one nobody had read.
 **It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
 Its input is rows the caller already holds, so a budget here would check after the spend.
-`DuckDB`, `ClickHouse`, and `Oracle` charge their decode loops before calling this conversion.
-Postgres still builds a whole `RowSet` first; this function does not bound it or fakes.
+`ClickHouse` and `Oracle` charge their decode loops before calling this conversion.
+`Postgres` does not call this function: it rebuilds only a `NUMERIC` column, through
+`arrow_column`.
 
 ### Module `raw`
 

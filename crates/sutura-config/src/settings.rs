@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use sutura_domain::model::InvalidIdentifier;
 use sutura_domain::pinned::InvalidVersion;
 use sutura_domain::plan::{InvalidRowCeiling, RowCeiling};
+use sutura_domain::source::ImpersonationCapability;
 
 use crate::api::ApiSettings;
 use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
@@ -223,11 +224,6 @@ pub enum SettingsError {
         #[source]
         cause: UnknownTlsTermination,
     },
-    #[error("`security.credential_cache` is not usable")]
-    CredentialCache {
-        #[source]
-        cause: crate::identity_cache::InvalidCredentialCacheSettings,
-    },
     /// A `security.outbound` block exists and is not usable.
     #[error("`security.outbound` is not usable")]
     Outbound {
@@ -240,6 +236,11 @@ pub enum SettingsError {
     AudienceMapping {
         #[source]
         cause: crate::audience::InvalidAudienceMapping,
+    },
+    #[error("`server.allowed_hosts` holds an entry that is not a host name or an IP address")]
+    AllowedHost {
+        #[source]
+        cause: crate::server::InvalidAllowedHost,
     },
     #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
     TlsMaterial {
@@ -398,7 +399,10 @@ pub enum SettingsError {
 /// `Clone` because it is held in the request state, and every field is either `Copy` or a small
 /// owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 /// [`sutura_domain::identity::Secret`], whose `Debug` redacts, and a test in [`crate::security`]
-/// asserts that at struct depth.
+/// asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
+/// source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
+/// `Settings` exists. The
+/// limit: a secret with no `@`, such as one written into a path, is printed.
 #[derive(Debug, Clone)]
 pub struct Settings {
     layers: ConfigLayers,
@@ -504,9 +508,13 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
+        refusals.extend(self.delegation_refusals());
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
+        if self.server.agent_surface_enabled() {
+            refusals.extend(self.agent_surface_refusals());
+        }
         // Keyed exactly like `metrics_refusals` below it: an unbounded caller is an unbounded
         // aggregate over the same history whether the deployment is labelled `production` or is
         // simply reachable from other hosts. `EphemeralPortInProduction` stays production-only -
@@ -589,6 +597,19 @@ impl Settings {
         refusals
     }
 
+    /// A declared delegation exchange on a deployment that verifies no `direct` caller - see
+    /// [`NotFitToServe::DelegationWithoutDirectInbound`].
+    fn delegation_refusals(&self) -> Vec<NotFitToServe> {
+        if matches!(self.security.inbound(), Some(InboundIdentity::Direct { .. })) {
+            return Vec::new();
+        }
+        self.sources
+            .each()
+            .filter(|(_, source)| source.workload_identity().is_some_and(|wif| wif.delegation().is_some()))
+            .map(|(alias, _)| NotFitToServe::DelegationWithoutDirectInbound { alias: alias.clone() })
+            .collect()
+    }
+
     /// Whether the raw SQL tool is enabled over a deployment it may not run over -
     /// `docs/adr/0013`'s boot refusal, reusing the mode `identity_refusals` already reads.
     ///
@@ -605,6 +626,47 @@ impl Settings {
             return vec![NotFitToServe::RunSqlEnabledInMultiUserMode];
         }
         Vec::new()
+    }
+
+    /// Why this deployment may not serve a mounted `/mcp`, or an empty list - see
+    /// [`NotFitToServe::AgentSurfaceWithoutInboundIdentity`] and
+    /// [`NotFitToServe::AgentSurfaceOverAnImpersonatingSource`].
+    ///
+    /// **One predicate, two call sites.** [`Self::refusals`] asks it where
+    /// `server.agent_surface.enabled` is set, and `sutura_http`'s assembly asks it again for any
+    /// mounted agent surface, because no type ties the mount a composition root attaches to that
+    /// switch. Public and side-effect-free for that second caller.
+    ///
+    /// The guard condition is stated here even though `AccessTokenRequired` and
+    /// `RateLimitingDisabled` refuse the same off-host shapes today, so this rule does not depend on
+    /// those two staying as they are.
+    #[must_use]
+    pub fn agent_surface_refusals(&self) -> Vec<NotFitToServe> {
+        if self.security.inbound().is_some() {
+            return Vec::new();
+        }
+        let off_host = !self.server.bind().is_loopback();
+        let mut refusals = Vec::new();
+        let single_user = matches!(self.security.identity(), Some(DeploymentIdentity::StaticCredentials { .. }));
+        let guarded = !off_host || (self.security.access_token().is_some() && self.rate_limit.enabled());
+        if !(single_user && guarded) {
+            refusals.push(NotFitToServe::AgentSurfaceWithoutInboundIdentity);
+        }
+        // A posture only an adapter with a place for a subject can deliver is one that needs a verified
+        // subject. `deliverable_by` is exhaustive over the posture, so a third posture cannot fall through.
+        refusals.extend(
+            self.sources
+                .each()
+                .filter(|(alias, source)| {
+                    source.posture().is_some_and(|posture| {
+                        posture
+                            .deliverable_by(ImpersonationCapability::NoPlaceForASubject, alias)
+                            .is_err()
+                    })
+                })
+                .map(|(alias, _)| NotFitToServe::AgentSurfaceOverAnImpersonatingSource { alias: alias.clone() }),
+        );
+        refusals
     }
 
     /// Every `bigquery` source a declared spend ceiling would not bound - see

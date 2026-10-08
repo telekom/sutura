@@ -43,8 +43,8 @@ use sutura_domain::pinned::{
 use crate::document::cube::{CubeDoc, InvalidCubeDocument};
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{
-    DocumentKind, InvalidMetricDocument, InvalidModelDocument, InvalidRelationshipDocument, KindProbe, MetricDoc, ModelDoc,
-    RelationshipDoc,
+    DeclarationDoc, DocumentKind, InvalidMetricDocument, InvalidModelDocument, InvalidRelationshipDocument, KindProbe, MetricDoc,
+    ModelDoc, RelationshipDoc,
 };
 use crate::frontmatter::{MalformedDocument, Split};
 
@@ -58,6 +58,9 @@ const DOCUMENT_EXTENSION: &str = "md";
 /// `Result<(Definitions, Knowledge), LocalCatalogError>` is a lint asking to be named. It is also the
 /// better name: this is what a catalog IS, and pinning is what happens to it next.
 type Content = (Definitions, Knowledge);
+
+/// [`Content`] and the declaration the tree states, the same lint's alias for the same reason.
+type Declared = (Content, MetadataCapabilities);
 
 /// Why a directory could not be read as a catalog.
 ///
@@ -249,6 +252,18 @@ pub enum LocalCatalogError {
         #[source]
         cause: NotDigestible,
     },
+    /// A second `kind: declaration` document. A tree states one declaration; two would need a rule
+    /// for which one wins, and a silent winner is the failure a declaration exists to prevent.
+    #[error("{path} is a second `kind: declaration` document, and a catalog states one declaration")]
+    SecondDeclaration { path: PathBuf },
+    /// A `kind: declaration` document whose `definitions:` does not list `structure` as always
+    /// carried. A tree with no models is an empty bundle, and one with notes alone would render
+    /// them deployment-wide, which `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`
+    /// rules out: knowledge speaks through a metric.
+    #[error(
+        "{path} is a `kind: declaration` document that does not list `structure` under `definitions:`, and a catalog always carries models"
+    )]
+    DeclarationWithoutStructure { path: PathBuf },
 }
 
 // The canonical form and its hash used to live here, and a review showed why they could not: while
@@ -325,7 +340,7 @@ impl LocalCatalog {
     /// dispatch differs. A second walk over a `knowledge/` subdirectory would make the directory
     /// layout part of the format, and the layout is the one thing about this adapter that another
     /// adapter - a metadata service with no directories at all - cannot reuse.
-    fn read_all(&self) -> Result<Content, LocalCatalogError> {
+    fn read_declared(&self) -> Result<Declared, LocalCatalogError> {
         let mut collected = Collected::default();
         let mut total_bytes: u64 = 0;
 
@@ -383,6 +398,12 @@ impl LocalCatalog {
         collected.assemble()
     }
 
+    /// [`Self::read_declared`] without the declaration, for the cells that are about content.
+    #[cfg(test)]
+    fn read_all(&self) -> Result<Content, LocalCatalogError> {
+        self.read_declared().map(|(content, _)| content)
+    }
+
     fn parse<T>(path: &Path, frontmatter: &str, kind: DocumentKind) -> Result<T, LocalCatalogError>
     where
         T: serde::de::DeserializeOwned,
@@ -435,7 +456,7 @@ fn map_read_error(cause: sutura_bounded_read::ReadError) -> LocalCatalogError {
 
 /// Everything read so far, in the two groups it will be checked in.
 ///
-/// A value rather than seven locals in [`LocalCatalog::read_all`], and the reason is a limit rather
+/// A value rather than seven locals in [`LocalCatalog::read_declared`], and the reason is a limit rather
 /// than taste: seven `Vec`s threaded through a dispatch function is more arguments than
 /// `clippy.toml`'s `too-many-arguments-threshold` permits, and the alternative - one function holding
 /// the walk and both dispatches - is over `too_many_lines`. Both limits are pointing at the same
@@ -452,6 +473,7 @@ struct Collected {
     caveats: Vec<Caveat>,
     absences: Vec<Absence>,
     examples: Vec<Example>,
+    declared: Option<MetadataCapabilities>,
 }
 
 impl Collected {
@@ -463,6 +485,23 @@ impl Collected {
             }
             DocumentKind::Glossary | DocumentKind::Caveat | DocumentKind::NotDefined | DocumentKind::Example => {
                 self.absorb_note(path, split, kind)
+            }
+            DocumentKind::Declaration => {
+                if self.declared.is_some() {
+                    return Err(LocalCatalogError::SecondDeclaration {
+                        path: PathBuf::from(path),
+                    });
+                }
+                let doc: DeclarationDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                let declared = doc.into_domain();
+                let definitions = declared.definitions();
+                if !definitions.declares(DefinitionKind::Structure) || definitions.is_conditional(DefinitionKind::Structure) {
+                    return Err(LocalCatalogError::DeclarationWithoutStructure {
+                        path: PathBuf::from(path),
+                    });
+                }
+                self.declared = Some(declared);
+                Ok(())
             }
         }
     }
@@ -556,29 +595,29 @@ impl Collected {
         Ok(())
     }
 
-    /// The definitions, and the knowledge checked against them.
+    /// The definitions, the knowledge checked against them, and what the tree declares.
     ///
-    /// **This adapter declares every knowledge capability there is, and that is a statement about the
-    /// ADAPTER rather than about the directory it read.** A markdown catalog in git is a reviewed
-    /// first-party catalog: it can carry a glossary, a caveat, a reviewed list of what is deliberately
-    /// undefined and a worked question, so a tree that happens to hold none of one of them has an
-    /// empty list rather than no such concept - and the prompt may still say the absence list is
-    /// authoritative, because somebody keeps it. A metadata-service adapter is the other case: it has
-    /// glossary terms with synonyms and no way at all to record an absence, so it will declare the two
-    /// it can represent and never the other two. `sutura_domain::knowledge` argues why the two must
-    /// not look alike.
+    /// **A tree with no `kind: declaration` document declares every knowledge capability there is,
+    /// and that is a statement about the FORMAT rather than about the directory.** A markdown catalog
+    /// in git is a reviewed first-party catalog: it can carry a glossary, a caveat, a reviewed list
+    /// of what is deliberately undefined and a worked question, so a tree that holds none of one of
+    /// them has an empty list rather than no such concept - and the prompt may still say the absence
+    /// list is authoritative, because somebody keeps it. A tree whose author keeps no such list says
+    /// so in a [`DeclarationDoc`], and the prompt then reads that kind as absent; `sutura import wren`
+    /// writes one with no knowledge at all. `sutura_domain::knowledge` argues why the two must not
+    /// look alike.
     ///
-    /// [`KnowledgeCapabilities::all`] rather than a list of the four, deliberately: it says "this
-    /// provider supports whatever kinds exist", which is what makes this the reference adapter and
-    /// what keeps a fifth kind from needing an edit here. An adapter mapping a fixed external schema
-    /// gets the opposite treatment - `of([..])`, so a new kind leaves its declaration alone.
-    fn assemble(self) -> Result<Content, LocalCatalogError> {
+    /// [`KnowledgeCapabilities::all`] as the default rather than a list of the four, deliberately: it
+    /// says "this provider supports whatever kinds exist", which keeps a fifth kind from needing an
+    /// edit here.
+    fn assemble(self) -> Result<Declared, LocalCatalogError> {
+        let declared = self.declared.unwrap_or_else(<LocalCatalog as SemanticCatalog>::capabilities);
         let definitions = Definitions::assemble(self.models, self.relationships, self.metrics)
             .map_err(|cause| LocalCatalogError::Inconsistent { cause })?;
         let knowledge = Knowledge::assemble(
             &definitions,
             KnowledgeInput::new(
-                KnowledgeCapabilities::all(),
+                declared.knowledge().clone(),
                 self.glossary,
                 self.caveats,
                 self.absences,
@@ -586,7 +625,7 @@ impl Collected {
             ),
         )
         .map_err(|cause| LocalCatalogError::UncheckableKnowledge { cause })?;
-        Ok((definitions, knowledge))
+        Ok(((definitions, knowledge), declared))
     }
 }
 
@@ -602,7 +641,7 @@ impl SemanticCatalog for LocalCatalog {
     /// supplies whatever kinds exist - a tenth definition kind or a fifth knowledge capability gets
     /// a document shape and needs no edit on this line. That is what makes this the reference
     /// adapter, and it is the same argument [`KnowledgeCapabilities::all`] carries in
-    /// [`Self::read_all`]'s doc comment, generalised to the other half of the bundle by
+    /// `Collected::assemble`'s doc comment, generalised to the other half of the bundle by
     /// `docs/adr/0016-what-datahub-can-carry.md`.
     ///
     /// **`ColumnTypes` and `ColumnDescriptions` are the one exception, and review is why: they are
@@ -623,14 +662,17 @@ impl SemanticCatalog for LocalCatalog {
     /// `MetadataCapabilities::of` with two explicit lists, so a new kind leaves its declaration
     /// alone rather than silently widening it.
     ///
-    /// **The limit, next to the claim.** Declaring every kind unconditionally (all but the two
-    /// above) says nothing about the directory: a tree with no relationships in it produces a
-    /// bundle with none, and this declaration is what tells a reader that the emptiness is the
-    /// corpus's rather than the format's. `sutura-app`'s golden suite checks the pair over the
-    /// example catalog, which carries every kind including the two conditional ones - so a claim
-    /// wider than what this adapter can actually read still fails there, and the two examples this
-    /// issue's own corpus edits carry a typed, described column specifically so that check keeps
-    /// proving something.
+    /// **The limit, next to the claim: this is the FORMAT's declaration, and a tree may state less.**
+    /// A tree with no `kind: declaration` document records exactly this in its manifest, so a tree
+    /// that lacks a kind this declares refuses to compose. A tree with one ([`DeclarationDoc`])
+    /// records what it states instead, and is held to that: `sutura import wren` writes one, because
+    /// its tree holds no cardinality and no knowledge (`github.com/telekom/sutura#1278`). What a
+    /// tree states is not checked against this declaration, which is vacuous while this one
+    /// declares every kind. `sutura-app`'s golden suite checks this declaration over the example
+    /// catalog, which carries every kind including the two conditional ones - so a claim wider than
+    /// what this adapter can actually read still fails there, and the two examples this issue's own
+    /// corpus edits carry a typed, described column specifically so that check keeps proving
+    /// something.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
             DefinitionCapabilities::all().and_may_provide([DefinitionKind::ColumnTypes, DefinitionKind::ColumnDescriptions]),
@@ -639,7 +681,7 @@ impl SemanticCatalog for LocalCatalog {
     }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        let (definitions, knowledge) = self.read_all()?;
+        let ((definitions, knowledge), declared) = self.read_declared()?;
         // `pin` hashes the content it is about to store, using the domain's own canonical form. This
         // adapter no longer supplies the hasher, and that is the point: while it did, safe public
         // code could pass a function that ignored its argument and pair any digest with any
@@ -647,13 +689,13 @@ impl SemanticCatalog for LocalCatalog {
         // goes under the same digest, because a glossary decides which metric a question is about,
         // and so does the contribution manifest, because a bundle's digest has to cover which source
         // composed it. A single-source deployment carries a one-entry manifest - `docs/adr/0011`'s
-        // shape - and this adapter stamps its own declared name and its own capability declaration,
-        // which is the one piece of composition knowledge a single source has.
+        // shape - and this adapter stamps its own declared name and the tree's declaration, which is
+        // the one piece of composition knowledge a single source has.
         PinnedDefinitions::pin(
             self.version.clone(),
             definitions,
             knowledge,
-            ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+            ContributionManifest::single(self.name.clone(), Contribution::of(declared)),
         )
         .map_err(|cause| LocalCatalogError::Digest { cause })
     }

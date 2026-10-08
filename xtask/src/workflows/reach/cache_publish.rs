@@ -9,7 +9,9 @@
 //! (`github.com/telekom/sutura#1037`, issuecomment-5900986058), keyed by JOB as well as by name, so
 //! a release output moved into an exempt job is still refused, and so is a listed name built from
 //! any other job. That keying is [`CACHE_ONLY`]'s alone: `.#deps` (while it is `ciArtifacts`) and
-//! every `checks.*` output pass in any job, as they do in ordinary CI.
+//! every `checks.*` output pass in any job, as they do in ordinary CI. The list is held in both
+//! directions: a name the file builds outside it is refused, and so is a pair in it that the file
+//! no longer builds.
 //!
 //! **The limit, next to the claim.** The one output the owner named NOT exempt - the cross-build
 //! job's shipped binary - is built as `.#${bin}-${TARGET}-ci`, an interpolated name no rule here
@@ -31,23 +33,55 @@ const CACHE_ONLY: &[(&str, &str)] = &[
     ("downstream-deps", "deps-native-ci"),
     ("downstream-deps", "deps-native-release"),
     ("downstream-deps", "deps-musl-release"),
+    ("downstream-deps", "adbc-driver-bigquery-x86_64-unknown-linux-gnu"),
+    ("downstream-deps", "adbc-driver-bigquery-x86_64-unknown-linux-musl"),
+    ("downstream-deps", "adbc-driver-postgresql-x86_64-unknown-linux-musl"),
+    ("downstream-deps", "adbc-driver-duckdb-x86_64-unknown-linux-musl"),
 ];
 
-/// Every literal release output `cachix-push.yml` builds outside [`CACHE_ONLY`], labelled the way
-/// [`super::release_outputs`] labels a walked file. An absent file contributes nothing.
+/// Every literal release output `cachix-push.yml` builds outside [`CACHE_ONLY`], then every
+/// [`CACHE_ONLY`] pair the file does not build, labelled the way [`super::release_outputs`] labels
+/// a walked file. An absent file contributes nothing.
 pub(super) fn outputs(root: &Path, deps_exempt: bool) -> Vec<String> {
-    std::fs::read_to_string(root.join(CACHE_PUBLISH)).map_or_else(|_| Vec::new(), |text| refused(&text, deps_exempt))
+    std::fs::read_to_string(root.join(CACHE_PUBLISH)).map_or_else(
+        |_| Vec::new(),
+        |text| {
+            refused(&text, deps_exempt)
+                .into_iter()
+                .chain(unbuilt(&text, deps_exempt))
+                .collect()
+        },
+    )
 }
 
+/// The job `line` (1-based) sits in, `None` outside `jobs:`.
+fn job_at<'a>(jobs: &[Option<&'a str>], line: usize) -> Option<&'a str> {
+    line.checked_sub(1).and_then(|index| jobs.get(index)).copied().flatten()
+}
+
+/// Every literal release output `cachix-push.yml` builds outside [`CACHE_ONLY`].
 fn refused(text: &str, deps_exempt: bool) -> Vec<String> {
     let jobs = job_of_each_line(text);
     super::literal_release_builds(text, deps_exempt)
         .into_iter()
-        .filter(|(line, output)| {
-            let job = line.checked_sub(1).and_then(|index| jobs.get(index)).copied().flatten();
-            !job.is_some_and(|job| CACHE_ONLY.contains(&(job, output.as_str())))
-        })
+        .filter(|(line, output)| !job_at(&jobs, *line).is_some_and(|job| CACHE_ONLY.contains(&(job, output.as_str()))))
         .map(|(line, output)| format!("cachix-push.yml:{line}  {output}"))
+        .collect()
+}
+
+/// The [`CACHE_ONLY`] pairs the workflow does not build: an exemption for a build that is gone is a
+/// name nothing holds.
+fn unbuilt(text: &str, deps_exempt: bool) -> Vec<String> {
+    let jobs = job_of_each_line(text);
+    let built = super::literal_release_builds(text, deps_exempt);
+    CACHE_ONLY
+        .iter()
+        .filter(|&&(job, name)| {
+            !built
+                .iter()
+                .any(|(line, output)| output == name && job_at(&jobs, *line) == Some(job))
+        })
+        .map(|(job, name)| format!("cachix-push.yml  {name} is exempt in `{job}` and that job does not build it"))
         .collect()
 }
 
@@ -95,6 +129,50 @@ mod tests {
         "      - run: nix build .#xtask\n",
     );
 
+    const EXEMPT: &str = concat!(
+        "on:\n",
+        "  push:\n",
+        "jobs:\n",
+        "  push:\n",
+        "    steps:\n",
+        "      - run: |\n",
+        "          nix build --print-build-logs \\\n",
+        "            .#xtask \\\n",
+        "            .#jscpd\n",
+        "  downstream-deps:\n",
+        "    steps:\n",
+        "      - run: |\n",
+        "          nix build --print-build-logs \\\n",
+        "            .#deps-native-ci \\\n",
+        "            .#deps-native-release \\\n",
+        "            .#deps-musl-release \\\n",
+        "            .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \\\n",
+        "            .#adbc-driver-bigquery-x86_64-unknown-linux-musl \\\n",
+        "            .#adbc-driver-duckdb-x86_64-unknown-linux-musl \\\n",
+        "            .#adbc-driver-postgresql-x86_64-unknown-linux-musl\n",
+    );
+
+    const WRONG_JOB: &str = concat!(
+        "on:\n",
+        "  push:\n",
+        "jobs:\n",
+        "  push:\n",
+        "    steps:\n",
+        "      - run: nix build .#jscpd\n",
+        "  downstream-deps:\n",
+        "    steps:\n",
+        "      - run: |\n",
+        "          nix build --print-build-logs \\\n",
+        "            .#xtask \\\n",
+        "            .#deps-native-ci \\\n",
+        "            .#deps-native-release \\\n",
+        "            .#deps-musl-release \\\n",
+        "            .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \\\n",
+        "            .#adbc-driver-bigquery-x86_64-unknown-linux-musl \\\n",
+        "            .#adbc-driver-postgresql-x86_64-unknown-linux-musl \\\n",
+        "            .#adbc-driver-duckdb-x86_64-unknown-linux-musl\n",
+    );
+
     #[test]
     fn a_release_output_in_the_cache_publish_workflow_is_refused_and_the_exempt_closures_are_not() {
         assert_eq!(
@@ -107,6 +185,36 @@ mod tests {
             ],
             "a release output continued onto a later line, the cross job's binary, a release output \
              beside exempt closures, and an exempt name from a job it is not exempt in are each refused"
+        );
+    }
+
+    #[test]
+    fn a_cache_only_pair_the_workflow_still_builds_is_not_reported() {
+        assert_eq!(super::unbuilt(EXEMPT, true), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_cache_only_name_the_workflow_no_longer_builds_is_refused() {
+        // The reviewed mutation: the DuckDB line leaves the `nix build`, `CACHE_ONLY` keeps its name.
+        let without = EXEMPT.replace("            .#adbc-driver-duckdb-x86_64-unknown-linux-musl \\\n", "");
+        assert_ne!(without, EXEMPT);
+        assert_eq!(
+            super::unbuilt(&without, true),
+            vec![String::from(
+                "cachix-push.yml  adbc-driver-duckdb-x86_64-unknown-linux-musl is exempt in \
+                 `downstream-deps` and that job does not build it"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_cache_only_name_built_in_another_job_does_not_count() {
+        // `xtask` is exempt in `push`; built only from `downstream-deps` it does not satisfy `push`.
+        assert_eq!(
+            super::unbuilt(WRONG_JOB, true),
+            vec![String::from(
+                "cachix-push.yml  xtask is exempt in `push` and that job does not build it"
+            )]
         );
     }
 
@@ -139,5 +247,13 @@ mod tests {
         assert!(root.join(super::CACHE_PUBLISH).exists(), "the rule reads a file that is gone");
         let deps_exempt = super::super::deps_is_the_dependency_closure(&root);
         assert_eq!(super::outputs(&root, deps_exempt), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_committed_cache_publish_workflow_builds_every_cache_only_name() {
+        let root = crate::repo::root().expect("the repo root");
+        let text = std::fs::read_to_string(root.join(super::CACHE_PUBLISH)).expect("the cache-publish workflow");
+        let deps_exempt = super::super::deps_is_the_dependency_closure(&root);
+        assert_eq!(super::unbuilt(&text, deps_exempt), Vec::<String>::new());
     }
 }

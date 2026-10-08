@@ -8,13 +8,15 @@
 //! answer is held to figures worked out by hand from the derived CSVs: the combiner is shared by
 //! every side, so only a literal catches a defect in it.
 //!
-//! The per-data-system half is [`disagreement`], asserted over the whole registry by
+//! The per-data-system half is [`compared`], asserted over the whole registry by
 //! `tests/differential.rs`'s
 //! `leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused`.
 //!
 //! **What this does NOT establish.** Every leg runs under one operating-system identity, as in the
 //! rest of `federated.rs`. Both facts sit on one source, because a calendar declared once per source
-//! is not built. And a registered data system whose tier is not up here is skipped, not compared.
+//! is not built. And a registered data system whose tier is not up here is skipped under its named
+//! exemption, not compared: the registry cell asks `adapters::runs_here` first, and refuses a
+//! [`TwoFact::NotAsked`] from a system that call said runs here.
 
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;
@@ -143,19 +145,29 @@ fn the_two_fact_ratio_is_the_figure_its_rows_add_up_to() {
     }
 }
 
-/// One registered data system holding every leg, on both sources, against two engines: `None` where
-/// it answers what they do, or is skipped, and otherwise what it did instead.
+/// What one registered data system did with the two-fact question.
+pub(crate) enum TwoFact {
+    /// Not available here, so never asked. The registry cell refuses this from a system
+    /// `adapters::runs_here` says runs here, which is what keeps a skip from passing as a comparison.
+    NotAsked,
+    /// Answered what the two engines answer, or - declaring no leg execution - was refused by name.
+    Held,
+    /// What it did instead.
+    Broke(String),
+}
+
+/// One registered data system holding every leg, on both sources, against two engines.
 ///
 /// A finding rather than a panic, so `tests/differential.rs`'s one cell makes the assertion. A data
 /// system that declares no leg execution must be refused by name before anything runs -
-/// `ClickHouse` - and one whose tier is not up here is skipped.
-pub(crate) fn disagreement<W>() -> Option<String>
+/// `ClickHouse`.
+pub(crate) fn compared<W>() -> TwoFact
 where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
     if !W::available() {
-        return None;
+        return TwoFact::NotAsked;
     }
     let derived = derived();
     let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
@@ -171,8 +183,8 @@ where
         return match answered(&side, &question(), NAME, &combiner) {
             Ok(ToolOutcome::Refusal {
                 reason: RefusalReason::FederationNotExecutable,
-            }) => None,
-            other => Some(format!(
+            }) => TwoFact::Held,
+            other => TwoFact::Broke(format!(
                 "{NAME}: {} runs no leg, so it is refused as not executable, not {other:?}",
                 W::NAME
             )),
@@ -189,7 +201,7 @@ where
     let reference = rows_of(&two_engines(bundle(&derived.two_source)));
     let other = match answered(&side, &question(), NAME, &combiner) {
         Ok(ToolOutcome::Answer { rows, .. }) => rows,
-        other => return Some(format!("{NAME}: {} gave no answer: {other:?}", W::NAME)),
+        other => return TwoFact::Broke(format!("{NAME}: {} gave no answer: {other:?}", W::NAME)),
     };
     agree_on_content(&reference, &other, RealTolerance::DIFFERENTIAL)
         .map_err(|d| format!("{NAME}: two engines and {} returned different rows - {d}", W::NAME))
@@ -201,5 +213,5 @@ where
                 )
             })
         })
-        .err()
+        .map_or_else(TwoFact::Broke, |()| TwoFact::Held)
 }

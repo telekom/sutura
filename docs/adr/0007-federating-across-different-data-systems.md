@@ -56,7 +56,8 @@ a mechanism instead of redeveloping one. *Fifth amendment, 2026-09-22* is that d
 `sutura_domain::plan::FederationCombiner`, implemented by `sutura_exec_datafusion::DataFusionCombiner`
 and wired at the composition root - and the hand-written function is deleted.
 `datafusion-federation` is **still not** the mechanism: 0039's step 4 is blocked ahead of an upstream
-manifest change, so what is built is our own `DataFusion` plan behind that port, and the crate plugs
+manifest change (*corrected by the twelfth amendment: that change is released, and step 4 waits for
+its caller*), so what is built is our own `DataFusion` plan behind that port, and the crate plugs
 in where the port already is. What that record adds is where the implementation lives - an ADAPTER
 crate, because `ALLOWED_IN_DOMAIN`'s line is *no runtime, no client, no engine* and DataFusion is an
 engine - and what it costs, per step, with the measurement that bounds each. **What survives every
@@ -1039,7 +1040,7 @@ governance boundary is crossed that nothing in this system models.
 - **Whether the `RowSet`-to-Arrow conversion survives the first federated answer or is replaced before
   it.** The boundary is decided - one function, in the combiner crate - and its lifetime is not. The
   measurement above is what decides it, and an Arrow-typed port is a record 0009 already says is
-  wanted.
+  wanted. *Retired by the fifth amendment; the twelfth amendment says how.*
 - **Which artifact ships which adapter**, inherited unchanged from ADR 0006 and multiplied by the
   number of data systems.
 - **How a cross-source join key is declared and compared.** A relationship names two models and their
@@ -1292,7 +1293,8 @@ what this buys. What the combiner carries per subject instead is an opaque
 equality is `name() == name() && compute_context() == compute_context()` and equal contexts are what
 its optimizer fuses into one federated node executed through ONE of them. Nothing in this build
 compares two contexts yet: that crate is step 4 of `docs/adr/0039` and is blocked ahead of an
-upstream manifest change. So the seam is where a provider plugs in, and the value reaching it is a
+upstream manifest change (*corrected by the twelfth amendment: the change is released, and the
+caller is what is missing*). So the seam is where a provider plugs in, and the value reaching it is a
 digest rather than a person's identifier in `EXPLAIN` output.
 
 **Two refusals this record decided are gone, and both because the port made them unrepresentable
@@ -1401,3 +1403,30 @@ What holds the rendering: the Oracle goldens, unchanged by the deletion;
 in between; and `a_quoted_identifier_names_the_object_the_dictionary_stores`, run by
 `just oracle-acceptance`, which executes a whole plan ending in `FETCH FIRST` against a provisioned
 Oracle. Limit: that is one plan shape on one server, not every shape the goldens pin.
+
+## Eleventh amendment, 2026-10-02: the missing musl `libduckdb` no longer blocks a native driver
+
+The three things that survive the attach milestone name "the missing musl `libduckdb`" as the
+blocker for which artifact ships a native driver. It is not missing: nixpkgs' `duckdb` cross-builds
+for both musl triples, and `nix/duckdb-adbc.nix` links a `-static` probe against its merged archive,
+which `nix/shipped.nix` hands to every musl link as an ADBC driver. The other two survivors - how a
+serving surface holds a connection, and the multi-source fixture with its refusal tests - are
+unchanged, and so is the question itself: no shipped code calls that driver yet.
+
+## Twelfth amendment, 2026-10-07: two statements the later amendments made false
+
+**Step 4's blocker is no longer upstream.** The pointer near the top of this record and the Fifth
+amendment both say step 4 of `docs/adr/0039` (adopting `datafusion-federation`) is blocked ahead of
+an upstream manifest change. That change is released in `datafusion-federation` 0.5.7 (the third
+amendment of that record carries the measurement). Step 4 is still not built: it waits for its
+caller, a provider implementation, which does not exist.
+
+**The `RowSet`-to-Arrow bullet under *What is explicitly not decided* is spent.** It asks whether the
+conversion survives the first federated answer. It does not: `Warehouse::execute` answers
+`ResultBatches`, and the combiner port takes the legs as batches and answers `ResultBatches`, so no
+conversion sits on the federated path. `of_row_set` survives only for an adapter whose driver speaks
+rows, which is ClickHouse and Oracle. Left above as written, per the amendment convention, with an
+inline note pointing here; this is the correction.
+
+**What this amendment does not touch.** The transport bullet and the join-key bullet in the same list
+wait on owner decisions and stay as they are.

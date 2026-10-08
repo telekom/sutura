@@ -147,9 +147,42 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         instead: "the engine ships. `sutura query` opens a `DataFusionWarehouse` over the Parquet, \
                   CSV and NDJSON files in the directory it was given - each text format plain or \
                   compressed, Parquet first; `sutura-exec-duckdb` is a DEV-dependency of \
-                  `sutura-app`'s tests. `docs/architecture.md`'s table is the inventory",
+                  `sutura-app`'s tests and, behind `sutura-cli`'s default-off `duckdb` feature, \
+                  what a `kind: duckdb` source opens. `docs/architecture.md`'s table is the inventory",
         only: &[],
         except: &[],
+    },
+    Contradicted {
+        // `telekom/sutura#1292` and `#1236`, landed together. Both records keep the sentence and
+        // correct it in a later amendment (0018's twenty-first, 0029's sixth), so they are exempt and
+        // this stops the wording coming back anywhere else.
+        name: "the DuckDB adapter only carries its deadline and is a dev-dependency",
+        wordings: &[
+            "`sutura-exec-duckdb` stays a dev-dependency",
+            "Carry-only deadlines stay the stated limit",
+            "carry-only deadlines remain the stated limit",
+            "Deadlines stay carried-only",
+            "It is a test venue, and its column stays empty",
+        ],
+        evidence: &[
+            Evidence {
+                path: "crates/sutura-exec-duckdb/src/lib.rs",
+                holds: "connection.cancel()",
+            },
+            Evidence {
+                path: "crates/sutura-cli/Cargo.toml",
+                holds: "duckdb = [\"dep:sutura-exec-duckdb\"]",
+            },
+        ],
+        instead: "a watchdog cancels the call's connection at the deadline, on `execute` and \
+                  `execute_raw` (`docs/adr/0029`'s sixth amendment), and `sutura-cli`'s default-off \
+                  `duckdb` feature names `sutura-exec-duckdb` as an optional dependency, which a \
+                  `kind: duckdb` source opens",
+        only: &[],
+        except: &[
+            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
+            "docs/adr/0029-where-a-deadline-lives.md",
+        ],
     },
     Contradicted {
         name: "nothing here logs",
@@ -676,7 +709,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         evidence: &[
             Evidence {
                 path: "nix/shipped.nix",
-                holds: "probeFeatures = [ \"bigquery\" \"postgres\" ]",
+                holds: "probeFeatures = [ \"bigquery\" \"postgres\" \"duckdb\" \"clickhouse\" ]",
             },
             Evidence {
                 path: "crates/sutura-cli/Cargo.toml",

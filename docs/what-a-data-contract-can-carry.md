@@ -98,9 +98,11 @@ column. `semanticType` is `column`/`measure`/`dimension` (default `column`), whe
 documented as *an aggregated value whose aggregation expression is held in `transformLogic`*. `synonyms`
 (RFC-0041) helps tools resolve business vocabulary, and `context` (RFC-0038, contract and
 `SchemaObject` level) carries `instructions`, `verifiedStatements` Q&A and `constraints` for AI agents.
-`context` and `synonyms` are the closest thing ODCS has to this repository's `Knowledge`, but every
-`Referent` here is metric-anchored and ODCS has none - so they stay prose that travels rather than
-referent-bearing knowledge, the same limit `enum` and `semanticType: dimension` hit.
+`context` and `synonyms` are the closest thing ODCS has to this repository's `Knowledge`. A `Referent`
+names a metric, a dimension or a value of one - and ODCS has no metric - or a declared model or
+column, which a schema object and its properties are. The adapter maps neither `context` nor `synonyms`
+to a referent, so they stay prose that travels rather than referent-bearing knowledge; `enum` and
+`semanticType: dimension` stay absent because there is no metric to own them.
 
 **Relationships.** No relationship construct exists in the 3.0 line. v3.1.0 adds a `relationships`
 array at both levels together - schema-level on `SchemaObject`, property-level on `SchemaBaseProperty`
@@ -161,7 +163,7 @@ own verdict, unchanged.
 | `Description`                         | `SchemaElement.description` / `businessName`, contract `description.usage/purpose/limitations`               | **may-provide** - `description` is optional                                                                            |
 | `ColumnTypes`                         | `properties[].logicalType` (enum) + `physicalType` (free text)                                               | **may-provide** - `logicalType` is optional; `ColumnType`-parsed                                                       |
 | `ColumnDescriptions`                  | `properties[].description` / `businessName` (free text)                                                      | **may-provide** - optional per property                                                                                |
-| primary key                           | `SchemaBaseProperty.primaryKey` (+ `primaryKeyPosition` order)                                               | **provides** - evidence on `Model::with_primary_key`, and target-uniqueness evidence for the relationship rule below   |
+| primary key                           | `SchemaBaseProperty.primaryKey` (`primaryKeyPosition` unread)                                                | **provides** - evidence on `Model::with_primary_key`, and target-uniqueness evidence for the relationship rule below   |
 | `required`                            | `SchemaBaseProperty.required` (boolean, not-null)                                                            | **carried, not a declared kind** - maps onto `Column.nullable` (`Some(false)`); no `DefinitionKind` covers nullability |
 | `unique`                              | `SchemaBaseProperty.unique` (boolean)                                                                        | **no `Column`-level carrier** of its own; feeds the relationship rule below as single-column target evidence           |
 | `Relationship` (join)                 | `schema[].relationships[]` (v3.1+): foreignKey, from/to, single-column `primaryKey`/`unique` target evidence | **may-provide** on v3.1+ under the `sutura-catalog-rdbms` target-uniqueness rule (absent in the 3.0 line)              |
@@ -173,7 +175,7 @@ own verdict, unchanged.
 | `Anchor`                              | none                                                                                                         | **absent, declared**                                                                                                   |
 | `Audience` (who may see a metric)     | `properties[].classification` - a free-text string, e.g. `confidential` / `restricted` / `public`            | **reported, not defined** - see the classification paragraph                                                           |
 | SLA                                   | `slaProperties[]` + `slaDefaultElement`                                                                      | **reported, ignored by declaration** (issue #973's own constraint)                                                     |
-| `Knowledge` with `Referent`           | `description` / `businessName` free text, `context` (v3.2.0, RFC-0038) and `synonyms` (v3.2.0, RFC-0041)     | **partial** - prose travels; every `Referent` is metric-anchored and there is no metric to anchor it to                |
+| `Knowledge` with `Referent`           | `description` / `businessName` free text, `context` (v3.2.0, RFC-0038) and `synonyms` (v3.2.0, RFC-0041)     | **partial** - prose travels; no `Referent` is built: there is no metric, and the adapter maps no model note            |
 
 ## The classification question, stated honestly
 

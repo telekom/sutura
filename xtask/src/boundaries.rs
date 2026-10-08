@@ -76,12 +76,16 @@ mod ports;
 mod second_workspace;
 mod shared_client;
 mod ungoverned;
+#[cfg(test)]
+mod wrapper_cells;
 
 use crate::Verdict;
 
 pub(crate) use edges::{DOMAIN, Edges, FORBIDDEN_EDGES, reaches, transitive_names, violations};
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
+    // The halves below ask for the same `cargo metadata` seven times over; one run, one answer.
+    let _metadata = crate::MetadataRun::open();
     // Every half runs even when an earlier one fails. They are independent findings, and a gate
     // that stops early makes the second violation look like it appeared after the first fix.
     let direction = dependency_direction();
@@ -156,9 +160,9 @@ fn no_adapter_in_application() -> Verdict {
     }
 }
 
-/// The same third shape as [`no_adapter_in_application`], for `sutura-http-client` -
-/// `shared_client`'s own header is the argument for why the crate needed its own row rather than
-/// inheriting `sutura-tls`'s.
+/// The same third shape as [`no_adapter_in_application`], once per unprefixed shared crate -
+/// `shared_client`'s own header is the argument for why each needed its own row rather than
+/// inheriting `sutura-tls`'s. Every row runs, so one failure does not hide another.
 fn no_adapter_in_shared_client() -> Verdict {
     let meta = match crate::cargo_metadata(&["--all-features"]) {
         Ok(value) => value,
@@ -167,88 +171,41 @@ fn no_adapter_in_shared_client() -> Verdict {
             return Verdict::Fail;
         }
     };
-    let client = match shared_client::check(&meta) {
-        Err(message) => {
-            eprintln!("xtask check-boundaries: {message}");
-            Verdict::Fail
-        }
-        Ok(report) if report.problems.is_empty() => {
-            println!(
-                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
-                 normal edge ({} crate(s) in its normal tree)",
-                shared_client::SHARED_CLIENT,
-                report.tree_size
-            );
-            Verdict::Pass
-        }
-        Ok(report) => {
-            eprintln!("xtask check-boundaries: FAILED - the shared HTTP client reaches a forbidden crate:");
-            for problem in &report.problems {
-                eprintln!("  {problem}");
-            }
-            eprintln!();
-            shared_client::explain();
-            Verdict::Fail
-        }
-    };
-    // `sutura-bounded-read` gets the identical row for the identical reason - `shared_client`'s
-    // own header on `BOUNDED_READ`. One half, not two, because both ask the same question of the
-    // same forbidden set; a reviewer touching either sees the row for the other right beside it.
-    let bounded_read = match shared_client::check_bounded_read(&meta) {
-        Err(message) => {
-            eprintln!("xtask check-boundaries: {message}");
-            Verdict::Fail
-        }
-        Ok(report) if report.problems.is_empty() => {
-            println!(
-                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
-                 normal edge ({} crate(s) in its normal tree)",
-                shared_client::BOUNDED_READ,
-                report.tree_size
-            );
-            Verdict::Pass
-        }
-        Ok(report) => {
-            eprintln!("xtask check-boundaries: FAILED - the shared bounded-read crate reaches a forbidden crate:");
-            for problem in &report.problems {
-                eprintln!("  {problem}");
-            }
-            eprintln!();
-            shared_client::explain_bounded_read();
-            Verdict::Fail
-        }
-    };
-    // `sutura-adbc` gets the same row for the same reason, a third time - `shared_client`'s own
-    // header on `ADBC`. PR 1146's review measured this crate's `sutura-adbc -> sutura-config` edge
-    // passing every other half of this gate before this row existed.
-    let adbc = match shared_client::check_adbc(&meta) {
-        Err(message) => {
-            eprintln!("xtask check-boundaries: {message}");
-            Verdict::Fail
-        }
-        Ok(report) if report.problems.is_empty() => {
-            println!(
-                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
-                 normal edge ({} crate(s) in its normal tree)",
-                shared_client::ADBC,
-                report.tree_size
-            );
-            Verdict::Pass
-        }
-        Ok(report) => {
-            eprintln!("xtask check-boundaries: FAILED - the shared ADBC crate reaches a forbidden crate:");
-            for problem in &report.problems {
-                eprintln!("  {problem}");
-            }
-            eprintln!();
-            shared_client::explain_adbc();
-            Verdict::Fail
-        }
-    };
-    if client == Verdict::Pass && bounded_read == Verdict::Pass && adbc == Verdict::Pass {
+    let verdicts: Vec<Verdict> = shared_client::ROWS
+        .iter()
+        .map(|row| shared_row(row, (row.check)(&meta)))
+        .collect();
+    if verdicts.iter().all(|verdict| *verdict == Verdict::Pass) {
         Verdict::Pass
     } else {
         Verdict::Fail
+    }
+}
+
+/// One [`shared_client::ROWS`] entry's verdict over its walk, printed the way every half prints.
+fn shared_row(row: &shared_client::Row, walked: Result<shared_client::Report, String>) -> Verdict {
+    match walked {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
+                 normal edge ({} crate(s) in its normal tree)",
+                row.watched, report.tree_size
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - {} reaches a forbidden crate:", row.what);
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            (row.explain)();
+            Verdict::Fail
+        }
     }
 }
 

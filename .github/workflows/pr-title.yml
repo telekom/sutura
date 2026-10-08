@@ -1,0 +1,53 @@
+# The subject the queue squashes onto `main` is the pull-request TITLE, which no local hook sees
+# (#935). A workflow of its own so a RENAME alone starts a fresh verdict: `ci`'s `pull_request`
+# trigger takes the default activity types, and `edited` is not among them (#1249).
+#
+# `pr-title` is a REQUIRED context, so it answers `merge_group` too - a required check that never
+# reports leaves a queue entry pending until the queue's timeout drops it. On a queue entry it
+# judges the queued pull request's title, read from the entry's `pr-<N>-<sha>` ref.
+#
+# The title is fetched at run time, never read from the event payload, which is frozen at run
+# start: a re-run after a rename judges the new string. No checkout and no PR-built code - the
+# title is data handed to one `grep -E`. That regex is `xtask/src/commit_msg.rs`'s `check_shape`
+# written as an ERE, and `pr_title::tests` runs this step's own body under a fake `gh` against
+# that rule, title by title. `cargo xtask check-workflows` holds the triggers.
+name: pr-title
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+  merge_group:
+permissions:
+  pull-requests: read
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: PR title
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) number="${GITHUB_REF#refs/pull/}"; number="${number%/merge}" ;;
+            merge_group) number="${GITHUB_REF##*/pr-}"; number="${number%%-*}" ;;
+            *) echo "pr-title: a $GITHUB_EVENT_NAME event carries no pull request" >&2; exit 1 ;;
+          esac
+          case "$number" in
+            '' | *[!0-9]*) echo "pr-title: no pull request number in $GITHUB_REF" >&2; exit 1 ;;
+          esac
+          title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq .title)"
+          # A newline joins as a space, so `grep` judges the whole title as one line.
+          if printf '%s' "$title" | tr '\n' ' ' | grep -Eq '^[[:space:]]*((Merge|Revert) .*[^[:space:]]|(fixup|squash|amend)!.*|(feat|fix|refactor|chore|test|docs|perf|ci|build|style|revert)(\([^:]*[^:[:space:]][^:]*\))?!?: .*[^.[:space:]])[[:space:]]*$'; then
+            printf 'pr-title: ok - %s\n' "$title"
+          else
+            printf 'pr-title: FAILED - %s\n' "$title" >&2
+            echo "Expected <type>[(scope)][!]: <subject> with no trailing period." >&2
+            echo "Types: feat, fix, refactor, chore, test, docs, perf, ci, build, style, revert." >&2
+            echo "The length is not judged: GitHub appends ' (#N)' to the landed subject." >&2
+            exit 1
+          fi

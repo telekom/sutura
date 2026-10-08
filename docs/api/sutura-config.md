@@ -320,31 +320,6 @@ site is a type error - the same reason a `SourceName` and a `SourceName` neighbo
 as two bare `String`s elsewhere in this workspace. `Copy`, like every other bound in this crate:
 it is read once at boot and carried by value from there.
 
-## `use CacheWindow`
-
-How long an operator lets the cache serve an entry, on top of whatever the credential's own
-life and the broker's floor already bound it to.
-
-**A ceiling only, never a grant.** `sutura_exec_bigquery`'s cache folds this window together
-with the credential's own expiry (minus the broker's floor) through `min`, so a large window
-here cannot make a served credential outlive what was actually minted - it can only make the
-cache stop serving an entry SOONER than the credential's own life would allow. That asymmetry is
-the whole reason this is a distinct type rather than a bare `u64`: the field name alone invites
-reading it as "how long the cache keeps something alive", and the truth is narrower - it is one
-of three numbers a `min` is taken over, and the other two are never influenced by it.
-
-## `use CredentialCacheSettings`
-
-The exchanged-credential cache's own settings.
-
-**`Copy`, like `crate::tools::ToolsSettings`**: every field is a small owned value, and this
-is held in `crate::Settings` the same way. There is deliberately no credential-shaped field
-here - this type is a bound and a switch, never a place a secret could arrive.
-
-## `use InvalidCredentialCacheSettings`
-
-`security.credential_cache.{capacity,window_seconds}` is not usable.
-
 ## `use InboundIdentity`
 
 How the identity of a caller reaches this deployment. Printed at startup, per deployment.
@@ -908,6 +883,15 @@ The configured value did not name a deployment mode.
 
 The configured value did not name a place TLS is terminated.
 
+## `use AllowedHost`
+
+A `Host` this deployment answers: a name or an address, with no port.
+
+Stored lower case and with an IPv6 literal unbracketed, which is the form the request-side check
+compares in. A port is refused rather than dropped: the check ignores ports, so a declared
+`host:8080` would read as a narrower allowance than it is. No wildcards - a literal name is the
+only thing this admits.
+
 ## `use BindAddress`
 
 The socket the service listens on.
@@ -924,6 +908,10 @@ The largest request body the service will read.
 A modelled question is a metric name, a grain, two dates and at most four dimensions, which
 is a few hundred bytes. The bound exists because a body limit is the cheapest availability
 control there is, and because the default in most stacks is whatever arrives.
+
+## `use InvalidAllowedHost`
+
+Why a declared host is not a name or an address.
 
 ## `use InvalidBindAddress`
 
@@ -1025,7 +1013,10 @@ The whole resolved configuration.
 `Clone` because it is held in the request state, and every field is either `Copy` or a small
 owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 `sutura_domain::identity::Secret`, whose `Debug` redacts, and a test in `crate::security`
-asserts that at struct depth.
+asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
+source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
+`Settings` exists. The
+limit: a secret with no `@`, such as one written into a path, is printed.
 
 ## `use SettingsError`
 
@@ -1175,9 +1166,9 @@ bare `String` carried past `parse_placement` unexamined - the exclusivity of `ho
 `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
+whitespace, a URL scheme, a path separator, a list separator, an `@` - and nothing about
+reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+connect time, and neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
 loopback test on the parsed text.
 
 ## `use InvalidHostName`
@@ -1753,6 +1744,7 @@ Why a catalog configuration is not usable.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+- `CredentialsInEndpoint` - `catalogs[].endpoint` carries an `@`. A catalog endpoint is `scheme://host[:port]`, so an `@` is userinfo however the URL parser splits it - refused here, before the startup log prints the resolved settings, and never quoted back.
 - `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
@@ -2608,122 +2600,6 @@ The window half of `SpendBudget`: how long a subject's spend accumulates before 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-## Module `identity_cache`
-
-The exchanged-credential cache's own settings - `docs/adr/0031`, `security.credential_cache`.
-
-**Off by default**, and the reason is stated rather than assumed: nobody has run a token
-exchange against a real authorization server yet (`github.com/telekom/sutura#376`), so the
-round-trip cost this cache would save is unmeasured. Shipping it off lets an operator turn it on
-once they have a measurement of their own `IdP`'s behaviour, rather than sutura asserting the
-trade on their behalf. Modelled on `crate::tools::ToolsSettings`: infallible once parsed, one
-key per capability, no group-wide switch.
-
-### `enum InvalidCredentialCacheSettings`
-
-```rust
-pub enum InvalidCredentialCacheSettings
-```
-
-`security.credential_cache.{capacity,window_seconds}` is not usable.
-
-#### Variants
-
-- `EmptyCapacity` - A capacity of zero caches nothing - a slower way to spell `enabled: false`.
-- `NoWindow` - A window of zero seconds serves nothing - the same shape of mistake as a zero capacity.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct CacheWindow`
-
-```rust
-pub struct CacheWindow
-```
-
-How long an operator lets the cache serve an entry, on top of whatever the credential's own
-life and the broker's floor already bound it to.
-
-**A ceiling only, never a grant.** `sutura_exec_bigquery`'s cache folds this window together
-with the credential's own expiry (minus the broker's floor) through `min`, so a large window
-here cannot make a served credential outlive what was actually minted - it can only make the
-cache stop serving an entry SOONER than the credential's own life would allow. That asymmetry is
-the whole reason this is a distinct type rather than a bare `u64`: the field name alone invites
-reading it as "how long the cache keeps something alive", and the truth is narrower - it is one
-of three numbers a `min` is taken over, and the other two are never influenced by it.
-
-#### Methods
-
-```rust
-pub const fn duration(self) -> Duration
-```
-
-The window, as a duration the broker's cache can add to an instant it read.
-
-```rust
-pub const fn parse(seconds: u64) -> Result<Self, InvalidCredentialCacheSettings>
-```
-
-Parses a configured number of seconds. Refuses zero, the same shape
-`sutura_config::server::RequestTimeout::parse` refuses one - a zero-second window is a
-cache that never serves anything, which is a slower way to spell `enabled: false`.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `struct CredentialCacheSettings`
-
-```rust
-pub struct CredentialCacheSettings
-```
-
-The exchanged-credential cache's own settings.
-
-**`Copy`, like `crate::tools::ToolsSettings`**: every field is a small owned value, and this
-is held in `crate::Settings` the same way. There is deliberately no credential-shaped field
-here - this type is a bound and a switch, never a place a secret could arrive.
-
-#### Methods
-
-```rust
-pub const fn capacity(self) -> NonZeroUsize
-```
-
-How many live entries the cache may hold at once.
-
-```rust
-pub const fn enabled(self) -> bool
-```
-
-Whether an operator turned this on. Off unless `security.credential_cache.enabled: true`.
-
-```rust
-pub const fn new(enabled: bool, capacity: NonZeroUsize, window: CacheWindow) -> Self
-```
-
-Assembles the group from parts that have each already been parsed.
-
-```rust
-pub fn parse(enabled: bool, capacity_entries: Option<u64>, window_seconds: Option<u64>) -> Result<Self, InvalidCredentialCacheSettings>
-```
-
-Reads the raw, optional configuration and applies the defaults above - a capacity or a
-window an operator did not write, never a capacity or a window of zero: those are refused
-by name rather than silently rounded up, the same way an unset `security.credential_cache`
-block is silently `enabled: false` rather than a refusal.
-
-```rust
-pub const fn window(self) -> CacheWindow
-```
-
-The operator's own ceiling on how long an entry is served.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Default`, `Eq`, `PartialEq`
 
 ## Module `inbound`
 
@@ -4457,12 +4333,6 @@ pub const fn audience_mapping(&self) -> &crate::audience::AudienceMapping
 `docs/adr/0028`'s deployment mapping: which audiences a verified caller's group claim grants.
 
 ```rust
-pub const fn credential_cache(&self) -> CredentialCacheSettings
-```
-
-The exchanged-credential cache's own settings - `docs/adr/0031`.
-
-```rust
 pub const fn describes_identity(&self) -> bool
 ```
 
@@ -4518,7 +4388,7 @@ pub const fn metrics_token(&self) -> Option<&AccessToken>
 The token that gates `/metrics`, when one is configured.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>, outbound_identity: Option<OutboundIdentity>, audience_mapping: crate::audience::AudienceMapping) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, outbound: Option<OutboundAnchors>, outbound_identity: Option<OutboundIdentity>, audience_mapping: crate::audience::AudienceMapping) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -5228,6 +5098,54 @@ Why a pair of paths is not usable TLS material.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `struct AllowedHost`
+
+```rust
+pub struct AllowedHost
+```
+
+A `Host` this deployment answers: a name or an address, with no port.
+
+Stored lower case and with an IPv6 literal unbracketed, which is the form the request-side check
+compares in. A port is refused rather than dropped: the check ignores ports, so a declared
+`host:8080` would read as a narrower allowance than it is. No wildcards - a literal name is the
+only thing this admits.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The host, lower case, an IPv6 literal without brackets.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidAllowedHost>
+```
+
+Reads a declared host.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidAllowedHost`
+
+```rust
+pub enum InvalidAllowedHost
+```
+
+Why a declared host is not a name or an address.
+
+#### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `NotAHost` - Not a domain name or an IP address - a scheme, a port, a path and a wildcard all land here.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct ServerSettings`
 
 ```rust
@@ -5249,10 +5167,17 @@ Whether the agent surface is mounted at `/mcp`. Off unless the deployment wrote
 `server.agent_surface.enabled: true`.
 
 Read by the composition root, which decides whether to build and attach an `AgentMount` to
-the service state; `sutura_http` then refuses to assemble when a mount is attached and no
-`security.inbound` gateway is declared, and a build without the `agent` feature cannot
-reference `sutura_mcp` at all. This crate cannot see a link, so this is the flag and the
+the service state; `Settings::load` and `sutura_http`'s assembly both refuse where
+`Settings::agent_surface_refusals` is not empty, and a build without the `agent` feature
+cannot reference `sutura_mcp` at all. This crate cannot see a link, so this is the flag and the
 refusal is the mechanism.
+
+```rust
+pub fn allowed_hosts(&self) -> &[AllowedHost]
+```
+
+The external hosts this deployment declared it answers, beyond the loopback names and the
+host of its own resource identifier. Empty unless `server.allowed_hosts` is written.
 
 ```rust
 pub const fn bind(&self) -> BindAddress
@@ -5263,7 +5188,7 @@ pub const fn max_body(&self) -> BodyLimit
 ```
 
 ```rust
-pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>, agent_surface_enabled: bool) -> Self
+pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>, agent_surface_enabled: bool, allowed_hosts: Vec<AllowedHost>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -5392,6 +5317,12 @@ legitimate one.
 
   Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
   included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
+- `Duckdb` - A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
+
+  Declarable and openable behind the `duckdb` feature, `Postgres`'s shape. One process holds the
+  file under its own operating-system identity, so `sutura_exec_duckdb`'s
+  `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
+  refused at the composition root's posture cross-check.
 
 #### Methods
 
@@ -5542,6 +5473,7 @@ convenience, and nothing needs to clone a startup refusal.
   rather than a widened first one: `data_dir` is the only key whose absence has a refusal of its
   own - `Self::NoDataDirectory` - so folding them would make one message stand for two checks
   that are not the same. This one names the key.
+- `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 
@@ -5816,9 +5748,9 @@ bare `String` carried past `parse_placement` unexamined - the exclusivity of `ho
 `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
+whitespace, a URL scheme, a path separator, a list separator, an `@` - and nothing about
+reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+connect time, and neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
 loopback test on the parsed text.
 
 ##### Methods
@@ -5854,6 +5786,7 @@ Why a declared Postgres host cannot be dialled at all.
 - `Scheme` - A URL was written where a bare host belongs - `host` is not a connection string.
 - `PathSeparator` - A `/` is a path separator, not a character a host or an address ever carries.
 - `List` - libpq reads `host` as a list of hosts.
+- `Userinfo` - A host carries no credentials, and the startup log prints the resolved settings.
 
 ##### Implements
 
@@ -6051,6 +5984,7 @@ be skipped" look like the same sentence and are not.
   caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
   widens, so no declared `transport_anchors` could be what the source verifies against. A field
   here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+- `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
 
 ##### Methods
 
@@ -6325,9 +6259,12 @@ on this side: an operator who means a loopback TCP dial writes `127.0.0.1` or `:
 The token-exchange setup one `impersonation-at-source` source declares.
 The Workload Identity Federation setup one `impersonation-at-source` source declares.
 
-**This process performs no exchange.** `audience` names the pool a subject's own assertion is
-federated against, and the federating is Google's token service's, driven by the driver from the
-`external_account` document `sutura_exec_bigquery`'s ADBC transport builds. A source that
+**This process performs no exchange with the pool.** `audience` names the pool a subject's own
+assertion is federated against, and the federating is Google's token service's, driven by the
+driver from the `external_account` document `sutura_exec_bigquery`'s ADBC transport builds. The
+one exchange this process can run is a declared
+`crate::sources::workload_identity::DelegationDeclared`, at the caller's own identity provider,
+before that. A source that
 executes as the asking subject has to say *which* pool receives that assertion, and that is the
 source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
 sixth amendment.
@@ -6450,6 +6387,13 @@ pub const fn audience(&self) -> &WifAudience
 The provider audience.
 
 ```rust
+pub const fn delegation(&self) -> Option<&DelegationDeclared>
+```
+
+The delegation exchange, if declared. `Some` requires `security.inbound.mode: direct` -
+`crate::NotFitToServe::DelegationWithoutDirectInbound`.
+
+```rust
 pub const fn expected_audience(&self) -> Option<&WifAudience>
 ```
 
@@ -6515,6 +6459,57 @@ it. The `BigQuery` client's own default scope applies instead.
 **Declared and unread, not declared and ignored** - the distinction is that this is the
 sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
 Removing the key is a settings break and a follow-up; misreporting it is a defect now.
+
+```rust
+pub fn with_delegation(self, delegation: Option<DelegationDeclared>) -> Self
+```
+
+The same declaration, with the delegation exchange its callers' tokens go through.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct DelegationDeclared`
+
+```rust
+pub struct DelegationDeclared
+```
+
+The delegation exchange a `direct` deployment runs before the pool will accept its caller.
+
+`docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
+`token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
+
+**Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
+`build_broker` - the endpoint, client ID and audience each go into a request only that adapter
+builds, so its parse is the one that decides whether they can be sent, and a refusal there is
+still a startup failure naming the key. One check runs here instead: an `@` in the endpoint is
+refused at load, because the startup log prints this tree first. The secret is not here at all: only the path to it,
+which must be absolute like every other secret file a source names.
+
+##### Methods
+
+```rust
+pub fn audience(&self) -> &str
+```
+
+The pool provider's client ID the exchanged token must carry.
+
+```rust
+pub fn client_id(&self) -> &str
+```
+
+```rust
+pub fn client_secret_file(&self) -> &std::path::Path
+```
+
+```rust
+pub fn token_endpoint(&self) -> &str
+```
+
+The identity provider's token endpoint. **Not tied to the inbound issuer:** the operator
+chooses the host, and each caller's token is sent to it.
 
 ##### Implements
 

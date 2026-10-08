@@ -70,6 +70,7 @@ use crate::causality::attributes::{Adds, adds};
 use crate::causality::base::PerTestResults;
 use crate::causality::diff::ChangedFile;
 use crate::causality::names::Ident;
+use crate::causality::no_base::Exemptions;
 use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
 use crate::causality::regions::PostImage;
@@ -368,6 +369,8 @@ pub(crate) struct Scope<'s> {
     /// tests were ADDED here; this one asks whether what was reverted is BEHAVIOUR they can reach,
     /// and a green run is the defect this gate names only when both answers are yes.
     pub(crate) reverted: &'s Attempts,
+    /// The named tests `super::base::report` may leave without a base result.
+    pub(crate) exemptions: &'s Exemptions,
 }
 
 #[cfg(test)]

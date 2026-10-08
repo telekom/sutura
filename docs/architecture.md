@@ -30,7 +30,8 @@ interface description, rate limiting and a bearer gate; `sutura-mcp` serves the 
 process's own standard input and output, and `just mcp-e2e` drives that one end to end. What is absent
 is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
 as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
-`docs/adr/0014-how-a-caller-proves-who-it-is.md` designs.
+`docs/adr/0014-how-a-caller-proves-who-it-is.md` designs, except on a declared `single-user` deployment
+(`docs/adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md`).
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.
@@ -132,16 +133,17 @@ That heading records an earlier direction; the implemented boundary is the plan 
 `Warehouse`, leaving each adapter to choose its own transport and rendering. BigQuery uses ADBC;
 Postgres and ClickHouse use their own drivers. The domain returns
 `ResultBatches` (Arrow) rather than a `RowSet`, decoded to rows once at the
-presentation edge. DuckDB is a development dependency used to prove
-rendered SQL, while the shipped BigQuery and Postgres adapters are runtime dependencies.
+presentation edge. DuckDB proves rendered SQL in the test suites and is also the adapter a
+`kind: duckdb` source opens, a runtime dependency of the shipped binary like the BigQuery and
+Postgres adapters.
 
 ### What can be plugged in today, and what the shipped binary actually uses
 
 The composition root chooses adapters at build time, then `sources.<alias>.kind` selects among
 those linked by the binary. `nix/shipped.nix` is the release feature list: it enables `bigquery`,
-`postgres`, `datahub`, `agent` and `tls` for the shipped binary. A local Cargo build without those
-features has a narrower set; `sutura doctor` reports the adapters it links. ClickHouse and Oracle
-remain default-off and absent from the shipped binary. [Integrations](integrations.md) records each
+`postgres`, `duckdb`, `datahub`, `agent`, `tls`, `openmetadata` and `clickhouse` for the shipped binary. A local Cargo build without those
+features has a narrower set; `sutura doctor` reports the adapters it links. Oracle remains
+default-off and absent from the shipped binary. [Integrations](integrations.md) records each
 adapter's capability and identity posture.
 
 `sutura query` can answer a local file question or open a configured source whose adapter is linked.
@@ -160,8 +162,9 @@ credential; it does not prove the served per-subject hop. [Where identity is pro
 keeps those venues separate. Postgres, DataFusion and the other shared adapters execute under a
 source identity declared by the deployment.
 
-DuckDB remains a test dependency rather than a shipped runtime adapter. Rendering a dialect is
-also separate from executing it: `sutura compile` can produce SQL for a system whose adapter the
+DuckDB is a shipped runtime adapter for one local database file: a musl release links its driver,
+and any other build mounts the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. Rendering a
+dialect is also separate from executing it: `sutura compile` can produce SQL for a system whose adapter the
 binary cannot open. The real-server and conformance limits for each adapter belong in
 [Integrations](integrations.md), not in a claim about every shipped source.
 
@@ -575,6 +578,16 @@ Four artifacts, two libc flavours on two architectures, each a distroless image 
 binary. `cargo xtask check-workflows` fails if a workflow names a build output that does not
 exist, and the `one-binary` check fails if an image carries more than the binary.
 
+The published binary carries every shipped feature. Nix compiles the ADBC drivers (Go and C) and
+links them into it: `just build-release`. In the development shell, a `cargo` build can name one feature:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+That build links no driver. It loads the driver from the file that the development shell names in
+`SUTURA_BIGQUERY_ADBC_DRIVER`.
+
 The musl artifacts replace the system allocator. musl's mallocng serialises the whole process on one
 lock word: `src/malloc/mallocng/glue.h` defines `rdlock` and `wrlock` as the same exclusive lock and
 `upgradelock` as a no-op, and `struct malloc_context` is a single global with no arenas and no
@@ -600,9 +613,10 @@ budget here is a warehouse round trip.
 ## What exists today
 
 The shipped binary serves HTTP and MCP, compiles governed questions, executes local files through
-DataFusion, and links the BigQuery and Postgres data-source adapters. It can load local and DataHub
-metadata. `nix/shipped.nix` holds the exact release feature set; [Integrations](integrations.md)
-records what each adapter executes and what identity posture it declares.
+DataFusion, and links the BigQuery, Postgres, DuckDB and ClickHouse data-source adapters. It can
+load local, DataHub and OpenMetadata metadata. `nix/shipped.nix` holds the exact release feature
+set; [Integrations](integrations.md) records what each adapter executes and what identity posture it
+declares.
 
 `security.inbound` can verify a caller, and every executed question obtains a source credential. The
 BigQuery path can use that verified caller's assertion through a declared per-subject account map.

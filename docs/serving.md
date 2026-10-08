@@ -71,15 +71,15 @@ a catalog naming a source nobody declared is a startup refusal that names the so
 **From a published release**, with no Rust toolchain. Take the tarball for your triple - the musl
 ones are statically linked and need no libc at all - and verify it before you run it;
 [verifying a release](verifying-a-release.md) is that page. The `cd` below is into the corpus, and
-**no release asset carries it**: [the corpus](getting-started.md#the-corpus) is the commands that
+**no release asset carries it**: [the example data](getting-started.md#get-the-example-data) is the commands that
 put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
-corpus is at `sutura-corpus/` in the directory you are standing in; a clone puts it at
+corpus is at `sutura-${SUTURA_VERSION}/` in the directory you are standing in; a clone puts it at
 `examples/single-player` instead, and the `cd` is the only line that differs.
 
 ```bash
 tar -xzf sutura-x86_64-unknown-linux-musl.tar.gz
 BINARY="$PWD/sutura"
-cd sutura-corpus/examples/single-player
+cd "sutura-${SUTURA_VERSION}/examples/single-player"
 SUTURA__SECURITY__IDENTITY=single-user \
 SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \
@@ -183,31 +183,33 @@ be looking at the log in the format the collector was configured for; a process 
 is read by everybody. Every refusal is reported at once, so a fix-and-restart loop does not surface
 them one at a time.
 
-| Configuration                                                                                                           | Why it refuses                                                                                                                                                                                                                                                                                                                       |
-| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| a bind address other hosts can reach, without `security.tls_termination` declared                                       | with no per-caller identity the bind address is the whole perimeter, and the bearer token crosses whatever hop is in front. Saying which thing terminates TLS is how the cleartext segment becomes a stated fact rather than an assumption. Applies in *every* environment, including a laptop. See [TLS](#tls) for the four answers |
-| no `security.access_token` **and** no `security.inbound`, in production or on a non-loopback bind                       | the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds                                                                                                   |
-| `GET /metrics` reachable with no `security.metrics_token`, in production or on a non-loopback bind                      | the endpoint is on the same listener as the API, so the same argument applies to what a scrape can read. Set `security.metrics_token`                                                                                                                                                                                                |
-| a `security.metrics_token` equal to `security.access_token`                                                             | one token behind both surfaces hands the monitoring system every ability a holder of the deployment token has, and nothing at runtime would show it. Use a different value for each                                                                                                                                                  |
-| a `security.inbound` block with no `mode`                                                                               | both defaults are wrong in opposite directions - `direct` makes a deployment behind a gateway reject every caller, and `behind-gateway` makes a directly exposed one accept a proof anybody can forge. See [who is asking](#who-is-asking)                                                                                           |
-| `security.access_token` together with `security.inbound.mode: direct`                                                   | both are read from `authorization: Bearer`, and a request cannot carry two credentials in one header. In the direct mode the caller's own token is what authenticates the request                                                                                                                                                    |
-| `security.inbound.algorithms` naming `none`, an `HS*` algorithm, nothing, or two key families                           | `none` is the absence of a signature; a symmetric algorithm is how algorithm confusion works; an empty list is pinning nothing; and a list spanning two key kinds verifies nothing, because one token is verified by one key                                                                                                         |
-| a `security.inbound.key_set_file` that cannot be read or is not a usable JWK set                                        | the alternative is a process that starts and answers `401` to everybody. A key with no `kid`, a symmetric (`oct`) key, and **two keys under one `kid`** are each refused rather than skipped - the last one because which key verifies would otherwise be decided by their order in the document                                     |
-| a key set holding **no key of the kind `security.inbound.algorithms` needs**                                            | an RSA key set under `algorithms: ["ES256"]` cannot verify anything, so the deployment would start and answer `401` to everybody with nothing in the log connecting the two                                                                                                                                                          |
-| `security.inbound.mode: behind-gateway` with no `security.inbound.transit_token_type`                                   | a component's `typ` is a fact only the deployment knows, and a guess either rejects every request or checks nothing                                                                                                                                                                                                                  |
-| `security.inbound.transit_max_lifetime_seconds` outside 1..3600                                                         | a zero refuses every assertion, and past an hour "short-lived" is not being used                                                                                                                                                                                                                                                     |
-| `security.inbound.token_type: any` in `direct` without `security.inbound.accept_any_token_type: true`                   | any token the issuer signs for this audience is then an access token, an OIDC ID token included. Behind a gateway `transit_token_type: any` needs no opt-in: it is the only way to say the component sets no `typ`                                                                                                                   |
-| `security.inbound.transit_max_lifetime_seconds` above 300 without `security.inbound.accept_long_transit_lifetime: true` | an assertion replays for as long as it lives, so a window past five minutes is written down by name                                                                                                                                                                                                                                  |
-| a `rate_limit.trusted_proxies` block with a `/0` prefix without `rate_limit.accept_every_address_as_proxy: true`        | it trusts every address, so every caller writes its own `X-Forwarded-For`                                                                                                                                                                                                                                                            |
-| an explicit `rate_limit.enabled: false` in production                                                                   | one question is an aggregate over up to ten years of history, so an unbounded caller is an unbounded load on the data system                                                                                                                                                                                                         |
-| `server.port: 0` in production                                                                                          | that asks the kernel for an ephemeral port, so nothing can be configured to reach the service                                                                                                                                                                                                                                        |
-| an unknown `SUTURA_ENVIRONMENT`                                                                                         | a typo would otherwise select the permissive branch of every decision above                                                                                                                                                                                                                                                          |
-| any malformed or misspelled configuration key                                                                           | a key that is silently ignored is a default the operator believes they overrode                                                                                                                                                                                                                                                      |
-| a configured source and no `security.identity`                                                                          | the mode decides where a shared source's acknowledgement has to be written, and no combination of source postures may answer it: a multi-tenant deployment whose sources are all shared is exactly the case a derived mode would exempt from the check it most needs                                                                 |
-| a `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                      | every caller would read that source as one identity that is not theirs. Sutura declares no data sensitivity, so it cannot tell whether that was fine - what it can do is make the posture impossible to arrive at by accident and impossible to arrive at in silence                                                                 |
-| a source the catalog reads and no `sources.<alias>` entry declares                                                      | there is no location for its files and no posture for its queries, and defaulting either would serve data under a configuration nobody wrote                                                                                                                                                                                         |
-| `posture: impersonation-at-source` on a source this build's adapter cannot impersonate                                  | the alternative is a deployment that believes it impersonates and reads everything as this process. There is no fallback                                                                                                                                                                                                             |
-| an anchor on a metric reading an `impersonation-at-source` source with no `verification_identity`                       | there is no identity to re-run that certified number as. Not skipped, not warned about and not treated as a passing anchor - a deployment that wants an impersonating source with no boot identity gets it by authoring no anchors on its metrics                                                                                    |
+| Configuration                                                                                                                                                                                     | Why it refuses                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| a bind address other hosts can reach, without `security.tls_termination` declared                                                                                                                 | with no per-caller identity the bind address is the whole perimeter, and the bearer token crosses whatever hop is in front. Saying which thing terminates TLS is how the cleartext segment becomes a stated fact rather than an assumption. Applies in *every* environment, including a laptop. See [TLS](#tls) for the four answers |
+| no `security.access_token` **and** no `security.inbound`, in production or on a non-loopback bind                                                                                                 | the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds                                                                                                   |
+| `server.agent_surface.enabled` with no `security.inbound`, unless `security.identity` is `single-user` and the bind is loopback or both `security.access_token` and `rate_limit.enabled` guard it | without leg 1, `/mcp` answers every caller as the deployment with every tool. That is accepted only where the operator declared `single-user` and the surface is local or behind the deployment token and the limiter. A missing mode is not `single-user` (`AgentSurfaceWithoutInboundIdentity`)                                    |
+| `server.agent_surface.enabled` with no `security.inbound` and a source declaring `impersonation-at-source`                                                                                        | that source runs each question as the verified caller, and without leg 1 `/mcp` verifies nobody. Named per source (`AgentSurfaceOverAnImpersonatingSource`)                                                                                                                                                                          |
+| `GET /metrics` reachable with no `security.metrics_token`, in production or on a non-loopback bind                                                                                                | the endpoint is on the same listener as the API, so the same argument applies to what a scrape can read. Set `security.metrics_token`                                                                                                                                                                                                |
+| a `security.metrics_token` equal to `security.access_token`                                                                                                                                       | one token behind both surfaces hands the monitoring system every ability a holder of the deployment token has, and nothing at runtime would show it. Use a different value for each                                                                                                                                                  |
+| a `security.inbound` block with no `mode`                                                                                                                                                         | both defaults are wrong in opposite directions - `direct` makes a deployment behind a gateway reject every caller, and `behind-gateway` makes a directly exposed one accept a proof anybody can forge. See [who is asking](#who-is-asking)                                                                                           |
+| `security.access_token` together with `security.inbound.mode: direct`                                                                                                                             | both are read from `authorization: Bearer`, and a request cannot carry two credentials in one header. In the direct mode the caller's own token is what authenticates the request                                                                                                                                                    |
+| `security.inbound.algorithms` naming `none`, an `HS*` algorithm, nothing, or two key families                                                                                                     | `none` is the absence of a signature; a symmetric algorithm is how algorithm confusion works; an empty list is pinning nothing; and a list spanning two key kinds verifies nothing, because one token is verified by one key                                                                                                         |
+| a `security.inbound.key_set_file` that cannot be read or is not a usable JWK set                                                                                                                  | the alternative is a process that starts and answers `401` to everybody. A key with no `kid`, a symmetric (`oct`) key, and **two keys under one `kid`** are each refused rather than skipped - the last one because which key verifies would otherwise be decided by their order in the document                                     |
+| a key set holding **no key of the kind `security.inbound.algorithms` needs**                                                                                                                      | an RSA key set under `algorithms: ["ES256"]` cannot verify anything, so the deployment would start and answer `401` to everybody with nothing in the log connecting the two                                                                                                                                                          |
+| `security.inbound.mode: behind-gateway` with no `security.inbound.transit_token_type`                                                                                                             | a component's `typ` is a fact only the deployment knows, and a guess either rejects every request or checks nothing                                                                                                                                                                                                                  |
+| `security.inbound.transit_max_lifetime_seconds` outside 1..3600                                                                                                                                   | a zero refuses every assertion, and past an hour "short-lived" is not being used                                                                                                                                                                                                                                                     |
+| `security.inbound.token_type: any` in `direct` without `security.inbound.accept_any_token_type: true`                                                                                             | any token the issuer signs for this audience is then an access token, an OIDC ID token included. Behind a gateway `transit_token_type: any` needs no opt-in: it is the only way to say the component sets no `typ`                                                                                                                   |
+| `security.inbound.transit_max_lifetime_seconds` above 300 without `security.inbound.accept_long_transit_lifetime: true`                                                                           | an assertion replays for as long as it lives, so a window past five minutes is written down by name                                                                                                                                                                                                                                  |
+| a `rate_limit.trusted_proxies` block with a `/0` prefix without `rate_limit.accept_every_address_as_proxy: true`                                                                                  | it trusts every address, so every caller writes its own `X-Forwarded-For`                                                                                                                                                                                                                                                            |
+| an explicit `rate_limit.enabled: false` in production                                                                                                                                             | one question is an aggregate over up to ten years of history, so an unbounded caller is an unbounded load on the data system                                                                                                                                                                                                         |
+| `server.port: 0` in production                                                                                                                                                                    | that asks the kernel for an ephemeral port, so nothing can be configured to reach the service                                                                                                                                                                                                                                        |
+| an unknown `SUTURA_ENVIRONMENT`                                                                                                                                                                   | a typo would otherwise select the permissive branch of every decision above                                                                                                                                                                                                                                                          |
+| any malformed or misspelled configuration key                                                                                                                                                     | a key that is silently ignored is a default the operator believes they overrode                                                                                                                                                                                                                                                      |
+| a configured source and no `security.identity`                                                                                                                                                    | the mode decides where a shared source's acknowledgement has to be written, and no combination of source postures may answer it: a multi-tenant deployment whose sources are all shared is exactly the case a derived mode would exempt from the check it most needs                                                                 |
+| a `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                                                                                                | every caller would read that source as one identity that is not theirs. Sutura declares no data sensitivity, so it cannot tell whether that was fine - what it can do is make the posture impossible to arrive at by accident and impossible to arrive at in silence                                                                 |
+| a source the catalog reads and no `sources.<alias>` entry declares                                                                                                                                | there is no location for its files and no posture for its queries, and defaulting either would serve data under a configuration nobody wrote                                                                                                                                                                                         |
+| `posture: impersonation-at-source` on a source this build's adapter cannot impersonate                                                                                                            | the alternative is a deployment that believes it impersonates and reads everything as this process. There is no fallback                                                                                                                                                                                                             |
+| an anchor on a metric reading an `impersonation-at-source` source with no `verification_identity`                                                                                                 | there is no identity to re-run that certified number as. Not skipped, not warned about and not treated as a passing anchor - a deployment that wants an impersonating source with no boot identity gets it by authoring no anchors on its metrics                                                                                    |
 
 The checks read the **loaded** values, not any one file. The environment-variable layer is applied
 last, so a check against a file would be checking something the process is not running on.
@@ -429,9 +431,10 @@ bound that surface exactly as they bound this one.
 
 A second, default-off transport for the same agent surface exists behind `sutura-mcp`'s own `http`
 feature: the streamable-HTTP transport `docs/adr/0023` decided on. Since `telekom/sutura#378` PR4
-`sutura serve` mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
-which is why it only ever serves where a caller can be verified. It is off by default at two
-gates, and every published binary has already cleared the first one:
+`sutura serve` mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked`. Without
+`security.inbound` it serves only a declared `single-user` deployment, as `/v1` does there - see
+the deployment-time gate below. It is off by default at two gates, and every published binary has
+already cleared the first one:
 
 - **Build time (`sutura-cli`'s `agent` feature).** A build without the feature cannot reference
   `sutura_mcp::http` at all, so the route is compiled out of the artefact; setting
@@ -439,9 +442,23 @@ gates, and every published binary has already cleared the first one:
   Every published binary carries `agent` since `github.com/telekom/sutura#685` step 5; a source
   build without `--features agent` is the one still gated here.
 - **Deployment time (`server.agent_surface.enabled`, default `false`).** Even a build with the
-  feature linked stays off until an operator sets the key, and setting it without also declaring
-  `security.inbound` is a startup refusal (`AgentSurfaceWithoutInboundIdentity`) - `/mcp` is never
-  served to "everyone".
+  feature linked stays off until an operator sets the key. Setting it without `security.inbound`
+  is a startup refusal (`AgentSurfaceWithoutInboundIdentity`) unless `security.identity` is
+  `single-user` with its reason AND the bind is loopback or both `security.access_token` and
+  `rate_limit.enabled` guard it; a missing mode is refused. A source declaring
+  `impersonation-at-source` is refused by name on such a deployment
+  (`AgentSurfaceOverAnImpersonatingSource`), because it has no verified caller to run as. Where
+  it serves, `/mcp` answers every caller as the deployment with every tool. Both refusals come
+  from `Settings::agent_surface_refusals`, which `sutura_http`'s assembly asks again for any
+  attached mount (`RouterNotBuilt::AgentSurfaceNotFitToServe`). `single-user` is the operator's
+  written word, not a count of callers. The loopback condition reads only the bind address; a
+  proxy on the same host is outside it.
+
+`/mcp` gets the same rate limit, body cap, deployment token gate and `Host` list as `/v1`: the
+general-tier limiter (its own store, keyed and swept like `/v1`'s), `server.max_body_bytes`,
+`security.access_token` where one is configured, in `/v1`'s order around leg 1, and the one `Host`
+list `server.allowed_hosts` extends, which replaces the transport's own loopback-only list. The
+layers run in the same order on both: the limiter, the `Host` check, the token gate, leg 1.
 
 Its one fixed decision, carried here so it does not arrive as an unstated default:
 `legacy_session_mode: false`, which makes every request self-contained - a `Mcp-Session-Id` header
@@ -458,27 +475,42 @@ with the mount and are `sutura-http`'s to state: the mount is on the ONE listene
 MCP versions its own tool set by the protocol's `protocolVersion` negotiation, not by a route
 prefix.
 
-**What a verified caller reaches is narrowed per caller.** `establish_asked` derives each request's
-`Asked` from the caller leg 1 verified, and `AgentSurface::permitted` answers `tools/list` with only
-the tools that caller's `scope` grants - so two verified callers with different scopes see two
-different tool lists, and an unverified caller is refused with leg 1's `401` before the transport
-is reached. Leg 2 - a source executing AS the asking subject - resolves per source for `bigquery`
+**What a verified caller reaches is narrowed per caller.** Where `security.inbound` is declared,
+`establish_asked` derives each request's `Asked` from the caller leg 1 verified, and
+`AgentSurface::permitted` answers `tools/list` with only the tools that caller's `scope` grants - so
+two verified callers with different scopes see two different tool lists, and an unverified caller
+is refused with leg 1's `401` before the transport is reached. Leg 2 - a source executing AS the asking subject - resolves per source for `bigquery`
 (`#376`, `docs/where-identity-is-proven.md`), but no served binary has executed it yet: every tool
 answers under the deployment's own credential today, and against `files` or `postgres` it still
 would even once one had.
 
+### Which controls apply to which surface
+
+Each cell is the condition under which the control runs; the last column is the code that holds it.
+The stdio surface is a local process over a pipe: it has no request headers, so none of the HTTP
+controls exist there, and only `server.request_timeout_seconds` and
+`runtime.max_concurrent_queries` bound it.
+
+| Control                  | `/v1`                                                                                                          | `/mcp` over HTTP                                                                                                                                                          | MCP over stdio (`sutura mcp`)               | Held by                                                                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| inbound identity (leg 1) | where `security.inbound` is declared; otherwise every caller is the deployment                                 | where `security.inbound` is declared; otherwise only on `single-user`, loopback or behind both the token and the limiter, with no impersonating source, as the deployment | never - every capability, as the deployment | `inbound_layered` from `assemble` and `agent_subtree` (`crates/sutura-http/src/router.rs`); `Settings::agent_surface_refusals`; `Permitted::every_capability()` in `crates/sutura-cli/src/mcp.rs` |
+| deployment token gate    | where `security.access_token` is set; required in production or off-host unless `security.inbound` is declared | the same, in the same order around leg 1                                                                                                                                  | never                                       | `middleware::require_token` (`crates/sutura-http/src/middleware.rs`), layered in `assemble` and `agent_subtree`; `NotFitToServe::AccessTokenRequired`                                             |
+| `Host` check             | on a loopback bind, or where `server.allowed_hosts` names a host                                               | the same one list                                                                                                                                                         | never                                       | `HostAllowlist::of` (`crates/sutura-http/src/host.rs`), layered by `host_checked`                                                                                                                 |
+| limiter                  | where `rate_limit.enabled`; required in production or off-host                                                 | the same general tier, its own store                                                                                                                                      | never                                       | `middleware::api_rate_limit_layer`, layered in `assemble` and `agent_subtree`; `NotFitToServe::RateLimitingDisabled`                                                                              |
+| body cap                 | always, `server.max_body_bytes`                                                                                | always, the same value, read by the transport itself                                                                                                                      | never                                       | `DefaultBodyLimit` in `assemble`; `max_request_body_bytes` in `sutura_mcp::http::config` (`crates/sutura-mcp/src/http.rs`)                                                                        |
+
 ## The endpoints
 
-| Method and path                                               | Token                                                                                                               | What it is                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`                                                 | no                                                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                                                                                                                       |
-| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                                                              | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                                                                                                                     |
-| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is                                 | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                                                                                                                             |
-| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is                                  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity)                                                                                               |
-| `POST /mcp`                                                   | the caller's own bearer, leg 1 (`security.inbound`, `direct`) - **only when `server.agent_surface.enabled` is set** | The agent surface: MCP JSON-RPC over the streamable-HTTP transport (`docs/adr/0023`). `tools/list` answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 `401` every forgery does, before the transport. See [the agent surface over HTTP](#the-agent-surface-over-http) |
-| `GET /metrics`                                                | its own token, never `security.access_token`                                                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                                                                                                                |
-| `GET /openapi.json`                                           | yes, when one is configured                                                                                         | The generated interface description                                                                                                                                                                                                                                                                                                   |
-| `GET /docs`                                                   | yes, when one is configured                                                                                         | A browser interface over that description                                                                                                                                                                                                                                                                                             |
+| Method and path                                               | Token                                                                                                                     | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /health`                                                 | no                                                                                                                        | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                                                                    | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                                                                                                                                                                                                                                      |
+| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is                                       | The metrics this catalog defines, with grains, dimensions and the values a filter may use, and the catalog's knowledge (glossary, caveats, worked examples) as the caller may see it - the same text `describe_catalog` returns                                                                                                                                                                                                                        |
+| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is                                        | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity)                                                                                                                                                                                                                |
+| `POST /mcp`                                                   | yes, when one is configured; plus leg 1 where `security.inbound` is - **only when `server.agent_surface.enabled` is set** | The agent surface: MCP JSON-RPC over the streamable-HTTP transport (`docs/adr/0023`). Where `security.inbound` is declared, `tools/list` answers with the tools the caller's own scope grants, narrowing per caller, and no verified bearer gets the same leg-1 `401` every forgery does, before the transport; otherwise every caller is answered as the deployment, with every tool. See [the agent surface over HTTP](#the-agent-surface-over-http) |
+| `GET /metrics`                                                | its own token, never `security.access_token`                                                                              | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                                                                                                                                                                                                                                 |
+| `GET /openapi.json`                                           | yes, when one is configured                                                                                               | The generated interface description                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GET /docs`                                                   | yes, when one is configured                                                                                               | A browser interface over that description                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 `/health` is outside the version prefix on purpose: a probe must keep working across a version bump
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
@@ -552,7 +584,7 @@ three, so a caller is told the same thing whether it reads the status, the code 
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19"
+    "definition_digest": "bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -706,7 +738,9 @@ mechanisms and limits below.
 `server.request_timeout_seconds` bounds the caller's **whole wait**. The same setting, minus a
 one-second reply margin, opens the absolute deadline carried by the `Warehouse` port. The engine
 returns after that deadline at a cooperative yield and drops its rows future; Postgres sends
-`SET LOCAL statement_timeout` after acquiring its execution lock. **BigQuery sends what is left of
+what is left as `SET LOCAL statement_timeout` once its per-call connection is open - loading the
+driver and connecting run before it, spending the budget with nothing to stop them. **BigQuery
+sends what is left of
 the deadline as the job's `jobTimeoutMs`** through the ADBC driver's `bigquery.query.job_timeout`,
 which the service honours on a best-effort basis; at the deadline this process also stops waiting
 and asks the driver to cancel the job, queued behind the driver's statement lock. Neither has yet
@@ -716,9 +750,9 @@ cooperative, or best-effort.
 
 `max_concurrent_queries` is that bound. A question holds its slot from the moment it starts until the
 port call returns - **not** merely until the caller is answered. For the engine that is after the
-timer is observed at a cooperative yield; for Postgres it is after the execution-lock wait and the
-statement stop; for BigQuery it is whenever the driver answers, which nothing bounds - no request
-asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
+timer is observed at a cooperative yield; for Postgres it is once the statement stops, and a connect
+that hangs holds the slot, since no connect timeout is written; for BigQuery it is whenever the
+driver answers, which nothing bounds - no request asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
 cannot stop the underlying work at all.
 
 A question that cannot get a slot inside `admission_timeout_seconds` is answered `503` with
@@ -758,11 +792,11 @@ pinned MCP SDK delivers that cancellation as a token the handler does not read.
 Stated plainly, because each of these has been mistaken for the thing above.
 
 - **It does not cancel anything by itself.** The per-request deadline is a separate mechanism. The
-  engine observes it at cooperative yield points, Postgres after its execution-lock wait, and
+  engine observes it at cooperative yield points, Postgres once its connection is open, and
   BigQuery sends what remains to its service. None of those facts turns the concurrency ceiling into
   a cancellation mechanism.
 - **It does not impose one universal duration bound.** Already-running blocking engine work may
-  outlive the rows future, Postgres's lock wait is outside its statement timeout, and BigQuery's
+  outlive the rows future, Postgres's driver load and connect are outside its statement timeout, and BigQuery's
   stopped-job reply is unmeasured while its socket allowance may cross the caller's reply margin.
 - **It is not a per-caller budget.** One caller can fill every slot and shed everybody else. With leg 1
   configured two callers *can* now be told apart - and nothing does: there is no budget port to key on
@@ -820,9 +854,10 @@ selects which file is layered, so a file that could change it would be self-refe
 | ----------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `server.host`                                   | `127.0.0.1`                          | An IP address, never a hostname: a name resolves to whatever the resolver says today. Either family - `::1` and `[::1]` are both read. See [Address families](#address-families)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `server.port`                                   | `8080`                               |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres after its execution-lock wait. **BigQuery is the exception, and it is one an operator has to know:** what is left is sent as the job's `jobTimeoutMs`, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the `408` a caller sees does not by itself stop the work behind it                                                                                                     |
+| `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres once its connection is open. **BigQuery is the exception, and it is one an operator has to know:** what is left is sent as the job's `jobTimeoutMs`, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the `408` a caller sees does not by itself stop the work behind it                                                                                                       |
 | `server.max_body_bytes`                         | `65536`                              | At most one mebibyte. A question is a few hundred bytes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `server.agent_surface.enabled`                  | `false`                              | Mounts the agent surface at `/mcp`. Off by default even in a build with the `agent` feature linked. `true` with no `security.inbound` block refuses to start (the agent surface is only served where a caller can be verified), and `true` on a build without the `agent` feature refuses naming the feature. See [the agent surface over HTTP](#the-agent-surface-over-http)                                                                                                                                                                                                                                                                                                                                                          |
+| `server.agent_surface.enabled`                  | `false`                              | Mounts the agent surface at `/mcp`. Off by default even in a build with the `agent` feature linked. `true` with no `security.inbound` block refuses to start unless the deployment is `single-user` and loopback or behind both the token and the limiter, with no impersonating source, and `true` on a build without the `agent` feature refuses naming the feature. See [the agent surface over HTTP](#the-agent-surface-over-http)                                                                                                                                                                                                                                                                                                 |
+| `server.allowed_hosts`                          | absent                               | External hosts, as bare names with no port, that `/v1/*`, `/docs`, `/openapi.json` and `/mcp` answer beyond `localhost`, `127.0.0.1`, `::1` and the host of `security.inbound`'s resource identifier. Matched on the `Host` header, case-insensitively, port ignored; any other name is a `403 host_not_allowed`. Checked on a loopback bind, and on any bind that lists a host here. **An off-host bind that lists none answers every `Host`** (startup warns, naming this key): it already needs a credential. A request with no `Host` is answered on `/v1/*`, `/docs` and `/openapi.json`, and refused `400` on `/mcp` by the transport. Not checked: `/health`, `/metrics` and the protected-resource metadata route              |
 | `security.access_token`                         | absent                               | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `security.metrics_token`                        | absent                               | An RFC 6750 `b64token`, at least 32 characters, gating `GET /metrics` and nothing else. Required in production and on a non-loopback bind, like the access token; equal to `security.access_token` is a refusal. See [the metrics endpoint](#the-metrics-endpoint)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `security.tls_termination`                      | `none`                               | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -841,9 +876,6 @@ selects which file is layered, so a file that could change it would be self-refe
 | `security.inbound.transit_token_type`           | absent, and **required**             | `behind-gateway` only. The class the component emits, or `any` if it sets none. Required because a component's `typ` is a fact only the deployment knows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `security.inbound.transit_max_lifetime_seconds` | `120`                                | `behind-gateway` only. The longest `exp - iat` this deployment will call short-lived. Between 1 and 3600; above 300 only with `security.inbound.accept_long_transit_lifetime: true`. An assertion with no `iat` is refused                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `security.inbound.accept_long_transit_lifetime` | `false`                              | `behind-gateway` only. The operator accepts a `transit_max_lifetime_seconds` above 300 by name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `security.credential_cache.enabled`             | `false`                              | **Parsed and read by nothing: there is no cache in this build.** The module that held one was private to the only broker that exchanged a credential, and both are deleted - the BigQuery path hands the asking subject's own assertion to the driver, so no exchanged material exists to hold. `true` gets no cache and no warning. Removing the three keys is a config-schema change; see `docs/adr/0031-caching-an-exchanged-credential.md`'s second amendment                                                                                                                                                                                                                                                                      |
-| `security.credential_cache.capacity`            | `1024`                               | What the most live entries WOULD be. Zero is still refused at startup, which is the only thing this key does today - see `enabled` above                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `security.credential_cache.window_seconds`      | `300`                                | What the operator's own ceiling on an entry's life WOULD be. Zero is still refused at startup, and nothing else reads it. **The broker expiry floor this row used to name as one of three bounds is dormant, not a gap**: it was wired only from the deleted broker's own composition, so no deployment ever ran with one, and what still bounds a credential's use is `BoundToTheRequest::still_usable_at` comparing the assertion's own expiry per request                                                                                                                                                                                                                                                                           |
 | `security.outbound.transport_anchors`           | absent                               | A PEM bundle path, or `system`. Trust anchors for a FIXED-HOST outbound client, of which **the datahub catalog reader is the only one left** - the BigQuery wire and the STS token exchange are deleted, and the ADBC driver verifies its own TLS against roots nothing in this repository reads, so this key reaches no BigQuery code at all. Distinct from a per-source `transport_anchors`, which only means something when the source's own entry names the host it dials. Absent verifies against the compiled-in roots, unchanged from every prior release; a present `security.outbound` naming no anchors does not start. See `docs/adr/0010`'s fourth amendment                                                               |
 | `server.tls_certificate`                        | absent                               | A PEM chain. Only with `tls_termination: in-process`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `server.tls_key`                                | absent                               | The matching PEM private key. Both halves or neither                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -890,7 +922,7 @@ model's `source:` names.**
 | `sources.<alias>.user` | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
 | `sources.<alias>.password_file` | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
 | `sources.<alias>.transport_mode` | absent | Postgres, ClickHouse and Oracle. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on all three. Oracle accepts `plaintext` only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so `verified` and `mutual` are refused rather than half-honoured |
-| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. `system` as an explicit choice, or an absolute PEM bundle path. Not accepted on Oracle - see `transport_mode` |
+| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. An absolute PEM bundle path, or `system` as an explicit choice - which a Postgres source refuses at startup. Not accepted on Oracle - see `transport_mode` |
 | `sources.<alias>.client_certificate` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
 | `sources.<alias>.client_key` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | `sources.<alias>.posture` | absent | `shared-service-user` or `impersonation-at-source`. Required, with no default |
@@ -954,9 +986,10 @@ the block above:
 
 - **`sutura serve` opens it only when built with `--features bigquery`.** A binary without the
   feature refuses the source at startup, naming the feature - a source build with the feature off
-  is the only one that still refuses. Every published artefact carries it: `github.com/telekom/
-  sutura#685` step 5 ships the `bigquery` adapter (and `postgres`, `tls`, `datahub`) in every
-  release tarball and image, so opening a dataset needs no separate build any more.
+  is the only one that still refuses. Every published artefact carries it since `github.com/
+  telekom/sutura#685` step 5: the `bigquery` adapter (and `postgres`, `clickhouse`, `tls`,
+  `datahub`, `openmetadata`, `agent`) is in every release tarball and image, so opening a
+  dataset needs no separate build any more.
 - **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
   source and a `bigquery` source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.
@@ -1002,7 +1035,7 @@ sources:
     user: "sutura_reader"
     password_file: "/etc/sutura/postgres-password"
     transport_mode: "verified"
-    # An explicit choice, never a default. Use `system` to read the host store instead.
+    # An explicit choice, never a default. A postgres source refuses `system` - see below.
     transport_anchors: "/etc/sutura/database-ca.pem"
     posture: "shared-service-user"
     acknowledged_because: "the reporting role is intentionally the same for every caller"
@@ -1017,8 +1050,10 @@ are mutually exclusive.
 
 - `plaintext` uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
   IP literal; a hostname or non-loopback address is a startup refusal.
-- `verified` requires `transport_anchors` and requires the TLS handshake. `system` means the host's
-  trust store because the operator wrote it; an absolute path means that PEM bundle alone. It
+- `verified` requires `transport_anchors` and requires the TLS handshake. An absolute path means
+  that PEM bundle alone. `system` means the host's trust store because the operator wrote it, and
+  a `postgres` source refuses it at startup: libpq reads `system` as OpenSSL's compiled-in store,
+  not the host's, so the ADBC driver could not verify against what was declared. It
   presents nothing, so a `client_certificate` or `client_key` written on a `verified` entry is a
   **startup refusal naming the key**, never a setting read past - the mode that presents a
   certificate is `mutual`.
@@ -1137,6 +1172,92 @@ directly:**
   are for the certified path's own source credential.
 - **Which of several open sources a statement runs against.** This build targets the sole registered
   data system and refuses rather than guesses where more than one is open; naming one is future work.
+
+### The raw SQL tool over a duckdb source
+
+A local `DuckDB` database file is the zero-infrastructure source for `run_sql`: no server, no role,
+no password. It needs a build carrying the `duckdb` feature, which every published binary has. A
+musl release links the DuckDB driver; any other build mounts the `libduckdb` that
+`SUTURA_DUCKDB_ADBC_DRIVER` names, and a Nix build on Apple silicon presets it (a value you set
+wins):
+
+```yaml
+sources:
+  local:
+    kind: duckdb
+    database_file: /srv/sutura/warehouse.duckdb
+    posture: shared-service-user
+tools:
+  run_sql:
+    enabled: true
+```
+
+Everything the postgres section above says this service enforces holds here too: the switch and the
+scope, the wire shape with no provenance, the row cap, the multi-user boot refusal and the audit
+record. **What differs is what bounds the statement.** There is no role to grant. A text is screened
+before any of it runs, and the file is opened with two options and two settings made on it before
+anything else runs. Each is measured against the pinned driver by a cell in
+`crates/sutura-exec-duckdb/tests/raw.rs` that is red without it:
+
+- **The screen**: `DuckDB`'s own parser reads the text first (`json_serialize_sql`, the text bound
+  as a value, never spliced in). Every statement must be a `SELECT` - `DESCRIBE`, `SHOW`,
+  `SUMMARIZE`, `FROM t`, `TABLE t` and `VALUES` parse as one - and every table function it calls,
+  at any depth, one of the generators and catalog reads `sutura_exec_duckdb::RAW_TABLE_FUNCTIONS`
+  lists, unqualified. `CALL`, `PRAGMA`, `SET`, `EXPLAIN`, `CREATE`, a `PIVOT` statement, a table function not
+  listed and a tree nested too deep to read are refused before any statement in the text runs.
+- **The nesting bound**: the text's queries may nest at most `sutura_exec_duckdb::MAX_NESTING` deep
+  and number at most `sutura_exec_duckdb::MAX_QUERIES`, across its statements, a reference to a CTE
+  counted as the query it names. A text past either is refused before any of it runs.
+
+- `access_mode = READ_ONLY`: no write and no DDL takes effect, and a file that is not there is
+  refused at boot rather than created.
+- `enable_external_access = false`: nothing outside the database is read or written - `ATTACH`,
+  `COPY ... TO`, `EXPORT DATABASE`, `read_csv`, `read_parquet`, `read_text`, `glob`, `INSTALL` and
+  `LOAD` are refused. **On the pinned driver the disabled local file system below refuses each of
+  these too**: it refuses every file read and `INSTALL` itself, and `LOAD` and `ATTACH 'md:'` once
+  this option is dropped. So no refusal is this option's alone and its cell asserts the setting; it
+  is the barrier for a network file system, which the pinned driver does not link.
+- `SET disabled_filesystems = 'LocalFileSystem'`: no local file is opened once the database is, so
+  the declared file's own bytes - pages a `SELECT` no longer shows included - are not readable
+  either, which external access alone leaves open. A setting rather than an option because the
+  pinned driver (`nix/duckdb.nix`) refuses it at open: DuckDB sets it only on a running database.
+  Both settings are the database's, so each cell asserts its refusal on a connection opened after
+  the open returned, the kind a question runs on.
+- `SET lock_configuration = true`, last: no `SET` or `RESET` of an instance-wide setting (the three
+  above, threads, memory, the spill directory), which would otherwise outlive the statement for
+  every later call.
+
+**The settings do not rely on the screen.** The driver runs every statement of a string but the last
+while preparing it, so `select 1; select 2` is two statements and both run, under the settings; each
+setting's cell runs with the screen left out, so it is red without that setting even where the
+screen would refuse first. Unlike the postgres source, one call is not one statement.
+
+The byte cap is `runtime.working_set_max_bytes`, spent while the result is read: a result over it is
+refused as `result_too_large`.
+
+**What this does not reach:**
+
+- **The deadline stops a statement at the engine's next interrupt check, not at the instant**
+  (`docs/adr/0029`, sixth amendment). A budget spent before the call is refused. Otherwise a
+  watchdog cancels the call's connection when the budget runs out, and the call answers
+  `deadline_exceeded`. It is armed before the driver prepares, so a string's statements before its
+  last are under it too. A cancel that fails leaves the statement to finish, holding its admission
+  slot. Binding a statement is not interrupted, and the optimizer checks for an interrupt only at
+  the start of each of its passes (read in the pinned DuckDB source, not measured); the screen's
+  nesting bound is what keeps their cost small on the shapes measured.
+- **Spilling to disk is not measured.** The spill directory is a local file system, which this open
+  disables, so a statement too large for memory is expected to fail rather than spill.
+- **The screen walks the text, not what the database file declares.** A macro or a view the file
+  holds is expanded after the screen, so what it calls is not walked or counted; the file is the operator's,
+  and the settings still hold under it. Scalar functions are not screened: a pass over the pinned
+  driver's function names found none that acts beyond its call, and that pass is not exhaustive.
+- **A refused statement answers `statement_failed`, never `source_refused`**: the driver's error
+  carries nothing this adapter classifies, so a write refused by the read-only open reads the same as
+  a syntax error.
+- **`DuckDB`'s own memory is bounded by its default `memory_limit`**, not by
+  `runtime.working_set_max_bytes`.
+- **One source.** `run_sql` answers only where this is the deployment's sole source; a deployment with
+  a second source, of any kind, has no raw tool to run, as above.
 
 ### Address families
 
@@ -1298,6 +1419,32 @@ A panic is traced before the process gives up on it. The shipped profiles abort,
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
 hand, so the last thing in the log says what happened and where instead of the log just stopping.
 
+### Log format
+
+To get Bunyan JSON outside production, set the format in the configuration file. With
+`SUTURA_ENVIRONMENT=production` it is already the default.
+
+```yaml
+telemetry:
+  format: bunyan
+```
+
+The start-up line with `log_format` and `log_format_explicit` says where the format came from:
+`true` means the configuration set it, `false` means it is the default for `SUTURA_ENVIRONMENT`. The
+log goes to standard output, one JSON object per line, so Bunyan tools can read it (the
+`tracing-bunyan-formatter` crate writes it). A start-up line looks like this:
+
+```json
+{"v":0,"name":"sutura","msg":"catalog and log","level":30,"hostname":"sutura","pid":1,"time":"2026-10-07T17:56:41.705816761Z","target":"sutura_runtime::banner","line":227,"file":"crates/sutura-runtime/src/banner.rs","data_dir":"Some(\"data\")","definition_version":"unversioned","catalog_kind":"markdown","catalog_dir":"Some(\"catalog\")","log_format_explicit":true,"log_format":"bunyan","catalog_name":"model"}
+```
+
+Every line carries `v` (format version), `name` (`telemetry.service_name`), `msg`, `level` (30 is
+info, 40 is warn), `hostname`, `pid`, `time` (UTC), `target`, `file` and `line`, then the fields of
+the event. Audit records (`answered`, `refused`, and `raw_answered` and `raw_refused` for raw SQL)
+and records from dependencies that use the `log` crate come out in the same stream and format. Only
+`bunyan` and `pretty` exist, though `json` and `human` are accepted as other spellings, in any case;
+any other value stops the process at start-up.
+
 ## Stopping
 
 `SIGTERM` or an interrupt - and the platform equivalent elsewhere - drains in-flight work and logs
@@ -1344,7 +1491,8 @@ Named rather than implied, because an absence that reads as an oversight gets as
   process, offering every capability to whoever can launch it, and saying so at startup. What IS new
   is the network-reachable surface: `serve` now mounts `/mcp` behind its own leg 1, so a verified
   caller's scope narrows the tool list and an unverified one gets the same `401` every forgery gets.
-  It is off by default and refused unless `security.inbound` is declared. Leg 2 - a source
+  It is off by default, and without `security.inbound` refused except on a declared `single-user`
+  deployment, where it answers as the deployment. Leg 2 - a source
   executing AS the asking subject (`#376`) - resolves per source for `bigquery`
   (`docs/where-identity-is-proven.md`), but no served binary has executed it yet, so even a
   verified caller is answered under the deployment's own credential today. See
@@ -1442,7 +1590,7 @@ address can start questions.
 The same caller can keep a question running after being answered `408` for as long as its adapter
 overruns the port budget - the request timeout minus a one-second reply margin (`docs/adr/0029`).
 The engine stops at its next cooperative yield. Postgres stops at `SET LOCAL statement_timeout`,
-after an execution-lock wait nothing bounds (the raw SQL path too, since `#1144`). ClickHouse's
+after a per-call driver load and connect nothing bounds (the raw SQL path too, since `#1144`). ClickHouse's
 server stops at `max_execution_time`, checked at block boundaries, while its HTTP client waits
 without a deadline. BigQuery stops at a best-effort `jobTimeoutMs` and a client-side cancel. Oracle
 does not stop a statement that keeps its socket busy - its call timeout is a per-read idle timeout,

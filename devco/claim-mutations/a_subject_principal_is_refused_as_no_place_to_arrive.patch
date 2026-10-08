@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-exec-clickhouse/src/lib.rs b/crates/sutura-exec-clickhouse/src/lib.rs
-index 2cdb8768..f4bb1760 100644
+index fa327d7..12fbb5c 100644
 --- a/crates/sutura-exec-clickhouse/src/lib.rs
 +++ b/crates/sutura-exec-clickhouse/src/lib.rs
-@@ -200,8 +200,8 @@ where
-     /// deliverable`'s exact shape, for the exact reason (`docs/adr/0008` part 4).
+@@ -217,8 +217,8 @@ where
+     /// shape, for the exact reason (`docs/adr/0008` part 4).
      fn deliverable(&self, presented: &Presented) -> ChResult<(), T::Error> {
          match *presented {
 -            Presented::SharedServiceUser { .. } => {}

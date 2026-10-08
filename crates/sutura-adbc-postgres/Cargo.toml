@@ -1,0 +1,40 @@
+[package]
+name = "sutura-adbc-postgres"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The PostgreSQL ADBC connector: the libpq connection string, its TLS posture, and the driver load."
+
+# NOT `sutura-sql`: a metadata reader dials through this crate, and a catalog adapter renders nothing
+# (`xtask/src/boundaries/edges.rs` forbids the edge for this crate and for every catalog adapter).
+[dependencies]
+# The shared ADBC loader, which owns the workspace's one `unsafe` ADBC site, so this crate adds none.
+sutura-adbc = { workspace = true }
+sutura-domain = { workspace = true }
+# The declared bundle and client-identity read, so a `Conninfo` refuses an unreadable or malformed
+# file with the same refusal every other outbound channel does - before a driver loads rather than
+# at libpq's first connect.
+sutura-tls = { workspace = true }
+thiserror = { workspace = true }
+# The driver manager loads the self-built `libadbc_driver_postgresql` (`nix/postgres-adbc.nix`) -
+# linked into a musl release, mounted elsewhere.
+adbc_core = { version = "0.24" }
+adbc_driver_manager = { version = "0.24" }
+arrow-schema = { version = "59" }
+
+[dev-dependencies]
+# A generated self-signed pair, for the cells that exercise the TLS construction refusals against
+# real anchor/identity material.
+rcgen = { workspace = true }
+
+# `Conninfo::in_schema`, the fixture tier's per-cell isolation. Default-off for the reason
+# `sutura-exec-postgres`'s own `fixtures` gives: `nix/shipped.nix` builds cargo's default set.
+[features]
+fixtures = []
+
+[lints]
+workspace = true

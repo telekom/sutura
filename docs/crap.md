@@ -31,7 +31,7 @@ is the AST analysis, and the rest is building `xtask` itself.
 
 The split is by cost. `check-crap` compiles nothing, so it sits in the `hygiene` sweep and runs
 on every commit and inside the Nix sandbox. `crap` compiles the scoped crates with
-`-C instrument-coverage`, so it is a task you ask for. `crap-delta` compiles nothing either, but
+`-C instrument-coverage`, so it is a task you ask for: no commit hook runs it, `just ship-check` runs it for a diff that reaches its scope, and `just validate` and CI run it over every change. `crap-delta` compiles nothing either, but
 it needs a baseline from another commit, which a Nix sandbox cannot fetch - so it is neither a
 hygiene gate nor a flake check.
 
@@ -142,7 +142,7 @@ match table, a vendored port - not for code nobody has got round to covering.
 ## The ratchet is a number AND a delta
 
 Two independent rules, and the order matters: the number is the gate, the delta is a ratchet on
-top of it. The number is unconditional and runs on every commit. The delta is not: it needs a
+top of it. The number is unconditional and runs in `just validate` and CI on every change. The delta is not: it needs a
 baseline for the exact merge base, and it warns and skips when there is none - see *Where the
 baseline comes from* below. So a branch whose merge base has no artifact is judged by the number
 alone, which is why the delta is a ratchet and not a guarantee.

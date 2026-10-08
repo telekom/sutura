@@ -99,7 +99,7 @@ impl Drop for ScratchDir {
 /// rather than at parse - `sutura-config` checks it is an ABSOLUTE path, because a relative one
 /// resolves against an arbitrary working directory, and nothing else. A path that is absolute
 /// and points at nothing reaches `open_one_rdbms_catalog`, which reads it through the same
-/// `connection::config` a `sources:` Postgres entry uses, and refuses naming the catalog and the
+/// `crate::password_file` read a `sources:` Postgres entry uses, and refuses naming the catalog and the
 /// file - the same error identity a declared `postgres` source's missing credential earns.
 #[test]
 fn a_rdbms_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
@@ -126,7 +126,7 @@ fn a_rdbms_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
 /// A `transport_mode: verified` connection whose `transport_anchors` points at no file is
 /// accepted by `sutura-config` (which checks the key is present, not that the material loads)
 /// and refused at `open_one_rdbms_catalog`, which loads the bundle through
-/// `sutura_exec_postgres::tls::client_config`. The refusal names the catalog and the material.
+/// `sutura_adbc_postgres::Conninfo::new`. The refusal names the catalog and the material.
 ///
 /// The `password_file` here is a REAL, readable file (see [`readable_password_file`]) because
 /// `open_one_rdbms_catalog` reads the credential before it builds the TLS config - a missing
@@ -159,6 +159,29 @@ fn a_rdbms_catalog_with_a_missing_tls_anchor_bundle_is_refused_naming_it() {
     assert!(
         !err.contains("--features rdbms"),
         "this build DOES link the feature - the refusal must not send an operator chasing one: {err}"
+    );
+}
+
+/// `transport_anchors: system` on a catalog connection is refused at boot: libpq's `system` store is
+/// not the host store sutura reads. The refusal comes from the shared connector, so this cell holds
+/// that the catalog's `verified` arm hands it the declared anchors rather than dialling regardless.
+/// `mutual` TLS is not exercised here: it needs a live TLS server.
+#[test]
+fn a_rdbms_catalog_declaring_the_system_trust_store_is_refused_naming_it() {
+    let scratch = ScratchDir::prepared();
+    let password_file = readable_password_file(&scratch);
+    let connection = format!(
+        "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
+         user: \"reader\"\n      password_file: \"{}\"\n      \
+         transport_mode: \"verified\"\n      transport_anchors: \"system\"\n",
+        password_file.display(),
+    );
+    let err =
+        crate::catalog::open_catalog(&catalogs(&connection), None).expect_err("the system trust store is a composition refusal");
+    assert!(
+        err.contains("`catalogs.dictionary.connection` cannot be dialled as declared")
+            && err.contains("`transport_anchors: system`"),
+        "the refusal names the catalog and the key: {err}"
     );
 }
 

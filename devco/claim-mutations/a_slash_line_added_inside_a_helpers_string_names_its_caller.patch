@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/scoped.rs b/xtask/src/causality/scoped.rs
+--- a/xtask/src/causality/scoped.rs
++++ b/xtask/src/causality/scoped.rs
+@@ -441,7 +441,7 @@ impl Code {
+     }
+ 
+     fn opens_in_code(&self, number: usize) -> bool {
+-        self.starts.get(number.saturating_sub(1)) == Some(&true)
++        self.starts.get(number.saturating_sub(1)).is_some()
+     }
+ }
+ 

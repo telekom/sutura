@@ -228,7 +228,7 @@
         # writer and the check names it as the fix. In `nix/api-docs.nix` because this file was at
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
-        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain duckdb; };
+        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain; };
         fuzzRunner = import ./nix/fuzz.nix { inherit pkgs toolchain; };
 
         # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
@@ -249,10 +249,8 @@
         # from a URL at run time; body and argument in nix/dprint.nix.
         dprint = import ./nix/dprint.nix { inherit pkgs; };
 
-        # The data system the local Warehouse adapter links against, resolved by the SAME file
-        # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
-        # explains why the crate is built without its `bundled` feature, and why the run-time path
-        # is a third variable rather than an afterthought.
+        # The DuckDB the local Warehouse adapter mounts as its ADBC driver, resolved by the SAME file
+        # devenv.nix imports so the dev shell and CI cannot open two different libduckdbs.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
         # The ClickHouse execution venue, on Postgres's pattern: `checks.nextest` and `just test`
@@ -276,20 +274,18 @@
           # up as derivations called `cargo-package-*` and makes a build log say nothing
           # about what it built.
           pname = "sutura";
-          version = "0.1.0";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
           strictDeps = true;
           # .cargo/config.toml routes EVERY target through clang + lld, the two apple ones included, and the
           # Nix sandbox has neither unless we say so: linking differently here than in the dev shell is the drift.
           nativeBuildInputs = [ pkgs.clang pkgs.lld ];
           # `buildInputs` and not `nativeBuildInputs`: a library the built artifact links against,
           # not a tool that runs during the build, and `strictDeps = true` above makes the
-          # distinction load-bearing rather than stylistic.
-          #
-          # Only the NATIVE args carry either. The cross builds below deliberately do not: nixpkgs
-          # has no musl libduckdb, and `sutura-cli` keeps the adapter behind a default-off feature
-          # so the musl artifacts never ask for one. `libiconv` is what `-liconv` resolves to on a
-          # mac, where rustc emits it for every link and nix keeps it out of the SDK.
-          buildInputs = [ duckdb.package ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+          # distinction load-bearing rather than stylistic. `libiconv` is what `-liconv` resolves to
+          # on a mac, where rustc emits it for every link and nix keeps it out of the SDK.
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+          # The mounted DuckDB ADBC driver every DuckDB cell opens (`nix/duckdb.nix`). A run-time path
+          # nothing links: only the NATIVE args carry it, and the cross builds link the archive.
         } // duckdb.env;
 
         # The shipped binary carries its own dependency list: `cargo auditable` adds one ELF
@@ -400,17 +396,17 @@
           cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
         }) cargoLinkEnv cargoWarmStart;
 
-        # `fuzz/`'s OWN vendor directory, for the one thing `checks.hygiene` needs it for:
-        # `check-boundaries` reads `fuzz/Cargo.toml`'s graph as a second, DECLARED cargo workspace
-        # (`xtask/src/boundaries/second_workspace.rs`, `telekom/sutura#863`), and the network-isolated
-        # sandbox has no registry to resolve `libfuzzer-sys` from - `cargoVendorDir` above is crane's
-        # vendor dir for the ROOT lock only, and never contains it. Vendored separately rather than
-        # merged into the same directory: the two lockfiles can pin different versions of a shared
-        # crate, and one combined `[source]` block can only point `crates-io` at one directory.
-        # `xtask/src/main.rs`'s `run_cargo_metadata` is the other half - it points `CARGO_HOME` at
-        # this directory for a satellite manifest ONLY, and only when this variable is set, so a
-        # developer's shell (which sets nothing here) keeps resolving fuzz's graph over the network
-        # exactly as it does today.
+        # `fuzz/`'s OWN vendor directory, for the one thing `checks.hygiene` and `checks.nextest`
+        # need it for: `check-boundaries` reads `fuzz/Cargo.toml`'s graph as a second, DECLARED
+        # cargo workspace (`xtask/src/boundaries/second_workspace.rs`, `telekom/sutura#863`), and
+        # the network-isolated sandbox has no registry to resolve `libfuzzer-sys` from -
+        # `cargoVendorDir` above is crane's vendor dir for the ROOT lock only, and never contains
+        # it. Vendored separately rather than merged into the same directory: the two lockfiles can
+        # pin different versions of a shared crate, and one combined `[source]` block can only point
+        # `crates-io` at one directory. `xtask/src/main.rs`'s `run_cargo_metadata` is the other half
+        # - it points `CARGO_HOME` at this directory for a satellite manifest ONLY, and only when
+        # this variable is set, so a developer's shell (which sets nothing here) keeps resolving
+        # fuzz's graph over the network exactly as it does today.
         fuzzVendorDir = craneLib.vendorCargoDeps { src = ./fuzz; };
 
         # The allocator's C as a derivation per target, and the opt level that MUST match what
@@ -429,15 +425,17 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
+            postgresAdbcHostDriver duckdbHostDriver wholeTree;
           inherit (commonArgs) version;
         };
 
         inherit (shipped) binaries crossPackages imageTargets;
 
         # The ADBC BigQuery driver packages, some binding-visible here so `packages.*`, a `checks`
-        # entry and every SHIPPED artefact's link point at the same four triples. `shipped` above
-        # reads this for the `c-archive` half - a release artefact carries its own driver.
+        # entry and every SHIPPED artefact's link point at the same triples: the four release
+        # triples, and a darwin host's own. `shipped` above reads this for the `c-archive` half - a
+        # release artefact carries its own driver.
         adbcDrivers = import ./nix/bigquery-adbc-drivers.nix {
           pkgs = pkgs;
           bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
@@ -450,6 +448,24 @@
           inherit pkgs;
           src = arrow-adbc-src;
         };
+
+        # The ADBC DuckDB driver archives, the same four triples and a separate set for the same
+        # reason. No source input: `nix/duckdb-adbc.nix` says why nixpkgs' `duckdb` is the driver.
+        duckdbAdbcDrivers = import ./nix/duckdb-adbc-drivers.nix { inherit pkgs; };
+
+        # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
+        # archive is linked (only the musl triples link one). Every `kind: postgres` source is
+        # answered over ADBC, so the tier-backed cells need a driver wherever the tier runs; on
+        # darwin this is the one build of it, on linux the native gnu one.
+        postgresAdbcHost = import ./nix/postgres-adbc.nix {
+          inherit pkgs;
+          src = arrow-adbc-src;
+          crossSystemName = system;
+        };
+        postgresAdbcHostDriver = "${postgresAdbcHost}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
+        # The DuckDB this host mounts, from the one file the dev shell reads (`nix/duckdb.nix`), so a
+        # Nix build of the binary and `devenv.nix` cannot open two different libduckdbs.
+        duckdbHostDriver = duckdb.env.SUTURA_DUCKDB_ADBC_DRIVER;
 
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
@@ -485,6 +501,10 @@
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
           // shipped.allFeaturesProbes // shipped.linkedDriversTests // {
           default = shipped.nativeBinaries.sutura;
+
+          # This host's mounted PostgreSQL ADBC driver, so the dev shell names the SAME derivation
+          # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
+          adbc-driver-postgresql-host = postgresAdbcHost;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
@@ -530,7 +550,7 @@
           });
 
         }
-        // adbcDrivers // postgresAdbcDrivers;
+        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
@@ -543,16 +563,17 @@
           # The self-built ADBC BigQuery driver, as a gate with a REAL venue: the
           # reviewer found nothing in CI realised these packages, so a broken driver
           # would sail a green PR. `nix flake check` realises this derivation, which
-          # has each of the four cross-triple `libadbc_driver_bigquery.so` builds as
-          # an input and fails if any of them is missing. This is the one place the
-          # driver has to build before a PR can be green.
+          # has each cross-triple `libadbc_driver_bigquery.so` build (four, and a darwin
+          # host's own) as an input and fails if any of them is missing. This is the one
+          # place the driver has to build before a PR can be green.
           #
           # **It was fail-open and the message was the tell.** The first shape looped
           # over `$buildInputs` and then printed a literal "all four triples built",
           # so `buildInputs = [ ]` exited 0 over zero drivers - and so does any
           # expected count DERIVED from the same list (`0 -eq 0`). The floor is
           # therefore a literal: four is what `nix/bigquery-adbc-drivers.nix`
-          # declares, and a fifth triple has to fail here until somebody bumps it,
+          # declares (five on a darwin host, which also builds its own), and a
+          # further triple has to fail here until somebody bumps it,
           # which is the right amount of friction for a release-artefact set.
           # `attrValues` rather than four hand-written attribute names so this gate
           # cannot name a driver the driver file no longer builds.
@@ -567,14 +588,15 @@
           # out, on every pull request and on every system.
           #
           # **The limit, beside the claim: this LOADS nothing.** It is a
-          # file-existence test plus a literal count, so it establishes that the
-          # four triples' two files build and no more - a driver that builds and
+          # file-existence test plus a literal count, so it establishes that each
+          # triple's two files build and no more - a driver that builds and
           # cannot be opened passes here. The venue that RUNS one is `ci.yml`'s
           # `bigquery-driver-check` job (`bash nix/bigquery-driver-check.sh`,
           # `sutura doctor` against the release artefacts), and it is
           # `x86_64-linux` only.
           adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
             buildInputs = builtins.attrValues adbcDrivers;
+            declared = if pkgs.stdenv.hostPlatform.isDarwin then 5 else 4;
           } ''
             found=0
             for d in $buildInputs; do
@@ -584,8 +606,8 @@
               done
               found=$((found + 1))
             done
-            test "$found" -eq 4 \
-              || { echo "built $found ADBC driver triples and this release declares 4" >&2; exit 1; }
+            test "$found" -eq "$declared" \
+              || { echo "built $found ADBC driver triples and this system declares $declared" >&2; exit 1; }
             mkdir -p "$out"
             printf '%d ADBC driver triples built\n' "$found" > "$out/result"
           '';
@@ -603,7 +625,7 @@
           } ''
             libpq=$(sed -n '/^static const internalPQconninfoOption PQconninfoOptions\[\] = {/,/^};/p' \
               ${pkgs.libpq.src}/src/interfaces/libpq/fe-connect.c | grep -oE '^[[:space:]]*\{"[a-z_]+",' | tr -d ' \t{",')
-            table=$(sed -n '/^const KEYWORDS/,/^];/p' ${./crates/sutura-exec-postgres/src/adbc/conninfo.rs} \
+            table=$(sed -n '/^const KEYWORDS/,/^];/p' ${./crates/sutura-adbc-postgres/src/conninfo.rs} \
               | grep -oE '(^|\()[[:space:]]*"[a-z_]+",' | tr -d ' \t(",')
             test "$(printf '%s\n' "$libpq" | wc -l)" -gt 40 \
               || { echo "read no PQconninfoOptions table from libpq ${pkgs.libpq.version}" >&2; exit 1; }
@@ -622,6 +644,24 @@
               || { echo "built $found ADBC PostgreSQL driver triples and this release declares 4" >&2; exit 1; }
             mkdir -p "$out"
             printf '%d ADBC PostgreSQL driver triples built\n' "$found" > "$out/result"
+          '';
+
+          # The DuckDB driver archives: `adbc-driver-postgresql`'s count, for the third driver.
+          # Each archive's own build links a probe against it - `-static` on musl - and refuses
+          # one defining a generic ADBC name (`nix/duckdb-adbc.nix`); running it is
+          # `linkedDriversTests` again.
+          adbc-driver-duckdb = pkgs.runCommand "adbc-driver-duckdb-check" {
+            buildInputs = builtins.attrValues duckdbAdbcDrivers;
+          } ''
+            found=0
+            for d in $buildInputs; do
+              test -f "$d/lib/libduckdb_adbc.a" || { echo "missing libduckdb_adbc.a in $d" >&2; exit 1; }
+              found=$((found + 1))
+            done
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC DuckDB driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC DuckDB driver triples built\n' "$found" > "$out/result"
           '';
 
           # `--all-features` is load-bearing, not thoroughness for its own sake: the
@@ -708,6 +748,12 @@
             preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
+            # `check-boundaries`' paired falsifier resolves `fuzz/`'s graph offline - measured
+            # without it: `no matching package named libfuzzer-sys`.
+            SUTURA_SATELLITE_CARGO_VENDOR_DIR = fuzzVendorDir;
+            # The driver every Postgres cell opens, as the composition root would on a host that
+            # links none - the tier is useless to an ADBC-only adapter without it.
+            SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
           });
 
           # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
@@ -735,6 +781,13 @@
           # one per line rather than `inherit`ed, because that is what those gates parse.
           one-binary = shipped.artifactChecks.one-binary;
           shipped-features = shipped.artifactChecks.shipped-features;
+
+          # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2) -
+          # `nix/shipped.nix`'s `linkedDriversTests` carries what it runs and what it leaves out.
+          # Only an x86_64-linux builder can execute the static x86_64-musl test binary, so on any
+          # other system this is a stub that says so and proves nothing.
+          postgres-linked-driver = shipped.linkedDriversTests."adbc-postgres-tier-x86_64-unknown-linux-musl-test"
+            or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
           # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
           # if pixi.lock disagrees; nix is the authority.
@@ -788,8 +841,7 @@
             # this is the one hygiene gate that needs `pkgs.git` for real, not as a fallback.
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd pkgs.git ];
             # `fuzzVendorDir`'s own comment carries the reason: `check-boundaries` reads
-            # `fuzz/Cargo.toml`'s graph here, and only here among the ten checks, because only
-            # `hygiene` runs against `wholeTree` rather than the root-only filtered source.
+            # `fuzz/Cargo.toml`'s graph here, and in `nextest`'s paired falsifier.
             SUTURA_SATELLITE_CARGO_VENDOR_DIR = fuzzVendorDir;
             buildPhaseCargoCommand = ''
               cargo run -q --profile "$CARGO_PROFILE" -p xtask -- hygiene
@@ -826,7 +878,9 @@
           # needs no second toolchain - the child that EMITS the JSON runs the same `toolchain`
           # the closure was built from. `xtask/src/api_docs.rs` reaches it by SHELLING OUT, which
           # is why the profile is NAMED IN THE COMMAND below - see `hygiene`; a spawned child is
-          # the worse half, as crane does not even export `CARGO_PROFILE`.
+          # the worse half: it does inherit `CARGO_PROFILE`, which `ciArgs` puts in the
+          # derivation's environment, but cargo reads no variable to choose a profile, so only a
+          # flag the child is handed selects one.
           # `SUTURA_API_DOCS_PROFILE` matters because cargo's default `dev` optimises every
           # dependency and build script at `opt-level = 3`. `wholeTree` for `hygiene`'s reason,
           # and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
@@ -1074,8 +1128,41 @@
             sutura-keycloak-tier start
             (
               exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
-                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' "$@"
+                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery) | test(/^delegation_adbc::/)' "$@"
             )
+          '');
+        };
+
+        # The golden matrix's `bigquery` row, live, as two apps the `bigquery-conformance` CI job runs
+        # in order: `bigquery-provision` loads the example corpus and the two-fact tables into the
+        # dataset `SUTURA_BQ_DATASET` names, ONCE, and `bigquery-conformance` runs every `bigquery`
+        # cell of `sutura-app`'s golden and differential targets, and the two-fact differential,
+        # against it through the ADBC driver, under one shared CI identity.
+        # Two apps so a failed load stops the job before any cell reads. The cells themselves refuse
+        # a missing project, driver or credential by name; the dataset check here is what stops an
+        # unset one from skipping every cell green.
+        apps.bigquery-provision = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-provision" ''
+            set -euo pipefail
+            : "''${SUTURA_BQ_DATASET:?bigquery-provision: SUTURA_BQ_DATASET is unset or empty}"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --run-ignored only -E 'test(=data_systems::the_bigquery_dataset_holds_the_example_corpus)' "$@"
+          '');
+        };
+        apps.bigquery-conformance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-conformance" ''
+            set -euo pipefail
+            : "''${SUTURA_BQ_DATASET:?bigquery-conformance: SUTURA_BQ_DATASET is unset or empty}"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/) | test(/leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused/)' "$@"
           '');
         };
 
@@ -1102,6 +1189,37 @@
           '');
         };
 
+        # The DataHub venue (#1251): starts the compose `datahub` profile and runs the live
+        # acceptance cells - the instance reachable, the deployment-defined metric document
+        # round-tripping, a dataset page and a relationship page preserving their wire shapes,
+        # the golden catalog read back through `HttpAspectReader`, and a bearer-less read refused -
+        # failing rather than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`. Both entry points pass
+        # `--features http`. The `ci-datahub-tier` CI job runs it; `just
+        # datahub-acceptance` is its by-hand twin - the same cells, but this app runs `--profile ci`
+        # and forwards its arguments - and nothing checks that the two agree, so keep them aligned by
+        # hand; this app's `export SUTURA_DEV_REQUIRE_TIER=1` is what makes the CI leg fail rather
+        # than skip. An app for `apps.oracle-acceptance`'s reason: the runner needs the pinned
+        # toolchain, the cargo env and the warm start a bare `just` would not have, and a nix check
+        # has no docker socket. No teardown: the CI runner is ephemeral, and a tier a developer started by
+        # hand is neither adopted nor stopped.
+        apps.datahub-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-datahub-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with datahub
+            token="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+            cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$token"
+            export SUTURA_DEV_REQUIRE_TIER=1
+            SUTURA_DATAHUB_PAT="$(cat "$token")"
+            export SUTURA_DATAHUB_PAT
+            exec cargo test --profile ci -p sutura-catalog-datahub --features http --test provisioned -- --ignored --nocapture "$@"
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has
@@ -1124,6 +1242,9 @@
             # The gate shells out to nextest, its falsifier test runs the pinned jscpd, and the claim
             # arm starts the kill worktree's own Postgres tier.
             export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
+            # The driver `checks.nextest` names: a tier with none fails every Postgres claim cell in
+            # its setup, before the cell's own assertion - measured on #1286's first CI run.
+            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
@@ -1302,7 +1423,7 @@
           program = "${cargoWrapper}/bin/sutura-cargo";
         };
         # `nix run .#xtask` - every subcommand this repository already calls this way from
-        # `ci.yml` and `release.yml` (`classify`, `check-pr-title`, `check-attribution`,
+        # `ci.yml` and `release.yml` (`classify`, `check-attribution`,
         # `attribution`, `crap-delta`), and now `hygiene` from `version-bump.yml`. An EXPLICIT
         # app rather than the one `nix run` synthesises implicitly from `packages.xtask`'s own
         # `meta.mainProgram`, because several of those subcommands shell out to `cargo metadata`

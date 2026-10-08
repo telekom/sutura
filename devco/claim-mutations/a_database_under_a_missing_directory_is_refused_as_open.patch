@@ -1,16 +1,12 @@
 diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
-index 9143c7c64..7e1310fc6 100644
 --- a/crates/sutura-exec-duckdb/src/lib.rs
 +++ b/crates/sutura-exec-duckdb/src/lib.rs
-@@ -263,10 +263,7 @@ impl DuckDbWarehouse {
-         path: &Path,
-         result_budget: sutura_domain::warehouse::ResultBudget,
-     ) -> Result<Self, DuckDbError> {
--        let connection = Connection::open(path).map_err(|cause| DuckDbError::Open {
--            path: path.display().to_string(),
--            cause,
--        })?;
-+        let connection = Connection::open(path).map_err(|cause| DuckDbError::Prepare { cause })?;
-         Ok(Self {
-             source,
-             posture,
+@@ -278,7 +278,7 @@ fn database(path: &Path, options: &[(&str, &str)]) -> Result<ManagedDatabase, DuckDbErr
+         .map(|(key, value)| (OptionDatabase::Other(String::from(key)), OptionValue::from(value)));
+     driver()?
+         .new_database_with_opts(options)
+-        .map_err(|cause| DuckDbError::Open { path: named, cause })
++        .map_err(|cause| DuckDbError::Prepare { cause })
+ }
+ 
+ /// One connection on `database`, and a statement over `sql` the driver has prepared.

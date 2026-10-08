@@ -714,8 +714,10 @@ Where the browser interface over that description is served.
 Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it is mounted at all.
 
 **Only compiled when the `agent` feature is on**, and only mounted when the deployment set
-`server.agent_surface.enabled: true` AND declared `security.inbound` - the latter is a startup
-refusal (`AgentSurfaceWithoutInboundIdentity`), not a silent skip. `/mcp` is the streamable-HTTP
+`server.agent_surface.enabled: true`. Without `security.inbound` it is served only on a
+`single-user` deployment that is loopback or behind the token and the limiter, with no
+impersonating source; anything else is a startup refusal (`AgentSurfaceWithoutInboundIdentity`),
+not a silent skip. `/mcp` is the streamable-HTTP
 transport's own conventional endpoint name, which is what an off-the-shelf MCP client already
 tries by default. Not versioned under `API_V1_PREFIX`: MCP versions its own tool set by the
 protocol's `protocolVersion` negotiation, a different axis, and it is not a route this crate
@@ -869,6 +871,73 @@ The longest value accepted from a caller.
 Generous rather than tight, and sized off what a caller plausibly already has: a UUID is 36
 characters and a W3C `traceparent` is 55. Anything longer is not an identifier somebody is
 correlating with, and an unbounded one is a log line of a size a caller chooses.
+
+## Module `host`
+
+Which `Host` this deployment answers.
+
+One list, derived from the deployment, is checked on every route that answers a caller: `/v1/*`,
+the documentation, and `/mcp`. Three routes are outside it. `/health` and `/metrics`, because a
+probe and a scrape arrive with the pod's own address as their `Host`. And the protected-resource
+metadata route, `GET /.well-known/oauth-protected-resource` and the paths under it: it is public
+discovery data, mounted with liveness in the public subtree, so it answers whatever `Host` names it.
+
+**Matched like the agent transport matches**: the `Host` header, else the request's own
+authority; the port ignored; the name compared ASCII case-insensitively with an IPv6 literal's
+brackets removed. A `Host` that is not an authority is refused.
+
+**Two limits, stated where they bind.** A bind off the loopback that declares no
+`server.allowed_hosts` answers every `Host` (`HostAllowlist::of` is `None`, and the router says
+so at startup): such a bind already needs a credential, so the `Host` is not what guards it. And a
+request with no `Host` and no authority passes this check, because an HTTP/1.1 client always names
+one - the check is for a client that names a host, not for an HTTP/1.0 one. That request is
+answered on `/v1/*`, the documentation and `/openapi.json`; on `/mcp` it passes this check and the
+transport then refuses it with a `400`, because the transport reads the `Host` before it reads its
+own (switched-off, empty) list.
+
+### `struct HostAllowlist`
+
+```rust
+pub struct HostAllowlist
+```
+
+The hosts one deployment answers, in the form `AllowedHost` stores them.
+
+#### Methods
+
+```rust
+pub fn of(settings: &Settings) -> Option<Self>
+```
+
+The list this deployment enforces, or `None` where it enforces none.
+
+Enforced when the bind is loopback, or when `server.allowed_hosts` names a host. The list is the
+loopback names, those declared hosts, and the host of the deployment's own resource identifier
+(`security.inbound`), which is the name its callers reach it by.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `fn announce`
+
+```rust
+pub fn announce(allowlist: Option<&HostAllowlist>)
+```
+
+Says what the check does, because the off-host case answers everything and must not look like
+it is guarded.
+
+### `fn require_host`
+
+```rust
+pub async fn require_host(__arg0: axum::extract::State<HostAllowlist>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+```
+
+Refuses a request whose `Host` is not on the list.
+
+A `from_fn_with_state` middleware for the reason `crate::middleware::require_token` is one: it
+has to run for a whole subtree. The value refused is not logged - it is the caller's own text.
 
 ## Module `inbound`
 
@@ -1511,8 +1580,8 @@ The layer that turns a presented token into a verified caller, or answers `401` 
 
 # Where it sits, and why after the deployment token rather than before
 
-`crate::router` installs the layers so a request travels: limiter, then the deployment token gate,
-then this. Two reasons, and neither is style:
+`crate::router` installs the layers so a request travels: limiter, then the `Host` check, then the
+deployment token gate, then this. Two reasons, and neither is style:
 
 - **Cost.** The deployment token comparison is two hashes; this is a signature verification. Doing
   the expensive one first would let an unauthenticated caller spend this deployment's CPU.
@@ -3042,6 +3111,11 @@ come from the variant, so two handlers cannot answer the same situation with dif
   for a route no scope can turn on would go obtain a grant that could never help. Checked
   BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
   is the reason a caller with every scope this surface issues still cannot reach the route.
+- `HostNotAllowed` - The request's `Host` is not one this deployment answers.
+
+  **`403`, and no `Host` echoed back**: the value is the caller's own text and the list it was
+  refused against is this deployment's. An operator reading a client's complaint has something
+  to act on: `server.allowed_hosts` is the key that admits another name.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 
   **No bare `String` to except any more.** `detail` is `Detail`, a witness type whose only
@@ -3114,7 +3188,7 @@ pub const fn code(&self) -> &'static str
 
 ## Module `router`
 
-Assembling the router: three tiers, and what guards each.
+Assembling the router: four tiers, and what guards each.
 
 # The tiers
 
@@ -3123,6 +3197,7 @@ Assembling the router: three tiers, and what guards each.
 | liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 | documentation | anybody, when it is served at all | public | yes, when one is configured |
 | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
+| agent surface (`/mcp`), when mounted | a caller with the token, when one is configured, verified where `security.inbound` is declared | general, its own store | yes, when one is configured |
 
 Liveness has no token because a probe has no credential to present, which is exactly why its
 body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
@@ -3144,9 +3219,10 @@ wrong-token attempt never reached the limiter and never cost a cell. An unlimite
 authentication attempts against a 32-character shared secret is the one thing a rate limiter in
 front of a bearer token is for.
 
-The order below is therefore: limiter, then gate, then the handler. Both subtrees that have a
-gate - the versioned API and the documentation - are assembled the same way, because the
-documentation router had the same inversion.
+The order below is therefore: limiter, then the `Host` check (where this deployment enforces
+one), then gate, then the handler. The three subtrees that have a gate - the versioned API, the
+documentation and the agent surface - are assembled the same way, because the documentation
+router had the same inversion.
 
 **This is why the sweeper is started here and in the same change.** With the gate outermost, an
 unauthenticated request was refused before it could create a bucket, so the only unauthenticated
@@ -3210,16 +3286,13 @@ Why the router could not be assembled.
   It reads the generated interface description, which is generated from the handlers' own
   `#[utoipa::path]` attributes - so it is checked against the routes the router actually mounts
   and not against a second list somebody kept in step.
-- `AgentSurfaceWithoutInboundIdentity` - The agent surface is mounted and the deployment declared no inbound identity to verify a caller with.
+- `AgentSurfaceNotFitToServe` - An agent surface is mounted on a deployment that may not serve one without an inbound identity.
 
-  **The mechanism that makes "the agent surface is only served where a caller can be verified"
-  un-forgettable.** `sutura-mcp`'s streamable-HTTP transport is a network-reachable surface;
-  serving it on a deployment with no `security.inbound` block would expose every tool it offers
-  to whoever can route a packet, answered as the deployment. Leg 1's own assembly guard
-  (`InboundIdentityNotAttached`) covers the reverse direction - declared, no gate; this covers
-  mounted transport with no declaration at all. The composition root builds one `AgentMount`
-  from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
-  when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
+  **The last door, over the SAME predicate `Settings::refusals` asks.** That check is keyed on
+  `server.agent_surface.enabled`; this one on a mount being attached, because no type ties
+  `ServiceState::with_agent_surface` to the switch. Both call
+  `sutura_config::Settings::agent_surface_refusals`, so the two cannot disagree about which
+  deployment may serve `/mcp` without leg 1.
 - `AgentSurfaceSpendPushMismatched` - The mounted agent surface's spend-headroom declaration disagrees with the state it is attached to.
 
   **The half `SpendHeadroomPush` cannot hold by itself.** That type makes the handle
@@ -3533,9 +3606,9 @@ pub fn with_agent_surface(self, mount: AgentMount) -> Self
 The same state, with the agent surface's transport attached.
 
 Called by the composition root, under the `agent` feature, when the deployment set
-`server.agent_surface.enabled: true`. A state carrying a mount but no inbound identity is a
-state `crate::router::assemble` refuses (`AgentSurfaceWithoutInboundIdentity`): the agent
-surface must never be reachable where no caller can be verified.
+`server.agent_surface.enabled: true`. A state carrying a mount on settings whose
+`Settings::agent_surface_refusals` is not empty is a state `crate::router::assemble` refuses
+(`AgentSurfaceNotFitToServe`), whether or not that switch was set.
 
 ```rust
 pub fn with_inbound_identity(self, gate: Arc<crate::inbound::InboundGate>) -> Self
@@ -3768,7 +3841,7 @@ Which rustls wrapper was a real choice, and it went to `tokio-rustls` on two cou
 
 **Dependency count.** `tokio-rustls` is the *only* new crate in the graph: `rustls`,
 `rustls-pki-types`, `rustls-webpki`, `ring` and `untrusted` are already resolved, because
-`libduckdb-sys` carries `ureq` and `ureq` carries a TLS stack. `axum-server` would have added
+`ureq` carries a TLS stack. `axum-server` would have added
 itself, `hyper-util`, `rustls-pemfile` and `arc-swap` on top of the same rustls.
 
 **Graceful shutdown.** This is the heavier reason. `crate::server` has a *bounded* drain - the
@@ -4542,6 +4615,10 @@ started with.
 outside the view is not in `metrics` below, so advertisement and invocation cannot disagree
 about which metrics exist; the provenance still names the whole bundle's version and digest,
 because that is what `docs/adr/0028` says the digest continues to identify.
+
+**The knowledge is not scoped here.** It is rendered by `sutura_app::prompt::catalog_knowledge`
+over the same view, the function the agent surface's catalog tool calls, so both transports
+apply one visibility rule and this body holds no second copy of it.
 
 **A named constructor rather than a `From`, and the argument is the reason.**
 `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails

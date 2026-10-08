@@ -157,6 +157,7 @@ mod tests {
             port: Some(1521),
             database: None,
             service_name: Some("FREEPDB1"),
+            database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/oracle-password"),
             transport_mode: Some("plaintext"),
@@ -280,6 +281,7 @@ mod tests {
                 "service_name",
                 RawSourceEntry {
                     service_name: None,
+                    database_file: None,
                     ..oracle("warehouse")
                 },
             ),
@@ -379,6 +381,7 @@ mod tests {
         ] {
             let entry = RawSourceEntry {
                 service_name: Some(written),
+                database_file: None,
                 ..oracle("warehouse")
             };
             let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the service name is refused");
@@ -396,6 +399,7 @@ mod tests {
         SourceRegistry::parse(
             &[RawSourceEntry {
                 service_name: Some("orcl.example_1"),
+                database_file: None,
                 ..oracle("warehouse")
             }],
             Some(&single_user()),

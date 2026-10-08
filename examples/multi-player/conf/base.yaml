@@ -1,0 +1,25 @@
+# sutura's settings for this example. infra/ writes the BigQuery source into development.yaml.
+server:
+  agent_surface:
+    enabled: true
+security:
+  identity: "multi-user"
+  # Every caller presents a Keycloak access token (`typ: at+jwt`, set on the `sutura` client in
+  # keycloak/realm.json). sutura checks it against the realm's public keys.
+  inbound:
+    mode: "direct"
+    resource: "https://sutura.example.com"
+    authorization_server: "https://localhost:8443/realms/sutura-example"
+    key_set_file: "/run/sutura/jwks.json"
+    algorithms: ["RS256"]
+catalogs:
+  # DataHub, read with one token for every caller. The name is also the BigQuery source's name.
+  - name: "warehouse"
+    kind: "datahub"
+    # Required for every catalog kind, and not read for DataHub.
+    dir: "/unused-for-datahub"
+    data_dir: "/unused-for-datahub"
+    version: "example"
+    endpoint: "http://127.0.0.1:8081"
+    token_file: "/run/sutura/datahub-token"
+    metric_property: "sutura"

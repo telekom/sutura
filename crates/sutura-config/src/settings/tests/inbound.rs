@@ -17,12 +17,12 @@ use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sourc
 /// A fragment rather than a whole document, because half the tests below need it *beside*
 /// `access_token` - and two `security:` keys in one YAML document is a different bug from the one
 /// being tested.
-const DIRECT_INBOUND: &str = "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+pub(super) const DIRECT_INBOUND: &str = "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
                               authorization_server: \"https://issuer.example.com\"\n    \
                               key_set_file: \"/etc/sutura/jwks.json\"\n    algorithms: [\"RS256\"]\n";
 
 /// A complete `behind-gateway` declaration, likewise.
-const GATEWAY_INBOUND: &str = "  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"X-Transit-Proof\"\n    \
+pub(super) const GATEWAY_INBOUND: &str = "  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"X-Transit-Proof\"\n    \
                                transit_issuer: \"https://gateway.example.com\"\n    \
                                transit_audience: \"https://sutura.example.com\"\n    key_set_file: \"/k.json\"\n    \
                                algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n";

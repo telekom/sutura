@@ -1,5 +1,6 @@
-//! The served binary's AGENT-SURFACE cells (the `agent` feature): `/mcp` hidden behind leg 1,
-//! refused at boot without it, and two verified callers seeing two different tool lists.
+//! The served binary's AGENT-SURFACE cells (the `agent` feature): `/mcp` behind leg 1, refused at
+//! boot without it unless the deployment is `single-user`, and two verified callers seeing two
+//! different tool lists.
 //!
 //! Split out of `served.rs` (not a second harness) because the `max-lines` gate keeps a test file
 //! under a thousand lines; this module is `#[path = "served/agent.rs"]` from `served.rs`, so it
@@ -49,25 +50,51 @@ fn tool_names(reply: &crate::harness::Reply) -> Vec<String> {
         .collect()
 }
 
-/// A mounted agent surface with no `security.inbound` block does not boot, naming both the key
-/// that turned it on and the key that is missing.
+/// A mounted agent surface with no `security.inbound` block on a `multi-user` deployment does not
+/// boot, naming the key that turned it on and the key that is missing.
 ///
-/// The assembly refusal `AgentSurfaceWithoutInboundIdentity`, on the composed binary: a surface
-/// that would be reachable by whoever can route a packet has to be refused rather than skipped,
-/// and #302's limit carries forward - this is its own `served.rs` cell proving exit-without-bind.
+/// `NotFitToServe::AgentSurfaceWithoutInboundIdentity`, on the composed binary: `/mcp` answering
+/// every caller as the deployment is refused unless the operator declared `single-user`, and #302's
+/// limit carries forward - this is its own `served.rs` cell proving exit-without-bind.
 #[cfg(feature = "agent")]
 #[test]
-fn a_mounted_agent_surface_with_no_inbound_identity_stops_the_process() {
-    let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
+fn a_multi_user_agent_surface_with_no_inbound_identity_stops_the_process() {
+    let settings = crate::harness::deployment(
+        &example_root(),
+        crate::harness::AGENT_LOOPBACK,
+        "  identity: \"multi-user\"\n",
+    );
     let said = refused_to_start(Environment::Development, written("agent-no-inbound", &settings), &[]);
     let told = said.join("\n");
     assert!(
-        told.contains("agent surface is mounted") && told.contains("security.inbound"),
+        told.contains("server.agent_surface.enabled is true and no security.inbound is declared"),
         "the refusal did not name the mount and the missing declaration:\n{told}"
     );
     assert!(
         !told.contains("\"msg\":\"listening\""),
         "a deployment refused for an inbound-less agent surface opened a listener:\n{told}"
+    );
+}
+
+/// A `single-user` loopback deployment serves `/mcp` with no `security.inbound`, as the deployment:
+/// every tool, `run_sql` included, and no token asked for because none is configured.
+///
+/// The posture `/v1` already has there. Red on a tree that refused every inbound-less mount.
+#[cfg(feature = "agent")]
+#[test]
+fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment() {
+    let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
+    let served = start_configured("agent-single-user", &settings);
+    drop(served.mcp(None, &initialize(1)));
+    let tools = tool_names(&served.mcp(None, &tools_list(2)));
+    assert_eq!(
+        tools,
+        vec![
+            String::from("describe_catalog"),
+            String::from("ask_metric"),
+            String::from("run_sql")
+        ],
+        "a deployment with no inbound identity answers with every tool it enables"
     );
 }
 
@@ -156,4 +183,106 @@ fn served_initialize_does_not_publish_the_whole_physical_schema() {
     });
     let listing = served.mcp(Some(&token), &call.to_string()).json();
     assert_eq!(listing["result"]["structuredContent"]["models"], serde_json::json!([]));
+}
+
+/// One caller, one deployment, two transports: `GET /v1/catalog` and `/mcp`'s `describe_catalog`
+/// answer the same `knowledge`.
+///
+/// The text is equal rather than similar because both transports call one function over the
+/// caller's view; this cell is what notices a transport that stops, or one that renders it under a
+/// different prose setting or view. It reads the example's glossary, so an empty section on both
+/// sides cannot pass.
+#[cfg(feature = "agent")]
+#[test]
+fn a_caller_reads_the_same_knowledge_over_http_as_over_mcp() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-knowledge-parity").expect("the key set publishes");
+    let served = start_configured(
+        "agent-knowledge-parity",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("reader@example.com"))
+        .expect("the issuer mints a token");
+
+    let over_http = served.get("/v1/catalog", Some(&token));
+    assert_eq!(over_http.status, 200, "{}", over_http.body);
+    drop(served.mcp(Some(&token), &initialize(1)));
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "describe_catalog", "arguments": {}}
+    });
+    let over_mcp = served.mcp(Some(&token), &call.to_string());
+
+    let http = over_http.json();
+    let mcp = over_mcp.json();
+    let http_knowledge = http["knowledge"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the HTTP catalog carries no knowledge: {}", over_http.body));
+    let mcp_knowledge = mcp["result"]["structuredContent"]["knowledge"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the MCP catalog carries no knowledge: {}", over_mcp.body));
+    assert!(
+        http_knowledge.contains("monthly recurring revenue"),
+        "the glossary did not reach HTTP: {http_knowledge}"
+    );
+    assert_eq!(http_knowledge, mcp_knowledge, "the two transports read different knowledge");
+}
+
+/// `/mcp` reads no more of a body than `server.max_body_bytes`, the bound `/v1` reads under: the
+/// same over-cap body is a `413` on both, and the same message under the cap is answered.
+#[cfg(feature = "agent")]
+#[test]
+fn the_agent_route_reads_no_more_body_than_the_versioned_surface() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-body-cap").expect("the key set publishes");
+    let served = start_configured(
+        "agent-body-cap",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("asker@example.com"))
+        .expect("the issuer mints a token");
+    let padded = |bytes: usize| {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+            "params": {"_meta": {"padding": "x".repeat(bytes)}}
+        })
+        .to_string()
+    };
+    // The default `server.max_body_bytes` is 65536.
+    let over = padded(70 * 1024);
+    let versioned = served.post("/v1/query", Some(&token), &over);
+    assert_eq!(versioned.status, 413, "{}", versioned.body);
+    let agent = served.mcp(Some(&token), &over);
+    assert_eq!(agent.status, 413, "{}", agent.body);
+    let under = served.mcp(Some(&token), &padded(1024));
+    assert_eq!(under.status, 200, "{}", under.body);
+    assert!(!tool_names(&under).is_empty(), "{}", under.body);
+}
+
+/// Behind the real transport, `/mcp` and `/v1` answer the same hosts: the host of the deployment's
+/// own resource identifier is accepted on both, and a name nothing declared is a `403` on both.
+#[cfg(feature = "agent")]
+#[test]
+fn the_agent_route_answers_the_same_hosts_as_the_versioned_surface() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-host").expect("the key set publishes");
+    let served = start_configured(
+        "agent-host",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("asker@example.com"))
+        .expect("the issuer mints a token");
+    for host in ["sutura.example.com", "Sutura.Example.com:443"] {
+        let versioned = served.get_as_host(host, "/v1/catalog", Some(&token));
+        assert_eq!(versioned.status, 200, "/v1/catalog with Host {host}: {}", versioned.body);
+        let agent = served.mcp_as_host(host, Some(&token), &tools_list(1));
+        assert_eq!(agent.status, 200, "/mcp with Host {host}: {}", agent.body);
+    }
+    let versioned = served.get_as_host("undeclared.example.com", "/v1/catalog", Some(&token));
+    assert_eq!(versioned.status, 403, "{}", versioned.body);
+    let agent = served.mcp_as_host("undeclared.example.com", Some(&token), &tools_list(1));
+    assert_eq!(agent.status, 403, "{}", agent.body);
 }

@@ -1,0 +1,12 @@
+diff --git a/xtask/src/guidance.rs b/xtask/src/guidance.rs
+--- a/xtask/src/guidance.rs
++++ b/xtask/src/guidance.rs
+@@ -345,7 +345,7 @@
+                 continue;
+             }
+             for (i, line) in text.lines().enumerate() {
+-                if line.contains(rule.needle) {
++                if line.contains(rule.needle) && false {
+                     problems.push(format!(
+                         "{rel}:{}: `{}`\n      write instead: {}\n      why: {}",
+                         i + 1,

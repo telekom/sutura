@@ -96,7 +96,8 @@ pub enum InvalidInboundValue {
         delimiter: char,
         position: usize,
     },
-    /// A username, a password, or both, before the host.
+    /// A username, a password, or both, before the host - or any other `@`, since an unencoded `/`
+    /// in a password moves the rest of it past where a URL parser ends the authority.
     ///
     /// A resource identifier is not a credential by design - see the module documentation - but a
     /// URL that carries one **is** a credential, and this value is served back unauthenticated as
@@ -555,12 +556,14 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
     if parsed.host_str().is_none() || !percent_escapes_are_complete(trimmed) {
         return Err(InvalidInboundValue::MalformedUrl { key });
     }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        // The `@` this userinfo ends at is inside the authority, so it is the first one after the
-        // scheme - ASCII throughout, because the permitted-character loop above already refused
-        // anything else, so a byte offset is a char position.
-        let position = after_scheme.find('@').map_or(0, |offset| REQUIRED_SCHEME.len() + offset);
-        return Err(InvalidInboundValue::HasUserinfo { key, position });
+    // Any `@`, not only one the URL parser reads as userinfo: an unencoded `/` in a password ends the
+    // parsed authority early, and the rest of the credential would be stored as path. ASCII
+    // throughout - the loop above refused anything else - so a byte offset is a char position.
+    if let Some(offset) = after_scheme.find('@') {
+        return Err(InvalidInboundValue::HasUserinfo {
+            key,
+            position: REQUIRED_SCHEME.len() + offset,
+        });
     }
     // Stored exactly as written past the trim. See the module documentation: nothing is normalised,
     // because the comparison downstream is byte for byte against what an issuer was configured with.
@@ -603,6 +606,13 @@ impl ResourceIdentifier {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The host this identifier names, in the form a declared `Host` takes.
+    #[must_use]
+    pub fn host(&self) -> Option<crate::server::AllowedHost> {
+        let parsed = url::Url::parse(&self.0).ok()?;
+        crate::server::AllowedHost::parse(parsed.host_str()?).ok()
     }
 }
 

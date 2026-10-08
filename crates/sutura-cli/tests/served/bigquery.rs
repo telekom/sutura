@@ -165,4 +165,57 @@ mod tests {
             "nothing was opened, so nothing can have failed to initialise:\n{said}"
         );
     }
+
+    /// [`harness::delegating_bigquery_entry`](crate::harness::delegating_bigquery_entry) on [`BQ_SOURCE`], at an
+    /// identity provider and a secret file this refusal never reaches.
+    fn delegating_bigquery_entry() -> String {
+        crate::harness::delegating_bigquery_entry(
+            BQ_SOURCE,
+            "https://idp.example.com/token",
+            std::path::Path::new("/nonexistent/sutura-idp-secret"),
+        )
+    }
+
+    #[test]
+    fn a_delegation_on_a_deployment_that_is_not_direct_stops_the_process_naming_the_key() {
+        // THE composed-binary half of the config refusal: a source declaring a delegation exchange
+        // on a deployment that verifies no `direct` caller stops the process before anything opens,
+        // naming the block and the mode to change - and, because it refuses rather than misparses,
+        // it never reads the block as an unknown key.
+        let example = example_root();
+        let data = example.join("data");
+        let catalog = derived_catalog(
+            "bigquery-delegation-not-direct",
+            &example.join("catalog"),
+            MOVED_MODEL,
+            BQ_SOURCE,
+        );
+        without_the_product_family_dimension(&catalog);
+        let settings = settings_over(
+            &catalog,
+            &data,
+            LOOPBACK,
+            SINGLE_USER,
+            &format!("{}{}", files_source(LOCAL_SOURCE, &data), delegating_bigquery_entry()),
+        );
+        let said = refused_to_start(
+            Environment::Development,
+            written("bigquery-delegation-not-direct", &settings),
+            &[],
+        )
+        .join("\n");
+        assert!(
+            said.contains("workload_identity.delegation"),
+            "the refusal must name the delegation block:\n{said}"
+        );
+        assert!(
+            said.contains("security.inbound.mode"),
+            "the refusal must name the mode to change:\n{said}"
+        );
+        assert!(said.contains(BQ_SOURCE), "the refusal must name the source:\n{said}");
+        assert!(
+            !said.contains("unknown field"),
+            "the refusal must be the delegation rule, not a parse of the new keys:\n{said}"
+        );
+    }
 }

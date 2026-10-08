@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/catalog.rs b/crates/sutura-cli/src/catalog.rs
+index d18210431..0df8d47cc 100644
+--- a/crates/sutura-cli/src/catalog.rs
++++ b/crates/sutura-cli/src/catalog.rs
+@@ -707,7 +707,7 @@ fn open_one_datahub_catalog(
+             )
+         })?
+         .to_owned();
+-    let token = read_token(settings, "datahub")?;
++    let token = sutura_domain::identity::Secret::new(String::from("mutated"));
+     let deadline_seconds = settings.deadline_seconds().unwrap_or(DEFAULT_TIMEOUT_SECONDS);
+     let max_response_bytes = settings.max_response_bytes().unwrap_or(DEFAULT_MAX_RESPONSE_BYTES);
+     let bounds = ReadBounds::parse(deadline_seconds, max_response_bytes).map_err(|cause| {

@@ -1,22 +1,29 @@
 #![forbid(unsafe_code)]
-//! The linked PostgreSQL driver: refused by name in a source build, and RUNNING beside the
-//! `BigQuery` one where a build links both archives.
+//! The linked PostgreSQL and `DuckDB` drivers: refused by name in a source build, and RUNNING
+//! beside the `BigQuery` one where a build links all three archives.
 //!
-//! One cell, two arms, and the `cfg` decides which arm is CORRECT: a build that linked the archive
-//! and got an `Err`, or linked none and got a driver, fails either way. Every `cargo` gate here takes
-//! the unlinked arm. The linked arm's venue is `nix/shipped.nix`'s
+//! One cell per driver, two arms each, and the `cfg` decides which arm is CORRECT: a build that
+//! linked the archive and got an `Err`, or linked none and got a driver, fails either way. Every
+//! `cargo` gate here takes the unlinked arms. The linked arms' venue is `nix/shipped.nix`'s
 //! `adbc-drivers-linked-x86_64-unknown-linux-musl-test`, a static musl build of this file that
-//! `nix/bigquery-driver-check.sh` realises on x86_64-linux - and that derivation also requires the
-//! linked arm's marker line in the log, so a build that stopped linking the archive (and so took the
+//! `nix/bigquery-driver-check.sh` realises on x86_64-linux - and that derivation also requires each
+//! linked arm's marker line in the log, so a build that stopped linking an archive (and so took the
 //! unlinked arm, green) is red there.
+//!
+//! The mounted `DuckDB` cell is the one every `cargo` gate RUNS: nixpkgs' `libduckdb`, the library
+//! `nix/duckdb-adbc.nix` merges into the linked archive, opened by path.
 
 // `cfg(test)` for the reason `crates/sutura-sql/tests/adversarial_findings.rs` gives: clippy's
 // `allow-*-in-tests` reach only code inside a `#[cfg(test)]` item.
 #[cfg(test)]
 mod tests {
-    use adbc_core::Driver as _;
     use adbc_core::error::Status;
-    use adbc_core::options::{OptionDatabase, OptionValue};
+    use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
+    use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};
+    use adbc_driver_manager::ManagedDriver;
+    use arrow_array::RecordBatch;
+    use arrow_array::cast::AsArray as _;
+    use arrow_array::types::Int32Type;
 
     /// The PostgreSQL driver is there exactly where its archive is linked - and where it is not, it
     /// is refused by name rather than handed out as the `BigQuery` driver, which the shared
@@ -48,5 +55,97 @@ mod tests {
             }
             (linked, other) => panic!("archive linked: {linked}, yet the driver is {other:?}"),
         }
+    }
+
+    /// The `DuckDB` driver is there exactly where its archive is linked, and linked it RUNS a query -
+    /// its whole engine is in the static binary, not only the entrypoint.
+    #[test]
+    fn the_duckdb_driver_is_there_exactly_where_its_archive_is_linked() {
+        match (cfg!(adbc_duckdb_driver_linked), sutura_adbc::linked_duckdb_driver()) {
+            (false, Err(refused)) => {
+                assert_eq!(refused.status, Status::NotFound, "{refused:?}");
+                assert_eq!(refused.message, "this build linked no DuckDB ADBC driver", "{refused:?}");
+            }
+            (true, Ok(mut duckdb)) => {
+                answers_select_one(&mut duckdb);
+                println!("linked-duckdb-driver-ran-select-1");
+            }
+            (linked, other) => panic!("archive linked: {linked}, yet the driver is {other:?}"),
+        }
+    }
+
+    /// A mounted `DuckDB` opens by the entrypoint `mounted_duckdb_driver` passes, and by no name the
+    /// driver manager would derive - so the passing is load-bearing, not ceremony.
+    #[test]
+    fn a_mounted_duckdb_opens_by_its_own_entrypoint_and_not_by_a_derived_one() {
+        let library = mounted_library();
+        let Err(derived) = ManagedDriver::load_dynamic_from_filename(&library, None, AdbcVersion::default()) else {
+            panic!("{} defines a name the driver manager derives", library.display());
+        };
+        assert_eq!(derived.status, Status::Internal, "{derived:?}");
+        assert!(derived.message.contains("AdbcDriverInit"), "{derived:?}");
+        let mut duckdb = sutura_adbc::mounted_duckdb_driver(&library.to_string_lossy()).expect("the mounted DuckDB initialises");
+        answers_select_one(&mut duckdb);
+    }
+
+    /// A relative mounted `DuckDB` path is refused before the loader, never resolved against the
+    /// process's working directory - `telekom/sutura#929`'s sixth finding, enforced where
+    /// `mounted_duckdb_driver` takes the path over.
+    #[test]
+    fn a_relative_mounted_duckdb_path_is_refused_rather_than_resolved() {
+        let absolute = mounted_library();
+        // A `..`-relative spelling of the REAL library, so `dlopen` would reach it: the parse, not
+        // the absence of a file, must be what refuses it.
+        let relative = path_relative_to(&absolute);
+        let Err(refused) = sutura_adbc::mounted_duckdb_driver(&relative) else {
+            panic!("a relative driver path must be refused, never opened against this process's cwd");
+        };
+        assert_eq!(refused.status, Status::InvalidArguments, "{refused:?}");
+    }
+
+    /// The `libduckdb` the dev shell and every nix check name (`nix/duckdb.nix`).
+    fn mounted_library() -> std::path::PathBuf {
+        std::path::PathBuf::from(
+            std::env::var_os("SUTURA_DUCKDB_ADBC_DRIVER")
+                .expect("the dev shell and every nix check set SUTURA_DUCKDB_ADBC_DRIVER"),
+        )
+    }
+
+    /// `absolute` written relative to the process's working directory, climbing `..`, so the loader
+    /// would resolve it back to the same file.
+    fn path_relative_to(absolute: &std::path::Path) -> String {
+        let abs = absolute.components().collect::<Vec<_>>();
+        let cwd_path = std::env::current_dir().expect("a working directory");
+        let cwd = cwd_path.components().collect::<Vec<_>>();
+        let shared = abs.iter().zip(cwd.iter()).take_while(|(a, b)| a == b).count();
+        let mut out = std::path::PathBuf::new();
+        for _ in shared..cwd.len() {
+            out.push("..");
+        }
+        for part in &abs[shared..] {
+            out.push(part.as_os_str());
+        }
+        out.to_string_lossy().into_owned()
+    }
+
+    /// `SELECT 1` on an in-memory database answers one `INTEGER` row holding 1.
+    fn answers_select_one(duckdb: &mut ManagedDriver) {
+        let database = duckdb.new_database().expect("an in-memory database opens");
+        let mut connection = database.new_connection().expect("a connection opens");
+        let mut statement = connection.new_statement().expect("a statement opens");
+        statement.set_sql_query("SELECT 1").expect("the query is accepted");
+        let batches: Vec<RecordBatch> = statement
+            .execute()
+            .expect("SELECT 1 executes")
+            .collect::<Result<_, _>>()
+            .expect("every batch reads");
+        let [batch] = batches.as_slice() else {
+            panic!("one batch, got {}", batches.len());
+        };
+        let column = batch
+            .column(0)
+            .as_primitive_opt::<Int32Type>()
+            .unwrap_or_else(|| panic!("an INTEGER column, got {}", batch.column(0).data_type()));
+        assert_eq!(column.values(), &[1]);
     }
 }

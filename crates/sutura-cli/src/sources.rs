@@ -89,6 +89,8 @@ mod bigquery;
 /// `crate::clickhouse`, shared with `crate::serve`'s own root, so what is here is the dispatch
 /// wrapper and the refusal for a build that linked no adapter.
 mod clickhouse;
+/// The DUCKDB half of this module: `clickhouse`'s shape, the BUILD shared through `crate::duckdb`.
+mod duckdb;
 /// The ORACLE half of this module: `clickhouse`'s shape - the dispatch wrapper and the feature-off
 /// refusal, with the BUILD shared through `crate::oracle`.
 mod oracle;
@@ -146,6 +148,9 @@ pub(crate) enum Opened {
     /// An Oracle database, reached over its listener.
     #[cfg(feature = "oracle")]
     Oracle(OpenedWith<sutura_exec_oracle::OracleWarehouse>),
+    /// A local `DuckDB` database file, opened read-only.
+    #[cfg(feature = "duckdb")]
+    Duckdb(OpenedWith<sutura_exec_duckdb::DuckDbWarehouse>),
 }
 
 /// What a command opened over one adapter: the registry a plan is looked up in, what was attached,
@@ -224,9 +229,8 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// the outbound transports share one read rather than re-reading a bundle, the
 /// host store or a client identity pair per source.
 ///
-/// Called unconditionally - on a build with no `bigquery` feature this simply has no reader, the same
-/// shape `security.credential_cache` is in on that build. See `docs/adr/0010`'s amendment for the
-/// limit: a declaration with no linked adapter is read and unused, not refused, because refusing it
+/// Called unconditionally - on a build with no `bigquery` feature this simply has no reader. See
+/// `docs/adr/0010`'s amendment for the limit: a declaration with no linked adapter is read and unused, not refused, because refusing it
 /// would mean this settings crate knowing which features a binary was built with.
 ///
 /// # Errors
@@ -334,7 +338,7 @@ pub(crate) fn open_engine(
 ) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
     let named = match sources.as_slice() {
-        [only] => (*only).clone(),
+        [only] => *only,
         [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
         many => {
             // **The remedy is offered again, and the round trip it used to send an operator on is
@@ -361,10 +365,10 @@ pub(crate) fn open_engine(
     // A `let`-else rather than a match on the `Option`, because `clippy::option_if_let_else` asks for
     // `map_or_else` and the two closures it wants read as an expression where this reads as an order:
     // the deployment's declaration first, this command's own only if there was none.
-    let Some(declared) = registry.get(&named) else {
-        return files::from_the_built_in_declaration(pinned, &named, data, runtime);
+    let Some(declared) = registry.get(named) else {
+        return files::from_the_built_in_declaration(pinned, named, data, runtime);
     };
-    from_the_registry(pinned, &named, declared, data, registry, runtime, request_timeout, outbound)
+    from_the_registry(pinned, named, declared, data, registry, runtime, request_timeout, outbound)
 }
 
 /// Opens a source the deployment declared, under the identity that declaration names.
@@ -455,6 +459,17 @@ fn from_the_registry(
                 ));
             }
             oracle::open(source, configured, registry, working_set(runtime))
+        }
+        sutura_config::SourceKind::Duckdb => {
+            if let Some(given) = data {
+                return Err(format!(
+                    "`sources.{source}` is a DuckDB database file, and {} was given on the command line \
+                     as a data directory - a database file has none, so the argument selects nothing. \
+                     Drop it; the file that entry declares is what will be read",
+                    given.display()
+                ));
+            }
+            duckdb::open(source, configured, registry, working_set(runtime))
         }
     }
 }
@@ -579,25 +594,30 @@ fn pin(definitions: sutura_domain::catalog::Definitions) -> PinnedDefinitions {
         definitions,
         sutura_domain::knowledge::Knowledge::none(),
         ContributionManifest::single(
-            SourceName::parse(crate::commands::CATALOG_SOURCE).expect("the built-in catalog name is a name"),
+            SourceName::parse("model").expect("a catalog name is a name"),
             Contribution::of(sutura_domain::capabilities::MetadataCapabilities::nothing()),
         ),
     )
     .expect("the test definitions hash")
 }
 
-/// The runtime group every case hands in: the EMBEDDED defaults, read through `Settings::load`,
-/// which is what a command with no configuration directory would use.
-///
-/// Written this way rather than as a literal so a change to `defaults.yaml` reaches these tests, and
-/// it is the same value `runtime.working_set_max_bytes` resolves to when nobody configured one.
+/// The settings a command with no configuration directory would use: the EMBEDDED defaults, read
+/// through `Settings::load`.
 ///
 /// Module level for the reason [`bundle_naming`] gives.
 #[cfg(test)]
-fn runtime() -> sutura_config::RuntimeSettings {
+fn defaults() -> sutura_config::Settings {
     sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
         .expect("the embedded defaults are a servable development deployment")
-        .runtime()
+}
+
+/// The runtime group every case hands in, from [`defaults`].
+///
+/// Written this way rather than as a literal so a change to `defaults.yaml` reaches these tests, and
+/// it is the same value `runtime.working_set_max_bytes` resolves to when nobody configured one.
+#[cfg(test)]
+fn runtime() -> sutura_config::RuntimeSettings {
+    defaults().runtime()
 }
 
 /// The request timeout every case hands in: the EMBEDDED default, read the same way [`runtime`] is.
@@ -606,10 +626,7 @@ fn runtime() -> sutura_config::RuntimeSettings {
 /// dataset cases rather than a literal here going stale beside it.
 #[cfg(test)]
 fn timeout() -> sutura_config::RequestTimeout {
-    sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
-        .expect("the embedded defaults are a servable development deployment")
-        .server()
-        .request_timeout()
+    defaults().server().request_timeout()
 }
 
 /// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.

@@ -52,6 +52,11 @@ single package is in `nix/shipped.nix`, as `--package ${binary.package}` - a var
 of shipped binaries, not a literal `--package sutura-cli` in `flake.nix`. `flake.nix`'s own
 `ciArtifacts` builds `--workspace --all-features`, and the release derivations are in `nix/shipped.nix`.
 
+**Corrected: the release row's "no musl `libduckdb`" premise is false now.** [0009](0009-the-plan-from-one-source-to-many.md)'s
+fifth amendment records that nixpkgs `duckdb` cross-builds for both musl triples; the Seventeenth amendment
+below records the consequence - every musl release link now carries the merged DuckDB static archive as
+an ADBC driver, and no data system ships with it.
+
 **Corrected: the `anyhow` row attributes the claim to the wrong source.** `AGENTS.md` contains no
 occurrence of the word "anyhow"; the claim lives in `docs/architecture.md` and is enforced by
 `cargo xtask check-boundaries`, which fails a dynamic-error crate in a library - the gate the row
@@ -1610,3 +1615,211 @@ is read from its source. OpenSSL still reads its compiled-in default configurati
 initialises the driver and opens nothing, so libpq itself runs only in `linkedDriversTests`. And
 `bigquery-driver-check` runs for the `data_source_bigquery` category, which a change confined to
 `sutura-exec-postgres` does not select.
+
+## Fifteenth amendment, 2026-10-02: every PostgreSQL source is answered over ADBC, and `tokio-postgres` is gone from the adapter
+
+**What moved.** Stage 2 of `telekom/sutura#913`, as one change and a hard break. `sutura-cli`'s one
+Postgres composition (`crate::postgres`, shared by both roots) builds `AdbcPostgres` for every
+`kind: postgres` source, over the driver this artefact links (both musl triples) or the one
+`SUTURA_POSTGRES_ADBC_DRIVER` names - `PostgresDriver::from_host`, linked first, so a mounted path
+cannot displace a release's own driver. There is no fallback and no key that selects a transport.
+`sutura-exec-postgres` no longer depends on `tokio`, `tokio-postgres`, `tokio-postgres-rustls`,
+`rustls`, `rustls-native-certs`, `bytes` or `futures-util`; the session client, its per-connection
+lock, the source-channel `rustls::ClientConfig` and its rotation, the `NUMERIC` wire decoder and the
+`COPY` fixture load are deleted with it. The `rdbms` catalog's live reader keeps its own
+`tokio-postgres` client until it moves too; its connection and `rustls` config moved to
+`sutura-catalog-rdbms::postgres_channel`, beside it.
+
+**What the break is, for an operator.** A deployment that declared `transport_anchors: system` on a
+`postgres` source no longer starts: libpq reads `system` as OpenSSL's compiled-in store, not the host
+store sutura reads, so the source refuses by name (`UnusableChannel::HostStore`) - name a PEM bundle.
+An empty password file, TLS over a unix socket and TLS while `OPENSSL_CONF` is set refuse the same
+way. A host that links no driver (any gnu or darwin build) must set `SUTURA_POSTGRES_ADBC_DRIVER` to
+an absolute `libadbc_driver_postgresql` shared library, or its postgres sources refuse at boot.
+
+**What runs against a real server now.** `sutura-exec-postgres`'s tier-backed targets - the
+conformance packs, the raw tool's `READ ONLY` and row cap, the deadline's cancellation on the
+certified, raw and dry-run paths, verified and mutual TLS through libpq, and every mapped type - run
+through the real driver: a mounted one in `checks.nextest` and `just test` (`nix/postgres-adbc.nix`
+now builds the host's own, darwin included), and the LINKED static one in `nix/shipped.nix`'s
+`adbc-postgres-tier-x86_64-unknown-linux-musl-test`, which `ci.yml` builds for a change in the
+adapter's category. One finding of that run is code: a parameterless result is streamed through
+`COPY`, so a statement the server cancels mid-result fails inside the Arrow stream with no
+SQLSTATE; `session::timed_out` reads such a failure as the timeout once the timeout it set has run
+out.
+
+**Types.** The driver's Arrow mapping is canonical; `tests/types.rs` pins what each mapped type reads
+as through it, and the golden matrix's postgres cells answer over it. `NUMERIC` keeps its exact
+re-read (scale-zero text that fits an `i64` is an integer, the rest exact text).
+
+**Limits.** A Postgres source signs in only as the deployment's declared shared service account.
+OAuth, Kerberos/GSSAPI and per-caller sign-in are not supported: `Conninfo` pins `require_auth`
+to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`, on every channel and with
+either driver. (Kerberos for that one account: the sixteenth amendment.) The musl tier run is the `ci` profile and x86_64 only: the release profile's LTO and
+stripping, and aarch64-musl, are not executed. A connection opens per call, so loading and connecting
+stay outside the request's deadline and an unreachable server is met at the boot path's first anchor
+check rather than at startup. A key that does not match its certificate passes the boot-time read and
+fails at libpq's connect. A failure this process makes itself while reading a stream, after the
+timeout window has passed, is read as the timeout.
+
+## Sixteenth amendment, 2026-10-03: Kerberos on the linked libpq, through a static MIT krb5
+
+**What moved.** The Thirteenth amendment built the linked libpq without GSSAPI, so the static musl
+triples could not sign in with Kerberos. The owner's 2026-10-02 ruling on `telekom/sutura#913` is
+that this is not an accepted limit, for musl too. `nix/postgres-adbc.nix` now builds MIT krb5
+`staticOnly` - no keyring ccache, no libedit - and the static libpq with `--with-gssapi` against
+it, static-only so no `libpq.so` links a static krb5. Five archives join the musl link set after
+`libpgport.a`, in `crates/sutura-adbc/build.rs`'s single-pass order: `libgssapi_krb5.a`,
+`libkrb5.a`, `libk5crypto.a`, `libcom_err.a`, `libkrb5support.a`. musl needs no `libresolv.a`.
+
+**No dlopen, measured.** A static x86_64-musl client in an image holding only `/etc/krb5.conf` and a
+keytab signed in through the linked driver, GSSAPI-encrypted, before this change was written. krb5's
+compiled-in plugin directory and fallback profile are store paths; `remove-references-to` blanks
+them in the installed archives, so the shipped closure does not gain krb5. None of krb5's optional
+plugin archives is linked: no MS-KKDCP over HTTPS, no PKINIT, SPAKE or OTP pre-authentication. A KDC
+is reached over port 88 with a keytab or a ticket cache.
+
+**What this supersedes.** The fifteenth amendment's *OAuth, Kerberos/GSSAPI and per-caller sign-in
+are not supported* now reads: a Postgres source signs in only as its declared shared service
+account - a password, or one Kerberos principal from the deployment's keytab - and OAuth and
+per-caller sign-in are not supported. Its `require_auth`/`gssencmode` pins hold everywhere but
+`Conninfo::kerberos`.
+
+**What is declared, and refused.** `Conninfo::kerberos` builds `require_auth='gss'`, the declared
+`krbsrvname` and `gssdelegation='0'` - the credential is never delegated - and `gssencmode='require'`
+only where GSSAPI encryption is the declared channel. Refused when built, by name: Kerberos to a
+unix socket; Kerberos while `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as
+whatever a default cache holds and reads a client keytab only where none exists; and GSSAPI
+encryption beside TLS, which libpq tries first and which verifies none of the declared anchors.
+`passfile` moves from read-only-in-a-refused-case to left to libpq: a Kerberos string writes no
+password, and `require_auth='gss'` sends nothing a password file holds - so `KEYWORDS` has no
+refused-case row left.
+
+**Limits.** One principal per process: libpq takes no keytab or cache per connection, so every
+Kerberos source signs in as the principal the environment names; acting as the caller is not
+supported. Which server principal GSSAPI authenticates is the one `krb5.conf` makes of the declared
+host, not anything the declared anchors hold. No settings key declares a Kerberos source yet. The two cells against a server, `tests/kerberos.rs` - the
+sign-in and its refused negative control - run only in `nix/shipped.nix`'s x86_64-linux venue, as
+`bigquery-driver-check` realises them; aarch64-musl links the same set and nothing executes it
+there. OAuth stays unsupported: the static libpq is built without libcurl, and a token sutura holds
+is a further change through libpq's `PQsetAuthDataHook`.
+
+## Seventeenth amendment, 2026-10-05: the merged DuckDB archive reaches every musl release link, carrying no data system with it
+
+**What moved.** The "-- The release" row above still reasons from "nixpkgs has no musl `libduckdb`".
+0009's fifth amendment records that premise as false: nixpkgs' `duckdb` cross-builds for both musl
+triples. This change uses it: `nix/duckdb-adbc.nix` merges nixpkgs' duckdb static archives into one
+`libduckdb_adbc.a`, and `nix/shipped.nix`'s `adbcArchiveFor` hands it to every `-linux-musl` release
+link as an ADBC driver - a third static C archive beside the BigQuery Go one and the PostgreSQL one, in
+every musl release. The GNU triples and the darwin host receive none. **This delivery is unmeasured** - the
+configuration is in place but no shipped artefact has been observed to carry the archive.
+
+**What does NOT move.** No data system ships with it: `sutura-exec-duckdb` stays a dev-dependency,
+nothing shipped calls the linked DuckDB driver yet, and the archive is a carry-only cost until a follow-up
+wires a DuckDB source onto it. Carry-only deadlines stay the stated limit of
+[0029](0029-where-a-deadline-lives.md).
+
+**The 2026-10-02 owner decision** (feat/duckdb-adbc-linked-driver): the mounted `.so` opens through the
+explicit `duckdb_adbc_init` entrypoint, no wrapper; carry-only deadlines remain the stated limit per ADR 0029.
+
+## Eighteenth amendment, 2026-10-05: the PostgreSQL connector is its own crate, so a catalog reader can share it
+
+**What moved.** Stage 3 of `telekom/sutura#913` puts the `rdbms` catalog's live reader on the same
+driver, and a catalog adapter may not reach `sutura-sql`, which `sutura-exec-postgres` renders
+through. The owner's 2026-10-02 decision is a new unprefixed crate, `sutura-adbc-postgres`, that
+both consume: `Conninfo` and `Channel` (the connection string, its TLS posture and every refusal
+the fifteenth and sixteenth amendments list), `ConnectionTarget`, `PostgresDriver` with its
+`MOUNTED_DRIVER` and `NoDriver`, `AdbcError`, and `PostgresDriver::connect`, the one open.
+`sutura-exec-postgres` re-exports each under its old `adbc::` path, so nothing it answers changes.
+`sutura-adbc` stays the generic loader that owns the one `unsafe` site.
+
+**What holds it.** `FORBIDDEN_EDGES` refuses `sutura-adbc-postgres -> sutura-sql` over every edge
+kind, and `check-boundaries`' shared-crate rows hold its normal tree off every adapter, the
+application, settings and the transports. The crate-map skill records it as the shared-connector
+precedent.
+
+**Limits.** `AdbcError` moved whole, so the connector's error still carries the variants only the
+exec adapter's statement path produces. The catalog reader still answers over `tokio-postgres` until
+the stage-3 cutover lands; that change, not this one, takes `tokio-postgres` out of the workspace.
+
+## Nineteenth amendment, 2026-10-06: the DuckDB adapter answers over its ADBC driver, and the `duckdb` crate is gone
+
+**What moved.** `sutura-exec-duckdb` answers every port method over DuckDB's own ADBC entrypoint,
+`duckdb_adbc_init`. A musl link uses the archive the seventeenth amendment put in place, and every
+other build uses the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names (`nix/duckdb.nix`). The
+adapter holds one `ManagedDatabase`, opens a connection per call, and hands on the driver's Arrow
+batches. The domain's one reader then decides which types answer. The old path is deleted with no
+fallback: `duckdb` and `libduckdb-sys` leave `Cargo.lock` with 29 other packages, among them the
+whole `arrow 58` family. So the lock holds one Arrow major, and `devco/arrow-majors-allow` loses its
+`58` row. `DUCKDB_LIB_DIR`, `DUCKDB_INCLUDE_DIR` and the DuckDB `LD_LIBRARY_PATH` are gone from the
+dev shell, the checks and the apps: nothing links `libduckdb` now, so no build step reads a path to
+it.
+
+**The `+0` is re-taken, because its premise left with the crate.** This record measured `ureq` as
+free because `libduckdb-sys`'s downloader already resolved it. `check-shared-client` failed when that
+stopped being true, as it was written to (`` `libduckdb-sys` no longer depends on `ureq` ``). The
+gate's premise rule is removed with the premise. Re-measured on this lock: `ureq` stays one version,
+declared by `sutura-http-client` and the adapters and catalogs that dial over it. Only three packages
+leave the 522-package lock without it: `ureq`, `ureq-proto` and `utf8-zero`. Its TLS stack (`rustls`,
+`ring`, `webpki-roots` and the others) is reached through other first-party paths too. So `ureq` is
+now a first-party dependency that costs three packages, not a free one. The licence entries it
+justified stay in use.
+
+**What does NOT move.** `sutura-exec-duckdb` stays a dev-dependency, and nothing shipped calls the
+linked DuckDB driver. Deadlines stay carried-only, which is the stated limit of
+[0029](0029-where-a-deadline-lives.md); a watchdog that interrupts a running statement is
+`telekom/sutura#1236`. The adapter still declares `NoPlaceForASubject`.
+
+**Limits.** The materialisation budget refuses at the batch that crosses it, and the driver sends one
+DuckDB chunk per batch, so the budget no longer refuses at each row. The driver's `set_sql_query`
+runs every statement of a string except the last one, so this adapter sends it only rendered
+statements and its own one-statement `attach_*` views. A certified answer goes on unread, so the
+domain's reader refuses a `REAL` or a non-finite `DOUBLE` downstream, with the engine's error,
+rather than the adapter refusing it.
+
+## Twentieth amendment, 2026-10-06: the catalog reader is on the connector, and `tokio-postgres` is gone
+
+**What moved.** Stage 3 of `telekom/sutura#913`: `sutura-catalog-rdbms`'s live Postgres reader dials
+through `sutura-adbc-postgres`. One read is one connection: autocommit off, `SET TRANSACTION
+ISOLATION LEVEL REPEATABLE READ READ ONLY` through `execute_update` (a fixed literal, under
+`clippy.toml`'s row), the select through `execute` with the environment and any equals value bound
+by `sutura_adbc::parameter_batch`, then a rollback. `postgres_channel` and its `rustls::ClientConfig`
+are deleted: the composition root builds the catalog's `Conninfo` from its declared channel the way
+it builds a source's. `tokio-postgres`, `tokio-postgres-rustls` and the 21 packages only they pulled
+leave `Cargo.lock`; the served-binary fixtures lock and install through `sutura-exec-postgres`'s
+`FixtureAdmin`.
+
+**What holds it.** `tests/provisioned.rs`, against the tier: a documentation view whose function
+writes is refused `25006`, and a read-write transaction mode turns that cell red; the row and byte
+caps refuse. `postgres_reader`'s unit cell bills a batch at its exact size and at one byte short,
+and skipping the bill turns it red.
+
+**What changed for an operator.** A catalog connection meets the connector's refusals at boot:
+`transport_anchors: system`, TLS over a unix socket or while `OPENSSL_CONF` is set, and an empty
+password. A key that does not match its certificate fails at libpq's connect, which the boot load
+reaches.
+
+**Limits.** With bound parameters the pinned driver executes through `PQexecPrepared` and returns
+the whole result as one batch (`bind_stream.h`, `result_reader.cc`), so the byte cap refuses a
+result libpq already holds; the select's `LIMIT`, one past the row cap, is what bounds the read, in
+rows and not in bytes. Neither bound limits elapsed time, and no statement timeout is set. The
+connector's refusal text names `sources.<catalog name>`, its own key space, behind the catalog's own
+key.
+
+## Twenty-first amendment, 2026-10-07: a `kind: duckdb` source opens the DuckDB adapter, and its deadline is enforced
+
+**What moved.** Three claims in the seventeenth and nineteenth amendments are no longer true.
+"`sutura-exec-duckdb` stays a dev-dependency": `sutura-cli` now names the crate as an optional
+dependency behind its default-off `duckdb` feature, which a `kind: duckdb` source opens
+(`telekom/sutura#1292`). "Nothing shipped calls the linked DuckDB driver" and "a carry-only cost":
+`nix/shipped.nix` lists `duckdb` among the shipped `features`, so every release links the adapter,
+and a musl release's linked archive is the driver a `kind: duckdb` source opens. And "carry-only
+deadlines" and "Deadlines stay carried-only": the DuckDB adapter now stops a statement at the
+deadline with a watchdog that cancels the call's connection
+([0029](0029-where-a-deadline-lives.md)'s sixth amendment, `telekom/sutura#1236`).
+
+**What does NOT move.** The adapter still declares `NoPlaceForASubject`. The GNU triples and the
+darwin host link no DuckDB archive: they mount the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER`
+names, which a Nix build on Apple silicon presets. **No shipped artefact has been observed
+answering a `kind: duckdb` source**: the linked-driver test build answers `SELECT 1` from the
+archive on x86_64 musl and nothing more.

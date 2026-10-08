@@ -41,7 +41,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 
 use crate::catalog::{OpenedCatalogs, load_each};
@@ -87,7 +86,6 @@ pub(crate) enum Outcome {
 pub(crate) struct Refresher<K> {
     catalogs: Vec<K>,
     sender: tokio::sync::watch::Sender<Arc<PinnedDefinitions>>,
-    digest: DefinitionDigest,
 }
 
 impl<K> Refresher<K>
@@ -99,14 +97,9 @@ where
     /// digest change that boot itself would not have.
     #[must_use]
     pub(crate) fn new(catalogs: Vec<K>, initial: PinnedDefinitions) -> Self {
-        let digest = initial.digest().clone();
         let (sender, receiver) = tokio::sync::watch::channel(Arc::new(initial));
         drop(receiver);
-        Self {
-            catalogs,
-            sender,
-            digest,
-        }
+        Self { catalogs, sender }
     }
 
     /// The read handle a caller holds. Cheap to clone; every clone observes this channel.
@@ -121,28 +114,36 @@ where
     /// (`load_each`). On success with a changed digest, adopts the new bundle and audits the
     /// digest transition; on an unchanged digest, does nothing; on a refusal, keeps the bundle
     /// already in use and logs loudly rather than tearing anything down.
-    pub(crate) fn poll_once(&mut self) -> Outcome {
+    ///
+    /// The compare and the swap are one write lock (`send_if_modified`), so two concurrent callers
+    /// cannot both pass the compare and let the older load land last: a single poller is not what
+    /// keeps this correct.
+    pub(crate) fn poll_once(&self) -> Outcome {
         match load_each(&self.catalogs) {
             Ok(next) => {
-                if next.digest() == &self.digest {
-                    return Outcome::Unchanged;
-                }
-                let previous = self.digest.clone();
-                self.digest = next.digest().clone();
-                tracing::info!(
-                    previous_digest = previous.as_str(),
-                    digest = self.digest.as_str(),
-                    "a declared catalog refresh re-pinned this bundle"
-                );
-                drop(self.sender.send_replace(Arc::new(next)));
-                Outcome::Rotated
+                let rotated = self.sender.send_if_modified(|current| {
+                    if next.digest() == current.digest() {
+                        return false;
+                    }
+                    tracing::info!(
+                        previous_digest = current.digest().as_str(),
+                        digest = next.digest().as_str(),
+                        "a declared catalog refresh re-pinned this bundle"
+                    );
+                    *current = Arc::new(next);
+                    true
+                });
+                if rotated { Outcome::Rotated } else { Outcome::Unchanged }
             }
             Err(cause) => {
-                tracing::error!(
-                    error = %cause,
-                    digest = self.digest.as_str(),
-                    "a declared catalog's refresh failed to load; keeping the bundle already pinned"
-                );
+                {
+                    let current = self.sender.borrow();
+                    tracing::error!(
+                        error = %cause,
+                        digest = current.digest().as_str(),
+                        "a declared catalog's refresh failed to load; keeping the bundle already pinned"
+                    );
+                }
                 Outcome::Rejected
             }
         }
@@ -156,7 +157,7 @@ where
 /// entries declared an interval - the shortest is the one that makes every declared interval hold
 /// (an entry that asked for one minute is never left waiting five just because a second entry in
 /// the same deployment asked for less).
-fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Duration> {
+pub(crate) fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Duration> {
     declared
         .each()
         .filter_map(sutura_config::CatalogSettings::refresh_seconds)
@@ -170,8 +171,12 @@ fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> Option<Dura
 /// **No runtime means it does not poll**, the same shape `crate::rotation::drive_rotation`
 /// documents for the outbound-material rotation: call this from `serve_until_stopped`, where
 /// `runtime.block_on` has already entered one, never from the synchronous boot section above it.
-pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, declared: &sutura_config::Catalogs) {
-    let Some(interval) = shortest_declared_interval(declared) else {
+///
+/// Takes the opened catalogs and the boot pin BY VALUE: the poll is their last holder, so nothing is
+/// cloned for it - and a catalog holding a credential (the `rdbms` reader's connection string) need
+/// not be `Clone` at all.
+pub(crate) fn drive(catalogs: OpenedCatalogs, pinned: PinnedDefinitions, interval: Option<Duration>) {
+    let Some(interval) = interval else {
         return;
     };
     if tokio::runtime::Handle::try_current().is_err() {
@@ -183,15 +188,15 @@ pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, decla
         "this deployment's catalog will be polled and re-pinned on a declared interval"
     );
     match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs, pinned, interval),
         #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
-        OpenedCatalogs::Okf(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::Okf(catalogs) => spawn(catalogs, pinned, interval),
         #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
-        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, pinned, interval),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs, pinned, interval),
     }
 }
 
@@ -201,10 +206,10 @@ pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, decla
 /// built and immediately discarded.
 fn spawn<K>(catalogs: Vec<K>, initial: PinnedDefinitions, interval: Duration)
 where
-    K: SemanticCatalog + Clone + Send + Sync + 'static,
+    K: SemanticCatalog + Send + Sync + 'static,
     K::Error: Send + Sync,
 {
-    let mut refresher = Refresher::new(catalogs, initial);
+    let refresher = Refresher::new(catalogs, initial);
     let rotating = refresher.rotating();
     drop(tokio::spawn(async move {
         loop {
@@ -380,7 +385,7 @@ mod tests {
     fn an_unchanged_read_is_silent_and_keeps_the_same_bundle() {
         let (catalog, _next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
         let digest = rotating.current().digest().clone();
 
@@ -394,7 +399,7 @@ mod tests {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
         let before_digest = initial.digest().clone();
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
 
         set(&next, Answer::Bundle(vec!["a", "b"]));
@@ -418,7 +423,7 @@ mod tests {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
         let before_digest = initial.digest().clone();
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
 
         set(&next, Answer::Refused);
@@ -442,7 +447,7 @@ mod tests {
     fn provenance_reads_the_bundle_a_clone_was_taken_from_not_a_live_subscription() {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let mut refresher = Refresher::new(vec![catalog], initial);
+        let refresher = Refresher::new(vec![catalog], initial);
         let rotating = refresher.rotating();
         let held_before_the_swap = rotating.current();
 

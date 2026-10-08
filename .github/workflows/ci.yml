@@ -162,6 +162,8 @@ on:
   # it: it is not a required context, nothing has it in `needs`, and the pull request it came from
   # already ran it. Making a queue entry call a cloud provider would be a decision about cost and
   # about a secret, not a fix, so it is named here rather than taken.
+  # `bigquery-conformance` is that decision TAKEN, by the owner, for one leg: it runs in the queue
+  # too, because the queue is the only run that tests the merged result against a real dataset.
   #
   # SCOPE: this file only, and deliberately. `ci` is the only required context, so adding
   # `merge_group` to `docs.yml` or `security-audit.yml` would buy a duplicate run and nothing
@@ -303,10 +305,17 @@ jobs:
       # `deps` stayed `false` for every one of them. `deps_closure`'s patterns are exactly
       # `nix-store-cache`'s own `primary-key` inputs (`crate::changes::DEPS_CLOSURE_INPUTS`).
       deps_closure: ${{ steps.classify.outputs.deps_closure }}
+      # AREA axis again, for `ci-aggregate` alone: the three flags `causality` and
+      # `postgres-linked-driver` are selected by. They were these steps' own conditions before #1280
+      # moved the steps out, and the aggregate reads `ci`'s copy so a job that skips where `ci`
+      # selects is red rather than silently absent.
+      rust: ${{ steps.classify.outputs.rust }}
+      run_all: ${{ steps.classify.outputs.run_all }}
+      nix: ${{ steps.classify.outputs.nix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # classify and the causality gate diff against the base commit.
+          # classify diffs against the base commit.
           fetch-depth: 0
           persist-credentials: false
 
@@ -403,7 +412,8 @@ jobs:
             # HEADGREEN BATCHES SEVERAL QUEUE ENTRIES INTO ONE TESTED TREE
             # (`max_entries_to_build`), and `git merge-base "origin/$DEFAULT_BRANCH" HEAD` walks
             # back through EVERY entry ahead of this one in the batch, not just the one under
-            # test - a step below (`Test causality`) then reads every batched entry's commit
+            # test - the `Test causality` step (now the `causality` job's, which resolves its own
+            # base the same way) then reads every batched entry's commit
             # messages and added tests as if they were one diff, so an earlier entry's own
             # legitimate `Claim-Cell:` declaration collides with a later entry's ordinary,
             # undeclared test, and a diff that added no test at all can be measured against
@@ -421,9 +431,9 @@ jobs:
             # guess if the one-parent assumption ever stops holding: a HEAD with any parent count
             # but 1 leaves `base` empty. That is NOT "everything will run" for every reader of
             # `base` below - `Classify the change` treats it that way, but `Test causality`
-            # (this file, further down) skips SILENTLY on an empty base, so that step now carries
-            # its own `::warning` for exactly this case, matching `Find the CRAP baseline`'s
-            # existing precedent for the same empty-base shape.
+            # (the `causality` job, further down) skips SILENTLY on an empty base, so that step
+            # carries its own `::warning` for exactly this case, matching `Find the CRAP
+            # baseline`'s existing precedent for the same empty-base shape.
             parents="$(git show -s --format=%P HEAD)"
             read -r parent extra <<< "$parents"
             if [ -n "$parent" ] && [ -z "$extra" ]; then
@@ -587,8 +597,9 @@ jobs:
       #     they would have said, so deferring them to the next push costs a round trip and not a
       #     guarantee. `Secrets` is the case where that argument fails, because a committed
       #     credential is already disclosed - which is why that one got the line and this did not.
-      #   * `CRAP score` and `Test causality` now follow the two shipped-feature-set steps, which
-      #     is the order #639 asked for: behaviour before the metrics about the behaviour.
+      #   * `CRAP score` now follows the two shipped-feature-set steps, which is the order #639
+      #     asked for: behaviour before the metrics about the behaviour. `Test causality` followed
+      #     them too until #1280 moved it into its own job.
       #
       # NO GATE PAIRS A ROOT WITH ITS STEP, and the reason that is tolerable is the blast radius,
       # stated rather than assumed. If someone narrows a step's `if:` and forgets its root, or the
@@ -610,13 +621,11 @@ jobs:
       # #985 D2 (owner decision, issuecomment-5900985733): push `ci` is reduced to its 3 unique
       # outputs (CRAP baseline, last-validated marker, main-scoped Nix-store cache save). Every step
       # below this point that verifies the tree - the closure-free gates, the stage-2 lint gates, the
-      # stage-3 tests and tiers, the shipped feature set, causality - is gated off on `push`, because
-      # the merge queue already verified the same tree. `github.event_name != 'push'` on each step is
+      # stage-3 tests and tiers, the shipped feature set - is gated off on `push`, because the merge
+      # queue already verified the same tree (`causality` and `postgres-linked-driver`, the two jobs
+      # #1280 moved out of this one, carry the same `!= 'push'`). `github.event_name != 'push'` on each step is
       # the mechanism; `xtask/src/workflows/obligations.rs` pins it on Secrets, Licensing and Chart
-      # only. THE COST: the causality-target cache is saved only from a push to `main`, and its
-      # caller is one of the gated steps, so that entry is never written again and freezes at its
-      # last generation. Once the lockfile or a manifest moves, pull-request runs of the three tail
-      # apps restore a stale generation and recompile cold.
+      # only.
       - name: Realise the closure-free gates in one graph
         if: github.event_name != 'push'
         continue-on-error: true
@@ -640,7 +649,7 @@ jobs:
             set -eu
             nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt \
               .#checks.x86_64-linux.helm-chart .#checks.x86_64-linux.adbc-driver-bigquery \
-              .#checks.x86_64-linux.adbc-driver-postgresql
+              .#checks.x86_64-linux.adbc-driver-postgresql .#checks.x86_64-linux.adbc-driver-duckdb
 
       # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
       # every file, so gating it on the `rust` classification would let a docs or workflow file
@@ -670,7 +679,7 @@ jobs:
       # question and a different venue.
       - name: ADBC driver
         if: ${{ !cancelled() && github.event_name != 'push' }}
-        run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql -L
+        run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql .#checks.x86_64-linux.adbc-driver-duckdb -L
 
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
@@ -717,26 +726,6 @@ jobs:
       - name: Secrets
         if: ${{ always() && github.event_name != 'push' }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
-
-      # THE ONE SUBJECT NO HOOK SEES. The queue squashes and composes the landed subject from the
-      # PULL-REQUEST TITLE, so `commit-msg` - which judges commits made in a checkout - never reads
-      # the string that becomes permanent history: `spike(metadata): …` is on `main` as `ed650549`
-      # over a vocabulary that holds eleven types and not that one (#935). This step is the venue
-      # that has the title.
-      #
-      # IT IS THE FIRST `nix run .#xtask` STEP IN THIS FILE, DELIBERATELY. `obligations::REQUIRED`
-      # holds its `if:` by a line, and that rule's order half requires every obligation to sit
-      # ahead of the first step realising the xtask closure - which this one is, so it neither
-      # displaces the three closure-free obligations above it nor sits behind a closure it would
-      # otherwise wait on. Moving it below `Classify the change` reddens `check-workflows`.
-      #
-      # THE GATE FAILS CLOSED ON AN EMPTY TITLE, which is what this expression expands to on any
-      # event without a pull request - so dropping the `if:` is a red run rather than a silent pass.
-      - name: PR title
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: nix run .#xtask -- check-pr-title "$TITLE"
 
       # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
       # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
@@ -960,49 +949,6 @@ jobs:
         if: steps.classify.outputs.api == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.api-docs -L
 
-      # The writable `target/causality-target` the three tail apps recompile into, carried on the
-      # SAME digest the store cache uses so a lockfile/manifest change invalidates it and restores
-      # the previous generation's recompile otherwise. `save:` inside the action writes only from a
-      # push to main, and #985 D2 gates this caller off on push, so the save never runs: the entry
-      # is frozen at its last generation (the cost the D2 comment at the top of the gates states).
-      #
-      # RESTORED HERE - immediately before its first reader - RATHER THAN BESIDE THE STORE CACHE
-      # AT THE TOP OF THE JOB (#639 slice I). It restores nothing any check above needs: only
-      # `apps.causality`, `apps.default-features` and `apps.default-feature-tests` read that
-      # directory. Two things that buys, and one that it does not:
-      #
-      #   * A RUN THAT REDDENS ABOVE NEVER PAYS FOR IT. Measured over the 213 jobs that had this
-      #     step: median 28 s, p90 43 s, max 213 s - spent before the first gate had reported.
-      #   * THE GRAPH STAGES GET THE DISK BACK. A hit unpacks up to 13.7 GB into the workspace
-      #     (the witness's own reading), against a budget `./.github/actions/reclaim-disk` has to
-      #     clear 25 GB for, and both `Doctests` and `Test causality` have died here on
-      #     `No space left on device`. Restoring after the test graph means that 13.7 GB is not
-      #     occupied while the closure is being built.
-      #   * IT DOES NOT SHORTEN A GREEN RUN. The same bytes are still restored, just later; what
-      #     moves is which failures pay for them. Any claim beyond that needs a measurement.
-      #
-      # NARROWING it was considered and refused: the entry already holds exactly one directory
-      # (`paths: target/causality-target`, `nix: false`), and the three apps SHARE that directory
-      # by design, so there is no per-app subset to restore. The lever here is when, not how much.
-      #
-      # **THE LIMIT OF MOVING IT, STATED BESIDE THE CLAIM: THE SAVE IS A POST STEP, AND A STEP THAT
-      # NEVER EXECUTES REGISTERS NO POST STEP.** While this sat at the top of the job its save was
-      # reached by every run that got past the installer; from here, a `main` push that reddens
-      # anywhere above no longer refreshes the entry, so the generation on `main` ages - and since
-      # #985 D2 no push reaches this step, so none renews it. That is the cost side of the saving two paragraphs up, and it is a real
-      # change rather than a relabelling.
-      #
-      # AND NO GATE HOLDS EITHER HALF. `cargo xtask check-workflows` reports this cache as "restored
-      # on every event", which is now true only of the runs that reach this step - its rule
-      # (`cache_scope::tests::a_caller_that_gates_the_store_restore_is_refused`) refuses an `if:` on
-      # the caller and CANNOT SEE POSITION. So the gate is satisfied while the property its own
-      # message names is weaker than it reads. Written down rather than fixed here: teaching it
-      # position is a change to that gate, not to this file.
-      - uses: $/.github/actions/causality-target-cache
-        if: github.event_name != 'push'
-        with:
-          scope: ci
-
       # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
       # publishes and no other venue in this job uses. Every compiling gate above passes
       # `--all-features`, `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever
@@ -1022,15 +968,16 @@ jobs:
       # start possible: the stage-2 graph puts the closure in the store before either of these
       # steps, whichever way round they sit.
       #
-      # BEFORE `Test causality` AND BEFORE `CRAP score` NOW (#639 slice I), where they used to
-      # follow both. The old order was argued as a correctness one - `Test causality` regenerates
+      # BEFORE `CRAP score` NOW (#639 slice I), and before `Test causality` until #1280 moved
+      # that out, where they used to follow both. The old order was argued as a correctness one
+      # - `Test causality` regenerates
       # build script output whose baked `OUT_DIR` did not survive the unpack - and that argument
       # does not hold, because the purge is not the causality step's to do: all three tail apps
       # reach the writable dir through `cargoWarmStart` in `nix/cargo-env.nix`, which embeds
       # `nix/purge-baked-out-dirs.sh` itself. So the sweep happens in whichever of the three runs
       # first, and the order decides only which step pays for it - exactly as the sentence this
       # replaces already conceded. What the new order buys is the ask: the shipped feature set is
-      # test BEHAVIOUR, and it now reports before the two steps that measure a property OF the
+      # test BEHAVIOUR, and it now reports before the step that measures a property OF the
       # tests rather than the tests themselves.
       #
       # `rust` and not a narrower classification, for both: the package list is derived from
@@ -1090,7 +1037,8 @@ jobs:
       # The scope is one line in xtask/src/crap.rs, and docs/crap.md carries the measured cost of
       # every wider option plus what this one does not see. `rust` rather than a narrower
       # classification: the policy file, the pin and the manifests all change the verdict, and the
-      # commit hook is the thing that scopes by path.
+      # `CRAP scope` row in xtask/src/hook_coverage/surfaces.rs is what scopes `just ship-check` by
+      # path.
       #
       # `-o result-crap` AND THE COPY exist so the delta steps below cost NO SECOND COVERAGE RUN.
       # The check writes a path-portable copy of its score report into `$out`, which is the only
@@ -1237,106 +1185,6 @@ jobs:
           path: crap-baseline.json
           if-no-files-found: error
           retention-days: 30
-
-      # A changed test must fail against base behaviour and pass with the change. Compiles
-      # twice in a worktree, so it needs git history and a writable tree.
-      #
-      # EXIT 3 IS "I MEASURED NOTHING", and this step is the one place that decides what this
-      # venue does with it. Both of the gate's inconclusive answers used to be exit 0, so a
-      # required check went green over no evidence and no reader of the check could tell - see
-      # `github.com/telekom/sutura#307` and `xtask/src/main.rs`'s `Verdict::Inconclusive`. They
-      # exit 3 now, which fails any consumer that does not know the code; this one KNOWS it and
-      # continues, because the changes that land there are legitimate (a harness move, a changed
-      # public signature that a held-at-HEAD test file calls) and a gate that reddens correct
-      # work gets disabled.
-      #
-      # WHAT CONTINUING COSTS, stated because a green step is exactly what #307 is about: the
-      # job is still green on an inconclusive run, and the two surfaces below do NOT reach the
-      # pull-request conversation. `$GITHUB_STEP_SUMMARY` renders on the workflow RUN SUMMARY
-      # page - that is what the variable is for - and a `::warning` with no `file=`/`line=` is a
-      # PATH-LESS annotation: the job log, the run's annotations list and the check run, anchored
-      # wherever GitHub chooses rather than where this file chose. So a reviewer who reads only
-      # the conversation sees one green check and nothing else, which is #307's failure mode with
-      # one click removed rather than closed. An earlier version of this comment claimed the
-      # conversation, and an overstated control is itself the defect.
-      #
-      # THE CONVERSATION MECHANISM IS IN THIS FILE, in the `crap-comment` job below: a
-      # marker-keyed sticky comment posted from a separate job holding `pull-requests: write`,
-      # shaped so a delivery failure cannot recolour the gate. Routing this verdict through it is
-      # the open improvement, and it was not taken yet because the branch below HAS EXECUTED IN NO
-      # VENUE - no run of this repository has reached exit 3 here - so a delivery path built on top
-      # of it would be assumed rather than proven. What IS proven about this branch: exit 3 is a
-      # unit test on `Verdict::exit_code`, `nix run` propagates 3 unchanged, and
-      # `cargo xtask check-inconclusive` refuses a venue that suppresses it or declares a branch
-      # it does not have.
-      #
-      # The substitute evidence (a mutation run, or the gate scoped per commit) is the author's,
-      # and nothing here can check that they gave it. Cite the VERDICT LINE, never this step's
-      # colour.
-      - name: Test causality
-        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
-        env:
-          BASE: ${{ steps.base.outputs.base }}
-          EVENT: ${{ github.event_name }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -eu
-          if [ "$EVENT" = pull_request ]; then
-            # Ordinary CI keeps its merge checkout; causality measures only the topic's diff.
-            merge_head=$(git rev-parse HEAD)
-            read -r base_tip merged_pr extra <<< "$(git show -s --format=%P HEAD)"
-            if [ -z "$PR_HEAD" ] || [ "$merged_pr" != "$PR_HEAD" ] || [ -n "$extra" ]; then
-              echo "causality requires the checked-out merge's second parent to be the event's PR head" >&2
-              exit 1
-            fi
-            if ! git diff --quiet || ! git diff --cached --quiet; then
-              echo "causality refuses to switch a checkout with tracked changes" >&2
-              exit 1
-            fi
-            BASE=$(git merge-base "$base_tip" "$PR_HEAD")
-            trap 'git checkout --detach "$merge_head" || exit 1' EXIT
-            git checkout --detach "$PR_HEAD"
-          elif [ "$EVENT" = push ]; then
-            # THE CLASSIFICATION BASE IS TOO WIDE FOR THIS GATE. `base` above is the durable
-            # marker, deliberately wide so an EVICTED run's commits stay covered (#561) - right
-            # for `Classify the change`, wrong here: causality at this HEAD was already measured
-            # at `HEAD^..HEAD` by its `merge_group` run at the SAME SHA (squash queue), and the
-            # marker only advances on a green run, so re-measuring marker..HEAD reads every
-            # undeclared test merged since as this commit's own and the red sustains itself.
-            # Narrow to HEAD's single parent; any other parent count falls open like
-            # `merge_group` above. `xtask workflows::step::causality` is the gate holding this
-            # arm, and it is UNCONDITIONAL on push because that fixture exports neither
-            # `GITHUB_REF_NAME` nor `DEFAULT_BRANCH` - a branch-filtered arm would never execute
-            # there. `on:` above already restricts push to the default branch.
-            parents="$(git show -s --format=%P HEAD)"
-            read -r parent extra <<< "$parents"
-            if [ -n "$parent" ] && [ -z "$extra" ]; then
-              BASE="$parent"
-            else
-              echo "push HEAD does not have exactly one parent (${parents:-<none>}); falling open" >&2
-              BASE=""
-            fi
-          fi
-          if [ -z "$BASE" ]; then
-            echo "::warning title=Test causality::No usable base ref, so this step is green over NOTHING RUN - not a red-before-green verdict. Read the base-resolution step above for why none was resolved."
-            echo "no usable base ref; causality not checked"
-            exit 0
-          fi
-          status=0
-          nix run .#causality -- --since "$BASE" || status=$?
-          if [ "$status" -eq 3 ]; then
-            echo "::warning title=Test causality was INCONCLUSIVE::The gate reached no verdict about this change - this step is green over NO red-before-green evidence. Read the verdict line in the log and require a mutation run, or the gate scoped per commit."
-            {
-              echo "### Test causality: INCONCLUSIVE"
-              echo
-              echo "The gate ran and measured nothing (exit 3), so this green step is not coverage."
-              echo "Usual causes: a harness move, or a changed public signature a test file kept at"
-              echo "HEAD calls. Ask for the substitute evidence - a mutation run, or \`just causality\`"
-              echo "scoped per commit - and read the verdict line rather than this step's colour."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          exit "$status"
 
       - uses: $/.github/actions/nix-store-cache-report
         if: always()
@@ -1648,8 +1496,8 @@ jobs:
   # the way `ci` does (below), and the timeout has real margin over the measured worst case.
   #
   # DELIBERATELY NOT A COPY OF `ci`'s OWN base resolution: `ci`'s durable-marker eviction handling
-  # (see its "Resolve the base to compare against" step) exists for `ci`'s OWN concurrency group
-  # and causality gate, neither of which this job has - so there is no evicted-run gap for a plain
+  # (see its "Resolve the base to compare against" step) exists for `ci`'s OWN concurrency group,
+  # which this job has not - so there is no evicted-run gap for a plain
   # `github.event.before` to fall into on a push. THAT is a CORRECTION, not the original design:
   # a push checks out that push's own tip, so `git merge-base origin/main HEAD` measured an EMPTY
   # diff on every push and made this job select `identity` on every push to main, `chore(release):`
@@ -1670,6 +1518,13 @@ jobs:
   # ~7.3 min, measured as the merge queue's critical path after `ci` over the 2026-09-25 runs -
   # behind `ci`'s. `ci-aggregate` reads the flag off `ci`, as it does `identity`, so the argument
   # above holds for it unchanged.
+  #
+  # `rust` AND `postgres_driver` ARE PUBLISHED HERE FOR `causality` AND `postgres-linked-driver`
+  # (#1280), the two `ci` steps that became jobs, on the same terms: `ci-aggregate` reads `ci`'s own
+  # `rust`/`run_all`/`nix`/`data_source_postgres`, so this job only ever widens what they run. THE
+  # COST IS LATENCY, and it is now on their path: this job has no store-cache restore (above), so its
+  # `classify` ran 80 s warm and 361 s with a cold `.#xtask` (runs 37610275316, 37606732243), where
+  # `ci`'s own took 17-18 s behind its restore.
   identity-classify:
     runs-on: rust-mcp-16core
     # 20 minutes: real margin over the measured worst case (488s realise + 62s setup = 550s), not
@@ -1681,6 +1536,13 @@ jobs:
     outputs:
       identity: ${{ steps.classify.outputs.identity }}
       data_source_bigquery: ${{ steps.classify.outputs.data_source_bigquery }}
+      # `bigquery-driver-check`'s selection, one flag: its `if:` may hold no `||` beside the
+      # release-skip clause (`xtask/src/workflows/obligations.rs`), so the OR is taken here.
+      driver_check: ${{ steps.classify.outputs.data_source_bigquery == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
+      # `causality`'s selection: the `rust` area, as the step it replaced read it.
+      rust: ${{ steps.classify.outputs.rust }}
+      # `postgres-linked-driver`'s, one flag for `driver_check`'s reason: the step's own three-way OR.
+      postgres_driver: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1806,6 +1668,7 @@ jobs:
   # The real DataHub tier supplies the certified metric and the ADBC driver executes it against
   # fixture tables this run created in BigQuery. The Keycloak tier verifies the caller; the source
   # deliberately uses the acknowledged shared CI identity. The dataset group serializes writes.
+  # The same app runs the two `delegation_adbc` cells, which need only the driver this job mounts.
   # Forks, Dependabot and merge groups cannot receive the bq-test credential; the aggregate below
   # requires this leg for every selected same-repository pull request and push.
   e2e-datahub-adbc:
@@ -1868,8 +1731,90 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/bq-key.json"
 
+  # The golden matrix's `bigquery` row against a real dataset: `nix run .#bigquery-provision`
+  # loads the example corpus and the two-fact tables into the dataset once, then
+  # `nix run .#bigquery-conformance` runs every `bigquery` cell of `sutura-app`'s golden and
+  # differential targets, and the two-fact differential, under the one shared CI identity - no
+  # impersonation claim.
+  # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
+  # bq-test credential, and there the row skips under its named exemption as everywhere else.
+  # Run-or-fail through `ci-aggregate` on a same-repository pull request and in the merge queue when
+  # `data_source_bigquery` is selected, and outside the ruleset itself. One run's corpus cell timed
+  # out undiagnosed (37152629712), so how it behaves under load is unproven.
+  bigquery-conformance:
+    needs: [ci]
+    if: (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    environment: bq-test
+    # One dataset, fixed table names: the group serializes every run that writes them.
+    concurrency:
+      group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Place credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "bq-test has no CI credential" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+      # The project comes off the key, masked before it is exported, so it reaches the cells
+      # without reaching the log.
+      - name: Mask resource names and read the project off the key
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: |
+          set -eu
+          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
+            || { echo "the CI credential names no project_id" >&2; exit 1; }
+          if [ -z "$project" ]; then
+            echo "the CI credential names an empty project_id" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$project"
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "bq-test has no SUTURA_BQ_DATASET" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
+          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Load the example corpus once
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: nix run .#bigquery-provision -- --no-capture
+      - name: Golden corpus on BigQuery
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: nix run .#bigquery-conformance -- --no-capture
+      - name: Remove credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bq-key.json"
+
   # Legs and their categories: `ci` is always required; `e2e-datahub-adbc` is selected by
-  # BigQuery, DataHub or identity; `keycloak-served-test` is `identity`. `core` (a shared or unmapped
+  # BigQuery, DataHub or identity; `keycloak-served-test` is `identity`; `causality` is the `rust`
+  # area and `postgres-linked-driver` is `run_all`, `nix` or `data_source_postgres`, off a push,
+  # which is what the two `ci` steps they replaced were gated on. `core` (a shared or unmapped
   # path) subsumes every category because the category outputs are emitted as `core || selected`,
   # so a `core` diff requires every leg to run and forbids every allowed skip.
   #
@@ -1899,8 +1844,10 @@ jobs:
   #
   # Category-gated on `data_source_bigquery`, which until this job existed was published by `ci`
   # and read by NOTHING: the leg that consumed it was deleted with the HTTP transport, so the
-  # classification axis for this adapter was orphaned. `ci-aggregate` holds run-or-fail for it,
-  # exactly as it does for `keycloak-served-test`.
+  # classification axis for this adapter was orphaned. And on `data_source_postgres`, because this
+  # is also the one venue that runs the linked PostgreSQL driver's libpq and its sign-in cells
+  # against their tiers, so a change confined to that adapter must run it too. `ci-aggregate` holds
+  # run-or-fail for either, exactly as it does for `keycloak-served-test`.
   #
   # It reads no secret and needs no environment, so a fork's pull request can run it - the same
   # reason `keycloak-served-test` carries no event exception.
@@ -1911,7 +1858,7 @@ jobs:
   # `release.yml` runs this check against the published build, so a release commit loses nothing.
   bigquery-driver-check:
     needs: [identity-classify]
-    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true' }}
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.driver_check == 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 45
     permissions:
@@ -1934,6 +1881,266 @@ jobs:
       # shell. Its own header carries what a green run does and does not establish.
       - name: Driver executes
         run: bash nix/bigquery-driver-check.sh
+
+  # #1280: `Test causality` AS ITS OWN JOB. It was the last step of `ci` and the one `ci` waited on
+  # after everything else had finished, 175 s when it compiled and 9 s when nothing was separable
+  # (run 37610275316, run 37606732243). Here it starts beside `ci` and no longer adds to it.
+  #
+  # THE CONDITION IS THE STEP'S OLD ONE, read off a different job: `rust` and not a push, with `rust`
+  # taken from `identity-classify` (#983's second classification) because a job-level `if:` can
+  # only read a job that finished before it. `ci-aggregate` holds run-or-fail against `ci`'s OWN
+  # `rust` - `needs.ci.outputs.rust` - so the two classifications may disagree and fail closed, as
+  # `keycloak-served-test`'s do: `ci` selects and this job does not is a RED aggregate, this job
+  # wider than `ci` runs a gate nobody asked for. Nothing here has a `chore(release):` clause: that
+  # commit exists only on a push, and this job never runs on one - neither step ran on a push in
+  # `ci` either, both carried `!= 'push'`. The step moved verbatim, so its `push` arm stays
+  # unreachable, as it was in `ci`, and stays in the file because `xtask`'s fixture runs it.
+  #
+  # WHAT THIS GIVES UP, stated next to the claim:
+  #   * FAIL-FAST. A red causality no longer stops the rest of `ci`, and a red `ci` no longer stops
+  #     causality. Both report; `ci-aggregate` is the only place the two meet.
+  #   * THE GATING HOP. The step was gated by the required `ci` context; this job is gated by the
+  #     required `ci-aggregate` context, through the shell that reads `needs.causality.result`.
+  #   * THE WARM TARGET. The two shipped-feature steps in `ci` used to leave `target/causality-target`
+  #     warm for this gate. Here the directory holds only what `cargoWarmStart` unpacks from the
+  #     store, and the gate compiles the rest.
+  #   * ITS OWN SETUP: waiting for `identity-classify`, then checkout, disk, Nix and the store
+  #     restore, none of which `ci` paid again for this step.
+  causality:
+    needs: [identity-classify]
+    if: github.event_name != 'push' && needs.identity-classify.outputs.rust == 'true'
+    runs-on: rust-mcp-16core
+    # 60: well past the 175-291 s the gate has measured, below `ci`'s 75 and the merge queue's 90.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    # `ci`'s own group stops a superseded pull-request run; it does not reach this job, so without
+    # its own the old run would keep a runner for the whole gate. `oracle-tier`'s shape.
+    concurrency:
+      group: causality-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The gate diffs against the base commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name != 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      # `ci`'s `Resolve the base to compare against`, cut to the one arm this job needs. A pull
+      # request derives its own base inside `Test causality`, and a push never reaches this job. A
+      # merge-queue entry is one squash commit on top of the entries ahead of it, so `HEAD^` is the
+      # state this entry is queued on - `ci`'s step argues why a merge-base would instead walk back
+      # through every batched entry (#876). Not a copy a gate can compare: the two arms agree by
+      # review alone. A HEAD with any parent count but one leaves the base empty, and the step below
+      # then says so in a warning rather than measuring something wider.
+      - name: Resolve the base for a merge-queue entry
+        id: base
+        if: github.event_name == 'merge_group'
+        run: |
+          set -eu
+          parents="$(git show -s --format=%P HEAD)"
+          read -r parent extra <<< "$parents"
+          if [ -n "$parent" ] && [ -z "$extra" ]; then
+            base="$parent"
+          else
+            echo "merge_group HEAD does not have exactly one parent (${parents:-<none>}); falling open" >&2
+            base=""
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      # A changed test must fail against base behaviour and pass with the change. Compiles
+      # twice in a worktree, so it needs git history and a writable tree.
+      #
+      # EXIT 3 IS "I MEASURED NOTHING", and this step is the one place that decides what this
+      # venue does with it. Both of the gate's inconclusive answers used to be exit 0, so a
+      # required check went green over no evidence and no reader of the check could tell - see
+      # `github.com/telekom/sutura#307` and `xtask/src/main.rs`'s `Verdict::Inconclusive`. They
+      # exit 3 now, which fails any consumer that does not know the code; this one KNOWS it and
+      # continues, because the changes that land there are legitimate (a harness move, a changed
+      # public signature that a held-at-HEAD test file calls) and a gate that reddens correct
+      # work gets disabled.
+      #
+      # WHAT CONTINUING COSTS, stated because a green step is exactly what #307 is about: the
+      # job is still green on an inconclusive run, and the two surfaces below do NOT reach the
+      # pull-request conversation. `$GITHUB_STEP_SUMMARY` renders on the workflow RUN SUMMARY
+      # page - that is what the variable is for - and a `::warning` with no `file=`/`line=` is a
+      # PATH-LESS annotation: the job log, the run's annotations list and the check run, anchored
+      # wherever GitHub chooses rather than where this file chose. So a reviewer who reads only
+      # the conversation sees one green check and nothing else, which is #307's failure mode with
+      # one click removed rather than closed. An earlier version of this comment claimed the
+      # conversation, and an overstated control is itself the defect.
+      #
+      # THE CONVERSATION MECHANISM IS IN THIS FILE, in the `crap-comment` job above: a
+      # marker-keyed sticky comment posted from a separate job holding `pull-requests: write`,
+      # shaped so a delivery failure cannot recolour the gate. Routing this verdict through it is
+      # the open improvement, and it was not taken yet because the branch below HAS EXECUTED IN NO
+      # VENUE - no run of this repository has reached exit 3 here - so a delivery path built on top
+      # of it would be assumed rather than proven. What IS proven about this branch: exit 3 is a
+      # unit test on `Verdict::exit_code`, `nix run` propagates 3 unchanged, and
+      # `cargo xtask check-inconclusive` refuses a venue that suppresses it or declares a branch
+      # it does not have.
+      #
+      # The substitute evidence (a mutation run, or the gate scoped per commit) is the author's,
+      # and nothing here can check that they gave it. Cite the VERDICT LINE, never this step's
+      # colour.
+      - name: Test causality
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" = pull_request ]; then
+            # Ordinary CI keeps its merge checkout; causality measures only the topic's diff.
+            merge_head=$(git rev-parse HEAD)
+            read -r base_tip merged_pr extra <<< "$(git show -s --format=%P HEAD)"
+            if [ -z "$PR_HEAD" ] || [ "$merged_pr" != "$PR_HEAD" ] || [ -n "$extra" ]; then
+              echo "causality requires the checked-out merge's second parent to be the event's PR head" >&2
+              exit 1
+            fi
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "causality refuses to switch a checkout with tracked changes" >&2
+              exit 1
+            fi
+            BASE=$(git merge-base "$base_tip" "$PR_HEAD")
+            trap 'git checkout --detach "$merge_head" || exit 1' EXIT
+            git checkout --detach "$PR_HEAD"
+          elif [ "$EVENT" = push ]; then
+            # THE CLASSIFICATION BASE IS TOO WIDE FOR THIS GATE. `base` above is the durable
+            # marker, deliberately wide so an EVICTED run's commits stay covered (#561) - right
+            # for `Classify the change`, wrong here: causality at this HEAD was already measured
+            # at `HEAD^..HEAD` by its `merge_group` run at the SAME SHA (squash queue), and the
+            # marker only advances on a green run, so re-measuring marker..HEAD reads every
+            # undeclared test merged since as this commit's own and the red sustains itself.
+            # Narrow to HEAD's single parent; any other parent count falls open like
+            # `merge_group` above. `xtask workflows::step::causality` is the gate holding this
+            # arm, and it is UNCONDITIONAL on push because that fixture exports neither
+            # `GITHUB_REF_NAME` nor `DEFAULT_BRANCH` - a branch-filtered arm would never execute
+            # there. `on:` above already restricts push to the default branch.
+            parents="$(git show -s --format=%P HEAD)"
+            read -r parent extra <<< "$parents"
+            if [ -n "$parent" ] && [ -z "$extra" ]; then
+              BASE="$parent"
+            else
+              echo "push HEAD does not have exactly one parent (${parents:-<none>}); falling open" >&2
+              BASE=""
+            fi
+          fi
+          if [ -z "$BASE" ]; then
+            echo "::warning title=Test causality::No usable base ref, so this step is green over NOTHING RUN - not a red-before-green verdict. Read the base-resolution step above for why none was resolved."
+            echo "no usable base ref; causality not checked"
+            exit 0
+          fi
+          status=0
+          nix run .#causality -- --since "$BASE" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::warning title=Test causality was INCONCLUSIVE::The gate reached no verdict about this change - this step is green over NO red-before-green evidence. Read the verdict line in the log and require a mutation run, or the gate scoped per commit."
+            {
+              echo "### Test causality: INCONCLUSIVE"
+              echo
+              echo "The gate ran and measured nothing (exit 3), so this green step is not coverage."
+              echo "Usual causes: a harness move, or a changed public signature a test file kept at"
+              echo "HEAD calls. Ask for the substitute evidence - a mutation run, or \`just causality\`"
+              echo "scoped per commit - and read the verdict line rather than this step's colour."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$status"
+
+      - uses: $/.github/actions/nix-store-cache-report
+        if: always()
+
+  # #1280: `Postgres linked driver` AS ITS OWN JOB. It was the largest single step of `ci` - 209 s
+  # in the scout's run, 1006-1434 s across six pull-request runs on 8a85f95c9's code (runs
+  # 37605102469 to 37610275316) - and nothing after it in `ci` reads anything it produces: the step
+  # has no `id:`, writes no `GITHUB_ENV` and leaves no file a later step opens.
+  #
+  # THE CONDITION IS THE STEP'S OLD ONE, `causality`'s way: `run_all`, `nix` or `data_source_postgres`
+  # and not a push, with the first three read off `identity-classify`'s `postgres_driver` (the OR is
+  # taken there, as `driver_check`'s is) and `ci-aggregate` holding run-or-fail against `ci`'s own
+  # copy of the same three. Same limit: a disagreement fails closed, never open.
+  #
+  # NOT THE `Postgres tier` STEP: that is a different check (the tier's state machine). This one
+  # builds the adapter's tier-backed targets static for musl and starts its own tier inside the
+  # sandbox, so the tier step above it in `ci` is no prerequisite and stays there. What it gives up
+  # is `causality`'s list: fail-fast, the gating hop, its own setup.
+  postgres-linked-driver:
+    needs: [identity-classify]
+    if: github.event_name != 'push' && needs.identity-classify.outputs.postgres_driver == 'true'
+    runs-on: rust-mcp-16core
+    # 60: past the 1434 s the step has measured, below `ci`'s 75 and the merge queue's 90.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    concurrency:
+      group: postgres-linked-driver-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name != 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2): every
+      # `kind: postgres` source is answered over ADBC, and a musl release links the static driver,
+      # so its libpq and static OpenSSL have to answer real statements somewhere. This builds the
+      # adapter's tier-backed targets static for x86_64-musl with that archive and runs them
+      # against the Postgres tier in the sandbox - `nix/shipped.nix`'s `linkedDriversTests` says
+      # what that leaves out. Gated on the adapter, its driver and its tier.
+      - name: Postgres linked driver
+        run: nix build .#checks.x86_64-linux.postgres-linked-driver -L
+
+      - uses: $/.github/actions/nix-store-cache-report
+        if: always()
 
   # The Oracle docker tier (#127) - the only CI venue that executes a statement against a live
   # Oracle. The `gvenzl/oracle-free` image carries the Oracle Free licence, which permits use for
@@ -1973,6 +2180,49 @@ jobs:
 
       - name: Oracle acceptance cells
         run: nix run .#oracle-acceptance -- --no-capture
+
+  # The DataHub metadata tier, as a live acceptance venue: brings up the docker `datahub`
+  # compose profile (five containers, three JVMs and a migration job, so the cap is wide) and
+  # runs the cells `just datahub-acceptance`'s recipe weaves together - the instance reachable,
+  # the deployment-defined metric document round-tripping, a dataset page and a relationship page
+  # preserving their wire shapes, the golden catalog read back through `HttpAspectReader`
+  # (`--features http`), and a bearer-LESS read refused
+  # (auth is ON) - failing rather than skipping, because `SUTURA_DEV_REQUIRE_TIER=1` is exported in
+  # two places: the just recipe sets it and the flake `datahub-acceptance` app exports it too, and the
+  # pair must be kept in sync manually (see #1254).
+  # Category-gated on `catalog_datahub`, which `xtask/src/affected.rs` derives from the
+  # `crates/sutura-catalog-datahub` crate; a change to the docker tier (`compose.services.yaml`,
+  # which holds the `datahub` profile) falls open to `core`, which runs every leg. Held run-or-fail
+  # by `ci-aggregate`. An app rather than a `checks.*` entry for `oracle-tier`'s reason: it needs
+  # a docker socket, and its cells fail on a missing endpoint, which would go fatal on every
+  # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
+  # info` inside the 10s default has wedged on this runner.
+  ci-datahub-tier:
+    needs: [ci]
+    if: needs.ci.outputs.catalog_datahub == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    concurrency:
+      group: ci-datahub-tier-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: DataHub acceptance cells
+        run: nix run .#datahub-acceptance
 
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
@@ -2021,7 +2271,17 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier]
+    needs: [
+      ci,
+      keycloak-served-test,
+      bigquery-driver-check,
+      e2e-datahub-adbc,
+      oracle-tier,
+      ci-datahub-tier,
+      bigquery-conformance,
+      causality,
+      postgres-linked-driver,
+    ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -2031,11 +2291,19 @@ jobs:
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
-          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.data_source_postgres == 'true' }}
           E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
           ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
+          DH_RESULT: ${{ needs.ci-datahub-tier.result }}
+          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
+          BQC_RESULT: ${{ needs.bigquery-conformance.result }}
+          BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}
+          CAUS_RESULT: ${{ needs.causality.result }}
+          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}
+          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}
+          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2043,7 +2311,7 @@ jobs:
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if:`, top of the file) - `bigquery-driver-check` included,
           # whose own `if:` repeats that test now that it `needs: [identity-classify]` rather than
-          # `[ci]`, and whose `BQ_SELECTED` reads `ci`'s `''` exactly as `KC_SELECTED` does below.
+          # `[ci]`, and whose `BQ_SELECTED` renders `false` off `ci`'s `''` outputs, as `KC_SELECTED` reads `''` below.
           # `keycloak-served-test` (#983) does NOT skip any more - it
           # `needs: [identity-classify]`, which carries no such `if:`, so it runs on a release
           # commit independently of `ci`'s skip and its own result is `success` or `failure`, not
@@ -2073,7 +2341,7 @@ jobs:
           # that category was published and consumed by nothing.
           if [ "$BQ_SELECTED" = "true" ]; then
             if [ "$BQ_RESULT" != "success" ]; then
-              fail "bigquery-driver-check must run (data_source_bigquery category selected) but reported '$BQ_RESULT'"
+              fail "bigquery-driver-check must run (data_source_bigquery or data_source_postgres selected) but reported '$BQ_RESULT'"
             fi
           else
             case "$BQ_RESULT" in
@@ -2091,6 +2359,20 @@ jobs:
               *) fail "e2e-datahub-adbc reported '$E2E_RESULT' without an allowed skip" ;;
             esac
           fi
+          # The golden matrix's live `bigquery` row: required on a same-repository pull request and in the
+          # merge queue when `data_source_bigquery` is selected, because its cells leave offline causality
+          # under `Live-Cell:` and these runs are their only evidence. A fork or Dependabot receives no
+          # bq-test credential, so there the job skips and its cells skip under their named exemption.
+          if [ "$BQC_REQUIRED" = "true" ]; then
+            if [ "$BQC_RESULT" != "success" ]; then
+              fail "bigquery-conformance must run for the selected category and event but reported '$BQC_RESULT'"
+            fi
+          else
+            case "$BQC_RESULT" in
+              skipped|success) ;;
+              *) fail "bigquery-conformance reported '$BQC_RESULT' without an allowed skip" ;;
+            esac
+          fi
           # The Oracle docker tier reads no secret, so it carries no event exception: every event
           # that selects `data_source_oracle` or `catalog_rdbms` must run it, the same rule as
           # `bigquery-driver-check` above.
@@ -2102,6 +2384,43 @@ jobs:
             case "$ORACLE_RESULT" in
               skipped|success) ;;
               *) fail "oracle-tier reported '$ORACLE_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The DataHub docker tier reads no secret, so it carries no event exception: every
+          # event that selects `catalog_datahub` must run it - the same rule as `oracle-tier`,
+          # and it is what closes the gap the `e2e-datahub-adbc` leg left for the adapter's own
+          # discoverable tier: a selected-but-skipped filter can no longer go green.
+          if [ "$DH_SELECTED" = "true" ]; then
+            if [ "$DH_RESULT" != "success" ]; then
+              fail "ci-datahub-tier must run (catalog_datahub category selected) but reported '$DH_RESULT'"
+            fi
+          else
+            case "$DH_RESULT" in
+              skipped|success) ;;
+              *) fail "ci-datahub-tier reported '$DH_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # `causality` and `postgres-linked-driver` were steps of `ci` (#1280): they must run
+          # wherever `ci`'s OWN classification selects them, off a push. The selection is never the
+          # job's `identity-classify` read, so a job that skips where `ci` selects is red here.
+          if [ "$CAUS_REQUIRED" = "true" ]; then
+            if [ "$CAUS_RESULT" != "success" ]; then
+              fail "causality must run (the rust area is selected) but reported '$CAUS_RESULT'"
+            fi
+          else
+            case "$CAUS_RESULT" in
+              skipped|success) ;;
+              *) fail "causality reported '$CAUS_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          if [ "$PGD_REQUIRED" = "true" ]; then
+            if [ "$PGD_RESULT" != "success" ]; then
+              fail "postgres-linked-driver must run (run_all, nix or data_source_postgres selected) but reported '$PGD_RESULT'"
+            fi
+          else
+            case "$PGD_RESULT" in
+              skipped|success) ;;
+              *) fail "postgres-linked-driver reported '$PGD_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

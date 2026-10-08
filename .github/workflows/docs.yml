@@ -54,12 +54,12 @@ name: docs
 
 on:
   push:
-    # The trunk's development copy; release tags publish immutable version directories below.
+    # The trunk publishes `main/`, aliased `latest`; release tags publish version directories below.
     branches: [main]
     # A `v*` tag publishes that release's own directory. "Path filters are not evaluated for
     # pushes of tags" - documented GitHub behaviour - so `paths` below narrows branch pushes only
     # and a tag always builds, which is what a release needs. Not `v*-performance`: the optimised
-    # build's prerelease has no docs of its own, and a run from one would move `latest` to it.
+    # build's prerelease has no docs of its own, and a run from one would publish a directory for it.
     tags: ["v*", "!v*-performance"]
     paths:
       - "**/*.md"
@@ -244,15 +244,15 @@ jobs:
               v*) ;;
               *) echo "::error::docs publishes tags matching v*; got $REF_NAME"; exit 1 ;;
             esac
-            # A release owns the `latest` alias, and the root redirect follows it.
+            # A release gets its own directory and no alias, so a tag cannot move `latest`.
+            # The directory drops the tag's `v` (owner decision): 0.6.1/ and older keep their links.
             echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "alias=latest" >> "$GITHUB_OUTPUT"
-          elif [ "$REF_NAME" = main ]; then
-            # `main` is the trunk, and its directory is the development copy. It takes no alias:
-            # `latest` must keep pointing at the newest RELEASE, or every push to the trunk would
-            # silently move it.
-            echo "version=main" >> "$GITHUB_OUTPUT"
             echo "alias=" >> "$GITHUB_OUTPUT"
+          elif [ "$REF_NAME" = main ]; then
+            # `latest` is what main last published (owner decision), and the root redirect follows
+            # it. A reader who wants a release opens its X.Y.Z/ directory.
+            echo "version=main" >> "$GITHUB_OUTPUT"
+            echo "alias=latest" >> "$GITHUB_OUTPUT"
           else
             echo "::error::docs publishes from main or a v* tag only; got $REF_NAME"
             exit 1
@@ -313,12 +313,13 @@ jobs:
           # only see divergence if the ref is here. A missing branch is the cold start: mike
           # creates it, so the failure is ignored rather than reported.
           git fetch origin gh-pages:gh-pages || true
-          # `--update-aliases` so a release can take `latest` off the previous one.
+          # `--update-aliases` so main takes `latest` off whatever held it before (a release, under
+          # the rule this replaced).
           #
           # `--alias-type=redirect` is NOT the default and has to be passed: mike's default makes
           # an alias a git SYMLINK, and GitHub Pages does not resolve one - `latest/` would serve
-          # the text "0.3.0" instead of the docs. `redirect` writes a real HTML redirect per page
-          # instead, so `latest/publishing/` lands on `0.3.0/publishing/` rather than the site
+          # the text "main" instead of the docs. `redirect` writes a real HTML redirect per page
+          # instead, so `latest/publishing/` lands on `main/publishing/` rather than the site
           # root. Verified against the pinned mike by deploying both ways and reading the branch.
           #
           # Deliberately NOT `--ignore-remote-status`: that tells mike to proceed when the branch
@@ -330,22 +331,22 @@ jobs:
             nix run .#pixi -- run --frozen -e docs mike deploy --push "$VERSION"
           fi
 
-      # The root has to redirect somewhere from the very first deployment, and `latest` does not
-      # exist until a release is tagged. So point the root at `main` while that is the only thing
-      # published, and hand it to `latest` the moment a release owns it. Never taken back: once
-      # `latest` exists, a push to main must not walk the landing page back to development docs.
+      # The root follows `latest`, which only a push to main sets. A tag deploy leaves the root
+      # alone once `latest` exists, so a release can neither move nor drop it. Before main has
+      # published anything, a tag points the root at its own directory, so the site has a root.
       - name: Point the root at the right version
         env:
           ALIAS: ${{ steps.target.outputs.alias }}
+          VERSION: ${{ steps.target.outputs.version }}
         run: |
           set -eu
           if [ -n "$ALIAS" ]; then
             nix run .#pixi -- run --frozen -e docs mike set-default --push "$ALIAS"
           elif nix run .#pixi -- run --frozen -e docs mike list latest >/dev/null 2>&1; then
-            echo "latest exists: the root belongs to the newest release, leaving it alone"
+            echo "latest exists: the root follows main, leaving it alone"
           else
-            echo "no release published yet: pointing the root at main"
-            nix run .#pixi -- run --frozen -e docs mike set-default --push main
+            echo "main has not published yet: pointing the root at $VERSION"
+            nix run .#pixi -- run --frozen -e docs mike set-default --push "$VERSION"
           fi
           nix run .#pixi -- run --frozen -e docs mike list
 

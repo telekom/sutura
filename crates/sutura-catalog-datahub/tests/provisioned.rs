@@ -8,10 +8,10 @@
 //! the deployment-defined document at all. `compose.services.yaml`'s `datahub` profile is that
 //! instance, and this is the only thing in this repository that talks to it.
 //!
-//! **Three venue cells, plus one that holds auth on by a gate:**
+//! **Venue cells, plus one that holds auth on by a gate:**
 //!
 //!   * `the_deployment_names_its_property_and_the_adapter_names_its_field` - over two `&'static
-//!     str`s, so it runs in `just test`. It is what makes the second cell a measurement of decision
+//!     str`s, so it runs in `just test`. It is what makes the metric cell a measurement of decision
 //!     7 rather than a coincidence, and it would be held by recall if it lived inside an
 //!     `#[ignore]`d cell.
 //!   * `the_provisioned_datahub_serves_the_surface_a_reader_would_call` - a real `DataHub` GMS at
@@ -22,25 +22,31 @@
 //!     corpus's own document as its scalar, and what the instance serves back decodes through this
 //!     adapter into a certified `Metric` over the closed-vocabulary `Measure`. That is issue #202's
 //!     feasibility question, answered against a running instance instead of a specification.
+//!   * `a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape` and
+//!     `a_relationship_page_served_by_a_real_datahub_preserves_its_wire_shape` - issue #1251's gap
+//!     2: the `dataset` and `semanticModel` PAGES asserted live the way the metric page is, each
+//!     seeded, read back over the search-backed paged surface, and asserted to map into the same
+//!     aspect the seed does. Evidence only of the run that executed them.
 //!   * `a_bearerless_read_is_401_under_the_enforced_tier` - **the enforcement cell.** The tier runs
 //!     with `METADATA_SERVICE_AUTH_ENABLED: "true"`, and every write and read below presents the
 //!     tier's self-minted PAT as its bearer. The enforcement cell asks one bearer-less read and
 //!     asserts `401`, so a silent rollback of `METADATA_SERVICE_AUTH_ENABLED` to off - which nothing
 //!     else in this file would catch - makes this cell red. Held by a gate, not by this comment.
+//!   * `the_golden_catalog_round_trips_through_a_live_datahub` - provisions
+//!     `examples/single-player/catalog`, reads it back through `HttpAspectReader`, and asserts the
+//!     certified definitions equal the golden minus the named `NOT_CARRIED` rows.
+//!   * `every_not_carried_row_still_names_something_the_golden_states` - no venue, so it runs in
+//!     `just test`: a `NOT_CARRIED` row whose subject left the golden fails rather than lingers.
 //!
 //! # What is still NOT here, because the gap is the useful part
 //!
-//!   * **There is no HTTP `AspectReader`, so this is not a read PATH.** The only implementor
-//!     outside a test is the recorded fixture; the other two are doubles - `src/tests.rs`'s
-//!     `Stub` and this file's `Composed`. The request-shaping and the mapping from the response
-//!     (`structuredProperties.properties[].values[].string`) onto `document::MetricAspect` are
-//!     written HERE, in a test, and nowhere in `src/` - which is exactly what a real reader will
-//!     have to own. What this cell removes is the excuse: the response shape and the platform's
-//!     rules are measured, so writing that reader is engineering rather than research.
-//!   * **Only the METRIC half is served.** The models and the relationship come from
-//!     `fixture::FixtureReader`, so the snapshot this cell loads is half live and half recorded, and
-//!     the certified metric therefore rests on a recorded model. Reading `dataset` and
-//!     `semanticModel` aspects live is the rest of that reader's job.
+//!   * **Only the golden cell drives `src/http.rs`'s `HttpAspectReader`**, with the `http` feature
+//!     on (both acceptance entry points pass `--features http`). The rest build their own `ureq`
+//!     agent and map the response in the test: "the platform answers" is an independent claim from
+//!     "this crate's reader is correct", and each response shape is asserted against the pinned tier.
+//!   * **The metric full-load cell's structural half is still recorded.** Its subject is the
+//!     certified measure, so the models are beside that point; the `dataset` and `semanticModel`
+//!     pages are now round-tripped by their own cells above.
 //!   * **The bearer is a self-minted PAT, not a real token-service token.** The headless GMS
 //!     exposes no `/auth/accessTokens` minting surface (that lives in the absent React frontend), so
 //!     the TIER signs the PAT it trusts with its own `DATAHUB_TOKEN_SERVICE_SIGNING_KEY` - see
@@ -81,14 +87,28 @@
 //! So the venue gets a named task, `just datahub-acceptance`, which brings the profile up and runs
 //! this with the fail-closed direction set. **An `#[ignore]`d test is not evidence in the default
 //! suite, and this file may not be cited as though it were** - what it is evidence of is whatever
-//! the last run of that task reported. There is no CI venue at all: the nix sandbox has no docker
-//! socket.
+//! the last run of that task reported. Its CI venue is `ci.yml`'s `ci-datahub-tier` job, which runs
+//! the same cells through `nix run .#datahub-acceptance` when `xtask classify` selects the
+//! `catalog_datahub` category and which `ci-aggregate` holds run-or-fail; no nix check covers it,
+//! because the sandbox has no docker socket. That app and `just datahub-acceptance` are two copies -
+//! both export `SUTURA_DEV_REQUIRE_TIER=1`, under different cargo profiles - and nothing checks that
+//! they agree.
 
 // `cfg(test)` because clippy only honours `allow-expect-in-tests` and `allow-panic-in-tests` for
 // code inside a `#[cfg(test)]` item, and `tests_outside_test_module` wants the `#[test]` function
 // inside one - the same reason `crates/sutura-runtime/tests/blocking_span.rs` and this crate's own
 // `tests/multi_player.rs` are shaped this way. An integration test target is only built for tests,
 // so the attribute changes nothing about what compiles.
+// The dataset and relationship page cells, in their own file for the 1000-line cap.
+#[cfg(test)]
+#[path = "provisioned/wire_pages.rs"]
+mod wire_pages;
+// The golden catalog round trip, through the real reader - so it needs the `http` feature.
+#[cfg(test)]
+#[cfg(feature = "http")]
+#[path = "provisioned/golden.rs"]
+mod golden;
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -111,7 +131,7 @@ mod tests {
     /// eventually-consistent view may be. Measured at ~2 s on this tier
     /// (`just datahub-acceptance`, 2026-09-04, `DataHub` 1.7.0), so this is an order of magnitude of
     /// slack for a loaded machine rather than a threshold anything is read off.
-    const INDEX_LAG_BUDGET: Duration = Duration::from_secs(30);
+    pub(super) const INDEX_LAG_BUDGET: Duration = Duration::from_secs(30);
 
     /// The paths this asks for, and what each one being served means.
     ///
@@ -131,7 +151,7 @@ mod tests {
     /// `sutura_dev::provisioned::here` has already put the notice on stderr and, in the required
     /// direction, panicked rather than returning - so `None` here means "a developer machine with
     /// no tier", never "a job that asked for one and did not get it".
-    fn endpoint() -> Option<String> {
+    pub(super) fn endpoint() -> Option<String> {
         let inside = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         sutura_dev::provisioned::here(inside, "datahub")
             .endpoint()
@@ -147,7 +167,7 @@ mod tests {
     /// naming the path (see its own comment). The round trip wants the platform's `400` BODY,
     /// because the whole point of those assertions is the reason `DataHub` states in it, and an
     /// `Err` carries the status without it.
-    fn agent(status_as_error: bool) -> ureq::Agent {
+    pub(super) fn agent(status_as_error: bool) -> ureq::Agent {
         sutura_http_client::agent(|config| {
             config
                 .timeout_global(Some(ANSWER_TIMEOUT))
@@ -158,7 +178,7 @@ mod tests {
     /// The self-minted PAT the `just datahub-acceptance` task exported, or a panic naming the
     /// missing task. Auth is ON, so a request without this bearer is a `401` - a write "passing"
     /// without it would be the silent-fail this file's fail-closed discipline exists to refuse.
-    fn pat() -> String {
+    pub(super) fn pat() -> String {
         std::env::var("SUTURA_DATAHUB_PAT").unwrap_or_else(|_| panic!(
             "`just datahub-acceptance` must export SUTURA_DATAHUB_PAT (minted by `sutura-dev mint-pat`) - auth is enabled, so the cells cannot authenticate without it"
         ))
@@ -261,7 +281,7 @@ mod tests {
     /// Every request carries the tier's self-minted PAT as its bearer: with `METADATA_SERVICE_AUTH_ENABLED`
     /// on, a request without one is a `401`. The one request that deliberately has NO bearer is the
     /// enforcement cell's own assertion.
-    fn send(agent: &ureq::Agent, url: &str, body: Option<&serde_json::Value>) -> (u16, String) {
+    pub(super) fn send(agent: &ureq::Agent, url: &str, body: Option<&serde_json::Value>) -> (u16, String) {
         let bearer = format!("Bearer {}", pat());
         let mut response = body
             .map_or_else(

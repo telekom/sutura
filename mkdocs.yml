@@ -207,6 +207,7 @@ exclude_docs: |
   adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md
   adr/20260926112245-opt-in-physical-schema-listing.md
   adr/20261001045714-cube-documents.md
+  adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md
   crap.md
   what-a-bpmn-file-actually-carries.md
   what-an-rdf-graph-can-carry.md
@@ -226,6 +227,10 @@ exclude_docs: |
 # already routes to every page here; three more landing pages would restate that table three
 # times. `navigation.indexes` stays on because a section index is worth having as soon as a
 # section has enough pages to need one.
+# Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
+hooks:
+  - docs/.tools/version.py
+
 nav:
   - Using it:
       - Introduction: index.md
@@ -233,6 +238,9 @@ nav:
       - Getting started: getting-started.md
       - Questions and answers: qa.md
       - The agent prompt: agent-prompt.md
+  - Examples:
+      - examples/index.md
+      - Single player: examples/single-player.md
   - Operating it:
       - Serving over HTTP: serving.md
       - Verifying a release: verifying-a-release.md
@@ -270,6 +278,7 @@ nav:
           - sutura-exec-clickhouse: api/sutura-exec-clickhouse.md
           - sutura-exec-oracle: api/sutura-exec-oracle.md
           - sutura-adbc: api/sutura-adbc.md
+          - sutura-adbc-postgres: api/sutura-adbc-postgres.md
           - sutura-tls: api/sutura-tls.md
           - sutura-http-client: api/sutura-http-client.md
           - sutura-bounded-read: api/sutura-bounded-read.md
@@ -291,7 +300,7 @@ extra:
   version:
     provider: mike
     # Which version the "you are reading an old version" banner points at. `latest` is the
-    # alias mike moves onto each release.
+    # alias mike moves onto each push to main.
     default: latest
   social:
     - icon: fontawesome/brands/github

@@ -1,10 +1,10 @@
 diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
 --- a/crates/sutura-catalog-rdbms/src/lib.rs
 +++ b/crates/sutura-catalog-rdbms/src/lib.rs
-@@ -391,7 +391,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
+@@ -393,7 +393,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
              let metadata = table.column_metadata(column);
              let column = Column::from_metadata(
-                 column_name.clone(),
+                 column_name,
 -                metadata.and_then(ColumnMetadata::data_type),
 +                metadata.and_then(ColumnMetadata::data_type).filter(|ty| matches!(*ty, "bigint" | "integer")),
                  metadata.and_then(ColumnMetadata::description),

@@ -168,6 +168,11 @@ pub enum InvalidCatalogSettings {
     /// A `catalog.kind: datahub` entry did not declare a field only that kind needs.
     #[error("catalog.{field} is required when catalog.kind is datahub, and is empty or absent")]
     MissingForDatahub { field: &'static str },
+    /// `catalogs[].endpoint` carries an `@`. A catalog endpoint is `scheme://host[:port]`, so an
+    /// `@` is userinfo however the URL parser splits it - refused here, before the startup log
+    /// prints the resolved settings, and never quoted back.
+    #[error("catalogs.{name}.endpoint carries an `@` - credentials in the URL are refused, declare token_file")]
+    CredentialsInEndpoint { name: SourceName },
     /// A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
     #[error("catalog.{field} is required when catalog.kind is openmetadata, and is empty or absent")]
     MissingForOpenmetadata { field: &'static str },
@@ -293,6 +298,9 @@ impl CatalogSettings {
         if endpoint.trim().is_empty() {
             return Err(InvalidCatalogSettings::MissingForDatahub { field: "endpoint" });
         }
+        if endpoint.contains('@') {
+            return Err(InvalidCatalogSettings::CredentialsInEndpoint { name: self.name });
+        }
         if token_file.as_os_str().is_empty() {
             return Err(InvalidCatalogSettings::MissingForDatahub { field: "token_file" });
         }
@@ -333,6 +341,9 @@ impl CatalogSettings {
     pub fn with_openmetadata_reader(mut self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings> {
         if endpoint.trim().is_empty() {
             return Err(InvalidCatalogSettings::MissingForOpenmetadata { field: "endpoint" });
+        }
+        if endpoint.contains('@') {
+            return Err(InvalidCatalogSettings::CredentialsInEndpoint { name: self.name });
         }
         if token_file.as_os_str().is_empty() {
             return Err(InvalidCatalogSettings::MissingForOpenmetadata { field: "token_file" });
@@ -435,7 +446,7 @@ impl Catalogs {
         }
         let mut seen = std::collections::BTreeSet::new();
         for entry in &entries {
-            if !seen.insert(entry.name.clone()) {
+            if !seen.insert(&entry.name) {
                 return Err(InvalidCatalogSettings::DuplicateName {
                     name: entry.name.clone(),
                 });

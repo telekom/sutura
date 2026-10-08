@@ -674,38 +674,6 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn the_key_rule_reaches_the_causality_target_cache_too() {
-        // THE CLAIM "ONE CHECK COVERS BOTH ACTIONS", HELD. Both composite actions key on the same
-        // two digests, and both are reached because `ci.yml` calls both - so the rule is written
-        // over every store-cache step rather than over one file name. Named here because the live
-        // assertion below would stay green if the closure stopped reaching the second one.
-        let Some(root) = crate::repo::root() else { return };
-        let ordinary = crate::workflows::contexts::OrdinaryCi::read(&root);
-        let reached: Vec<_> = ordinary
-            .closure()
-            .inspected()
-            .iter()
-            .filter(|file| file.label().contains("causality-target-cache"))
-            .collect();
-        assert_eq!(
-            reached.len(),
-            1,
-            "the causality target cache must be inside this gate's closure"
-        );
-        let stores: Vec<_> = reached
-            .iter()
-            .copied()
-            .flat_map(|file| steps(file.text()))
-            .filter(|step| step.uses().is_some_and(|uses| uses.starts_with(super::STORE_CACHE)))
-            .collect();
-        assert_eq!(stores.len(), 1, "one store-cache step in the causality target cache");
-        for step in &stores {
-            let found = super::key_problems("causality-target-cache", step, super::STORE_CACHE);
-            assert!(found.is_empty(), "{found:#?}");
-        }
-    }
-
-    #[test]
     fn an_ungated_writer_is_named_with_its_file_and_line() {
         // The message a reader acts on, and the arm a `None => {}` mutation would silence. Asserted
         // on the text because the label and line moved when `problems` was split from `judge`, and

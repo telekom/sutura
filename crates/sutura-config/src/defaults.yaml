@@ -52,6 +52,10 @@ server:
   # refuses the key by name rather than silently dropping the mount.
   # agent_surface:
   #   enabled: false
+  # External hosts this deployment answers on `/v1/*`, `/docs`, `/openapi.json` and `/mcp`, beyond the
+  # loopback names and the host of `security.inbound`'s own resource identifier. Bare names, no port.
+  # A loopback bind answers only those; an off-host bind that lists none answers every `Host`.
+  # allowed_hosts: []
 
 security:
   # One of: none, sidecar, ingress, in-process. See the note above - this is a declaration of where

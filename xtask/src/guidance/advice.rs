@@ -70,7 +70,7 @@ use crate::causality::regions;
 const MIRRORED: &str = "vendor/";
 
 /// What a printed span sends a reader to. Two shapes and no third - see the module header.
-enum Cited<'a> {
+pub(super) enum Cited<'a> {
     /// A `just <name>` recipe.
     Recipe(&'a str),
     /// A `cargo xtask <name>` gate.
@@ -102,7 +102,7 @@ fn task_name(tail: &str) -> Option<&str> {
 }
 
 /// Read one backtick span as a citation, or `None` when it is not one.
-fn cited(span: &str) -> Option<Cited<'_>> {
+pub(super) fn cited(span: &str) -> Option<Cited<'_>> {
     if let Some(tail) = span.strip_prefix("just ") {
         return task_name(tail).map(Cited::Recipe);
     }

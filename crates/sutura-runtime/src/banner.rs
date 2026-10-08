@@ -49,7 +49,9 @@ pub fn print(version: &str, environment: Environment) {
 ///
 /// The whole tree goes out as one `Debug` field. That is safe because the only credential-shaped
 /// value in it is held in a type whose `Debug` redacts, and `sutura-config` has a test asserting
-/// that at the outermost struct - not because this function was careful.
+/// that at the outermost struct, and refuses at load a catalog endpoint, an inbound URL, a
+/// delegation token endpoint or a source host carrying an `@` - not because this function was careful. The limit: a value with
+/// no `@` that holds a secret anyway, such as one written into a path, is printed.
 pub fn announce(settings: &Settings) {
     tracing::info!(
         environment = %settings.environment(),
@@ -260,12 +262,12 @@ fn announce_surface(settings: &Settings) {
                     TrustAnchors::File(path) => path.display().to_string(),
                 }),
             ),
-            // The two kinds with no per-source channel, and deliberately not one word for both:
-            // `files` truly has no wire, so `"none declared"` is accurate for it. `bigquery`'s wire
+            // The kinds with no per-source channel, and deliberately not one word for all three:
+            // `files` and `duckdb` truly have no wire, so `"none declared"` is accurate for them. `bigquery`'s wire
             // DOES carry TLS - `ureq`'s own, against its compiled-in roots - and printing "none
             // declared" beside `anchors=none` reads to an operator scanning the log as plaintext,
             // which it is not.
-            SourcePlacement::Files { .. } => ("none declared", None),
+            SourcePlacement::Files { .. } | SourcePlacement::Duckdb { .. } => ("none declared", None),
             SourcePlacement::BigQuery { .. } => ("wire-owned tls (not declared)", None),
             // Declared, and only ever `plaintext`: the placement has no transport field because the
             // parse accepts no other mode for this kind - see `SourcePlacement::Oracle`.

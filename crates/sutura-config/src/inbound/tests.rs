@@ -170,6 +170,18 @@ fn a_resource_identifier_is_stored_exactly_as_written_and_nothing_is_normalised(
 }
 
 #[test]
+fn a_resource_identifier_names_the_host_a_request_for_it_carries() {
+    for (written, host) in [
+        ("https://Sutura.Example.com:8443/v1", "sutura.example.com"),
+        ("https://sutura.example.com", "sutura.example.com"),
+        ("https://[::1]:8443/", "::1"),
+    ] {
+        let identifier = ResourceIdentifier::parse(written).expect(written);
+        assert_eq!(identifier.host().expect(written).as_str(), host, "{written}");
+    }
+}
+
+#[test]
 fn a_cleartext_issuer_and_a_query_or_fragment_are_both_refused_and_say_which() {
     // `http://` is an issuer whose signing keys an active network attacker chooses.
     assert_eq!(
@@ -228,6 +240,22 @@ fn embedded_userinfo_is_refused_without_being_quoted_back() {
         IssuerUrl::parse("https://user:pass@issuer.example.com"),
         Err(InvalidInboundValue::HasUserinfo { .. })
     ));
+}
+
+/// An unencoded `/` in a password ends the parsed authority early, so the rest of the credential
+/// would be stored - and logged with the resolved settings - as a path: any `@` is refused.
+#[test]
+fn an_at_sign_past_the_parsed_authority_is_refused_as_userinfo() {
+    for raw in ["https://svc/x:Ab@sutura.example.com", "https://svc:1234/x@sutura.example.com"] {
+        assert!(
+            matches!(ResourceIdentifier::parse(raw), Err(InvalidInboundValue::HasUserinfo { .. })),
+            "{raw}"
+        );
+        assert!(
+            matches!(IssuerUrl::parse(raw), Err(InvalidInboundValue::HasUserinfo { .. })),
+            "{raw}"
+        );
+    }
 }
 
 #[test]

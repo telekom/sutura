@@ -370,6 +370,39 @@ mod tests {
         );
     }
 
+    /// **A dataset whose platform the composition root declares no source for is refused BY NAME at
+    /// load, not run silently.** This catalog maps only `bigquery`; the served dataset entity's URN
+    /// names `postgres`, so `DataHubCatalog::load` must refuse with `UnknownPlatform { platform:
+    /// "postgres", .. }` rather than guess where that model reads from (`docs/adr/0016` decision 5).
+    /// The reader serves every page - the refusal happens in the catalog's own source mapping, not
+    /// in the wire read, which is why all three pages stay on the happy path.
+    ///
+    /// RED/GREEN mutation: have `split_dataset_urn` return `"bigquery"` for any non-empty platform
+    /// segment - the `postgres` entity would then harvest as a `bigquery` dataset, the catalog would
+    /// map a source for it, and the load would SUCCEED where this cell demands a refusal.
+    #[test]
+    fn a_postgres_platform_dataset_is_refused_with_unknown_platform() {
+        let mut dataset = dataset_page();
+        // Rewrite entity 0's own URN so the platform this cell refuses is what it names, keeping
+        // every other aspect exactly the happy path's.
+        dataset["entities"][0]["urn"] = serde_json::json!("urn:li:dataset:(urn:li:dataPlatform:postgres,orders,PROD)");
+        let server = FakeServer::start(vec![
+            Scripted::ok(&dataset),
+            Scripted::ok(&relationship_page()),
+            Scripted::ok(&metric_page()),
+        ]);
+        let mut sources = std::collections::BTreeMap::new();
+        drop(sources.insert(String::from("bigquery"), source_name()));
+        let outcome = DataHubCatalog::new(source_name(), version(), sources, reader(&server, 10, GENEROUS_CAP))
+            .load()
+            .err();
+        drop(server.finish());
+        assert!(
+            matches!(outcome, Some(DataHubError::UnknownPlatform { ref platform, .. }) if platform == "postgres"),
+            "expected UnknownPlatform naming postgres, got: {outcome:?}"
+        );
+    }
+
     /// **One shared deadline across the (up to) three requests, not one per request.**
     ///
     /// A one-second budget and a first response delayed past it: the second request
@@ -392,9 +425,6 @@ mod tests {
             .read()
             .expect_err("the shared budget is spent");
         let elapsed = started.elapsed();
-        // Deliberately not joined: the fake server is still waiting on a second connection that
-        // this reader must never make, so a `.finish()` here would hang the test on the very
-        // behaviour it is proving does not happen.
         assert!(
             matches!(
                 http_cause(&error),
@@ -544,7 +574,10 @@ mod tests {
     fn a_userinfo_endpoint_is_a_parse_refusal_rather_than_a_dial_probe() {
         let malicious = String::from("http://[::1]:1@127.0.0.1:9002");
         let error = Endpoint::parse(&malicious).expect_err("a userinfo prefix is refused before any host is dialled");
-        assert_eq!(error, InvalidEndpoint::CredentialsInUrl { given: malicious });
+        assert!(
+            matches!(&error, InvalidEndpoint::CredentialsInUrl { given } if given.to_string() == "http://127.0.0.1:9002"),
+            "{error:?}"
+        );
     }
 
     /// `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) over a REAL TLS

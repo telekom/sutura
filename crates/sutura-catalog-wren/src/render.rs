@@ -15,6 +15,25 @@ use std::fmt::Write as _;
 use super::convert::Converted;
 use super::plan::{PlannedComputation, PlannedCube, PlannedModel, PlannedRelationship};
 
+/// The `kind: declaration` document every import writes: what this converter CAN write, so the tree
+/// is held to that rather than to every kind `sutura-catalog-local`'s format can carry
+/// (`github.com/telekom/sutura#1278`).
+///
+/// Structure and descriptions are unconditional because every converted model is written with a
+/// table and a provenance sentence. The rest depends on the manifest, so it is may-provide. No
+/// cardinality, required filter, allowed value, anchor, column description or knowledge note is ever
+/// written, so none is declared, and the agent-facing prompt reads the knowledge kinds as absent
+/// rather than as lists somebody keeps.
+pub(crate) const DECLARATION: &str = "---
+kind: declaration
+definitions: [structure, descriptions]
+may_provide: [relationships, metrics, grains, column_types]
+knowledge: []
+---
+What `sutura import wren` can write. Widen these lists in the same change that adds a kind the
+converter did not write - a glossary note, for one - or this catalog refuses to load or compose.
+";
+
 /// The audience every imported metric is written with.
 ///
 /// Wren has no concept of who may see a metric - `docs/adr/0028` is a sutura-only channel - so

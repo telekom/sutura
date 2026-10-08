@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 12b359961..8edc706a1 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -287,6 +287,7 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
+     let headers = request.headers().clone();
+     match gate.establish(&headers, now).await {
+         Ok(caller) => {
++            tracing::debug!(authorization = ?headers.get(gate.header()), "a caller was established");
+             drop(request.extensions_mut().insert(caller));
+             next.run(request).await
+         }

@@ -19,8 +19,9 @@
 # Two artefacts, one assertion each, and the musl one is the reason the mechanism exists: a static
 # binary has no dynamic loader, so a carried driver is the only route it can ever have. A musl
 # artefact with the PostgreSQL adapter is asked a third question, for the same reason: does it link
-# that driver too, and does it initialise (`assert_links_postgres`). A last leg runs the linked
-# PostgreSQL driver in a test build, judged by `linked_verdict`.
+# that driver too, and does it initialise (`assert_links_postgres`). Two last legs run the linked
+# PostgreSQL driver in test builds: its libpq, judged by `linked_verdict`, and a Kerberos sign-in
+# through it against a KDC tier.
 #
 # FAIL CLOSED, AND PROVEN SO IN THIS SCRIPT. `verdict` is run first over three lines whose right
 # answer is known - including the line a build with NO driver prints - so a matcher that accepted
@@ -69,7 +70,7 @@ pg_self_check() {
             exit 1
         fi
     done <<'CASES'
-ok|  pg driver    : loaded and initialised, linked into this binary - its libpq has no Kerberos/GSSAPI or OAuth sign-in
+ok|  pg driver    : loaded and initialised, linked into this binary - a source signs in only as its declared service account, with a password, a client certificate or one Kerberos principal; no OAuth or per-caller sign-in
 no|  pg driver    : loaded and initialised, mounted at /opt/sutura/lib/libadbc_driver_postgresql.so
 no|  pg driver    : not linked into this binary - a source build would mount libadbc_driver_postgresql.so
 no|  pg driver    : NOT usable: linked into this binary: could not load the PostgreSQL ADBC driver
@@ -133,22 +134,60 @@ REASONS
             exit 1
         fi
     done <<'LOGS'
-ok|running 1 test\nlinked-postgres-driver-ran-libpq\ntest tests::cell ... ok\n\ntest result: ok. 1 passed; 0 failed
-no|running 1 test\ntest tests::cell ... ok\n\ntest result: ok. 1 passed; 0 failed
+ok|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
 no|running 0 tests\n\ntest result: ok. 0 passed; 0 failed
-no|running 1 test\nlinked-postgres-driver-ran-libpq\ntest tests::cell ... FAILED\n\ntest result: FAILED. 0 passed; 1 failed
+no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed
 LOGS
     echo "bigquery-driver-check: linked-driver matcher ok - only a log whose cell passed by its linked"
     echo "  arm passes."
+    # And the Kerberos leg's, over both shapes a passing run prints (the serial one is what CI measured
+    # on run 37564439692) and the logs that must stay refused.
+    while IFS='|' read -r expected log; do
+        [ -n "$expected" ] || continue
+        got="$(kerberos_verdict "$(printf '%b' "$log")")"
+        if [ "$got" != "$expected" ]; then
+            echo "bigquery-driver-check: FAILED its own Kerberos matcher - expected $expected for '$log', got $got" >&2
+            exit 1
+        fi
+    done <<'LOGS'
+ok|running 2 tests\ntest kerberos::refused ... ok\ntest kerberos::signs_in ... linked-postgres-driver-signed-in-with-kerberos\nok\n\ntest result: ok. 2 passed; 0 failed
+ok|running 2 tests\ntest kerberos::refused ... ok\nlinked-postgres-driver-signed-in-with-kerberos\ntest kerberos::signs_in ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest kerberos::refused ... ok\ntest kerberos::signs_in ... ok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest kerberos::signs_in ... linked-postgres-driver-signed-in-with-kerberos and more\nok\n\ntest result: ok. 2 passed; 0 failed
+no|running 2 tests\ntest kerberos::signs_in ... xlinked-postgres-driver-signed-in-with-kerberos\nok\n\ntest result: ok. 2 passed; 0 failed
+no|running 0 tests\n\ntest result: ok. 0 passed; 0 failed
+no|running 2 tests\ntest kerberos::refused ... ok\ntest kerberos::signs_in ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed
+LOGS
+    echo "bigquery-driver-check: Kerberos matcher ok - the marker ends a line, serial or parallel, and a"
+    echo "  log without it or with a failed cell is refused."
 }
 
-# Did the linked-drivers test log come from the cell's LINKED arm, passing? Prints `ok` or `no`.
-# The marker is printed by that arm only (`crates/sutura-adbc/tests/linked.rs`), and the result line
-# says the one selected cell passed - neither implies the other.
+# Did the linked-drivers test log come from both cells' LINKED arms, passing? Prints `ok` or `no`.
+# Each marker is printed by its cell's linked arm only (`crates/sutura-adbc/tests/linked.rs`), and
+# the result line says the two selected cells passed - neither implies the other.
 linked_verdict() {
     local log="$1"
     if printf '%s\n' "$log" | grep -qx 'linked-postgres-driver-ran-libpq' \
-        && printf '%s\n' "$log" | grep -q '^test result: ok\. 1 passed'; then
+        && printf '%s\n' "$log" | grep -qx 'linked-duckdb-driver-ran-select-1' \
+        && printf '%s\n' "$log" | grep -q '^test result: ok\. 2 passed'; then
+        printf 'ok'
+    else
+        printf 'no'
+    fi
+}
+
+# Did the Kerberos test log come from the sign-in cell passing beside its refusal cell? `ok` or `no`.
+# The marker must END a line and follow its start or libtest's `... `: serial (`--test-threads=1`)
+# libtest has printed `test <name> ... ` on that line already, parallel the marker has a line to
+# itself, and whole-line `grep -x` refused the serial log although both cells passed. The derivation
+# in `nix/shipped.nix` holds the same pattern; this is its second reader, so a derivation that
+# stopped asking is still red.
+kerberos_verdict() {
+    local log="$1"
+    if printf '%s\n' "$log" | grep -qE '(^|\.\.\. )linked-postgres-driver-signed-in-with-kerberos$' \
+        && printf '%s\n' "$log" | grep -q '^test result: ok\. 2 passed; 0 failed'; then
         printf 'ok'
     else
         printf 'no'
@@ -294,7 +333,7 @@ echo "  c-archive exists; neither artefact reads a path."
 
 # THE SECOND LINKED DRIVER'S libpq, RUN, in a TEST build (`github.com/telekom/sutura#913`): `doctor`
 # above only initialises it, so this static musl binary is where its libpq executes beside the
-# BigQuery driver. A test build, so a release-profile run of this script skips it. The derivation
+# BigQuery driver - and where the third, DuckDB, answers `SELECT 1`, which `doctor` does not call. A test build, so a release-profile run of this script skips it. The derivation
 # fails if the cell fails; `linked_verdict` decides that the LINKED arm is what passed. What that
 # cell does not reach is in its own doc comment.
 if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
@@ -304,6 +343,16 @@ if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
         sed 's/^/    /' "$linked/linked.log" >&2
         exit 1
     fi
-    echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq beside the linked BigQuery"
-    echo "  driver in one static x86_64-musl test binary."
+    echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq and the linked DuckDB one"
+    echo "  answered a query beside the linked BigQuery driver in one static x86_64-musl test binary."
+    # And signed in with Kerberos through it, against the derivation's own KDC tier. The derivation
+    # requires the marker too; reading it here as well means a derivation that stopped asking is
+    # still red.
+    kerberos="$(nix build --no-link --print-build-logs --print-out-paths .#adbc-postgres-kerberos-x86_64-unknown-linux-musl-test)"
+    if [ "$(kerberos_verdict "$(cat "$kerberos/kerberos.log")")" != ok ]; then
+        echo "bigquery-driver-check: FAILED - the Kerberos sign-in did not pass through the linked driver. Its log:" >&2
+        sed 's/^/    /' "$kerberos/kerberos.log" >&2
+        exit 1
+    fi
+    echo "bigquery-driver-check: ok - the linked PostgreSQL driver signed in with Kerberos, GSSAPI-encrypted."
 fi

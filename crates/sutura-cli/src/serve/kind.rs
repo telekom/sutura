@@ -31,12 +31,15 @@
 //! LIMIT rather than an inert one.** `Warehouse::executes_legs` - the one capability this issue is
 //! about - is an INSTANCE method precisely so it can be asked per concrete adapter through this
 //! enum (see [`AnyWarehouse`](kind::AnyWarehouse)'s `impl Warehouse`); the other four are still associated constants
-//! with no instance escape, so a `PostgresWarehouse`'s real `ACCEPTS_RAW_STATEMENTS = true` and a
-//! `BigQueryWarehouse`'s real `PRICES_DRY_RUN = true` both read `false` once erased behind this
-//! type. A mixed-kind deployment therefore cannot serve `sutura`'s raw-SQL tool against its
-//! Postgres source, and cannot get a real dry-run byte estimate off its BigQuery source, even
-//! though the underlying adapter could deliver both. Widening either needs the same instance-method
-//! escape `executes_legs` got, asked for by name when a deployment needs it.
+//! with no instance escape, so a `BigQueryWarehouse`'s real `PRICES_DRY_RUN = true` reads `false`
+//! once erased behind this type, and a mixed-kind deployment cannot get a real dry-run byte
+//! estimate off its BigQuery source. **`ACCEPTS_RAW_STATEMENTS` reading `false` here decides
+//! nothing today**: `sutura_app::raw::run_sql` answers only over a registry of exactly ONE source,
+//! and this enum is only ever built for two or more, so a mixed deployment is refused the raw tool
+//! by that count before this constant is read. A single-kind `postgres` or `duckdb` deployment
+//! never reaches this type - `open_engine` keeps its concrete adapter - and reads the adapter's own
+//! `true`. Widening the raw tool to a mix needs both a way to name its source and the instance
+//! escape `executes_legs` got.
 
 use std::collections::BTreeSet;
 
@@ -73,6 +76,9 @@ pub(crate) enum AnyWarehouse {
     /// larger than the engine's handle.
     #[cfg(feature = "oracle")]
     Oracle(Box<super::OracleSource>),
+    /// A `DuckDB` database, boxed for [`Self::BigQuery`]'s reason.
+    #[cfg(feature = "duckdb")]
+    Duckdb(Box<super::DuckdbSource>),
 }
 
 /// The error any linked adapter can fail with, erased behind one type the same way the adapter is.
@@ -96,6 +102,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "oracle")]
     #[error(transparent)]
     Oracle(<super::OracleSource as Warehouse>::Error),
+    #[cfg(feature = "duckdb")]
+    #[error(transparent)]
+    Duckdb(<super::DuckdbSource as Warehouse>::Error),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -112,6 +121,8 @@ macro_rules! any {
             AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*),
             #[cfg(feature = "oracle")]
             AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*),
+            #[cfg(feature = "duckdb")]
+            AnyWarehouse::Duckdb(warehouse) => warehouse.$method($($arg),*),
         }
     };
 }
@@ -130,6 +141,8 @@ macro_rules! any_fallible {
             AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::ClickHouse),
             #[cfg(feature = "oracle")]
             AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Oracle),
+            #[cfg(feature = "duckdb")]
+            AnyWarehouse::Duckdb(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Duckdb),
         }
     };
 }
@@ -155,12 +168,20 @@ macro_rules! any_predicate {
             (AnyWarehouse::ClickHouse(warehouse), AnyWarehouseError::ClickHouse(cause)) => warehouse.$method(cause),
             #[cfg(feature = "oracle")]
             (AnyWarehouse::Oracle(warehouse), AnyWarehouseError::Oracle(cause)) => warehouse.$method(cause),
+            #[cfg(feature = "duckdb")]
+            (AnyWarehouse::Duckdb(warehouse), AnyWarehouseError::Duckdb(cause)) => warehouse.$method(cause),
             // Unreachable, and therefore ABSENT, on the DEFAULT feature set: with none of
-            // `bigquery`, `postgres`, `clickhouse` or `oracle` linked, `AnyWarehouse` and `AnyWarehouseError`
+            // `bigquery`, `postgres`, `clickhouse`, `oracle` or `duckdb` linked, `AnyWarehouse` and `AnyWarehouseError`
             // each have the one `Files` variant, so the arm above is exhaustive on its own and
             // `-D warnings` (`unreachable_patterns`) refuses a wildcard nothing can reach. Kept
             // only where a second variant exists to make a cross-variant pairing possible at all.
-            #[cfg(any(feature = "bigquery", feature = "postgres", feature = "clickhouse", feature = "oracle"))]
+            #[cfg(any(
+                feature = "bigquery",
+                feature = "postgres",
+                feature = "clickhouse",
+                feature = "oracle",
+                feature = "duckdb"
+            ))]
             _ => $default,
         }
     };
@@ -268,6 +289,10 @@ impl Warehouse for AnyWarehouse {
             Self::Oracle(warehouse) => warehouse
                 .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Oracle)),
+            #[cfg(feature = "duckdb")]
+            Self::Duckdb(warehouse) => warehouse
+                .execute_raw(statement, presented, deadline)
+                .map(|result| result.map_err(AnyWarehouseError::Duckdb)),
         }
     }
 }
@@ -286,6 +311,7 @@ pub(crate) struct Grouped<'a> {
     pub(crate) postgres: Vec<&'a SourceName>,
     pub(crate) clickhouse: Vec<&'a SourceName>,
     pub(crate) oracle: Vec<&'a SourceName>,
+    pub(crate) duckdb: Vec<&'a SourceName>,
 }
 
 /// Sorts every declared source into its kind, one [`super::configured_source`] lookup per source -
@@ -302,6 +328,7 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::Postgres => grouped.postgres.push(source),
             sutura_config::SourceKind::ClickHouse => grouped.clickhouse.push(source),
             sutura_config::SourceKind::Oracle => grouped.oracle.push(source),
+            sutura_config::SourceKind::Duckdb => grouped.duckdb.push(source),
         }
     }
     Ok(grouped)
@@ -363,6 +390,10 @@ pub(crate) fn open_mixed(
     if !grouped.oracle.is_empty() {
         engines = Some(accumulate(engines, oracle_group(&grouped.oracle, registry, runtime)?)?);
         trust_into(&mut attached, pinned, &grouped.oracle);
+    }
+    if !grouped.duckdb.is_empty() {
+        engines = Some(accumulate(engines, duckdb_group(&grouped.duckdb, registry, runtime)?)?);
+        trust_into(&mut attached, pinned, &grouped.duckdb);
     }
 
     // Unreachable: `open_engine` only calls this function when more than one group is non-empty,
@@ -540,6 +571,33 @@ fn oracle_group(
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_oracle` returned an open registry on a build with no Oracle adapter linked",
+    ))
+}
+
+/// The `DuckDB` group, opened through [`super::duckdb::open_duckdb`] and erased.
+#[cfg(feature = "duckdb")]
+fn duckdb_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    let super::OpenedSources::Duckdb(engines) = super::duckdb::open_duckdb(sources, registry, runtime)? else {
+        return Err(String::from("`open_duckdb` returned an arm this dispatcher does not expect"));
+    };
+    Ok(engines.into_mapped(|engine| AnyWarehouse::Duckdb(Box::new(engine))))
+}
+
+/// [`bigquery_group`]'s feature-off twin, for the same reason.
+#[cfg(not(feature = "duckdb"))]
+fn duckdb_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    super::duckdb::open_duckdb(sources, registry, runtime)?;
+    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
+    Err(String::from(
+        "`open_duckdb` returned an open registry on a build with no DuckDB adapter linked",
     ))
 }
 

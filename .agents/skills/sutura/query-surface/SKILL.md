@@ -34,7 +34,12 @@ visible in the code; these rules are not:
   `description` and a model reads it; reasoning about the type goes in a plain comment beside it.
 - **Kept equal by review, not a test:** the field lists of the two wire types doing the same job on
   the two transports, and the prose - deliberately, since a tool description and an OpenAPI summary
-  are written for different readers.
+  are written for different readers. The exception is `knowledge`: both call one function, and
+  `a_caller_reads_the_same_knowledge_over_http_as_over_mcp` holds the two texts equal for one caller
+  under the default `catalog_prose: quoted`. HTTP under `omitted` is held by
+  `note_bodies_reach_a_caller_over_http_only_under_the_quoted_prose_setting`, MCP by
+  `note_bodies_reach_the_mcp_catalog_only_under_the_quoted_prose_setting`; no cell compares the two
+  transports under `omitted`.
 - **The OpenAPI document is built at startup and served**, not dumped, so a missing path attribute
   fails to compile rather than producing a page with a gap.
 - **The attribution document is deliberately WIDER than any one binary**, which is the opposite of an
@@ -107,7 +112,10 @@ the shape a published binary sends, and its conformance binding executes a leg a
 provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
 rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is bound the same way
 Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
-a provisioned tier or a live dataset. All three declarations, and what each one's evidence is, live
+a provisioned tier or a live dataset - and a BigQuery leg also executes live, in the two-fact
+differential (`crates/sutura-app/tests/differential/federated/two_fact.rs`), in the
+`bigquery-conformance` CI job alone, under one shared CI identity and with both sources on one
+dataset. All three declarations, and what each one's evidence is, live
 in `crates/sutura-app/tests/differential/federated/leg_evidence.rs` as a typed `LegEvidence` rather
 than a bare name; (3) **two genuinely different POSTURES on one federated answer are answered and
 disclosed per leg since `docs/adr/0040`, and a deployment can hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
@@ -182,7 +190,7 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   reader maps the wire correctly against a real local server over the fixture's own corpus, and that
   `sutura --features datahub` serves the loopback fake end to end - not that any deployment
   can point at a `DataHub` instance today.
-- **The provisioned DataHub tier proves the VENUE and the PLATFORM's half, and not a read path.**
+- **The provisioned DataHub tier proves the VENUE, the PLATFORM's half and, through ONE `#[ignore]`d cell, a read path over the golden catalog.**
   `just dev-up-datahub` stands up DataHub 1.7.0 behind a compose profile - upstream's own
   `quickstart-backend` selection minus its actions container - and `just datahub-acceptance` gets a
   `2xx` off `openapi/v3/entity/dataset` **and** round-trips the recorded corpus's own document
@@ -191,16 +199,20 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `MetricAspect` into a certified `Metric`, with `SINGLE` cardinality, the declared value type and
   the scalar's ceiling all refused server-side - the ceiling named by the platform as its
   Elasticsearch `keywordMaxLength`, an index setting rather than a constant here - what was
-  measured is that the refusal NAMES it, not that raising it works. `HttpAspectReader` exists in
-  `src/http.rs`, but these cells do not drive it: they build their own `ureq` agent, so the requests
-  and the response mapping they exercise live in the test, and the structural half of that snapshot
-  is still the recorded corpus. **Still absent:** any frontend, so there is
-  no UI; and any CI job, because the nix sandbox has no docker socket. Authentication is ON
+  measured is that the refusal NAMES it, not that raising it works. The golden cell
+  (`tests/provisioned/golden.rs`) provisions `examples/single-player/catalog` and reads it back
+  through `src/http.rs`'s `HttpAspectReader` into definitions equal to the golden minus its named
+  `NOT_CARRIED` rows; audience and shared calendar agree only because the golden states the adapter's
+  defaults. Every OTHER cell builds its own `ureq` agent and maps the response in the test.
+  **Still absent:** any frontend, so there is
+  no UI; and any nix check, because the nix sandbox has no docker socket - the CI venue is
+  `ci.yml:ci-datahub-tier`, run when `xtask classify` selects `catalog_datahub`. Authentication is ON
   (`METADATA_SERVICE_AUTH_ENABLED: "true"`): the tier mints its own PAT offline, the acceptance run
   presents it as a bearer and asserts a bearer-less read is refused - a self-minted PAT, not a
   DB-backed token-service token. **A platform that accepts the
-  document is not a read path**, and the acceptance cells are `#[ignore]`d, so they are evidence of
-  whatever the last `just datahub-acceptance` run reported and of nothing in the default suite - run
+  document is not by itself a read path**, and the acceptance cells are `#[ignore]`d, so they are evidence of
+  whatever the last `ci-datahub-tier` or `just datahub-acceptance` run reported and of nothing in
+  the default suite - run
   without `SUTURA_DEV_REQUIRE_TIER=1` they report `ok` having asserted nothing, which is why the task
   sets it.
 - **Two DataHub read surfaces, and only one is read-your-writes** - measured 2026-09-04 by
@@ -235,16 +247,15 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   axis registers it with `available()` answering `false` unconditionally - it is cloud-only, so
   every cell on that axis skips it, and the entry exists so `execute_packs!`'s registry gate can
   bind the adapter's own conformance packs (`#710`). The DIALECT axis has an entry of its own.
-- **The ClickHouse adapter executes the golden corpus and conformance packs, and no release links
-  it.** The golden matrix registers it and runs the example corpus against the server
+- **The ClickHouse adapter executes the golden corpus and conformance packs, and every release
+  links it.** The golden matrix registers it and runs the example corpus against the server
   `nix/clickhouse-tier.nix` starts - in
   `checks.nextest` and under `just test`, like Postgres - so its `rows`/`refused`/`error`/
   `anchor_report` families are EXECUTED goldens and `dialects.rs` declares `Evidence::Executed`
   (`github.com/telekom/sutura#920`). The conformance packs bind through
   `crates/sutura-exec-clickhouse/tests/conformance.rs` after `#979` measured signed 64-bit overflow
   and preserved decimal scale. **What that does not reach:** unsigned overflow in the live corpus,
-  other server versions, sums beyond the widened type, or any release, because `sutura-cli`'s
-  `clickhouse` feature is default-off and absent from `nix/shipped.nix`. Both venues - this tier and
+  other server versions, or sums beyond the widened type. Both venues - this tier and
   `compose.services.yaml`'s docker service -
   publish one `clickhouse` discovery entry, so the last one started owns it.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity

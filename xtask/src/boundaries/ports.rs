@@ -102,7 +102,7 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
         .flat_map(|caller| caller.roots.iter().map(String::as_str))
         .collect();
     let mut problems = Vec::new();
-    let mut declared: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut declared: BTreeSet<(&str, String)> = BTreeSet::new();
     let mut scanned = 0_usize;
 
     // **The read is the census's**, which is `github.com/telekom/sutura#619` for this scanner:
@@ -121,7 +121,7 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
             let text = String::from_utf8_lossy(bytes);
             scanned = scanned.saturating_add(1);
             for (index, name) in public_traits(&text) {
-                declared.insert((caller.name.clone(), String::from(name)));
+                declared.insert((caller.name.as_str(), String::from(name)));
                 if permitted(&caller.name, name) {
                     continue;
                 }
@@ -142,7 +142,7 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     }
     // The ratchet's other direction: an entry naming a trait no caller declares any more.
     for entry in PERMITTED_IN_A_CALLER {
-        if !declared.contains(&(String::from(entry.declared_by), String::from(entry.name))) {
+        if !declared.contains(&(entry.declared_by, String::from(entry.name))) {
             problems.push(format!(
                 "PERMITTED_IN_A_CALLER: `{}` no longer declares `pub trait {}` - delete the entry",
                 entry.declared_by, entry.name

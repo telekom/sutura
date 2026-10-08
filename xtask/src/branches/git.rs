@@ -25,6 +25,7 @@
 //! single commit. Squash three commits and no individual patch-id matches, which is what
 //! [`Landings::of`] falls through to the cumulative-diff comparison for.
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -354,15 +355,18 @@ impl<'a> Landings<'a> {
         let Some(id) = cumulative.iter().next() else {
             return Err("the branch's cumulative diff produced no patch-id");
         };
-        if !self.scanned.contains_key(&merge_base) {
-            let range = format!("{merge_base}..{}", self.base_rev);
-            let ids = patch_ids(
-                self.root,
-                &["log", "-p", "--no-merges", "--max-count", MAX_BASE_COMMITS, range.as_str()],
-            )?;
-            self.scanned.insert(merge_base.clone(), ids);
-        }
-        Ok(self.scanned.get(&merge_base).is_some_and(|on_base| on_base.contains(id)))
+        let on_base = match self.scanned.entry(merge_base) {
+            Entry::Occupied(known) => known.into_mut(),
+            Entry::Vacant(slot) => {
+                let range = format!("{}..{}", slot.key(), self.base_rev);
+                let ids = patch_ids(
+                    self.root,
+                    &["log", "-p", "--no-merges", "--max-count", MAX_BASE_COMMITS, range.as_str()],
+                )?;
+                slot.insert(ids)
+            }
+        };
+        Ok(on_base.contains(id))
     }
 }
 

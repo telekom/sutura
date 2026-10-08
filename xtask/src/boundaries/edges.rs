@@ -357,6 +357,17 @@ pub(crate) const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
         edges: Edges::Every,
     },
+    // The connector a catalog adapter dials a PostgreSQL source through. Its own row rather than
+    // the catalog entries above alone, because those see this edge only once a catalog adapter
+    // depends on the connector, and the exec adapter's `sutura-sql` edge sits one crate away.
+    ForbiddenEdge {
+        from: "sutura-adbc-postgres",
+        forbidden: "sutura-sql",
+        why: "a metadata reader dials through this connector, so the dialect layer in its tree is the \
+              dialect layer in every catalog adapter that reuses it - the class rule the entries above hold",
+        instead: "render in `sutura-exec-postgres`, over the connection this crate opens",
+        edges: Edges::Every,
+    },
     // `github.com/telekom/sutura#705` review finding 1: the crate's own doc claimed "no dependency
     // on a crypto provider" while its manifest named `rustls` - and this workspace's `rustls` entry
     // pins `features = ["ring", "tls12"]`, so that edge was `ring` under a different name. The

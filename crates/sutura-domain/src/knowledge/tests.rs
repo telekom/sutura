@@ -463,19 +463,38 @@ fn a_note_name_shares_the_one_identifier_parser() {
 }
 
 #[test]
-fn a_referent_names_a_metric_and_never_a_column() {
-    // The absence is the property: there is no variant to put a model, a table or a column in, so
-    // the prompt sections rendered from this type cannot leak one whatever an author writes.
+fn a_referent_names_its_metric_and_a_model_or_a_column_names_none() {
+    // `None` rather than a metric nobody wrote: every reader deciding where a note is shown, or to
+    // whom, has to say what a model or a column means for it.
     let value = Referent::Value {
         metric: metric_name("recurring_revenue"),
         dimension: dimension_name("segment"),
         value: declared_value("business"),
     };
-    assert_eq!(value.metric(), &metric_name("recurring_revenue"));
+    assert_eq!(value.metric(), Some(&metric_name("recurring_revenue")));
     assert_eq!(value.dimension(), Some(&dimension_name("segment")));
     assert_eq!(value.value(), Some(&declared_value("business")));
     assert_eq!(revenue().dimension(), None);
     assert_eq!(revenue().value(), None);
+    for referent in [subscriptions(), mrr_cents()] {
+        assert_eq!(
+            (referent.metric(), referent.dimension(), referent.value()),
+            (None, None, None)
+        );
+    }
+}
+
+fn subscriptions() -> Referent {
+    Referent::Model {
+        model: ModelName::parse("subscriptions").expect("a test model is a model"),
+    }
+}
+
+fn mrr_cents() -> Referent {
+    Referent::Column {
+        model: ModelName::parse("subscriptions").expect("a test model is a model"),
+        column: column("mrr_cents"),
+    }
 }
 
 /// One on-disk referent, as a value rather than as text.
@@ -489,9 +508,46 @@ fn a_referent_names_a_metric_and_never_a_column() {
 /// `deny_unknown_fields`.
 fn repr(metric: &str, dimension: Option<&str>, value: Option<&str>) -> super::ReferentRepr {
     super::ReferentRepr {
-        metric: metric_name(metric),
+        metric: Some(metric_name(metric)),
         dimension: dimension.map(dimension_name),
         value: value.map(declared_value),
+        ..super::ReferentRepr::default()
+    }
+}
+
+fn model_repr(column: Option<&str>) -> super::ReferentRepr {
+    super::ReferentRepr {
+        model: Some(ModelName::parse("subscriptions").expect("a test model is a model")),
+        column: column.map(self::column),
+        ..super::ReferentRepr::default()
+    }
+}
+
+#[test]
+fn a_model_or_a_column_is_a_referent_and_a_mix_of_the_two_shapes_is_not() {
+    assert_eq!(Referent::try_from(model_repr(None)), Ok(subscriptions()));
+    assert_eq!(Referent::try_from(model_repr(Some("mrr_cents"))), Ok(mrr_cents()));
+    let orphan = super::ReferentRepr {
+        column: Some(column("mrr_cents")),
+        ..super::ReferentRepr::default()
+    };
+    assert_eq!(Referent::try_from(orphan), Err(InvalidReferent::NeitherMetricNorModel));
+    let mixed = [
+        super::ReferentRepr {
+            model: model_repr(None).model,
+            ..repr("recurring_revenue", None, None)
+        },
+        super::ReferentRepr {
+            dimension: Some(dimension_name("segment")),
+            ..model_repr(Some("mrr_cents"))
+        },
+        super::ReferentRepr {
+            column: Some(column("mrr_cents")),
+            ..repr("recurring_revenue", None, None)
+        },
+    ];
+    for repr in mixed {
+        assert_eq!(Referent::try_from(repr), Err(InvalidReferent::MetricAndModelMixed));
     }
 }
 
@@ -553,6 +609,8 @@ fn a_referent_serializes_as_what_a_catalog_wrote() {
             dimension: dimension_name("segment"),
             value: declared_value("business"),
         },
+        subscriptions(),
+        mrr_cents(),
     ] {
         let written = super::ReferentRepr::from(referent.clone());
         assert_eq!(Referent::try_from(written).expect("what was written is a referent"), referent);
@@ -855,4 +913,82 @@ fn scoped_withholds_knowledge_whose_metric_is_invisible() {
         "withholding absences must withdraw their declaration so the prompt never claims the list is empty"
     );
     assert!(outsider.declares().declares(Capability::Glossary));
+}
+
+#[test]
+fn a_model_or_column_note_is_shown_only_to_a_caller_whose_view_holds_that_model() {
+    // `subscriptions` declares no audience, so no caller-scoped view holds it; `customers` is open,
+    // so every one does. A glossary entry follows the model its referent names, whether it means the
+    // model itself or one of its columns - and a caller whose view lacks the model gets no note
+    // naming it or its columns.
+    let source = SourceName::parse("local").expect("a test source is a source");
+    let customers = ModelName::parse("customers").expect("a test model is a model");
+    let definitions = Definitions::assemble(
+        vec![
+            Model::new(
+                ModelName::parse("subscriptions").expect("a test model is a model"),
+                source.clone(),
+                TableName::parse("fct_subscription_monthly").expect("a test table is a table"),
+                BTreeSet::from([column("mrr_cents")]),
+                Description::default(),
+            ),
+            Model::new(
+                customers.clone(),
+                source.clone(),
+                TableName::parse("dim_customer").expect("a test table is a table"),
+                BTreeSet::from([column("segment")]),
+                Description::default(),
+            )
+            .with_audience(Audience::Open),
+        ],
+        vec![],
+        vec![],
+    )
+    .expect("two models and no metric are consistent");
+    let knowledge = Knowledge::assemble(
+        &definitions,
+        only_glossary(vec![
+            glossary_entry("billing table", &[], subscriptions()),
+            glossary_entry("billed amount", &[], mrr_cents()),
+            glossary_entry(
+                "customer table",
+                &[],
+                Referent::Model {
+                    model: customers.clone(),
+                },
+            ),
+            glossary_entry(
+                "customer segment",
+                &[],
+                Referent::Column {
+                    model: customers,
+                    column: column("segment"),
+                },
+            ),
+        ]),
+    )
+    .expect("every entry names a declared model or column");
+    let pinned = PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        knowledge.clone(),
+        ContributionManifest::single(
+            source,
+            Contribution::of(MetadataCapabilities::produced(&definitions, &knowledge)),
+        ),
+    )
+    .expect("the test definitions hash");
+    let terms = |view: &ScopedView<'_>| -> Vec<String> {
+        knowledge
+            .scoped(view)
+            .glossary()
+            .keys()
+            .map(|term| String::from(term.as_str()))
+            .collect()
+    };
+    assert_eq!(terms(&ScopedView::everything(&pinned)).len(), 4);
+    assert_eq!(
+        terms(&ScopedView::granted_by(&pinned, GrantedAudiences::none())),
+        vec!["customer segment", "customer table"]
+    );
 }

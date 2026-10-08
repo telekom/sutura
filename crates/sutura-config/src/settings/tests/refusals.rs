@@ -18,11 +18,18 @@ fn an_invalid_tls_termination_word_is_a_settings_error() {
 }
 
 #[test]
-fn a_zero_credential_cache_capacity_is_a_settings_error() {
+fn a_credential_cache_block_is_refused_as_an_unknown_key() {
+    // `github.com/telekom/sutura#1259`: `security.credential_cache` configured a cache nothing
+    // builds, so the key is gone. A config that still writes it is refused like any other unknown
+    // key rather than read as a control that is in place.
     let sources = Sources::defaults(Environment::Development)
-        .with_overlay(dev_overlay("security:\n  credential_cache:\n    capacity: 0\n"));
-    let error = Settings::load(&sources).expect_err("a zero credential cache capacity is refused");
-    assert!(matches!(error.reason(), SettingsError::CredentialCache { .. }), "{error:?}");
+        .with_overlay(dev_overlay("security:\n  credential_cache:\n    enabled: true\n"));
+    let error = Settings::load(&sources).expect_err("a credential cache block is not a setting");
+    let rendered = format!("{error:?}");
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("credential_cache"),
+        "the refusal names the key: {rendered}"
+    );
 }
 
 #[test]
@@ -108,4 +115,23 @@ fn a_bad_source_kind_is_a_settings_error() {
     ));
     let error = Settings::load(&sources).expect_err("a bad source kind is refused");
     assert!(matches!(error.reason(), SettingsError::Sources { .. }), "{error:?}");
+}
+
+/// Diagnostics and logs show endpoint URLs without userinfo: the startup log prints the resolved
+/// settings before a reader parses its endpoint, so a userinfo endpoint is refused at load, unquoted.
+#[test]
+fn a_catalog_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
+    for reader in ["kind: datahub\n    metric_property: m", "kind: openmetadata"] {
+        for endpoint in ["https://svc:s3cret@catalog.example", "https://svc/x:s3cret@catalog.example"] {
+            let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+                "catalogs:\n  - name: catalog\n    {reader}\n    dir: catalog\n    data_dir: data\n    version: test-1\n    endpoint: {endpoint}\n    token_file: /nowhere/token\n"
+            ));
+            let error = Settings::load(&sources).expect_err("a userinfo endpoint is refused");
+            assert!(matches!(error.reason(), SettingsError::Catalog { .. }), "{error:?}");
+            let cause = core::error::Error::source(error.reason()).map_or_default(ToString::to_string);
+            assert!(cause.contains("endpoint carries an `@`"), "{cause}");
+            let rendered = format!("{error} {error:?} {cause}");
+            assert!(!rendered.contains("s3cret"), "{rendered}");
+        }
+    }
 }

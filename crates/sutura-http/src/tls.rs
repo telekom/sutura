@@ -15,7 +15,7 @@
 //!
 //! **Dependency count.** `tokio-rustls` is the *only* new crate in the graph: `rustls`,
 //! `rustls-pki-types`, `rustls-webpki`, `ring` and `untrusted` are already resolved, because
-//! `libduckdb-sys` carries `ureq` and `ureq` carries a TLS stack. `axum-server` would have added
+//! `ureq` carries a TLS stack. `axum-server` would have added
 //! itself, `hyper-util`, `rustls-pemfile` and `arc-swap` on top of the same rustls.
 //!
 //! **Graceful shutdown.** This is the heavier reason. `crate::server` has a *bounded* drain - the

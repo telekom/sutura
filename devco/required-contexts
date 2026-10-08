@@ -76,8 +76,10 @@
 [required]
 
 # The validation context the ruleset requires. Everything routed through this job IS gated: the structural
-# gates, the lints, the tests, the doctests, the causality gate, the API pages. A STEP inside it is
-# gated for the same reason, which is how a gate that only runs there is genuinely gating.
+# gates, the lints, the tests, the doctests, the API pages. A STEP inside it is gated for the same
+# reason, which is how a gate that only runs there is genuinely gating. The causality gate and the
+# linked PostgreSQL driver build used to be steps here and are jobs now (#1280): they are gated
+# through `ci-aggregate` below instead, which is one hop further from the ruleset.
 ci
 
 # The category aggregator: a plain job, so its context resolves like any other - the reason the file
@@ -87,6 +89,16 @@ ci
 # entry and the `ci` entry beside it are the two contexts the live ruleset's
 # `required_status_checks` holds (verified 2026-09-24).
 ci-aggregate
+
+# The pull-request title check, now in its own workflow. REQUIRED - it is the gate on the subject
+# GitHub's squash will land, the one commit a local hook never sees. READ ON 2026-10-03 (owner
+# decision #1257): the workflow's job carries `name: pr-title`, so the context the ruleset must
+# require is `pr-title`. It triggers on `pull_request` INCLUDING `edited`, so a title rename alone
+# fires a fresh verdict instead of waiting for the last push. It triggers on `merge_group` as
+# well, because a required context that does not report on a queue entry leaves that entry pending
+# until the queue's timeout drops it; `obligations::pr_title_check` refuses a `pr-title.yml`
+# without that trigger.
+pr-title
 
 [advisory]
 
@@ -189,15 +201,40 @@ ci.yml:keycloak-served-test
 # passed over a driver that cannot initialise.
 ci.yml:bigquery-driver-check
 
+# The red-before-green gate for changed tests, out of `ci` (#1280) so it runs beside it. Advisory for
+# `bigquery-driver-check`'s reason, and the one that matters more here: it was a step of the
+# required `ci` context, so its gating now rests on `ci-aggregate` holding run-or-fail for it -
+# `needs.ci.outputs.rust` selected and this job not `success` is a red aggregate, off a push. It
+# reports nothing on a push, where it never ran.
+ci.yml:causality
+
+# The adapter's tier-backed cells through the LINKED static musl PostgreSQL driver, out of `ci`
+# (#1280) on `ci.yml:causality`'s terms. Selected by `run_all`, `nix` or `data_source_postgres`; held
+# run-or-fail by `ci-aggregate` against `ci`'s own copy of those three flags.
+ci.yml:postgres-linked-driver
+
 # The hosted DataHub/ADBC acceptance runs when a BigQuery, DataHub or identity change selects it
 # and the event can receive the bq-test credential. The required ci-aggregate job refuses a skip
 # on a selected same-repository pull request or push.
 ci.yml:e2e-datahub-adbc
 
+# The golden matrix's `bigquery` row against a real dataset. Advisory here, and run-or-fail through
+# `ci-aggregate` on a selected same-repository pull request or merge group. One run's corpus cell
+# timed out undiagnosed (37152629712), so how it behaves under load is unproven.
+ci.yml:bigquery-conformance
+
 # The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on
 # `data_source_oracle` or `catalog_rdbms`, so it reports nothing on most pull requests, and a required context that
 # does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
 ci.yml:oracle-tier
+
+# The DataHub docker tier, advisory for `oracle-tier`'s reason above: category-gated on
+# `catalog_datahub` (derived from `crates/sutura-catalog-datahub`; a docker-tier
+# `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on
+# a diff confined to other adapters (e.g. one limited to `crates/sutura-exec-oracle/`), and a
+# required context that does not report is a permanently pending merge.
+# `ci-aggregate` holds run-or-fail for it.
+ci.yml:ci-datahub-tier
 
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it

@@ -61,10 +61,13 @@
 //!   `if use_session {}` statement, not nested inside it) - which serves EVERY message type
 //!   one-shot, `initialize` included. [`crate::http::config`]'s pin selects the second; the cells in this
 //!   module exercise it directly rather than trust this paragraph.
-//! - **`allowed_hosts`/`allowed_origins` are left at the SDK's own defaults**
-//!   (`["localhost", "127.0.0.1", "::1"]`, no origin check) - a composition root serving this
-//!   outside loopback must override them, or the transport refuses every request with a `Host`
-//!   header it does not recognise. PR4's job to state, not this module's.
+//! - **`allowed_hosts` is switched off here, and the router in front checks `Host`.** The transport's
+//!   own list is the loopback names alone, which refuses a deployment reached by any other name;
+//!   `sutura_http::host` holds the one list for every route, `/mcp` included, so a composition
+//!   root that mounts this service anywhere else has no `Host` check until it adds one. The
+//!   transport still parses the `Host` before it reads its (now empty) list, so a request that names
+//!   none is refused `400` here whatever the router in front let through.
+//!   `allowed_origins` stays at the SDK's default (no origin check).
 //! - **The exact SEP-2243 header-validation helpers this module's tests exercise
 //!   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
 //!   no-op conditions on a plain, non-`stateless_protocol_metadata_required` request and not
@@ -78,7 +81,7 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use sutura_app::prompt::{CatalogProse, Tool};
 use sutura_app::surface::Surface;
-use sutura_config::RequestTimeout;
+use sutura_config::{BodyLimit, RequestTimeout};
 use sutura_runtime::Admission;
 
 use crate::{AgentSurface, Asking};
@@ -90,20 +93,25 @@ use crate::{AgentSurface, Asking};
 /// struct-expression literal cannot name its fields at all - and its `Default` builds a fresh
 /// `CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
 ///
-/// **The limit the two pins carry, stated rather than assumed contractually:** only
-/// `legacy_session_mode` and `json_response` are set here; the other eight fields are inherited
-/// from the SDK's `Default` through the builder and are not pinned - a future field with an unsafe
-/// default would arrive silently, and `allowed_hosts` stays loopback-only, so a composition root
-/// serving outside loopback must override it (the transport refuses every unrecognised `Host`, see
-/// the module documentation). And [`service`] still constructs a [`LocalSessionManager`]; that
+/// **The limit the pins carry, stated rather than assumed contractually:** only
+/// `legacy_session_mode`, `json_response`, the body bound and `allowed_hosts` below are set here; the
+/// other six fields are inherited from the SDK's `Default` through the builder and are not pinned - a
+/// future field with an unsafe default would arrive silently. And [`service`] still constructs a [`LocalSessionManager`]; that
 /// manager is kept idle by `legacy_session_mode: false` alone. Nothing here binds a session to a
 /// caller, and the SDK's own `create_session` takes no identity argument regardless - the caller is
 /// re-resolved per request out of each request's `Asked`, never out of a session.
+///
+/// **And `max_request_body_bytes` is the deployment's `server.max_body_bytes`**, the bound `/v1`
+/// reads under, rather than the SDK's own 4 MiB: the transport reads its own body, so an `axum`
+/// `DefaultBodyLimit` in front of it would bind nothing. **`allowed_hosts` is switched off**: the
+/// router in front checks `Host` against the deployment's one list, see the module documentation.
 #[must_use]
-pub fn config() -> StreamableHttpServerConfig {
+pub fn config(max_body: BodyLimit) -> StreamableHttpServerConfig {
     StreamableHttpServerConfig::default()
         .with_legacy_session_mode(false)
         .with_json_response(true)
+        .with_max_request_body_bytes(max_body.bytes())
+        .disable_allowed_hosts()
 }
 
 /// Builds the streamable-HTTP transport over one [`Surface`], as a plain `tower_service::Service`
@@ -128,6 +136,7 @@ pub fn service<S>(
     list_physical_schema: bool,
     admission: Admission,
     reply: RequestTimeout,
+    max_body: BodyLimit,
     tools: Arc<[Tool]>,
     operator_instructions: Option<Arc<str>>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
@@ -148,7 +157,7 @@ where
             .listing_physical_schema(list_physical_schema))
         },
         Arc::new(LocalSessionManager::default()),
-        config(),
+        config(max_body),
     )
 }
 
@@ -315,6 +324,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             testing::operator_instructions(),
         );
@@ -357,6 +367,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             testing::operator_instructions(),
         );
@@ -407,6 +418,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             testing::operator_instructions(),
         );
@@ -441,16 +453,63 @@ mod tests {
     /// wrong signal for THIS property; asserting the field directly names the actual thing that
     /// changed.
     ///
-    /// **Only these two fields are contractual**: `StreamableHttpServerConfig` has ten fields, the
-    /// other eight are inherited from the SDK's `Default` through the builder ([`config`] applies
-    /// both pins through the builder precisely because the struct is `#[non_exhaustive]`), and this
-    /// cell asserts exactly what this module decides - `legacy_session_mode` (stateless sessions)
-    /// and `json_response` - and nothing it merely inherits.
+    /// **Only three fields are contractual here**: `StreamableHttpServerConfig` has ten fields, the
+    /// body bound has its own served cell and the rest are inherited from the SDK's `Default` through
+    /// the builder ([`config`] applies the pins through the builder precisely because the struct is
+    /// `#[non_exhaustive]`). This cell asserts what this module decides - `legacy_session_mode`
+    /// (stateless sessions), `json_response` and no transport-level `allowed_hosts` - and nothing it
+    /// merely inherits.
     #[test]
     fn the_streamable_http_config_pins_stateless_sessions() {
-        let config = super::config();
+        let config = super::config(settings().server().max_body());
         assert!(!config.legacy_session_mode, "{config:?}");
         assert!(config.json_response, "{config:?}");
+        assert!(config.allowed_hosts.is_empty(), "{config:?}");
+    }
+
+    /// With the transport's own list switched off, any host that names itself is served and a request
+    /// that names none is refused `400`: the router in front owns the list, and the transport still
+    /// parses the `Host` before it reads it.
+    #[tokio::test]
+    async fn the_transport_serves_any_named_host_and_refuses_a_request_naming_none() {
+        let transport = super::service(
+            Arc::new(testing::FailingSurface::new()),
+            CatalogProse::Quoted,
+            false,
+            admission(),
+            reply(),
+            settings().server().max_body(),
+            testing::instructions(),
+            testing::operator_instructions(),
+        );
+        let app = router(transport, subject_asked("someone@example.com", Permitted::every_capability()));
+        for host in [Some("declared.example.com"), None] {
+            let mut request = axum::http::Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header(header::ACCEPT, "application/json, text/event-stream")
+                .header(header::CONTENT_TYPE, "application/json");
+            if let Some(host) = host {
+                request = request.header(header::HOST, host);
+            }
+            let request = request
+                .body(Body::from(
+                    serde_json::to_vec(&initialize(1)).expect("a test JSON-RPC body serializes"),
+                ))
+                .expect("a well-formed test request builds");
+            let status = app
+                .clone()
+                .oneshot(request)
+                .await
+                .expect("a tower service's Error is Infallible")
+                .status();
+            let expected = if host.is_some() {
+                axum::http::StatusCode::OK
+            } else {
+                axum::http::StatusCode::BAD_REQUEST
+            };
+            assert_eq!(status, expected, "Host {host:?}");
+        }
     }
 
     /// The `instructions` an `initialize` result carries.
@@ -475,6 +534,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             None,
         );
@@ -525,6 +585,7 @@ mod tests {
             false,
             admission(),
             reply(),
+            settings().server().max_body(),
             testing::instructions(),
             None,
         );

@@ -67,6 +67,7 @@ pub(crate) const TASKS: &[Task] = &[
         falsifier: Falsifier {
             seeds: &[],
             in_scope: Some("over-long.txt"),
+            paired: None,
         },
         run: max_lines::run,
     },
@@ -91,6 +92,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("crates/example/src/second.rs", JSCPD_CLONE),
             ],
             in_scope: Some("crates/example/src/second.rs"),
+            paired: None,
         },
         run: jscpd::run,
     },
@@ -101,6 +103,7 @@ pub(crate) const TASKS: &[Task] = &[
         falsifier: Falsifier {
             seeds: &[],
             in_scope: Some("carriage-return.txt"),
+            paired: None,
         },
         run: line_endings::run,
     },
@@ -111,6 +114,7 @@ pub(crate) const TASKS: &[Task] = &[
         falsifier: Falsifier {
             seeds: &[],
             in_scope: Some("carriage-return.txt"),
+            paired: None,
         },
         run: text::run,
     },
@@ -140,6 +144,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("docs/crap.md", "cargo-crap 0.4.3\n"),
             ],
             in_scope: Some(".cargo-crap.toml"),
+            paired: None,
         },
         run: crap::run_check,
     },
@@ -155,6 +160,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ("devco/ignored-tests", "# No ignored tests are baselined.\n"),
             ],
             in_scope: Some("xtask/src/main.rs"),
+            paired: None,
         },
         run: ignored_tests::run,
     },

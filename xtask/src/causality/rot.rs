@@ -40,6 +40,16 @@
 //! own instance deleted the test too, which [`Located::Gone`] now catches, but the reverse (patch
 //! gone, test present) is the same silently-unproven state and this module does not reach it.
 //!
+//! **A CELL NAME TWO FILES DECLARE** - an HTTP/MCP parity pair shares one on purpose - is not rot
+//! for [`check_apply`]: the name still exists, and only [`Located::Gone`] is rot. Which file the
+//! patch means is [`run`]'s question, and the patch answers it on its own FIRST line,
+//! `Claim-Cell-File: <repo-relative path>`; `git apply` skips text ahead of its first diff header
+//! (measured on the pinned git, `--check` and the apply, with and without `diff --git`), so the
+//! line costs the patch nothing. The line is trusted as written: it names a FILE, not a module path
+//! (the scan places a file, so two modules of one file stay one cell), and nothing checks that the
+//! mutation touches anything that file's cell reads. `claim.rs`'s own arm needs no line - it takes
+//! the file from the diff that added the test.
+//!
 //! [`run`] REUSES `claim::run` WHOLESALE rather than re-deriving its git/panic-site machinery a
 //! second time: the mutation being re-checked here is the SAME shape that gate already validates
 //! and kills for a cell a commit's own trailer just declared. The only real difference is which
@@ -55,9 +65,8 @@ use std::path::{Path, PathBuf};
 use crate::Verdict;
 use crate::causality::claim::{self, Claim};
 use crate::causality::place::{self, AddedTest};
-use crate::causality::scoped::{Scoped, function_name};
+use crate::causality::scoped::{Code, Scoped};
 use crate::repo;
-use crate::serde_parse::scan::code_lines;
 
 /// Every `.patch` file committed at `dir`, sorted by name.
 ///
@@ -149,7 +158,7 @@ fn check_apply_at(root: &Path) -> Verdict {
     // A patch that applies but names no test is the same silent rot, one step earlier: the kill
     // half is on demand, so this is the only per-commit gate that sees a renamed cell.
     match locate(root, &cells) {
-        Ok(located) => rotted.extend(unlocated(&cells, &located).1),
+        Ok(located) => rotted.extend(gone(&cells, &located)),
         Err(why) => rotted.push(why),
     }
 
@@ -176,21 +185,26 @@ fn check_apply_at(root: &Path) -> Verdict {
     Verdict::Fail
 }
 
-/// Where a repo-wide scan found - or did not find - the ONE file declaring `fn <cell>`.
+/// Where a repo-wide scan found - or did not find - the file declaring `fn <cell>` that its patch means.
 #[derive(Debug)]
 enum Located {
-    /// Exactly one file declares it, placed on the module tree a nextest filter can reach.
+    /// The one file the cell means: the only file that declares it, or the one its patch's first
+    /// line names among several. Placed on the module tree a nextest filter can reach.
     One(AddedTest),
     /// No file's CODE declares a fn by this name any more - `#929`'s own shape: the cell's test
-    /// was deleted and nothing but a merge conflict noticed. A comment, a doc comment or a
-    /// multi-line string naming it does not count. Two things still do, because the scan reads the
-    /// word after `fn` on each code line and not test attributes: a non-test `fn` of the same name,
-    /// and a ONE-LINE string such as `"the fn <old name> was renamed"` - `code_lines` keeps a
-    /// single-line string's content.
+    /// was deleted and nothing but a merge conflict noticed. A comment, a doc comment or a string
+    /// naming it does not count. A non-test `fn` of the same name still does, because the scan
+    /// reads the word after `fn` on each code line and not test attributes.
     Gone,
-    /// More than one file declares a test fn by this name. Refused rather than guessed at: a
-    /// wrong guess here would ask `claim::run` to mutate and kill the WRONG file's assertion.
+    /// More than one file declares a test fn by this name and the patch does not choose. Not rot -
+    /// the name exists, so [`check_apply`] accepts it - but [`run`] refuses rather than guess, since
+    /// a wrong guess would mutate and kill the WRONG file's assertion. The remedy is the patch's
+    /// first line, `Claim-Cell-File: <repo-relative path>`, read as written: it names a file, not a
+    /// module path, and nothing checks that the mutation touches what that file's cell reads.
     Ambiguous(Vec<String>),
+    /// The patch's first line names a file that does not declare the cell. Refused for one declaring
+    /// file as for several: a line that is wrong is not a line to fall back from.
+    Misnamed { file: String, declared: Vec<String> },
 }
 
 /// Where a repo-wide scan placed every one of a committed patch set's cells.
@@ -212,8 +226,7 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
     census
         .inspect(&[], scope, |rel, bytes| {
             // CODE only: a comment still naming a renamed cell's old `fn` must not keep its patch alive.
-            for line in code_lines(&String::from_utf8_lossy(bytes)) {
-                let Some(ident) = function_name(&line) else { continue };
+            for ident in Code::of(&String::from_utf8_lossy(bytes)).functions() {
                 let Some(bucket) = found.get_mut(ident.as_str()) else {
                     continue;
                 };
@@ -226,14 +239,36 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
     Ok(found
         .into_iter()
         .map(|(cell, mut matches)| {
-            let located = match matches.len() {
-                0 => Located::Gone,
-                1 => Located::One(matches.remove(0)),
-                _ => Located::Ambiguous(matches.iter().map(|test| String::from(test.file())).collect()),
+            let files = |tests: &[AddedTest]| tests.iter().map(|test| String::from(test.file())).collect();
+            let located = if matches.is_empty() {
+                Located::Gone
+            } else if let Some(file) = named_file(root, &cell) {
+                match matches.iter().position(|test| test.file() == file) {
+                    Some(at) => Located::One(matches.swap_remove(at)),
+                    None => Located::Misnamed {
+                        file,
+                        declared: files(&matches),
+                    },
+                }
+            } else if matches.len() == 1 {
+                Located::One(matches.remove(0))
+            } else {
+                Located::Ambiguous(files(&matches))
             };
             (cell, located)
         })
         .collect())
+}
+
+/// The first line of a committed patch, naming the file whose cell it means.
+const FILE_LINE: &str = "Claim-Cell-File:";
+
+/// The file `cell`'s committed patch names on its first line, if it does. An unreadable patch names
+/// none: `claim::run` reads the same file next and refuses it there.
+fn named_file(root: &Path, cell: &str) -> Option<String> {
+    let patch = std::fs::read_to_string(claim::mutation_path(root, cell)).ok()?;
+    let line = patch.lines().next()?;
+    line.strip_prefix(FILE_LINE).map(|file| file.trim().to_owned())
 }
 
 /// The cells [`locate`] placed on exactly one file, and a refusal line for each one it could not.
@@ -246,18 +281,41 @@ fn unlocated(cells: &[String], located: &Placement) -> Split {
     for cell in cells {
         match located.get(cell) {
             Some(Located::One(test)) => tests.push(test.clone()),
-            Some(Located::Gone) => causes.push(format!(
-                "{cell}: no test fn by this name exists in the tree any more - the cell it names is gone"
-            )),
+            Some(Located::Gone) => causes.push(gone_line(cell)),
             Some(Located::Ambiguous(files)) => causes.push(format!(
                 "{cell}: declared in more than one file ({}) - refusing rather than guessing which one \
-                 the patch means",
+                 the patch means; start the patch with `{FILE_LINE} <one of them>`",
                 files.join(", ")
             )),
-            None => causes.push(format!("{cell}: not scanned - this gate's own bookkeeping lost it")),
+            Some(Located::Misnamed { file, declared }) => causes.push(format!(
+                "{cell}: the patch's first line names {file}, which does not declare it (declared in {})",
+                declared.join(", ")
+            )),
+            None => causes.push(lost_line(cell)),
         }
     }
     (tests, causes)
+}
+
+/// The refusal line for each of `cells` the apply half cannot let stand: none of them is placed, so
+/// no test by the name exists. A cell with several declaring files is not among them.
+fn gone(cells: &[String], located: &Placement) -> Vec<String> {
+    cells
+        .iter()
+        .filter_map(|cell| match located.get(cell) {
+            Some(Located::Gone) => Some(gone_line(cell)),
+            None => Some(lost_line(cell)),
+            Some(_) => None,
+        })
+        .collect()
+}
+
+fn gone_line(cell: &str) -> String {
+    format!("{cell}: no test fn by this name exists in the tree any more - the cell it names is gone")
+}
+
+fn lost_line(cell: &str) -> String {
+    format!("{cell}: not scanned - this gate's own bookkeeping lost it")
 }
 
 /// THE KILL HALF: does every committed mutation patch still kill the cell it names?
@@ -272,7 +330,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 /// [`run`]'s testable core, over an arbitrary root - up to the point the mutation actually needs
-/// compiling. The refusal paths below (a cell that is `Gone` or `Ambiguous`) are exercised
+/// compiling. The refusal paths below (a cell that is `Gone`, `Ambiguous` or `Misnamed`) are exercised
 /// without ever reaching [`claim::run`], which is the expensive call this module's header prices;
 /// `claim::run` itself is `claim.rs`'s own tested surface, not re-tested here.
 fn run_at(root: &Path) -> Verdict {
@@ -356,7 +414,7 @@ const KILL_HALF: claim::Caller = claim::Caller {
 
 #[cfg(test)]
 mod tests {
-    use super::{Located, cell_name, check_apply_at, locate, patches, run_at};
+    use super::{Located, cell_name, check_apply_at, locate, patches, run_at, unlocated};
     use crate::Verdict;
     use std::path::PathBuf;
 
@@ -566,8 +624,10 @@ mod tests {
 
     const MANIFEST: (&str, &str) = ("Cargo.toml", "[package]\nname = \"demo\"\n");
 
+    /// An HTTP/MCP parity pair shares a test name on purpose. The name still exists, so there is
+    /// no rot to report; which file the patch means is the kill half's question.
     #[test]
-    fn a_cell_two_files_declare_fails_the_apply_half() {
+    fn a_cell_two_files_declare_passes_the_apply_half() {
         let declared = "#[test]\nfn a_shared_cell_name() {}\n";
         let root = applying_tree(
             "apply-ambiguous-cell",
@@ -579,7 +639,7 @@ mod tests {
                 ("src/two.rs", declared),
             ],
         );
-        assert_eq!(check_apply_at(&root), Verdict::Fail);
+        assert_eq!(check_apply_at(&root), Verdict::Pass);
     }
 
     #[test]
@@ -756,5 +816,100 @@ mod tests {
             Some(Located::One(test)) => assert_eq!(test.file(), "src/feature.rs"),
             other => panic!("expected exactly one match, got {other:?}"),
         }
+    }
+
+    const SHARED: &str = "a_shared_cell_name";
+
+    /// A tree whose one committed patch, for [`SHARED`], starts with `head` and whose `declaring`
+    /// files each declare that cell.
+    fn shared_cell_tree(name: &str, head: &str, declaring: &[&str]) -> PathBuf {
+        let declared = "#[test]\nfn a_shared_cell_name() {}\n";
+        let mut files = vec![MANIFEST, ("src/lib.rs", "")];
+        files.extend(declaring.iter().map(|file| (*file, declared)));
+        let root = applying_tree(name, SHARED, &files);
+        write_patch(
+            &root,
+            SHARED,
+            &format!("{head}--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n"),
+        );
+        root
+    }
+
+    #[test]
+    fn a_patch_naming_a_file_selects_that_files_cell_among_two() {
+        for file in ["src/one.rs", "src/two.rs"] {
+            let root = shared_cell_tree(
+                &format!("select-{}", file.replace('/', "-")),
+                &format!("Claim-Cell-File: {file}\n"),
+                &["src/one.rs", "src/two.rs"],
+            );
+            let found = locate(&root, &[String::from(SHARED)]).expect("a readable tree");
+            match found.get(SHARED) {
+                Some(Located::One(test)) => assert_eq!(test.file(), file),
+                other => panic!("expected the file the patch names, {file}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn an_ambiguous_cell_with_no_file_line_is_refused_naming_the_line() {
+        let root = shared_cell_tree("ambiguous-no-line", "", &["src/one.rs", "src/two.rs"]);
+        let cells = [String::from(SHARED)];
+        let (tests, causes) = unlocated(&cells, &locate(&root, &cells).expect("a readable tree"));
+        assert!(tests.is_empty(), "no file was chosen, so nothing may be run");
+        assert!(
+            causes.iter().any(|cause| cause.contains("Claim-Cell-File:")),
+            "the refusal must name the line that resolves it: {causes:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_line_naming_a_file_that_does_not_declare_the_cell_is_refused() {
+        for declaring in [&["src/one.rs", "src/two.rs"][..], &["src/one.rs"][..]] {
+            let root = shared_cell_tree(
+                &format!("misnamed-{}", declaring.len()),
+                "Claim-Cell-File: src/three.rs\n",
+                declaring,
+            );
+            let cells = [String::from(SHARED)];
+            let (tests, causes) = unlocated(&cells, &locate(&root, &cells).expect("a readable tree"));
+            assert!(
+                tests.is_empty(),
+                "{declaring:?}: a file that does not declare the cell may not be run"
+            );
+            assert!(
+                causes.iter().any(|cause| cause.contains("src/three.rs")),
+                "{declaring:?}: the refusal must name the file the patch got wrong: {causes:?}"
+            );
+        }
+    }
+
+    /// The HTTP/MCP parity shape end to end: one cell name in two files, and only the one the
+    /// patch's first line names reads the line the mutation breaks.
+    #[test]
+    fn the_kill_half_runs_the_file_a_patch_names_when_two_declare_its_cell() {
+        let lib = "pub fn f() -> u8 { 2 }\n\n#[cfg(test)]\nmod one;\n#[cfg(test)]\nmod two;\n";
+        let root = kill_half_repo("kill-half-named-file", lib);
+        std::fs::write(
+            root.join("src/one.rs"),
+            "use crate::f;\n\n#[test]\nfn a_shared_cell_name() {\n    assert_eq!(f(), 2);\n}\n",
+        )
+        .expect("the file the patch names");
+        std::fs::write(
+            root.join("src/two.rs"),
+            "#[test]\nfn a_shared_cell_name() {\n    assert_eq!(2 + 2, 4);\n}\n",
+        )
+        .expect("the sibling that never reads f");
+        let patch = diff_onto_lib_rs(&root, lib, &lib.replacen("{ 2 }", "{ 9 }", 1));
+        write_patch(&root, SHARED, &format!("Claim-Cell-File: src/one.rs\n{patch}"));
+        git_cmd(&root, &["add", "-A"]);
+        git_cmd(&root, &["commit", "-q", "-m", "init"]);
+        let verdict = run_at(&root);
+        drop(std::fs::remove_dir_all(&root));
+        assert_eq!(
+            verdict,
+            Verdict::Pass,
+            "the mutation kills the named file's cell, so the run must be accepted"
+        );
     }
 }

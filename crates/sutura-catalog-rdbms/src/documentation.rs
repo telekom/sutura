@@ -3,8 +3,9 @@
 //! [`Table`]s. [`crate::postgres_reader`]'s header carries the column table this module decodes.
 //!
 //! A reader asks its driver for one row's columns, hands them over as a [`Row`] after
-//! [`Assembly::admit`] has counted the row against the declared caps, and gets a [`Dictionary`]
-//! back from [`Assembly::finish`]. What a reader still owns is its SQL, its transaction and how
+//! [`Assembly::admit`] has counted the row against the declared caps (or [`Assembly::bill`] a whole
+//! batch and [`Assembly::count_row`] each of its rows), and gets a [`Dictionary`] back from
+//! [`Assembly::finish`]. What a reader still owns is its SQL, its transaction and how
 //! it measures a row's size.
 
 use std::collections::BTreeMap;
@@ -112,12 +113,24 @@ impl<'env> Assembly<'env> {
     /// Counts one row of `size` bytes against the declared caps, refusing the row that crosses
     /// either, so the caller abandons its stream there rather than after it.
     pub(crate) fn admit(&mut self, size: u64) -> Result<(), RdbmsError> {
+        self.count_row()?;
+        self.bill(size)
+    }
+
+    /// Counts one row against the row cap, refusing the row that crosses it.
+    pub(crate) fn count_row(&mut self) -> Result<(), RdbmsError> {
         self.rows_read = self.rows_read.saturating_add(1);
         if self.rows_read > self.bounds.max_rows().get() {
             return Err(RdbmsError::Read(Box::new(CapExceeded::Rows {
                 limit: self.bounds.max_rows().get(),
             })));
         }
+        Ok(())
+    }
+
+    /// Spends `size` bytes from the byte cap, refusing what crosses it - a row, or a whole batch
+    /// for a reader whose driver hands rows over in batches.
+    pub(crate) fn bill(&mut self, size: u64) -> Result<(), RdbmsError> {
         if self.bytes_remaining < size {
             return Err(RdbmsError::Read(Box::new(CapExceeded::Bytes {
                 limit: self.bounds.max_bytes().get(),
@@ -229,13 +242,13 @@ impl TableAccumulator {
     }
 
     fn add(&mut self, column: String, metadata: ColumnMetadata, is_primary_key: bool) {
-        self.columns.push(column.clone());
         if metadata.data_type().is_some() || metadata.description().is_some() {
             self.column_metadata.insert(column.clone(), metadata);
         }
         if is_primary_key && !self.primary_key.contains(&column) {
-            self.primary_key.push(column);
+            self.primary_key.push(column.clone());
         }
+        self.columns.push(column);
     }
 
     fn into_table(self) -> Table {
@@ -245,8 +258,9 @@ impl TableAccumulator {
     }
 }
 
-/// A row cap or byte cap was met mid-stream. The stream was abandoned, so the reader holds against
-/// the declared ceiling rather than against a post-decode row count.
+/// A row cap or byte cap was crossed. A row-by-row reader abandons its cursor at the crossing row.
+/// A batch reader refuses a batch that crosses the byte cap before it decodes any row of it, and
+/// the row that crosses the row cap while it decodes one.
 #[derive(Debug, thiserror::Error)]
 enum CapExceeded {
     #[error("the dictionary stream reached the declared maximum of {limit} rows")]

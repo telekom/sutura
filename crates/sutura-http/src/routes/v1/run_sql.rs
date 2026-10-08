@@ -46,9 +46,9 @@ const TAG: &str = "run_sql";
         ),
         (
             status = 403,
-            description = "THREE THINGS, and the body shape tells the first two from the third - \
+            description = "FOUR THINGS, and the body shape tells the first from the others - \
                            `outcome: refusal` for the domain refusal, `code` with no `outcome` for \
-                           the other two.\n\n\
+                           the other three.\n\n\
                            REFUSED (`outcome: refusal`, `code: source_refused`): the data system \
                            refused the statement at the identity or authorization level.\n\n\
                            NOT ENABLED (`code: tool_not_enabled`): this DEPLOYMENT never turned \
@@ -56,7 +56,11 @@ const TAG: &str = "run_sql";
                            enabled` in this deployment's own settings, not a grant an authorization \
                            server can issue.\n\n\
                            FAILED (`code: insufficient_scope`): your credential IS valid and does \
-                           not carry `sutura:sql.run`; the detail names it.",
+                           not carry `sutura:sql.run`; the detail names it.\n\n\
+                           REFUSED BEFORE ANY CREDENTIAL IS READ (`code: host_not_allowed`, no \
+                           `outcome`): this deployment does not answer the `Host` the request names. \
+                           Nothing in your credential or your question changes it; the operator \
+                           lists the name in `server.allowed_hosts`.",
             body = RawOutcomeBody
         ),
         (

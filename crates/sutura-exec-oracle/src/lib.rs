@@ -3,7 +3,7 @@
 //! identity (`SharedServiceUser`). `github.com/telekom/sutura#127` PR 2, over PR 1's
 //! `Dialect::Oracle` rendering.
 //!
-//! **Synchronous, unlike `sutura_exec_postgres::PostgresWarehouse`.** `oracledb::Connection`'s own
+//! **Synchronous.** `oracledb::Connection`'s own
 //! methods (`execute`, `query`, `set_call_timeout`) are plain blocking `fn`s over a
 //! `std::net::TcpStream` - measured by reading `oracle/rust-oracledb`'s own source, not assumed -
 //! so this adapter owns no `tokio` runtime and calls the driver directly. `oracledb` is
@@ -34,8 +34,8 @@
 //!   directory's `ewallet.pem` when one is configured and from the bundled `webpki-roots` set when
 //!   one is not (measured by reading `oracle/rust-oracledb/src/transport.rs`) - there is no
 //!   constructor that takes an external root store or a caller-built `ClientConfig` at all. So
-//!   [`OracleWarehouse::connect_secured`] takes a wallet directory rather than the
-//!   `sutura_tls::Rotating<rustls::ClientConfig>` handle Postgres's own `connect_secured` takes, and
+//!   [`OracleWarehouse::connect_secured`] takes a wallet directory rather than a caller-built
+//!   `rustls::ClientConfig`, and
 //!   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
 //!   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
 //!   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
@@ -59,8 +59,8 @@
 //!   Oracle therefore assert what `sutura-sql` emitted and nothing a data system said back; that
 //!   is what `crates/sutura-app/tests/golden/dialects.rs`'s `Venue::ByHandOnly` arm declares. The
 //!   check there holds this path, never this prose - a header that stops arguing this stays green.
-//! - **One [`parking_lot::Mutex`] serializes every call**, the same shape
-//!   `PostgresWarehouse::execution_lock` holds and for a matching reason: `Connection`'s own methods
+//! - **One [`parking_lot::Mutex`] serializes every call**, and for good reason:
+//!   `Connection`'s own methods
 //!   take `&self`, so the port's shared reference alone does not prove the driver tolerates two
 //!   overlapping calls - and nothing here measured that it does.
 
@@ -281,7 +281,7 @@ impl OracleWarehouse {
     }
 
     /// A connection config's host/port/credential for the fixture tier - the counterpart of
-    /// `sutura_exec_postgres::PostgresWarehouse::local_config`. `service_name` is fixed at
+    /// `sutura_exec_postgres::adbc::Conninfo`. `service_name` is fixed at
     /// `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
     /// publishes - it is the image's name for itself.
     #[cfg(feature = "fixtures")]
@@ -312,7 +312,7 @@ impl OracleWarehouse {
 
     /// Refuses credential material this adapter has nowhere to put, then checks the presented leg
     /// against how this source was DECLARED - `docs/adr/0008` part 4's two questions, the same split
-    /// `PostgresWarehouse::deliverable` draws.
+    /// `sutura_exec_postgres::deliverable` draws.
     fn deliverable(&self, presented: &Presented) -> Result<(), OracleError> {
         match *presented {
             Presented::SharedServiceUser { .. } => {}
@@ -335,7 +335,7 @@ impl OracleWarehouse {
         }
     }
 
-    /// The parameters, as the driver wants them - `PostgresWarehouse::bind`'s counterpart.
+    /// The parameters, as the driver wants them.
     fn bind(params: &[ParamValue]) -> Vec<OracleParam> {
         params
             .iter()
@@ -538,7 +538,7 @@ fn oracle_date(date: sutura_domain::calendar::Date) -> oracledb::OracleTimestamp
 }
 
 /// The reverse of [`oracle_date`]: a `DATE`/`TIMESTAMP` column, back to a domain
-/// [`Value::Text`] carrying its ISO day - `PostgresWarehouse::cell`'s own `DATE` arm renders the
+/// [`Value::Text`] carrying its ISO day - the domain's Arrow reader renders a Postgres `DATE` the
 /// same way.
 fn date_cell(ts: &oracledb::OracleTimestamp) -> Result<Value, OracleError> {
     sutura_domain::calendar::Date::new(ts.year(), ts.month(), ts.day())
@@ -551,7 +551,7 @@ fn date_cell(ts: &oracledb::OracleTimestamp) -> Result<Value, OracleError> {
 
 /// Maps a decoded `NUMBER` exactly: a value whose driver-rendered base-10 text parses as an `i64`
 /// maps to [`Value::Integer`], every other value maps to exact [`Value::Text`] -
-/// `PostgresWarehouse::numeric_cell`'s own split, over `OracleNumber`'s `Display` rather than a
+/// the Postgres adapter's own `NUMERIC` split, over `OracleNumber`'s `Display` rather than a
 /// hand-rolled decoder, since the driver already carries an exact base-10 rendering.
 fn numeric_cell(value: &oracledb::OracleNumber) -> Value {
     let text = value.to_string();
@@ -597,7 +597,7 @@ fn collect_rows(
 
 /// The error from the RUN of a statement, with the one server refusal this adapter refuses to
 /// re-render as a generic `Execute`: `ORA-01476: divisor is equal to zero` is how Oracle honors
-/// `zero_denominator: fails`, the same split `PostgresWarehouse`'s own `execute_err_mapped` draws for
+/// `zero_denominator: fails`, the same split the Postgres adapter's `DivisionByZero` draws for
 /// `22012`.
 ///
 /// **Not measured against a live Oracle** - the module header's own limit; `1476` is Oracle's
@@ -704,7 +704,7 @@ impl Warehouse for OracleWarehouse {
     }
 
     /// `ORA-01031: insufficient privileges` - the server refusing an identity at the permission
-    /// level, the same class `PostgresWarehouse::source_refused` reads off `42501`.
+    /// level, the same class `sutura_exec_postgres::adbc::AdbcPostgres::source_refused` reads off `42501`.
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031))
     }

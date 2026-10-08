@@ -23,7 +23,8 @@ use crate::wire::CatalogBody;
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "catalog";
 
-/// The metrics this catalog defines, with the version and digest that identify the snapshot.
+/// The metrics this catalog defines, and its knowledge as this caller may see it, with the version
+/// and digest that identify the snapshot.
 #[utoipa::path(
     get,
     path = "/catalog",
@@ -38,10 +39,15 @@ const TAG: &str = "catalog";
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
-            description = "`code: insufficient_scope`. Your credential is valid and does not carry \
-                           the scope this operation requires; the detail names it. Not a statement \
-                           about the catalog - nothing in it is hidden from a caller who may read it \
-                           at all.",
+            description = "TWO THINGS, both `code` with no `outcome`.\n\n\
+                           FAILED (`code: insufficient_scope`): your credential is valid and does not \
+                           carry the scope this operation requires; the detail names it. Not a \
+                           statement about the catalog: a caller who may read it at all sees the \
+                           metrics and notes its own view holds.\n\n\
+                           REFUSED BEFORE ANY CREDENTIAL IS READ (`code: host_not_allowed`, no \
+                           `outcome`): this deployment does not answer the `Host` the request names. \
+                           Nothing in your credential or your question changes it; the operator \
+                           lists the name in `server.allowed_hosts`.",
             body = crate::problem::ProblemBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Links an ADBC driver archive INTO this crate, when a build supplies one.
+//! Links ADBC driver archives INTO this crate, when a build supplies them.
 //!
 //! **This exists because of the one runtime a mounted `.so` cannot serve.** A static musl
 //! artefact has no dynamic loader, so `ManagedDriver::load_dynamic_from_filename` can never
@@ -25,18 +25,29 @@
 //! architecture built from a different driver revision would link and is held by the flake lock
 //! alone.
 //!
-//! **Two drivers, one archive directory each.** `SUTURA_ADBC_ARCHIVE_DIR` names the `BigQuery`
-//! archive and `SUTURA_ADBC_POSTGRES_ARCHIVE_DIR` the PostgreSQL one; each turns on its own `cfg`
-//! and `src/linked.rs` declares each driver's own init symbol (`AdbcDriverBigqueryInit`,
-//! `AdbcDriverPostgresqlInit`), so no name is shared between the two archives -
-//! `nix/postgres-adbc.nix` says how the PostgreSQL one stopped defining the ADBC C API. The
-//! PostgreSQL directory also holds that archive's static link set (libpq and OpenSSL), linked here
-//! in dependency order with the C++ runtime after it, so the directory is the whole contract.
+//! **Three drivers, one archive directory each.** `SUTURA_ADBC_ARCHIVE_DIR` names the `BigQuery`
+//! archive, `SUTURA_ADBC_POSTGRES_ARCHIVE_DIR` the PostgreSQL one and
+//! `SUTURA_ADBC_DUCKDB_ARCHIVE_DIR` the `DuckDB` one; each turns on its own `cfg` and
+//! `src/linked.rs` declares each driver's own init symbol (`AdbcDriverBigqueryInit`,
+//! `AdbcDriverPostgresqlInit`, `duckdb_adbc_init`), so no name is shared between the archives -
+//! `nix/postgres-adbc.nix` says how the PostgreSQL one stopped defining the ADBC C API, and
+//! `nix/duckdb-adbc.nix` refuses a `DuckDB` archive that defines one. The PostgreSQL directory also
+//! holds that archive's static link set (libpq, MIT krb5's GSSAPI and OpenSSL), linked here in
+//! dependency order with the C++ runtime after it; the `DuckDB` archive is already self-contained,
+//! and each directory is the whole contract.
 
 fn main() {
-    link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
-    if link(POSTGRES_ARCHIVE_DIR, POSTGRES_ARCHIVES, "adbc_postgres_driver_linked") {
-        // The driver is C++; a static link has no shared runtime to find it in.
+    let bigquery = link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
+    if bigquery && std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos") {
+        // A darwin Go archive leaves its runtime's system imports to the final link. The DNS
+        // resolver is libresolv (`nm -u go.o`), which no other crate in the binary pulls in; the
+        // x509 roots come through CoreFoundation and Security, which the TLS stack already links.
+        println!("cargo::rustc-link-lib=resolv");
+    }
+    let postgres = link(POSTGRES_ARCHIVE_DIR, POSTGRES_ARCHIVES, "adbc_postgres_driver_linked");
+    let duckdb = link(DUCKDB_ARCHIVE_DIR, DUCKDB_ARCHIVES, "adbc_duckdb_driver_linked");
+    if postgres || duckdb {
+        // Both drivers are C++; a static link has no shared runtime to find it in.
         println!("cargo::rustc-link-lib=stdc++");
     }
 }
@@ -77,4 +88,23 @@ const ARCHIVE_NAME: &str = "adbc_driver_bigquery";
 const POSTGRES_ARCHIVE_DIR: &str = "SUTURA_ADBC_POSTGRES_ARCHIVE_DIR";
 
 /// The PostgreSQL archive, then what it needs, in the order a single-pass linker resolves them.
-const POSTGRES_ARCHIVES: &[&str] = &["adbc_driver_postgresql", "pq", "pgcommon", "pgport", "ssl", "crypto"];
+const POSTGRES_ARCHIVES: &[&str] = &[
+    "adbc_driver_postgresql",
+    "pq",
+    "pgcommon",
+    "pgport",
+    "gssapi_krb5",
+    "krb5",
+    "k5crypto",
+    "com_err",
+    "krb5support",
+    "ssl",
+    "crypto",
+];
+
+/// The directory holding the `DuckDB` archive (`nix/duckdb-adbc.nix`).
+const DUCKDB_ARCHIVE_DIR: &str = "SUTURA_ADBC_DUCKDB_ARCHIVE_DIR";
+
+/// The `DuckDB` engine, which is its own ADBC driver, merged with everything it links into one
+/// archive.
+const DUCKDB_ARCHIVES: &[&str] = &["duckdb_adbc"];

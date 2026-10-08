@@ -69,6 +69,9 @@ mod clickhouse;
 /// The same, for the Oracle listener this root opens.
 mod oracle;
 
+/// The same, for the `DuckDB` file this root opens read-only.
+mod duckdb;
+
 /// The FILES half: the in-process engine over declared directories, and what it attached.
 ///
 /// **Its own file for the reason `bigquery`'s and `postgres`' are** - `cargo xtask max-lines` fails
@@ -186,10 +189,10 @@ pub(crate) fn run() -> Result<(), String> {
     // of the bundle (`outbound::resolve` resolved it once, above).
     let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = crate::catalog::load(&catalogs)?;
-    // Cloned here, before `settings` moves into the state below: `refresh::drive` needs to read
-    // every entry's own `refresh_seconds` from inside `serve_until_stopped`, where a runtime is
-    // already running - `#975`.
-    let declared_catalogs = settings.catalogs().clone();
+    // Read here, before `settings` moves into the state below: all `refresh::drive` needs of the
+    // declared catalogs is their shortest `refresh_seconds`, and it runs from inside
+    // `serve_until_stopped`, where a runtime is already running - `#975`.
+    let refresh_every = refresh::shortest_declared_interval(settings.catalogs());
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
     // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
@@ -269,10 +272,11 @@ pub(crate) fn run() -> Result<(), String> {
             // and the broker itself is deleted, but the ADBC driver DOES take a subject's own
             // bearer now - `crate::adbc::identity::authenticate` federates it against the declared
             // pool. This attaches `DeclaredPrincipalBroker`: the declared subject-to-account map,
-            // presenting each subject's OWN verified assertion rather than a principal to become.
+            // presenting each subject's OWN verified assertion - or, for a source declaring a
+            // delegation, the token that assertion is exchanged for - rather than a principal to become.
             // `crate::serve::broker` carries what that does not cover, and refuses at boot every
             // declaration this build cannot honour.
-            let broker = broker::build_broker(settings.sources())?;
+            let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
             (started(&catalogs, engines, broker, &settings)?, None)
         }
         #[cfg(feature = "postgres")]
@@ -296,6 +300,12 @@ pub(crate) fn run() -> Result<(), String> {
             // port's default `preflight`, so there is nothing for the table check to read.
             (shared_identity_service(&catalogs, engines, &settings)?, None)
         }
+        #[cfg(feature = "duckdb")]
+        OpenedSources::Duckdb(engines) => {
+            // No pre-flight, for the `Postgres` arm's reason: `DuckDbWarehouse` takes the port's
+            // default `preflight`. The file's tables are checked by the first anchor or question.
+            (shared_identity_service(&catalogs, engines, &settings)?, None)
+        }
         OpenedSources::Mixed(mixed) => {
             // One registry, so one pre-flight - generic in the adapter, so it runs the same way
             // over whichever kinds this mix opened. A `files` entry answers `NotReported` here for
@@ -309,7 +319,12 @@ pub(crate) fn run() -> Result<(), String> {
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
             #[cfg(feature = "bigquery")]
-            let served = started(&catalogs, mixed.engines, broker::build_broker(settings.sources())?, &settings)?;
+            let served = started(
+                &catalogs,
+                mixed.engines,
+                broker::build_broker(settings.sources(), outbound.as_ref())?,
+                &settings,
+            )?;
             // No `BigQuery` adapter linked, so no adapter in this build declares
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
@@ -404,7 +419,7 @@ pub(crate) fn run() -> Result<(), String> {
         stopping.clone(),
         catalogs,
         pinned,
-        declared_catalogs,
+        refresh_every,
     ));
     stop(runtime, &stopping);
     served
@@ -421,9 +436,9 @@ pub(crate) fn run() -> Result<(), String> {
 /// rather than of this comment.
 ///
 /// `None` is the deployment having left the surface off: a build carrying the `agent` feature is
-/// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
-/// attached, so "the agent surface is only served where a caller can be verified" cannot be
-/// un-paired by a later edit.
+/// still off by default. Where `/mcp` may run without leg 1 is `Settings::agent_surface_refusals`,
+/// asked by `Settings::load` for the switch and by `sutura_http::router` again for the mount, so a
+/// later edit that attaches a mount without the switch is refused by the same rule.
 #[cfg(feature = "agent")]
 fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, String> {
     if !state.settings().server().agent_surface_enabled() {
@@ -510,7 +525,7 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 
 /// Spawns the signal listener and serves until it fires.
 ///
-/// `catalogs`/`pinned`/`declared_catalogs` are here rather than read from `serve.rs`'s own boot
+/// `catalogs`/`pinned`/`refresh_every` are here rather than read from `serve.rs`'s own boot
 /// section for `#975`'s reason: `refresh::drive` starts a `tokio::spawn` poll, which needs the
 /// runtime `run` has not yet built at that point in the sync boot code - this function is the
 /// first place one is running.
@@ -522,9 +537,9 @@ async fn serve_until_stopped(
     stopping: Shutdown,
     catalogs: crate::catalog::OpenedCatalogs,
     pinned: PinnedDefinitions,
-    declared_catalogs: sutura_config::Catalogs,
+    refresh_every: Option<std::time::Duration>,
 ) -> Result<(), String> {
-    refresh::drive(&catalogs, &pinned, &declared_catalogs);
+    refresh::drive(catalogs, pinned, refresh_every);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.
@@ -629,6 +644,9 @@ pub(crate) enum OpenedSources {
     /// listener redirects (see `crate::oracle`). Nothing is attached.
     #[cfg(feature = "oracle")]
     Oracle(sutura_app::Warehouses<OracleSource>),
+    /// A local `DuckDB` database file per source, opened read-only. Nothing is attached.
+    #[cfg(feature = "duckdb")]
+    Duckdb(sutura_app::Warehouses<DuckdbSource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
@@ -650,13 +668,14 @@ pub(crate) use crate::clickhouse::ClickHouseSource;
 #[cfg(feature = "oracle")]
 pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 
-/// A `Postgres` source as this binary composes it: one connection under the deployment's declared
-/// identity, secured as the source declares.
-///
-/// Named once for the reason `BigQuerySource` is: it appears in a registry type, a `Warehouse`
-/// bound and a constructor's return, and the three layers ARE the composition.
+/// A `DuckDB` source as this binary composes it, named for `OracleSource`'s reason.
+#[cfg(feature = "duckdb")]
+pub(crate) type DuckdbSource = sutura_exec_duckdb::DuckDbWarehouse;
+
+/// A `Postgres` source as this binary composes it - `crate::postgres`'s, named here for this
+/// root's registry types.
 #[cfg(feature = "postgres")]
-pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
+pub(crate) type PostgresSource = crate::postgres::PostgresSource;
 
 /// A `BigQuery` source as this binary composes it: the adapter, over the ADBC driver.
 ///
@@ -707,7 +726,7 @@ where
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
 ///
 /// **One function rather than the same four lines in five arms**, and the argument is one sentence
-/// for all of them: `DataFusionWarehouse`, `PostgresWarehouse`, `ClickHouseWarehouse` and
+/// for all of them: `DataFusionWarehouse`, `AdbcPostgres`, `ClickHouseWarehouse` and
 /// `OracleWarehouse` each declare `ImpersonationCapability::NoPlaceForASubject`, each composition
 /// root refuses an `impersonation-at-source` entry at the posture cross-check before opening one,
 /// and so the only identity a question is answered under is the one this process holds.
@@ -787,16 +806,20 @@ fn open_engine(
         grouped.postgres.is_empty(),
         grouped.clickhouse.is_empty(),
         grouped.oracle.is_empty(),
+        grouped.duckdb.is_empty(),
     ) {
-        (false, true, true, true, true) => files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
-        (true, false, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
-        (true, true, false, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (false, true, true, true, true, true) => {
+            files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files)
+        }
+        (true, false, true, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
+        (true, true, false, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
+        (true, true, true, true, false, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, true, false) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        (true, true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
 }

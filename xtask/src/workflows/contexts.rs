@@ -317,7 +317,7 @@ fn jobs_in(file: &str, text: &str, in_a_root: bool) -> Vec<Job> {
             let expanded = name.as_ref().is_some_and(|n| n.contains("${{"));
             Job {
                 declared_as: format!("{file}:{id}"),
-                context: name.unwrap_or_else(|| id.clone()),
+                context: name.unwrap_or(id),
                 reports_its_context: in_a_root && !matrix && !expanded,
             }
         })
@@ -365,7 +365,7 @@ const JOB_INDENT: usize = 2;
 /// Comments are skipped, and a line deeper than the block's own keys is not one - so a `run: |`
 /// body cannot contribute a key, which is the failure `crate::workflows::declared_block` records
 /// about counting braces over raw text.
-fn block_keys(text: &str, opener: &str) -> Vec<String> {
+pub(crate) fn block_keys(text: &str, opener: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut inside = false;
     for raw in text.lines() {

@@ -151,8 +151,9 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
-# The PAGES, run: `documented.rs` runs every invocation `docs/getting-started.md` and the example
-# README print and holds their refusal and provenance output. It exists because both pages drifted.
+# The PAGES, run: `documented.rs` runs every invocation `docs/getting-started.md` and
+# `docs/examples/single-player.md` print and holds their refusal and provenance output. It exists
+# because both pages drifted.
 
 # Run the suite that runs every command the documentation prints.
 documented:
@@ -240,8 +241,10 @@ ci:
     # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
-    # adbc-driver-postgresql is in it for the same reason, over the four C++ driver builds.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql; do
+    # adbc-driver-postgresql and adbc-driver-duckdb are in it for the same reason, over their C++ builds.
+    # postgres-linked-driver runs the adapter's tier cells through the LINKED static musl driver; only
+    # an x86_64-linux host executes it, and anywhere else the check is a stub that says so.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb postgres-linked-driver; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -328,15 +331,36 @@ bigquery-declared-principal *args:
 bigquery-driver-check:
     bash nix/bigquery-driver-check.sh
 
-# Run the hosted DataHub/ADBC BigQuery cell after starting its DataHub and Keycloak tiers.
+# Run the hosted DataHub/ADBC BigQuery cell after starting its DataHub and Keycloak tiers, and the
+# two `delegation_adbc` cells, which need only the driver.
 # CI starts both tiers through the matching Nix app; this local recipe keeps the selector explicit.
 e2e-datahub-adbc *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "e2e-datahub-adbc: scope sutura-cli - one served DataHub, Keycloak and BigQuery cell."
+    echo "e2e-datahub-adbc: scope sutura-cli - the served DataHub, Keycloak and BigQuery cell, and the two spawned delegation cells."
     echo "e2e-datahub-adbc: this is NOT a gate. Run \`just test\` for the workspace suite."
     cargo nextest run -p sutura-cli --all-features --run-ignored only \
-      -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' {{ args }}
+      -E 'test(served_datahub_metric_executes_through_adbc_bigquery) | test(/^delegation_adbc::/)' {{ args }}
+
+# Load the example corpus and the two-fact tables into the dataset `SUTURA_BQ_DATASET` names, ONCE, before
+# `just bigquery-conformance`; the `bigquery-conformance` CI job runs both through their Nix apps.
+bigquery-provision *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "bigquery-provision: scope sutura-app - one cell that loads the example corpus and the two-fact tables into SUTURA_BQ_DATASET."
+    echo "bigquery-provision: this is NOT a gate. Run \`just test\` for the workspace suite."
+    cargo nextest run -p sutura-app --all-features --run-ignored only \
+      -E 'test(=data_systems::the_bigquery_dataset_holds_the_example_corpus)' {{ args }}
+
+# Run every `bigquery` cell of the golden matrix, and the two-fact differential, against the dataset
+# `just bigquery-provision` loaded.
+bigquery-conformance *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${SUTURA_BQ_DATASET:?environment variable SUTURA_BQ_DATASET must be set}"
+    echo "bigquery-conformance: scope sutura-app - the golden matrix's bigquery cells and the two-fact differential, against SUTURA_BQ_DATASET."
+    echo "bigquery-conformance: this is NOT a gate. Run \`just test\` for the workspace suite."
+    cargo nextest run -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/) | test(/leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused/)' {{ args }}
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
@@ -418,8 +442,21 @@ check-claim-mutation-kills:
 # `github.com/telekom/sutura#685` step 2 folded the second binary #111 added back into it - the
 # HTTP surface is `sutura serve` now, not a second executable to build separately.
 # The release binary: the command-line tool, and the server as its `serve` subcommand.
-build:
+build-release:
     nix build .#sutura
+
+# `[profile.fast-install]`, every shipped feature, no optimisation: compiles fast, never a release.
+# The local fast binary, through nix like `build-release`.
+build-dev:
+    nix build .#sutura-dev
+
+# Put the release binary on the PATH of the current nix profile.
+install-release:
+    nix profile install .#sutura
+
+# Put the fast local binary on the PATH of the current nix profile.
+install-dev:
+    nix profile install .#sutura-dev
 
 # The release image: one binary, no shell, no package manager.
 image:
@@ -815,16 +852,18 @@ dev-up-demo:
 # write. THE LIMIT ON THAT REPAIR: nothing compares the two writers' shapes, so they agree by review
 # and a THIRD writer would be held by neither. It brings the profile up first, because asking for
 # the fail-closed direction against a tier nobody started is a confusing way to spell an error.
+# CI runs the same cells through `nix run .#datahub-acceptance`; keep the two aligned - nothing
+# checks it.
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 datahub-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two live cells plus an"
-    echo "datahub-acceptance: enforcement cell: the instance is reachable, a document written under a"
-    echo "datahub-acceptance: property THE DEPLOYMENT names comes back and decodes into a certified"
-    echo "datahub-acceptance: metric, and a bearer-LESS read is refused (auth is ON). These cells do"
-    echo "datahub-acceptance: not drive src/http.rs's HttpAspectReader, so this is NOT its read path -"
-    echo "datahub-acceptance: the requests and the mapping onto the adapter's shape are in the test."
+    echo "datahub-acceptance: scope sutura-catalog-datahub - the live DataHub tier: a document written"
+    echo "datahub-acceptance: under a property THE DEPLOYMENT names comes back and decodes into a certified"
+    echo "datahub-acceptance: metric, a dataset page and a relationship page preserve their wire shapes,"
+    echo "datahub-acceptance: and a bearer-LESS read is refused (auth is ON). The golden cell provisions"
+    echo "datahub-acceptance: examples/single-player/catalog and reads it back through src/http.rs's"
+    echo "datahub-acceptance: HttpAspectReader (hence --features http); the other cells map the response in the test."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     # The tier self-mints its own PAT (headless GMS exposes no /auth/* surface) and the cells present
@@ -834,7 +873,7 @@ datahub-acceptance:
     cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
     SUTURA_DEV_REQUIRE_TIER=1 \
     SUTURA_DATAHUB_PAT="$(cat "$DATAHUB_TOKEN_FILE")" \
-    cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
+    cargo test -p sutura-catalog-datahub --features http --test provisioned -- --ignored --nocapture
 
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:

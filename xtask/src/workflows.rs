@@ -51,7 +51,7 @@ pub(crate) mod step;
 // Which jobs GATE a merge, and which only look as though they do. Its own file for the reason
 // `shipped::refusal` is: this one is against the unexemptable 1000-line cap. It reads a different
 // authority - `devco/required-contexts`, a record of an API answer - and its fixtures come with it.
-mod contexts;
+pub(crate) mod contexts;
 
 // WHICH FILES ORDINARY CI ACTUALLY RUNS. One walk of the local `uses:` call graph, read by both
 // halves of this gate: the release-output refusal below, which used to read one file name while a
@@ -214,7 +214,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
     let release_builds = reach::release_outputs(&root, ordinary.closure());
     if !release_builds.is_empty() {
-        eprintln!("xtask check-workflows: ordinary CI builds release outputs");
+        eprintln!("xtask check-workflows: ordinary CI builds release outputs, or cachix-push.yml left CACHE_ONLY");
         for found in &release_builds {
             eprintln!("  {found}");
         }
@@ -275,11 +275,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, no release output in the {} file(s) ordinary CI runs or in cachix-push.yml (read directly): {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, {} of them to their exact condition, no release output in the {} file(s) ordinary CI runs or in cachix-push.yml (read directly): {}",
             references.len(),
             obligations::held(),
             obligations::release_skip_held(),
             aggregate_inputs::held(),
+            aggregate_inputs::pinned(),
             walked.len(),
             walked.join(", ")
         );

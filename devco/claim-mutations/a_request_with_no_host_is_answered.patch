@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/host.rs b/crates/sutura-http/src/host.rs
+index 4f494ccd7..226b67a59 100644
+--- a/crates/sutura-http/src/host.rs
++++ b/crates/sutura-http/src/host.rs
+@@ -66,7 +66,7 @@ impl HostAllowlist {
+             },
+             None => match request.uri().authority() {
+                 Some(authority) => authority.clone(),
+-                None => return true,
++                None => return false,
+             },
+         };
+         let host = authority.host();

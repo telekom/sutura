@@ -61,6 +61,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     ANSWER,
     label("at_capacity"),
     BUDGET_EXHAUSTED,
+    label("host_not_allowed"),
     label("identity_unavailable"),
     label("insufficient_scope"),
     label("internal"),
@@ -323,6 +324,7 @@ mod tests {
             Failure::ToolNotEnabled {
                 capability: "sutura:sql.run",
             },
+            Failure::HostNotAllowed,
             Failure::NotAQuestion {
                 detail: Detail::of(&std::io::Error::other("a bad body")),
             },
@@ -341,6 +343,7 @@ mod tests {
                 Failure::Unauthorized
                 | Failure::InsufficientScope { .. }
                 | Failure::ToolNotEnabled { .. }
+                | Failure::HostNotAllowed
                 | Failure::NotAQuestion { .. }
                 | Failure::TooLarge
                 | Failure::RateLimited

@@ -1,9 +1,9 @@
 //! Whether a hook COULD have inspected the diff on this host, derived from the shell that decides.
 //!
-//! **The finding this exists for: nine of the seventeen declared hooks print `Passed` after deciding
+//! **The finding this exists for: seven of the thirteen declared hooks print `Passed` after deciding
 //! not to run.** `shellcheck` and `zizmor` are
 //! `command -v nix >/dev/null 2>&1 && exec ... || echo "... skipped ..."`; `betterleaks` is the same
-//! on its own tool; `rust-tests`, `rust-crap`, `jscpd`, `chart`, `secret-sweep` and `cargo-deny`
+//! on its own tool; `jscpd`, `chart`, `secret-sweep` and `cargo-deny`
 //! route through `nix/run-gate.sh`, whose tier 3 prints `run-gate: SKIPPED ...` and falls off the end of
 //! the `case` with status 0. Measured with the `shellcheck` entry verbatim and `nix` off `PATH`: the
 //! notice printed, exit status 0. prek reads that as `Passed`, [`super::Coverage::Ran`] read that as
@@ -11,7 +11,7 @@
 //! while three of the four announced their own skip - on a configuration
 //! `.pre-commit-config.yaml` argues for at length for a MISSING TOOL, *"a hook that cannot run
 //! must not be a wall"*. It no longer argues it for a missing toolchain: `nix/run-gate.sh` refuses
-//! a host with neither the dev shell's tools nor nix, so the nine are nine only where the
+//! a host with neither the dev shell's tools nor nix, so the seven are seven only where the
 //! abstention is a tool's. This paragraph is prose in `.rs` and `check-guidance`'s scope stops at
 //! the file extension, so it is held by review - the registered half is in
 //! `xtask/src/guidance/claims/contradicted.rs`.
@@ -352,16 +352,17 @@ mod tests {
         let declared = crate::hooks::hooks(&text);
         let read = super::over(&root, &declared).expect("the run-gate script");
         assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
-        // NINE of the seventeen: the eight the report measured by hand, plus `chart` - #149's
-        // local half, which reaches the chart gate the same tiered way. (The retired `fmt-parity`
-        // hook was once another, and `run-gate.sh` still carries its arm for `just` to reach.)
+        // SEVEN of the thirteen: the six the report measured by hand once the suite, the CRAP
+        // score and the fuzz replay left the commit stage, plus `chart` - #149's local half, which
+        // reaches the chart gate the same tiered way. (The retired `fmt-parity` hook was once
+        // another, and `run-gate.sh` still carries its arm for `just` to reach.)
         // THESE TWO ASSERTIONS are what make the counts above a measurement rather than a memory,
-        // and it takes both: review found that pinning only the nine left the SEVENTEEN unheld, so
-        // an eighteenth hook that does not self-skip kept this cell green while every header saying
-        // `nine of the seventeen` turned false. A hook that joins or leaves the tiering, and a hook
+        // and it takes both: review found that pinning only the seven left the THIRTEEN unheld, so
+        // a fourteenth hook that does not self-skip kept this cell green while every header saying
+        // `seven of the thirteen` turned false. A hook that joins or leaves the tiering, and a hook
         // that merely joins the config, both have to come here now.
-        assert_eq!(read.deciding, 9, "{} hook(s) decide", read.deciding);
-        assert_eq!(declared.len(), 17, "{} hook(s) declared", declared.len());
+        assert_eq!(read.deciding, 7, "{} hook(s) decide", read.deciding);
+        assert_eq!(declared.len(), 13, "{} hook(s) declared", declared.len());
         // And the tools come out per hook, so a tier silently losing its nix fallback is visible.
         let script = std::fs::read_to_string(root.join(super::RUN_GATE)).expect(super::RUN_GATE);
         let tools = |id: &str| -> Vec<super::Group> {
@@ -373,17 +374,6 @@ mod tests {
         assert_eq!(tools("chart"), vec![vec![String::from("nix")]]);
         assert_eq!(tools("betterleaks"), vec![vec![String::from("betterleaks")]]);
         assert_eq!(tools("jscpd"), vec![vec![String::from("jscpd")], vec![String::from("nix")]]);
-        assert_eq!(
-            tools("rust-tests"),
-            vec![vec![String::from("cargo-nextest")], vec![String::from("nix")]]
-        );
-        assert_eq!(
-            tools("rust-crap"),
-            vec![
-                vec![String::from("cargo-llvm-cov"), String::from("cargo-crap")],
-                vec![String::from("nix")],
-            ]
-        );
         // A hook that only sources the dev environment decides nothing, so its `Passed` is
         // still read as coverage - which is what keeps this from failing a correct tree.
         assert!(

@@ -38,6 +38,7 @@ fn shared(written: &str) -> RawSourceEntry<'_> {
         port: None,
         database: None,
         service_name: None,
+        database_file: None,
         user: None,
         password_file: None,
         transport_mode: None,
@@ -56,6 +57,7 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         impersonate: std::collections::BTreeMap::new(),
         expected_issuer: None,
         expected_audience: None,
+        delegation: None,
     }
 }
 
@@ -77,6 +79,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         port: None,
         database: None,
         service_name: None,
+        database_file: None,
         user: None,
         password_file: None,
         transport_mode: None,

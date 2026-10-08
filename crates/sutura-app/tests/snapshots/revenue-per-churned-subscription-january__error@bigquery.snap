@@ -1,0 +1,7 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: "error_golden(W::NAME, chain(error))"
+---
+the data system did not answer
+  caused by: the data system did not answer
+  caused by: ADBC call failed: [the driver's own message, which links this run's job]

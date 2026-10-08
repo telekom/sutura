@@ -405,7 +405,7 @@ fn open_one_rdbms_catalog(
         }
         sutura_config::CatalogConnection::Oracle(connection) => {
             let password = crate::password_file::read_key(
-                &format!("catalogs.{}.connection", settings.name()),
+                &format!("catalogs.{}.connection.password_file", settings.name()),
                 connection.password_file(),
             )?;
             let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
@@ -453,64 +453,71 @@ fn postgres_dictionary_reader(
     predicate: sutura_catalog_rdbms::postgres_reader::RowPredicate,
     rdbms: &sutura_config::RdbmsSettings,
 ) -> Result<sutura_catalog_rdbms::postgres_reader::PostgresReader, String> {
+    use sutura_adbc_postgres::{Channel, ConnectionTarget, Conninfo, PostgresDriver, UnusableChannel};
     use sutura_catalog_rdbms::postgres_reader::PostgresReader;
-    use sutura_exec_postgres::connection::{ConnectionTarget, config as pg_config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+    use sutura_config::sources::placement::PostgresDial;
+    use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
 
-    let (target, port) = match connection.dial() {
-        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
-        sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (ConnectionTarget::UnixSocket(directory.as_path()), *port)
-        }
+    let name = settings.name();
+    let (target, port) = match *connection.dial() {
+        PostgresDial::Tcp { ref host, port } => (ConnectionTarget::Host(host.as_str()), port),
+        PostgresDial::UnixSocket { ref directory, port } => (ConnectionTarget::UnixSocket(directory.as_path()), port),
     };
-    let config = pg_config(
+    let password = crate::password_file::read_key(
+        &format!("catalogs.{name}.connection.password_file"),
+        connection.password_file(),
+    )?;
+    // The shape `crate::postgres::build` resolves a `sources:` entry's channel in: the transport
+    // layer has already refused plaintext to a remote host.
+    let anchors = |declared: &TrustAnchors| match *declared {
+        TrustAnchors::System => sutura_tls::Anchors::System,
+        TrustAnchors::File(ref path) => sutura_tls::Anchors::Bundle(path.clone()),
+    };
+    let (declared, pair) = match *connection.transport() {
+        SourceTransport::Plaintext => (None, None),
+        SourceTransport::Verified { anchors: ref declared } => (Some(anchors(declared)), None),
+        SourceTransport::Mutual {
+            anchors: ref declared,
+            ref identity,
+        } => (
+            Some(anchors(declared)),
+            Some(sutura_tls::Identity::new(
+                identity.certificate().clone(),
+                identity.key().clone(),
+            )),
+        ),
+    };
+    let channel = match (declared.as_ref(), pair.as_ref()) {
+        (None, _) => Channel::Plaintext,
+        (Some(anchors), None) => Channel::Verified(anchors),
+        (Some(anchors), Some(pair)) => Channel::Mutual(anchors, pair),
+    };
+    // The connector's refusal names `sources.<name>`, its own key space; the catalog's key leads.
+    let conninfo = Conninfo::new(
+        name,
         target,
         port,
         connection.database(),
         connection.user(),
-        connection.password_file(),
+        &password,
+        channel,
     )
-    .map_err(|cause| {
-        format!(
-            "`catalogs.{}.connection.password_file` could not be read: {cause}",
-            settings.name()
-        )
+    .map_err(|cause| match cause {
+        UnusableChannel::Material { cause, .. } => format!(
+            "`catalogs.{name}.connection` is declared TLS and its material is not usable: {}",
+            crate::commands::render(&cause)
+        ),
+        other => format!(
+            "`catalogs.{name}.connection` cannot be dialled as declared: {}",
+            crate::commands::render(&other)
+        ),
     })?;
-
-    // Resolve the declared transport into a `rustls::ClientConfig` (`verified`/`mutual`) or `None`
-    // for `plaintext`. The transport layer has already refused plaintext to a remote host.
-    let tls = match connection.transport() {
-        sutura_config::sources::transport::SourceTransport::Plaintext => None,
-        sutura_config::sources::transport::SourceTransport::Verified { anchors } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            Some(client_config(&anchors, None).map_err(|cause| {
-                format!(
-                    "`catalogs.{}.connection` is declared TLS and its material is not usable: {cause}",
-                    settings.name()
-                )
-            })?)
-        }
-        sutura_config::sources::transport::SourceTransport::Mutual { anchors, identity } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            let tls_identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
-            Some(client_config(&anchors, Some(&tls_identity)).map_err(|cause| {
-                format!(
-                    "`catalogs.{}.connection` is declared mTLS and its material is not usable: {cause}",
-                    settings.name()
-                )
-            })?)
-        }
-    };
+    let driver = PostgresDriver::from_host()
+        .map_err(|none| format!("`catalogs.{name}` has no driver to open: {}", crate::commands::render(&none)))?;
 
     PostgresReader::new(
-        config,
-        tls,
+        driver,
+        conninfo,
         documentation_schema,
         environment,
         predicate,
@@ -793,6 +800,35 @@ mod tests {
         assert!(
             message.contains("relationships"),
             "the flattened message should name the undersupplied kind: {message}"
+        );
+    }
+
+    /// A tree's own `kind: declaration` document is held to its content at composition, so a
+    /// hand-written one cannot over-claim (`github.com/telekom/sutura#1278`).
+    #[test]
+    fn a_declaration_document_that_over_claims_does_not_compose() {
+        let root = scratch("over-claims");
+        std::fs::write(
+            root.join("model.md"),
+            "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents]\n---\n\
+             Orders, one row per order.\n",
+        )
+        .expect("a document is writable");
+        std::fs::write(
+            root.join("declaration.md"),
+            "---\nkind: declaration\ndefinitions: [structure, descriptions, relationships]\nknowledge: []\n---\n",
+        )
+        .expect("a document is writable");
+        let catalog = LocalCatalog::new(
+            SourceName::parse("test").expect("a test name is a name"),
+            root.clone(),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        );
+        let message = load_each(&[catalog]).expect_err("a tree declaring relationships it lacks does not compose");
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            message.contains("declares relationships, and the bundle carries none"),
+            "the refusal should name the over-claimed kind: {message}"
         );
     }
 }

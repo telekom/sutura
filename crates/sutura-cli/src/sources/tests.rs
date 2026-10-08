@@ -14,8 +14,8 @@ use sutura_domain::model::{MetricName, TableName};
 use sutura_exec_datafusion::DataFusionWarehouse;
 
 use super::{
-    BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, declaring_bigquery, open_engine, overlay_remedy,
-    runtime, timeout, unservable,
+    BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, declaring_bigquery, defaults, open_engine,
+    overlay_remedy, runtime, timeout, unservable,
 };
 
 /// The files registry `open_engine` produced, or a failure saying which arm it took instead.
@@ -33,6 +33,8 @@ fn files_of(opened: Opened) -> OpenedWith<DataFusionWarehouse> {
         Opened::ClickHouse(_) => None,
         #[cfg(feature = "oracle")]
         Opened::Oracle(_) => None,
+        #[cfg(feature = "duckdb")]
+        Opened::Duckdb(_) => None,
     }
     .expect("this fixture declares a files source")
 }
@@ -140,7 +142,7 @@ fn the_built_in_declaration_still_opens_the_documented_example() {
     // The other half: a gate is worth nothing if it also refuses the catalog the quickstart tells
     // a reader to run, with no configuration at all. This is the path
     // `crates/sutura-cli/tests/example.rs` and `docs/getting-started.md` both take.
-    let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
+    let pinned = crate::commands::load(&example().join("catalog"), &defaults()).expect("the example catalog loads");
     let opened = files_of(
         open_engine(
             &pinned,
@@ -194,7 +196,7 @@ fn a_question_is_answered_through_a_declared_source_under_the_witness_that_entry
     // `source: local`, so declaring `sources.local` sends it through the registry arm with real
     // CSVs behind it. A fixture bundle cannot answer - `bundle_naming` names a `signed_at` column
     // `dim_customer.csv` does not have, which review also measured.
-    let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
+    let pinned = crate::commands::load(&example().join("catalog"), &defaults()).expect("the example catalog loads");
     let opened = files_of(
         open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), runtime(), timeout(), None, None)
             .expect("the example catalog opens through a declared files source"),

@@ -1,0 +1,8 @@
+# Generated on this machine by setup.sh, the loader and infra/. Never commit them.
+.env
+.local/
+conf/development.yaml
+infra/Pulumi.*.yaml
+!infra/Pulumi.example.yaml
+dbt/logs/
+dbt/target/

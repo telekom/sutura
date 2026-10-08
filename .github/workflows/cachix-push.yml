@@ -159,7 +159,8 @@ jobs:
       # here only when those move; every other push substitutes it and publishes nothing new.
       # `checks.adbc-driver-postgresql` is the same case for the second self-built driver (#1028):
       # its four triples are keyed on the `arrow-adbc-src` input and `nix/`, and `ci` built them
-      # from source on every run while they were unpublished.
+      # from source on every run while they were unpublished. `checks.adbc-driver-duckdb` is the
+      # third: four cross-built nixpkgs DuckDBs, keyed on the nixpkgs input and `nix/`.
       - name: Realise and publish the dependency and tool closures
         run: |
           set -eu
@@ -171,7 +172,8 @@ jobs:
             .#checks.x86_64-linux.postgres-tier \
             .#checks.x86_64-linux.clickhouse-tier \
             .#checks.x86_64-linux.adbc-driver-bigquery \
-            .#checks.x86_64-linux.adbc-driver-postgresql
+            .#checks.x86_64-linux.adbc-driver-postgresql \
+            .#checks.x86_64-linux.adbc-driver-duckdb
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
@@ -315,10 +317,23 @@ jobs:
   # restore here, so `nix build` either substitutes a closure `sutura` already holds - nothing to
   # push, nothing lost - or builds one it does not, and the daemon publishes it.
   #
-  # WHAT IT COSTS: a substitution of the three closures on every push to `main` even when nothing
-  # moved, and space in the shared `sutura` bucket - about 0.4 GB per closure, going by the one
-  # `-ci` musl closure `sutura-cross-build` already holds, which is the number to watch against
-  # its 5 GB.
+  # WHAT IT COSTS: a substitution of the three dependency closures on every push to `main` even
+  # when nothing moved, and space in the shared `sutura` bucket - about 0.4 GB per closure, going
+  # by the one `-ci` musl closure `sutura-cross-build` already holds, which is the number to watch
+  # against its 5 GB. The four driver chains below add paths to the same bucket; their size, and
+  # whether a re-publish evicts other paths, are not measured.
+  #
+  # THE X86_64 ADBC DRIVERS ARE NAMED HERE AND NOT ONLY CONSUMED. `bigquery-driver-check`,
+  # `postgres-linked-driver` (a job of `ci.yml`) and `demo-container` link them; the `push` job
+  # above reaches them only through `checks.adbc-driver-*`, which are small `runCommand` outputs.
+  # Once a check output sits in the cache, nix substitutes it and never realises the drivers under
+  # it, so a driver path the store dropped is never rebuilt and never republished: on 2026-10-07
+  # the musl OpenSSL, libpq and krb5 and the drivers answered 404, and each of the three jobs
+  # rebuilt that chain (Go, OpenSSL, libpq, krb5, DuckDB) in about 15 to 20 minutes. Naming the
+  # driver packages makes the build ask for the driver path itself. THE LIST MUST STAY IN STEP with
+  # `adbcArchiveFor` in `nix/shipped.nix` (which triple links which driver) and with `CACHE_ONLY` in
+  # `xtask/src/workflows/reach/cache_publish.rs`, which refuses a literal package build in this
+  # file that it does not name for this job, and a name it lists that this job does not build.
   downstream-deps:
     name: push the downstream dependency closures
     runs-on: rust-mcp-16core
@@ -344,7 +359,12 @@ jobs:
       - name: Realise and publish the downstream dependency closures
         run: |
           set -eu
-          nix build --print-build-logs .#deps-native-ci .#deps-native-release .#deps-musl-release
+          nix build --print-build-logs \
+            .#deps-native-ci .#deps-native-release .#deps-musl-release \
+            .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \
+            .#adbc-driver-bigquery-x86_64-unknown-linux-musl \
+            .#adbc-driver-postgresql-x86_64-unknown-linux-musl \
+            .#adbc-driver-duckdb-x86_64-unknown-linux-musl
 
   # NO `fuzz` JOB, AND THAT IS THE HONEST RESOLUTION, NOT AN OMISSION. The `sutura-fuzzing` cache
   # has nothing unique store-worthy to publish. The fuzz harness is a RUNTIME cargo build into

@@ -19,12 +19,29 @@ use crate::{
 #[cfg(feature = "live")]
 #[test]
 fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
+    use sutura_adbc_postgres::{Channel, ConnectionTarget, Conninfo, PostgresDriver};
+    use sutura_domain::identity::Secret;
+
     use crate::postgres_reader::{InvalidReaderConfig, PostgresReader, RowPredicate};
 
-    let config = tokio_postgres::Config::new();
+    // Nothing loads or dials: the identifiers are refused before either is touched.
+    let driver = PostgresDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("an absolute path parses");
+    let conninfo = || {
+        let target = ConnectionTarget::Host("localhost");
+        Conninfo::new(
+            &name(),
+            target,
+            5432,
+            "database",
+            "user",
+            &Secret::new("p"),
+            Channel::Plaintext,
+        )
+        .expect("plaintext builds")
+    };
     let schema = PostgresReader::new(
-        config.clone(),
-        None,
+        driver.clone(),
+        conninfo(),
         String::from("dictionary\"; DROP SCHEMA public; --"),
         String::from("test"),
         RowPredicate::None,
@@ -34,8 +51,8 @@ fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
     assert!(matches!(schema, Err(InvalidReaderConfig::Schema)));
 
     let predicate = PostgresReader::new(
-        config,
-        None,
+        driver,
+        conninfo(),
         String::from("dictionary"),
         String::from("test"),
         RowPredicate::Equals {

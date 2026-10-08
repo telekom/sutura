@@ -99,7 +99,7 @@ mod catalog_kinds;
 // `mcp/rdbms.rs`'s module header. `cfg(test)` for the same `allow-expect-in-tests` reason
 // `protocol`/`tools` above carry one; `cfg(feature = "rdbms")` so a build without the reader does
 // not parse a file naming a crate it did not link, and `cfg(feature = "postgres")` for the
-// `tokio-postgres` fixture install and the `postgres` source the catalog's `source_alias` names -
+// `FixtureAdmin` fixture install and the `postgres` source the catalog's `source_alias` names -
 // the same two-feature split `served/rdbms.rs` (PR #1147) holds.
 #[cfg(unix)]
 #[cfg(test)]

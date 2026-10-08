@@ -36,14 +36,25 @@ mod deadline {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{ParamValue, Value, Warehouse as _};
+    use sutura_exec_postgres::adbc::{AdbcPostgres, Conninfo, FixtureAdmin};
     use sutura_exec_postgres::fixture::FixtureCredential;
-    use sutura_exec_postgres::{PostgresError, PostgresWarehouse};
 
     const SERVICE: &str = "postgres";
 
-    /// A fresh schema per test - the isolation `tests/conformance.rs` and `tests/raw.rs` use, so
-    /// cells running in parallel against one server never see one another's views or tables.
-    fn open(case: &str) -> Option<(PostgresWarehouse, String)> {
+    /// The `pg_sleep` a 300ms-budget cell is stopped inside, under the 15s connect-time ceiling.
+    const SLOW_SECS: u64 = 10;
+
+    /// What a stopped `pg_sleep` cell may take, in every venue. Under `SLOW_SECS`, so a deadline
+    /// firing 9s late still fails it; as wide as that allows, so only connect plus setup past 8s
+    /// reads as a red. One number for both venues: a stopped run takes ~300ms either way.
+    const STOPPED_WITHIN: Duration = Duration::from_secs(8);
+
+    /// The per-statement cells' budget: under the 15s ceiling, not a round number a display format
+    /// could coincide with, and wide enough that connect plus setup does not spend it first.
+    const BUDGET_MS: i64 = 12_345;
+
+    /// The tier's connection string into `schema`, or `None` (and a `NOT RUN` line) without a tier.
+    fn conninfo(case: &str, schema: &str) -> Option<Conninfo> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
             Provisioned::At(endpoint) => endpoint,
             Provisioned::Skipped(absent) => {
@@ -52,75 +63,66 @@ mod deadline {
             }
         };
         let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
+        Some(
+            credential
+                .conninfo_in(&corpus::source(), endpoint.host(), endpoint.port(), schema)
+                .unwrap_or_else(|e| panic!("no connection string for the tier at {endpoint}: {e}")),
+        )
+    }
+
+    /// A fresh schema per test - the isolation `tests/conformance.rs` and `tests/raw.rs` use, so
+    /// cells running in parallel against one server never see one another's views or tables.
+    fn open(case: &str) -> Option<(AdbcPostgres, String)> {
         let schema = format!("deadline_{case}_{}", std::process::id());
-        let warehouse = PostgresWarehouse::connect_in_schema(corpus::source(), corpus::posture(), &config, &schema)
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        // The tier first: with none there is no driver either, and the cell is NOT RUN.
+        let conninfo = conninfo(case, &schema)?;
+        let warehouse = AdbcPostgres::new(
+            corpus::source(),
+            corpus::posture(),
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .expect("the default ceiling parses");
+        warehouse
+            .create_schema(&schema)
+            .unwrap_or_else(|e| panic!("postgres could not create {schema}: {e}"));
         Some((warehouse, schema))
     }
 
-    /// A second, PLAIN connection into the SAME schema `open` puts its warehouse in - used to issue
-    /// the `CREATE VIEW` neither port method here can: `execute` only ever renders a `SELECT`, and
-    /// `execute_raw` wraps every call in a transaction this adapter always rolls back.
+    /// A second, PLAIN connection into the SAME schema `open` puts its warehouse in, running `sql` -
+    /// what neither port method here can: `execute` only ever renders a `SELECT`, and `execute_raw`
+    /// runs inside a `READ ONLY` transaction this adapter always rolls back. The connection is
+    /// returned, so a transaction `sql` leaves open lives until the caller drops it.
+    fn admin(case: &str, schema: &str, sql: &str) -> Option<FixtureAdmin> {
+        let conninfo = conninfo(case, schema)?;
+        let mut admin = FixtureAdmin::open(
+            &sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            &conninfo,
+        )
+        .unwrap_or_else(|e| panic!("the admin connection did not open: {e}"));
+        admin
+            .run(sql)
+            .unwrap_or_else(|e| panic!("the admin connection could not run `{sql}`: {e}"));
+        Some(admin)
+    }
+
     fn create_view(schema: &str, sql: &str) {
-        let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
-            Provisioned::At(endpoint) => endpoint,
-            Provisioned::Skipped(_) => return,
-        };
-        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
-        let runtime = tokio::runtime::Runtime::new().expect("a runtime builds");
-        let (client, connection) = runtime
-            .block_on(config.connect(tokio_postgres::NoTls))
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
-        runtime.spawn(async move {
-            drop(connection.await);
-        });
-        runtime
-            .block_on(client.batch_execute(&format!("SET search_path TO \"{schema}\"; {sql}")))
-            .unwrap_or_else(|e| panic!("the admin connection could not create the view: {e}"));
+        drop(admin("view", schema, sql));
     }
 
     fn statement(sql: &str) -> RawStatement {
         RawStatement::parse(sql).expect("a test statement is a statement")
     }
 
-    /// A second, PLAIN connection holding `table` locked `ACCESS EXCLUSIVE` in an open, uncommitted
-    /// transaction - for as long as this value lives. Dropping it closes the connection, which
-    /// terminates the backend and releases the lock; there is no explicit `ROLLBACK` to run.
-    struct LockHolder {
-        _runtime: tokio::runtime::Runtime,
-        _client: tokio_postgres::Client,
-    }
-
-    /// `None` when the tier is absent (same skip as `open`) - the caller must skip the test too, it
-    /// cannot proceed without something to block on.
-    fn hold_exclusive_lock(case: &str, schema: &str, table: &TableName) -> Option<LockHolder> {
-        let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
-            Provisioned::At(endpoint) => endpoint,
-            Provisioned::Skipped(absent) => {
-                eprintln!("deadline::{case}: NOT RUN - {absent}");
-                return None;
-            }
-        };
-        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
-        let runtime = tokio::runtime::Runtime::new().expect("a runtime builds");
-        let (client, connection) = runtime
-            .block_on(config.connect(tokio_postgres::NoTls))
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
-        runtime.spawn(async move {
-            drop(connection.await);
-        });
-        runtime
-            .block_on(client.batch_execute(&format!(
-                "SET search_path TO \"{schema}\"; BEGIN; LOCK TABLE \"{table}\" IN ACCESS EXCLUSIVE MODE"
-            )))
-            .unwrap_or_else(|e| panic!("the admin connection could not lock {table}: {e}"));
-        Some(LockHolder {
-            _runtime: runtime,
-            _client: client,
-        })
+    /// A second connection holding `table` locked `ACCESS EXCLUSIVE` in an open, uncommitted
+    /// transaction - for as long as the returned value lives. Dropping it closes the connection,
+    /// which terminates the backend and releases the lock.
+    fn hold_exclusive_lock(case: &str, schema: &str, table: &TableName) -> Option<FixtureAdmin> {
+        admin(
+            case,
+            schema,
+            &format!("BEGIN; LOCK TABLE \"{table}\" IN ACCESS EXCLUSIVE MODE"),
+        )
     }
 
     fn column(table: &TableName, name: &str) -> PlanColumn {
@@ -161,12 +163,12 @@ mod deadline {
         range_over(day, day_after, table)
     }
 
-    /// **The cancellation proof.** A view that cross-joins the loaded corpus table with `pg_sleep(2)`
-    /// (see this file's header for why a FROM-clause function and not a projected column) always
-    /// takes at least two seconds to read, independent of how many corpus rows exist. A certified
-    /// `execute` under a 300 ms budget must be stopped well inside it, not after the full two
-    /// seconds and not after the connect-time ceiling (15 s by default, and this test does not touch
-    /// it): before this change, the same call ran for the full 2 s and answered rows.
+    /// **The cancellation proof.** A view that cross-joins the loaded corpus table with
+    /// `pg_sleep(SLOW_SECS)` (see this file's header for why a FROM-clause function and not a
+    /// projected column) always takes at least that long to read, independent of how many corpus
+    /// rows exist. A certified `execute` under a 300 ms budget must be stopped well inside it, not
+    /// after the full sleep and not after the connect-time ceiling (15 s by default, and this test
+    /// does not touch it).
     #[test]
     fn a_certified_question_over_its_budget_is_stopped_at_the_data_system() {
         let Some((warehouse, schema)) = open("cancel") else { return };
@@ -176,7 +178,7 @@ mod deadline {
         create_view(
             &schema,
             &format!(
-                "CREATE VIEW slow_events AS SELECT t.* FROM \"{table}\" AS t, pg_sleep(2)",
+                "CREATE VIEW slow_events AS SELECT t.* FROM \"{table}\" AS t, pg_sleep({SLOW_SECS})",
                 table = corpus::table()
             ),
         );
@@ -185,7 +187,7 @@ mod deadline {
         // A wide window rather than the corpus's own exact dates (private to `sutura-conformance`'s
         // `corpus` module) - it only has to include whatever the fixture's rows actually are, not
         // name them, and a nonempty result is not the point of this test: the cross-joined
-        // `pg_sleep(2)` runs once regardless.
+        // `pg_sleep` runs once regardless.
         let (range, bindings) = range_over(
             Date::new(2000, 1, 1).expect("year 2000 is in range"),
             Date::new(2099, 12, 31).expect("year 2099 is in range"),
@@ -221,13 +223,9 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
-        // CI's own margin, or a wider one on a shared machine - see `sutura_dev::tolerance`. Both
-        // stay well under the 2s `pg_sleep` and the 15s connect-time ceiling this cell must land
-        // inside of, not merely inside of *a* number.
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
         assert!(
-            elapsed < ceiling,
-            "stopped at ~300ms plus tolerance, not run to completion (2s) or to the 15s ceiling: {elapsed:?}"
+            elapsed < STOPPED_WITHIN,
+            "stopped at ~300ms plus setup, not run to completion ({SLOW_SECS}s) or to the 15s ceiling: {elapsed:?}"
         );
     }
 
@@ -264,7 +262,7 @@ mod deadline {
             .expect_err("a statement over the ceiling must not answer with rows");
         assert!(
             warehouse.deadline_exceeded(&error),
-            "the ceiling firing must classify as deadline_exceeded too: {error}"
+            "the ceiling firing must classify as deadline_exceeded too: {error:?}"
         );
         // Both bounds stay under the statement's own 20s `pg_sleep`, which is the ceiling this
         // cell has to prove happened BEFORE - answering past it is a different failure entirely.
@@ -277,10 +275,10 @@ mod deadline {
 
     /// **The raw path's own per-request narrowing, `telekom/sutura#1144`'s own cell.** The sibling
     /// of `a_certified_question_over_its_budget_is_stopped_at_the_data_system`: a raw statement that
-    /// would otherwise run for the full 2s `pg_sleep` is stopped at its own 300ms budget, well short
-    /// of both the statement's own runtime and the 15s connect-time ceiling - proving `SET LOCAL
-    /// statement_timeout` narrows the raw path's session the same way it narrows the certified one,
-    /// rather than the raw path being bounded only by the ceiling as it was before this change.
+    /// would otherwise run for the full `SLOW_SECS` `pg_sleep` is stopped at its own 300ms budget,
+    /// well short of both the statement's own runtime and the 15s connect-time ceiling - proving `SET
+    /// LOCAL statement_timeout` narrows the raw path's session the same way it narrows the certified
+    /// one, rather than the raw path being bounded only by the ceiling as it was before this change.
     #[test]
     fn a_raw_statement_over_its_own_budget_is_stopped_before_the_ceiling() {
         let Some((warehouse, _schema)) = open("rawbudget") else {
@@ -292,7 +290,11 @@ mod deadline {
         );
 
         let started = Instant::now();
-        let outcome = warehouse.execute_raw(&statement("select pg_sleep(2)"), &corpus::presented(), deadline);
+        let outcome = warehouse.execute_raw(
+            &statement(&format!("select pg_sleep({SLOW_SECS})")),
+            &corpus::presented(),
+            deadline,
+        );
         let elapsed = started.elapsed();
 
         let error = outcome
@@ -300,12 +302,11 @@ mod deadline {
             .expect_err("a statement over its own budget must not answer with rows");
         assert!(
             warehouse.deadline_exceeded(&error),
-            "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
+            "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error:?}"
         );
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
         assert!(
-            elapsed < ceiling,
-            "stopped at ~300ms plus tolerance, not run to completion (2s) or to the 15s ceiling: {elapsed:?}"
+            elapsed < STOPPED_WITHIN,
+            "stopped at ~300ms plus setup, not run to completion ({SLOW_SECS}s) or to the 15s ceiling: {elapsed:?}"
         );
     }
 
@@ -318,11 +319,10 @@ mod deadline {
         let Some((warehouse, _schema)) = open("rawshowtimeout") else {
             return;
         };
-        // Comfortably inside the default 15s ceiling, and not a round number a Postgres display
-        // format could coincide with - the same value the certified sibling cell uses.
+        let opened = Instant::now();
         let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+            opened,
+            Budget::parse(Duration::from_millis(BUDGET_MS.unsigned_abs())).expect("BUDGET_MS is a budget"),
         );
 
         let outcome = warehouse
@@ -333,6 +333,7 @@ mod deadline {
             )
             .expect("this adapter accepts a raw statement")
             .expect("well inside every timeout, this call must answer");
+        let spent_ms = i64::try_from(opened.elapsed().as_millis()).expect("a test's milliseconds fit an i64");
         let seen_ms = match outcome.rows().first().and_then(|row| row.first()) {
             Some(Value::Integer(ms)) => *ms,
             other => panic!("expected exactly one integer cell, got {other:?}"),
@@ -341,18 +342,19 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // Never above the budget: `SET LOCAL` cannot see a LARGER one than the deadline was opened
         // with, the same exact arithmetic the certified sibling cell checks.
         assert!(
-            seen_ms <= 4321,
+            seen_ms <= BUDGET_MS,
             "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
         );
-        let slack_ms = Tolerance::from_env().ceiling(Duration::from_millis(200), Duration::from_millis(1000));
-        let slack_ms = i64::try_from(slack_ms.as_millis()).expect("a millisecond slack of a few seconds fits an i64");
+        // The lower bound with no clock in it: what is left at send is the budget less what was
+        // spent before it (at most `spent_ms`), truncated by at most 1ms - true at any load.
         assert!(
-            seen_ms >= 4321 - slack_ms,
-            "expected close to the 4321ms budget within {slack_ms}ms, saw {seen_ms}ms"
+            seen_ms + spent_ms + 1 >= BUDGET_MS,
+            "the per-statement value must be what was left of the budget: saw {seen_ms}ms after {spent_ms}ms spent"
         );
+        assert!(seen_ms > 0, "zero reads as no timeout at all: saw {seen_ms}ms");
     }
 
     /// **The per-statement proof.** `pg_settings.setting` for `statement_timeout` is the RAW stored
@@ -389,16 +391,17 @@ mod deadline {
             bindings,
             range,
         );
-        // Comfortably inside the default 15s ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` unset by
-        // this test), and not a round number a Postgres display format could coincide with.
+        // `SUTURA_DEV_STATEMENT_TIMEOUT_MS` is unset by this test, so the ceiling is the 15s default.
+        let opened = Instant::now();
         let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+            opened,
+            Budget::parse(Duration::from_millis(BUDGET_MS.unsigned_abs())).expect("BUDGET_MS is a budget"),
         );
 
         let rows = warehouse
             .execute(Executable::Query(&plan), &corpus::presented(), deadline)
             .expect("well inside every timeout, this call must answer");
+        let spent_ms = i64::try_from(opened.elapsed().as_millis()).expect("a test's milliseconds fit an i64");
         // `[bucket, measure]` per row - no keys on this plan - so the `timeout_ms` aggregate is the
         // SECOND cell, not the first: that one is the `day` bucket every case in this corpus
         // projects ahead of its measure (`mean_by_day`'s own expected rows show the same order).
@@ -411,27 +414,20 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // Never above the budget: `SET LOCAL` cannot see a LARGER one than the deadline was opened
         // with, which is exact arithmetic and not a margin - true at any load, so it needs no
         // venue to pick a number for it.
         assert!(
-            seen_ms <= 4321,
+            seen_ms <= BUDGET_MS,
             "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
         );
-        // How far BELOW 4321 is the actual margin, and it IS a margin: the round trip between
-        // opening the deadline and the statement reaching the server takes real time, and a
-        // 200ms allowance for it reddened under load (`telekom/sutura#140`'s comment thread: `saw
-        // 4051ms` against a 4121ms floor). CI keeps the original 200ms; a shared machine gets
-        // 1000ms - see `sutura_dev::tolerance`. The exact-value claim this slack used to be the
-        // only proof of is held by `tests::deadline_statement_timeout` in `src/tests.rs`, hermetic
-        // and load-independent, so this window is checking the WIRING reaches the real server
-        // close to the budget, not re-proving the arithmetic.
-        let slack_ms = Tolerance::from_env().ceiling(Duration::from_millis(200), Duration::from_millis(1000));
-        let slack_ms = i64::try_from(slack_ms.as_millis()).expect("a millisecond slack of a few seconds fits an i64");
+        // The lower bound with no clock in it: what is left at send is the budget less what was
+        // spent before it (at most `spent_ms`), truncated by at most 1ms - true at any load.
         assert!(
-            seen_ms >= 4321 - slack_ms,
-            "expected close to the 4321ms budget within {slack_ms}ms, saw {seen_ms}ms"
+            seen_ms + spent_ms + 1 >= BUDGET_MS,
+            "the per-statement value must be what was left of the budget: saw {seen_ms}ms after {spent_ms}ms spent"
         );
+        assert!(seen_ms > 0, "zero reads as no timeout at all: saw {seen_ms}ms");
     }
 
     /// **The `Prepare` arm.** `SET LOCAL statement_timeout` is sent before the `PREPARE`
@@ -491,114 +487,11 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a PREPARE stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
-        // 3s stays far short of the ~15s a disabled per-statement narrowing measures here (this
-        // file's own mutation table), so either number still tells a stopped `PREPARE` apart from
-        // one left blocked on the lock.
-        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_secs(3));
+        // The work's own bound, in every venue: a `PREPARE` left blocked on the lock runs to the
+        // ~15s ceiling, so 12s still fails that and only connect plus setup past 12s reads as a red.
         assert!(
-            elapsed < ceiling,
-            "stopped at ~300ms plus tolerance, not left blocked on the lock: {elapsed:?}"
-        );
-    }
-
-    /// **A budget spent DURING the wait for `execution_lock`, not before it.** A raw `pg_sleep(1.5)`
-    /// on a scoped thread holds the connection (and its lock) for 1.5s; a certified `execute` on a
-    /// 300ms budget starts 100ms later, on the SAME connection, so it must wait roughly 1.4s for the
-    /// lock before it can even ask what is left - long past its own budget. `sutura_app::answer`'s
-    /// own pre-call check ran before either wait started and cannot see this: the check this proves
-    /// is `deadline.rs`'s own re-check AFTER the lock is acquired, refusing locally as
-    /// `PostgresError::DeadlineSpent` rather than sending a statement the server would just answer
-    /// (`telekom/sutura#687`'s round-2 review, finding 1 - the probe that found this untested).
-    #[test]
-    fn a_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
-        let Some((warehouse, _schema)) = open("lockwait") else {
-            return;
-        };
-        let table = corpus::table();
-        let metric = MetricName::parse("lockwait_probe").expect("a test metric name is a name");
-        let (range, bindings) = range_over(
-            Date::new(2000, 1, 1).expect("year 2000 is in range"),
-            Date::new(2099, 12, 31).expect("year 2099 is in range"),
-            &table,
-        );
-        let plan = QueryPlan::new(
-            corpus::source(),
-            metric.clone(),
-            StatementTables::only(table.clone()),
-            PlanBucket::new(ResultLabel::bucket(), Grain::Day, column(&table, "day")),
-            Vec::new(),
-            PlanMeasure::Simple {
-                term: PlanTerm::Aggregate {
-                    aggregate: Aggregate::Sum,
-                    column: column(&table, "amount_cents"),
-                },
-            },
-            ResultLabel::measure(&metric),
-            bindings,
-            range,
-        );
-        let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
-        );
-
-        // Generous on purpose: this thread is the blocker, not what is under test - the certified
-        // call below is what must be refused by a spent budget, not this raw one.
-        let blocker_deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
-        );
-        let outcome = std::thread::scope(|scope| {
-            scope.spawn(|| {
-                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
-            });
-            std::thread::sleep(Duration::from_millis(100));
-            warehouse.execute(Executable::Query(&plan), &corpus::presented(), deadline)
-        });
-
-        let error = outcome.expect_err("a budget spent waiting for the lock must not answer with rows");
-        assert!(
-            matches!(error, PostgresError::DeadlineSpent),
-            "expected DeadlineSpent, got {error:?}"
-        );
-        assert!(
-            warehouse.deadline_exceeded(&error),
-            "DeadlineSpent must classify as deadline_exceeded too: {error}"
-        );
-    }
-
-    #[test]
-    fn a_raw_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
-        let Some((warehouse, _schema)) = open("rawlockwait") else {
-            return;
-        };
-        let deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
-        );
-
-        let blocker_deadline = Deadline::opened_at(
-            Instant::now(),
-            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
-        );
-        let outcome = std::thread::scope(|scope| {
-            scope.spawn(|| {
-                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
-            });
-            std::thread::sleep(Duration::from_millis(100));
-            warehouse.execute_raw(&statement("select 1"), &corpus::presented(), deadline)
-        });
-
-        let error = outcome
-            .expect("a raw call must produce an execution result")
-            .expect_err("a raw call with a budget spent waiting for the lock must not answer with rows");
-        assert!(
-            matches!(error, PostgresError::DeadlineSpent),
-            "expected DeadlineSpent, got {error:?}"
-        );
-        assert!(
-            warehouse.deadline_exceeded(&error),
-            "DeadlineSpent must classify as deadline_exceeded too: {error}"
+            elapsed < Duration::from_secs(12),
+            "stopped at ~300ms plus setup, not left blocked on the lock: {elapsed:?}"
         );
     }
 }

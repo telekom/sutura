@@ -52,8 +52,8 @@
 //! its own pipes and would block on this harness's stdin; a `sutura-serve` invocation, a `curl` and
 //! a `docker compose` invocation are not invocations of this binary and are not read here at all -
 //! `crates/sutura-cli/tests/served.rs` is the venue for the catalog and config those fences drive,
-//! but nothing here or there runs the `docker compose up`/`curl`/`docker compose down` fence in
-//! `examples/single-player/README.md` itself; `.github/serve-smoke.sh` smoke-tests the `docker run`
+//! but nothing here or there runs the `docker compose up`/`curl` fence in
+//! `docs/examples/single-player.md` itself; `.github/serve-smoke.sh` smoke-tests the `docker run`
 //! shape `docs/serving.md` prints, not the `compose.yaml` file. An invocation that SETS an environment
 //! variable is refused rather than run, because `run` strips every `SUTURA*` variable and adds
 //! none, so this harness cannot be the deployment such a line describes. And the subcommand names
@@ -70,9 +70,9 @@ mod tests {
     /// The pages whose commands are run and whose output lines are held.
     ///
     /// `docs/getting-started.md` is the path the site sends a reader down;
-    /// `examples/single-player/README.md` is the corpus's own page. Both print an argument vector
+    /// `docs/examples/single-player.md` is the corpus's own walkthrough. Both print an argument vector
     /// followed by what it produced.
-    const PAGES: &[&str] = &["docs/getting-started.md", "examples/single-player/README.md"];
+    const PAGES: &[&str] = &["docs/getting-started.md", "docs/examples/single-player.md"];
 
     /// Pages that state a definitions digest without printing a command that produces one.
     ///
@@ -82,13 +82,6 @@ mod tests {
 
     /// The page `docs/index.md` sends a stranger down, whose guided half must run on an artefact.
     const GUIDED: &str = "docs/getting-started.md";
-
-    /// The heading that opens the contributor's route, and therefore closes the guided path.
-    ///
-    /// The split point is a HEADING rather than a line number because a page grows: what is being
-    /// held is that a toolchain appears below it and never above, and a page that lost the heading
-    /// is a failure rather than a walk with nothing to compare against.
-    const CONTRIBUTOR: &str = "## Building from source";
 
     /// The workflow that publishes the release, whose `TARGETS` is the set of triples it produces.
     const RELEASE: &str = ".github/workflows/release.yml";
@@ -912,24 +905,8 @@ mod tests {
              nothing: {install:?}"
         );
 
-        // Where the guided path ends. Exactly one heading, so the walk below cannot be vacuous.
-        let heading: Vec<usize> = text
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.trim_end() == CONTRIBUTOR)
-            .map(|(index, _)| index + 1)
-            .collect();
-        assert_eq!(
-            heading.len(),
-            1,
-            "{GUIDED} carries {} `{CONTRIBUTOR}` headings - the source build is the contributor's \
-             route and belongs under exactly one",
-            heading.len()
-        );
-        let opens_at = heading[0];
-
+        // No fence on the page prints a toolchain: Docker, a release asset or Nix is the whole route.
         let mut guided = 0_usize;
-        let mut source = 0_usize;
         for (at, line) in fenced(GUIDED, &text) {
             for needle in CLONE {
                 assert!(
@@ -938,28 +915,18 @@ mod tests {
                      as a tarball so that the guided path needs no git and no toolchain"
                 );
             }
-            if at < opens_at {
-                assert!(
-                    !line.contains("cargo"),
-                    "{GUIDED}:{at} prints `{line}` above `{CONTRIBUTOR}`, and everything above it \
-                     must run on a downloaded artefact"
-                );
-                if line.trim_start().starts_with("sutura ") {
-                    guided = guided.saturating_add(1);
-                }
-            } else if line.contains(SEPARATOR) {
-                source = source.saturating_add(1);
+            assert!(
+                !line.contains("cargo"),
+                "{GUIDED}:{at} prints `{line}`, and no command on it may need a Rust toolchain"
+            );
+            if line.trim_start().starts_with("sutura ") {
+                guided = guided.saturating_add(1);
             }
         }
         assert!(
             guided > 0,
-            "{GUIDED} prints no `sutura <args>` command above `{CONTRIBUTOR}` - that spelling is \
-             what a reader holding the published binary types"
-        );
-        assert!(
-            source > 0,
-            "{GUIDED} prints no `cargo run{SEPARATOR}` command under `{CONTRIBUTOR}` - the source \
-             build is moved and relabelled there, not deleted"
+            "{GUIDED} prints no `sutura <args>` command - that spelling is what a reader holding \
+             the published binary types"
         );
 
         // Download, VERIFY, run. The page does not repeat what a signature does and does not say,

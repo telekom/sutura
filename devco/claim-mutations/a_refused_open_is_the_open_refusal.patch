@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -247,7 +247,7 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> OkfCatalogError {
+ /// same roles the message text gives them.
+ fn map_read_error(cause: sutura_bounded_read::ReadError) -> OkfCatalogError {
+     match cause {
+-        sutura_bounded_read::ReadError::Open { path, cause } => OkfCatalogError::Open { path, cause },
++        sutura_bounded_read::ReadError::Open { path, .. } => OkfCatalogError::NotARegularFile { path },
+         sutura_bounded_read::ReadError::NotARegularFile { path } => OkfCatalogError::NotARegularFile { path },
+         sutura_bounded_read::ReadError::TooLarge {
+             root,

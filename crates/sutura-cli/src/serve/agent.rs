@@ -118,6 +118,7 @@ pub(crate) fn mount(
             settings.prompt().list_physical_schema(),
             admission,
             settings.server().request_timeout(),
+            settings.server().max_body(),
             tools,
             operator_instructions,
         ),

@@ -165,6 +165,10 @@ pub(crate) struct RawSource {
     /// `host:port/service_name` string. Not a SID, and not a `database`: the key names what it is.
     #[serde(default)]
     pub(crate) service_name: Option<String>,
+    /// The database file a `duckdb` source opens, read-only. A path, so not `database`, which names
+    /// a database on a server.
+    #[serde(default)]
+    pub(crate) database_file: Option<String>,
     /// The role a `postgres` source connects as.
     #[serde(default)]
     pub(crate) user: Option<String>,
@@ -216,6 +220,21 @@ pub(crate) struct RawWorkloadIdentity {
     /// twin on the audience side.
     #[serde(default)]
     pub(crate) expected_audience: Option<String>,
+    /// The delegation exchange a `direct` deployment runs before this pool will accept its caller -
+    /// see `crate::sources::workload_identity::DelegationDeclared`.
+    #[serde(default)]
+    pub(crate) delegation: Option<RawDelegation>,
+}
+
+/// One source's delegation exchange, as read. Every key is required, so a missing one is serde's
+/// refusal naming it. `client_secret_file` is a PATH: the secret is read by the composition root.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDelegation {
+    pub(crate) token_endpoint: String,
+    pub(crate) client_id: String,
+    pub(crate) client_secret_file: String,
+    pub(crate) audience: String,
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.
@@ -297,6 +316,9 @@ pub(crate) struct RawServer {
     /// caller reachable there.
     #[serde(default)]
     pub(crate) agent_surface: RawAgentSurface,
+    /// External hosts this deployment answers, beyond the loopback names and its own resource host.
+    #[serde(default)]
+    pub(crate) allowed_hosts: Vec<String>,
 }
 
 /// Whether the agent surface is mounted, with the safe default being off.
@@ -340,10 +362,6 @@ pub(crate) struct RawSecurity {
     /// establish identity and did not say how - and that one does not start.
     #[serde(default)]
     pub(crate) inbound: Option<RawInbound>,
-    /// The exchanged-credential cache - `docs/adr/0031`. Absent is the whole block off, the same
-    /// shape `tools:` uses: a deployment that never turns this on should never carry a line for it.
-    #[serde(default)]
-    pub(crate) credential_cache: RawCredentialCache,
     /// The credential that gates `/metrics` and nothing else.
     ///
     /// A holder of the API token can ask any question the catalog certifies; a scrape needs none of
@@ -382,25 +400,6 @@ pub(crate) struct RawOutbound {
     /// The private key for `client_certificate`. Optional; both or neither.
     #[serde(default)]
     pub(crate) client_key: Option<String>,
-}
-
-/// `security.credential_cache` - `docs/adr/0031`. Every field optional and defaulted in
-/// `crate::identity_cache::CredentialCacheSettings::parse`, the same shape `RawRunSql` uses: an
-/// absent block is the whole capability off, and a present one with only `enabled: true` takes the
-/// documented defaults for the other two.
-#[derive(Default, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawCredentialCache {
-    /// Off unless an operator writes `true`.
-    #[serde(default)]
-    pub(crate) enabled: bool,
-    /// How many live entries the cache may hold. Absent takes the shipped default.
-    #[serde(default)]
-    pub(crate) capacity: Option<u64>,
-    /// The operator's own ceiling on how long an entry is served, in seconds. Absent takes the
-    /// shipped default.
-    #[serde(default)]
-    pub(crate) window_seconds: Option<u64>,
 }
 
 /// The inbound-identity declaration, as read.
