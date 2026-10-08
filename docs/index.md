@@ -16,12 +16,12 @@ not the rows that the caller may read, so row-level security has no effect.
 
 ## The four properties
 
-| Property                        | Mechanism                                                                                    | Status                                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| You cannot ask it to run SQL    | The question type has no field for SQL, a table or a filter                                  | Enforced. `deny_unknown_fields` refuses an extra field, and every value becomes a bind parameter                |
-| Definitions come from a catalog | Definitions arrive as a pinned, hashed snapshot. sutura does not edit them                   | Enforced. The catalog load has no request context, and every anchor runs again before sutura serves             |
-| A refusal is an answer          | A refusal is a result with a reason, not an error to retry                                   | Enforced. Every outcome goes to the audit sink before sutura returns it                                         |
-| Every query runs as the caller  | A credential for each data system and caller. A leg that cannot run as the caller is refused | Built for BigQuery, and not yet proven. Every other data system runs as one identity that the operator declares |
+| Property                        | Mechanism                                                                                    | Status                                                                                                                                                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| You cannot ask it to run SQL    | The question type has no field for SQL, a table or a filter                                  | Enforced. `deny_unknown_fields` refuses an extra field, and every value becomes a bind parameter                                                                                                            |
+| Definitions come from a catalog | Definitions arrive as a pinned, hashed snapshot. sutura does not edit them                   | Enforced. The catalog load has no request context, and every anchor runs again before sutura serves                                                                                                         |
+| A refusal is an answer          | A refusal is a result with a reason, not an error to retry                                   | Enforced. Every outcome goes to the audit sink before sutura returns it. The sink writes to the log, and sutura keeps nothing. Behind the shared bearer token alone, the recorded subject is the deployment |
+| Every query runs as the caller  | A credential for each data system and caller. A leg that cannot run as the caller is refused | Built for BigQuery, and not yet proven. Every other data system runs as one identity that the operator declares                                                                                             |
 
 [Architecture](architecture.md) shows how these properties shape the system.
 

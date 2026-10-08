@@ -1,6 +1,6 @@
 ---
 title: Multi player
-description: Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own Google service account.
+description: Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own Google service account (built, not proven).
 ---
 
 # Multi player
@@ -96,7 +96,7 @@ curl -s http://127.0.0.1:8080/v1/query -H "Authorization: Bearer $TOKEN" -H 'Con
   -d '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-01-01","end":"2026-07-01"}}'
 ```
 
-| Caller  | Result                                                                       |
+| Caller  | Expected result                                                              |
 | ------- | ---------------------------------------------------------------------------- |
 | `alice` | Her rows. BigQuery runs the query as her service account                     |
 | `bob`   | Other rows, from the same question                                           |

@@ -1,19 +1,21 @@
 ---
 title: BigQuery
-description: Answer questions over a BigQuery dataset, as one service account or as each caller's own account.
+description: Answer questions over a BigQuery dataset, as one service account or as each caller's own account (built, not proven).
 ---
 
 # BigQuery
 
 The `bigquery` data system answers questions over a BigQuery dataset. sutura renders each plan as
 GoogleSQL and runs it through the ADBC BigQuery driver. The crate is `sutura-exec-bigquery`, and
-the source kind is `bigquery`. It is the one data system that can run a query as the caller.
+the source kind is `bigquery`. It is the one data system with a path to run a query as the caller.
+That path is built and not proven: see [Identity](#identity).
 
 ## When to use it
 
 - Your data is in BigQuery, and BigQuery grants and row access policies control who sees what.
 - You want each caller's query to run as that caller's own service account.
-  `posture: impersonation-at-source` does this.
+  `posture: impersonation-at-source` does this. It is built, and no recorded run has yet shown
+  Google accept the caller's identity.
 - Or you want all queries to run as one service account. `posture: shared-service-user` does
   this.
 
