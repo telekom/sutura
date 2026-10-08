@@ -627,11 +627,15 @@ mod tests {
         // two: telling somebody whose daemon is running-but-silent to START it is advice they have
         // already taken, and this is what stops the pair collapsing back into one message.
         assert_ne!(Missing::Daemon.remedy(), Missing::WedgedDaemon.remedy());
-        // And the three CLI causes: a binary to install, one to run by hand, one to give more time.
-        let (absent, failing, silent) = (Missing::Cli, Missing::FailingCli, Missing::SilentCli);
-        assert_ne!(absent.remedy(), silent.remedy());
-        assert_ne!(absent.remedy(), failing.remedy());
-        assert_ne!(failing.remedy(), silent.remedy());
+        // And each CLI cause carries its own: a binary to install, one to run by hand, one to give
+        // more time. Pinned to the cause, so swapping two texts is caught, not just a merge.
+        for (missing, phrase) in [
+            (Missing::Cli, "install docker"),
+            (Missing::FailingCli, "run it by hand"),
+            (Missing::SilentCli, "raise SUTURA_DOCKER_PROBE_TIMEOUT_SECS"),
+        ] {
+            assert!(missing.remedy().contains(phrase), "{missing:?}: {}", missing.remedy());
+        }
 
         // Not an assertion about this machine: `presence` is allowed to say either thing. What is
         // asserted is that it answers within a BOUND - the half this test used to leave out. On a

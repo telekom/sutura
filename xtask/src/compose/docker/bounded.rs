@@ -906,9 +906,18 @@ mod tests {
                 ])
                 .env(CHILD, &out)
                 .env("PATH", dir.join(name))
-                // Only a stall needs the short budget; any case that must start a process and
-                // exit needs a budget a loaded host cannot exceed.
-                .env("SUTURA_DOCKER_PROBE_TIMEOUT_SECS", if name == "stalled" { "1" } else { "30" })
+                // Only a stall needs the short budget. Every other case gets the largest the probe
+                // accepts, which is past the wait below, so no load can make the probe read a slow
+                // start as a stall: the wait fails the cell first and names the timeout, not a
+                // wrong cause.
+                .env(
+                    "SUTURA_DOCKER_PROBE_TIMEOUT_SECS",
+                    if name == "stalled" {
+                        "1".to_owned()
+                    } else {
+                        super::ANSWER_TIMEOUT_MAX_SECS.to_string()
+                    },
+                )
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
