@@ -185,6 +185,50 @@ fn served_initialize_does_not_publish_the_whole_physical_schema() {
     assert_eq!(listing["result"]["structuredContent"]["models"], serde_json::json!([]));
 }
 
+/// One caller, one deployment, two transports: `GET /v1/catalog` and `/mcp`'s `describe_catalog`
+/// answer the same `knowledge`.
+///
+/// The text is equal rather than similar because both transports call one function over the
+/// caller's view; this cell is what notices a transport that stops, or one that renders it under a
+/// different prose setting or view. It reads the example's glossary, so an empty section on both
+/// sides cannot pass.
+#[cfg(feature = "agent")]
+#[test]
+fn a_caller_reads_the_same_knowledge_over_http_as_over_mcp() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-knowledge-parity").expect("the key set publishes");
+    let served = start_configured(
+        "agent-knowledge-parity",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("reader@example.com"))
+        .expect("the issuer mints a token");
+
+    let over_http = served.get("/v1/catalog", Some(&token));
+    assert_eq!(over_http.status, 200, "{}", over_http.body);
+    drop(served.mcp(Some(&token), &initialize(1)));
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "describe_catalog", "arguments": {}}
+    });
+    let over_mcp = served.mcp(Some(&token), &call.to_string());
+
+    let http = over_http.json();
+    let mcp = over_mcp.json();
+    let http_knowledge = http["knowledge"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the HTTP catalog carries no knowledge: {}", over_http.body));
+    let mcp_knowledge = mcp["result"]["structuredContent"]["knowledge"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the MCP catalog carries no knowledge: {}", over_mcp.body));
+    assert!(
+        http_knowledge.contains("monthly recurring revenue"),
+        "the glossary did not reach HTTP: {http_knowledge}"
+    );
+    assert_eq!(http_knowledge, mcp_knowledge, "the two transports read different knowledge");
+}
+
 /// `/mcp` reads no more of a body than `server.max_body_bytes`, the bound `/v1` reads under: the
 /// same over-cap body is a `413` on both, and the same message under the cap is answered.
 #[cfg(feature = "agent")]

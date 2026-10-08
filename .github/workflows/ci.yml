@@ -625,10 +625,7 @@ jobs:
       # queue already verified the same tree (`causality` and `postgres-linked-driver`, the two jobs
       # #1280 moved out of this one, carry the same `!= 'push'`). `github.event_name != 'push'` on each step is
       # the mechanism; `xtask/src/workflows/obligations.rs` pins it on Secrets, Licensing and Chart
-      # only. THE COST: the causality-target cache is saved only from a push to `main`, and its
-      # caller is one of the gated steps, so that entry is never written again and freezes at its
-      # last generation. Once the lockfile or a manifest moves, pull-request runs of the three tail
-      # apps restore a stale generation and recompile cold.
+      # only.
       - name: Realise the closure-free gates in one graph
         if: github.event_name != 'push'
         continue-on-error: true
@@ -951,50 +948,6 @@ jobs:
       - name: API reference pages
         if: steps.classify.outputs.api == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.api-docs -L
-
-      # The writable `target/causality-target` the three tail apps recompile into, carried on the
-      # SAME digest the store cache uses so a lockfile/manifest change invalidates it and restores
-      # the previous generation's recompile otherwise. `save:` inside the action writes only from a
-      # push to main, and #985 D2 gates this caller off on push, so the save never runs: the entry
-      # is frozen at its last generation (the cost the D2 comment at the top of the gates states).
-      #
-      # RESTORED HERE - immediately before its first reader - RATHER THAN BESIDE THE STORE CACHE
-      # AT THE TOP OF THE JOB (#639 slice I). It restores nothing any check above needs: only
-      # `apps.causality`, `apps.default-features` and `apps.default-feature-tests` read that
-      # directory - the first from the `causality` job, which restores the same entry for itself,
-      # since #1280. Two things that buys, and one that it does not:
-      #
-      #   * A RUN THAT REDDENS ABOVE NEVER PAYS FOR IT. Measured over the 213 jobs that had this
-      #     step: median 28 s, p90 43 s, max 213 s - spent before the first gate had reported.
-      #   * THE GRAPH STAGES GET THE DISK BACK. A hit unpacks up to 13.7 GB into the workspace
-      #     (the witness's own reading), against a budget `./.github/actions/reclaim-disk` has to
-      #     clear 25 GB for, and both `Doctests` and `Test causality` have died here on
-      #     `No space left on device`. Restoring after the test graph means that 13.7 GB is not
-      #     occupied while the closure is being built.
-      #   * IT DOES NOT SHORTEN A GREEN RUN. The same bytes are still restored, just later; what
-      #     moves is which failures pay for them. Any claim beyond that needs a measurement.
-      #
-      # NARROWING it was considered and refused: the entry already holds exactly one directory
-      # (`paths: target/causality-target`, `nix: false`), and the three apps SHARE that directory
-      # by design, so there is no per-app subset to restore. The lever here is when, not how much.
-      #
-      # **THE LIMIT OF MOVING IT, STATED BESIDE THE CLAIM: THE SAVE IS A POST STEP, AND A STEP THAT
-      # NEVER EXECUTES REGISTERS NO POST STEP.** While this sat at the top of the job its save was
-      # reached by every run that got past the installer; from here, a `main` push that reddens
-      # anywhere above no longer refreshes the entry, so the generation on `main` ages - and since
-      # #985 D2 no push reaches this step, so none renews it. That is the cost side of the saving two paragraphs up, and it is a real
-      # change rather than a relabelling.
-      #
-      # AND NO GATE HOLDS EITHER HALF. `cargo xtask check-workflows` reports this cache as "restored
-      # on every event", which is now true only of the runs that reach this step - its rule
-      # (`cache_scope::tests::a_caller_that_gates_the_store_restore_is_refused`) refuses an `if:` on
-      # the caller and CANNOT SEE POSITION. So the gate is satisfied while the property its own
-      # message names is weaker than it reads. Written down rather than fixed here: teaching it
-      # position is a change to that gate, not to this file.
-      - uses: $/.github/actions/causality-target-cache
-        if: github.event_name != 'push'
-        with:
-          scope: ci
 
       # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
       # publishes and no other venue in this job uses. Every compiling gate above passes
@@ -1949,8 +1902,8 @@ jobs:
   #   * THE GATING HOP. The step was gated by the required `ci` context; this job is gated by the
   #     required `ci-aggregate` context, through the shell that reads `needs.causality.result`.
   #   * THE WARM TARGET. The two shipped-feature steps in `ci` used to leave `target/causality-target`
-  #     warm for this gate. Here it restores the frozen `ci` generation (#985 D2: nothing saves it
-  #     any more) and recompiles what that does not cover.
+  #     warm for this gate. Here the directory holds only what `cargoWarmStart` unpacks from the
+  #     store, and the gate compiles the rest.
   #   * ITS OWN SETUP: waiting for `identity-classify`, then checkout, disk, Nix and the store
   #     restore, none of which `ci` paid again for this step.
   causality:
@@ -2019,12 +1972,6 @@ jobs:
             base=""
           fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
-
-      # The same `ci` entry `ci` restores before the shipped-feature steps, restore-only here as
-      # there: this job never runs on a push, so it can write nothing.
-      - uses: $/.github/actions/causality-target-cache
-        with:
-          scope: ci
 
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.

@@ -7,7 +7,9 @@ description: Owner instruction overriding ADR 0007's second amendment and the un
 
 Status: **accepted by owner instruction**, overriding two records. Steps 1, 2, 3 and 5 are BUILT;
 step 4 is blocked ahead of an upstream manifest change. Each step says which parts, beside each
-measurement.
+measurement. *Corrected by the third amendment, at the bottom: that upstream change is released, and
+step 4 now waits for its caller only. This sentence, row (c) below, Step 4 and Step 5 are left as
+written.*
 
 What it overrides:
 
@@ -33,6 +35,9 @@ here because no single step below satisfies more than two of them:
 | c | **DataFusion so federation arrives later** rather than being redeveloped for multi-node | Groundwork: a DataFusion-native local combine plus a provider seam. `datafusion-federation` is not a dependency - step 4 adopts it and is blocked upstream - so there is no provider pushdown and no multi-node execution. |
 | d | **Always impersonation-capable**                                                        | Unchanged by this record and constrained by it: see *What this does not buy*.                                                                                                                                              |
 | e | **ADBC**                                                                                | Built. `sutura-exec-bigquery`'s `adbc` transport is the only BigQuery mode.                                                                                                                                                |
+
+*Corrected by the third amendment: row (c)'s "blocked upstream" no longer holds, because the upstream
+change is released. `datafusion-federation` is still not a dependency.*
 
 **No hand row handling is the standing rule this comes from**: `DataFusion`, Arrow, Arrow Flight or
 ADBC, and nothing that walks a result one cell at a time. That rule is what makes the blast radius
@@ -312,7 +317,8 @@ it fails a declared dependency no crate references. `datafusion-federation`'s ca
 the closure, beside `polyglot-sql`. `Cargo.toml`'s comment calls `sql` being off the strongest
 sentence in that file, and this is what would end it. **So the ecosystem move comes first, and it is
 already made:** the one-line upstream change setting `default-features = false` on that dependency is
-proposed and OPEN against the crate's own repository, rather than patched or vendored here. That is
+proposed and OPEN against the crate's own repository, rather than patched or vendored here.
+*Corrected by the third amendment: it is released, in 0.5.7.* That is
 AGENTS.md's *engage the ecosystem instead of monkeypatching*, and step 1 of
 `.agents/skills/sutura/dependencies`' escalation order - long before a `[patch]`, and longer still
 before a vendor. Adopting the crate ahead of that change costs the `sql` feature and nineteen
@@ -328,7 +334,8 @@ back as orphaned dead code, and `DataFusionCombiner::for_subject` is its caller.
 
 **What that is worth today, stated before the property it carries.** This build depends on no
 federation provider - step 4 is blocked ahead of an upstream manifest change, and
-`cargo xtask unused-deps` would fail a declared dependency no crate names - so nothing in this
+`cargo xtask unused-deps` would fail a declared dependency no crate names (*corrected by the third
+amendment: the upstream change is released; the caller is what is missing*) - so nothing in this
 process compares two contexts. What the wiring buys is that the seam exists where a provider plugs
 in, and that the value reaching it is a digest: `ComputeContext::of` takes a `Subject` and there is
 no other constructor, so a provider written against this cannot publish a raw one. The combiner's own
@@ -433,3 +440,24 @@ ADBC driver (`docs/adr/0018`'s nineteenth amendment), which resolves the engine'
 them. The `duckdb` crate and its `arrow 58` left `Cargo.lock` in the same change, so there is no
 split left to tolerate, and `devco/arrow-majors-allow` names only `59`. The row-speaking adapters
 that still build batches from rows do so because of their own drivers, not because of an Arrow split.
+
+## Third amendment, 2026-10-07: the upstream manifest change landed, and step 4 waits for its caller only
+
+**The upstream change is in a released crate.** Step 4 records `datafusion-federation 0.5.6` as
+declaring `datafusion` without `default-features = false`, and the one-line change as "proposed and
+OPEN". The crates.io sparse index, read on 2026-10-07, shows 0.5.6 declaring `datafusion ^55` with
+default features on and 0.5.7 declaring `datafusion ^55` with `default-features = false`; both are
+published and neither is yanked. Four sentences above say otherwise and are left as written, each
+with an inline correction pointing here: the Status paragraph, row (c) of the requirements table,
+Step 4's "proposed and OPEN", and Step 5's "blocked ahead of an upstream manifest change".
+
+**What did not change is that step 4 is not built.** `datafusion-federation` is in neither
+`Cargo.toml` nor `Cargo.lock`. Its caller, a `FederationProvider`/`SQLExecutor` implementation with a
+per-subject compute context, does not exist, and the `unused-deps` hygiene task still fails a
+declared dependency no crate references. What holds step 4 back now is that caller, not the
+upstream manifest.
+
+**What this amendment does not claim.** That 0.5.7 builds against this workspace's `datafusion` pin:
+nothing was built. What adopting it costs in lockfile entries: the estimate of three after the
+change against nineteen before is not re-measured. That the provider-equality property recorded under
+Step 5 holds in 0.5.7: it was not re-read.

@@ -682,6 +682,13 @@ mod logging;
 #[cfg(test)]
 mod logging_tests;
 
+// ------------------------------------------------------------- the token is not echoed ----
+//
+// A presented bearer token, refused or accepted, in a response and in a log line at any level.
+
+#[cfg(test)]
+mod token_echo;
+
 // ---------------------------------------------------------------- run_sql (raw SQL tool) ----
 
 /// `POST /v1/sql/run` - `docs/adr/0013`'s tool, off by default. Its own file for the reason

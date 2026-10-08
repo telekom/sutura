@@ -612,9 +612,10 @@ budget here is a warehouse round trip.
 ## What exists today
 
 The shipped binary serves HTTP and MCP, compiles governed questions, executes local files through
-DataFusion, and links the BigQuery and Postgres data-source adapters. It can load local and DataHub
-metadata. `nix/shipped.nix` holds the exact release feature set; [Integrations](integrations.md)
-records what each adapter executes and what identity posture it declares.
+DataFusion, and links the BigQuery, Postgres, DuckDB and ClickHouse data-source adapters. It can
+load local, DataHub and OpenMetadata metadata. `nix/shipped.nix` holds the exact release feature
+set; [Integrations](integrations.md) records what each adapter executes and what identity posture it
+declares.
 
 `security.inbound` can verify a caller, and every executed question obtains a source credential. The
 BigQuery path can use that verified caller's assertion through a declared per-subject account map.

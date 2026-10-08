@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
+index dc63fbac9..a799a990d 100644
+--- a/crates/sutura-app/src/lib.rs
++++ b/crates/sutura-app/src/lib.rs
+@@ -453,7 +453,7 @@ where
+     C::Error: Send,
+ {
+     let pinned = definitions.get();
+-    let view = scoped_for(pinned, context);
++    let view = ScopedView::everything(pinned);
+     let compiled = compile(query, &view, row_ceiling).map_err(|cause| ServiceError::Compile { cause })?;
+     // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
+     // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders

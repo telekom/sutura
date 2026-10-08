@@ -504,7 +504,7 @@ controls exist there, and only `server.request_timeout_seconds` and
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /health`                                                 | no                                                                                                                        | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                                                                                                                       |
 | `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                                                                    | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                                                                                                                     |
-| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is                                       | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                                                                                                                             |
+| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is                                       | The metrics this catalog defines, with grains, dimensions and the values a filter may use, and the catalog's knowledge (glossary, caveats, worked examples) as the caller may see it - the same text `describe_catalog` returns                                                                                                       |
 | `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is                                        | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity)                                                                                               |
 | `POST /mcp`                                                   | yes, when one is configured; plus leg 1 where `security.inbound` is - **only when `server.agent_surface.enabled` is set** | The agent surface: MCP JSON-RPC over the streamable-HTTP transport (`docs/adr/0023`). `tools/list` answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 `401` every forgery does, before the transport. See [the agent surface over HTTP](#the-agent-surface-over-http) |
 | `GET /metrics`                                                | its own token, never `security.access_token`                                                                              | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                                                                                                                |
@@ -1417,6 +1417,32 @@ asserted by a test rather than by the log call being careful.
 A panic is traced before the process gives up on it. The shipped profiles abort, so there is no
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
 hand, so the last thing in the log says what happened and where instead of the log just stopping.
+
+### Log format
+
+To get Bunyan JSON outside production, set the format in the configuration file. With
+`SUTURA_ENVIRONMENT=production` it is already the default.
+
+```yaml
+telemetry:
+  format: bunyan
+```
+
+The start-up line with `log_format` and `log_format_explicit` says where the format came from:
+`true` means the configuration set it, `false` means it is the default for `SUTURA_ENVIRONMENT`. The
+log goes to standard output, one JSON object per line, so Bunyan tools can read it (the
+`tracing-bunyan-formatter` crate writes it). A start-up line looks like this:
+
+```json
+{"v":0,"name":"sutura","msg":"catalog and log","level":30,"hostname":"sutura","pid":1,"time":"2026-10-07T17:56:41.705816761Z","target":"sutura_runtime::banner","line":227,"file":"crates/sutura-runtime/src/banner.rs","data_dir":"Some(\"data\")","definition_version":"unversioned","catalog_kind":"markdown","catalog_dir":"Some(\"catalog\")","log_format_explicit":true,"log_format":"bunyan","catalog_name":"model"}
+```
+
+Every line carries `v` (format version), `name` (`telemetry.service_name`), `msg`, `level` (30 is
+info, 40 is warn), `hostname`, `pid`, `time` (UTC), `target`, `file` and `line`, then the fields of
+the event. Audit records (`answered`, `refused`, and `raw_answered` and `raw_refused` for raw SQL)
+and records from dependencies that use the `log` crate come out in the same stream and format. Only
+`bunyan` and `pretty` exist, though `json` and `human` are accepted as other spellings, in any case;
+any other value stops the process at start-up.
 
 ## Stopping
 
