@@ -1,20 +1,21 @@
 #![forbid(unsafe_code)]
 
-//! The dial, against loopback listeners rather than an Oracle: what the declared anchors admit.
+//! The dial, against loopback listeners rather than an Oracle: what the declared anchors admit, and
+//! how long a connect that is never answered may take.
 
 #[cfg(test)]
 mod dial {
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
     use std::sync::{Arc, mpsc};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use sutura_conformance::corpus;
     use sutura_domain::warehouse::ResultBudget;
     use sutura_exec_oracle::{Channel, Dial, OracleError, OracleWarehouse};
 
-    fn connect(port: u16, channel: Channel<'_>) -> Result<OracleWarehouse, OracleError> {
-        let dial = Dial::new("127.0.0.1", port, "FREEPDB1", channel);
+    fn connect(port: u16, channel: Channel<'_>, deadline: Duration) -> Result<OracleWarehouse, OracleError> {
+        let dial = Dial::new("127.0.0.1", port, "FREEPDB1", channel).within(deadline);
         let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(1024).expect("a test budget is positive"));
         OracleWarehouse::connect(
             corpus::source(),
@@ -77,7 +78,7 @@ mod dial {
         let (certificate, key) = issue();
         let (port, handshake) = tls_server(&certificate, &key);
         let declared = certificate.pem();
-        let _closed = connect(port, Channel::Verified { anchors_pem: &declared });
+        let _closed = connect(port, Channel::Verified { anchors_pem: &declared }, Duration::from_secs(5));
         assert_eq!(
             handshake.recv_timeout(Duration::from_secs(10)),
             Ok(true),
@@ -92,6 +93,7 @@ mod dial {
             Channel::Verified {
                 anchors_pem: &undeclared,
             },
+            Duration::from_secs(5),
         )
         .expect_err("a server no declared anchor issued is refused");
         assert_eq!(
@@ -108,8 +110,41 @@ mod dial {
             Channel::Verified {
                 anchors_pem: "no certificate here",
             },
+            Duration::from_secs(1),
         )
         .expect_err("a bundle with no certificate is refused");
         assert!(matches!(error, OracleError::TrustAnchors { .. }), "{error:?}");
+    }
+
+    /// **A connect that is never answered is refused within the deadline.** A listener whose accept
+    /// queue is full drops further connection requests, so the client's connect waits on the
+    /// operating system's own retry schedule - a minute or more - unless the dial is bounded.
+    #[test]
+    fn a_connect_nobody_answers_is_refused_within_the_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port binds");
+        rustix::net::listen(&listener, 0).expect("the backlog shrinks");
+        let address = listener.local_addr().expect("it has an address");
+        let mut queued = Vec::new();
+        while let Ok(stream) = TcpStream::connect_timeout(&address, Duration::from_millis(200)) {
+            queued.push(stream);
+            assert!(queued.len() < 256, "the accept queue never filled");
+        }
+
+        let (told, finished) = mpsc::channel();
+        let port = address.port();
+        drop(std::thread::spawn(move || {
+            let started = Instant::now();
+            let refused = connect(port, Channel::Plaintext, Duration::from_secs(1)).is_err();
+            let _ignored = told.send((refused, started.elapsed()));
+        }));
+        let (refused, elapsed) = finished
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the dial returned within twenty seconds");
+        assert!(refused, "a connect nobody answered opened a warehouse");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the dial took {elapsed:?} against a one-second deadline"
+        );
+        drop(listener);
     }
 }

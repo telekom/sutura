@@ -46,7 +46,8 @@ const IMPERSONATION_DEFERRED: &str = "this adapter is one connection under the u
 ///
 /// # The limit, next to the claim
 ///
-/// The dial has no timeout of its own: the driver connects with a bare `TcpStream::connect`.
+/// The TCP connect is bounded by `sutura_exec_oracle::DIAL_DEADLINE`; the handshake after it is
+/// not, so a listener that accepts and then never answers holds the boot.
 ///
 /// # Errors
 ///

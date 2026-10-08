@@ -4090,6 +4090,7 @@ dependencies = [
  "oracledb",
  "parking_lot",
  "rcgen",
+ "rustix",
  "rustls",
  "sutura-conformance",
  "sutura-dev",

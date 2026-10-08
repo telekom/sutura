@@ -198,6 +198,12 @@ impl core::fmt::Debug for OracleWarehouse {
     }
 }
 
+/// How long the TCP connect to the listener may take before the dial is refused.
+///
+/// The bound covers the connect only: a listener that accepts and then never answers is not bounded
+/// by it, because the driver reads its handshake with no timeout.
+pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// How the connection to the listener is secured.
 #[derive(Debug, Clone, Copy)]
 pub enum Channel<'pem> {
@@ -215,9 +221,11 @@ pub struct Dial<'dial> {
     port: u16,
     service_name: &'dial str,
     channel: Channel<'dial>,
+    deadline: std::time::Duration,
 }
 
 impl<'dial> Dial<'dial> {
+    /// A dial bounded by [`DIAL_DEADLINE`].
     #[must_use]
     pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel: Channel<'dial>) -> Self {
         Self {
@@ -225,7 +233,14 @@ impl<'dial> Dial<'dial> {
             port,
             service_name,
             channel,
+            deadline: DIAL_DEADLINE,
         }
+    }
+
+    /// The same dial with its TCP connect bounded by `deadline` instead.
+    #[must_use]
+    pub const fn within(self, deadline: std::time::Duration) -> Self {
+        Self { deadline, ..self }
     }
 }
 
@@ -251,7 +266,8 @@ impl OracleWarehouse {
             .set_connect_string(&connect_string)
             .map_err(connect_err)?
             .set_credentials(user, password)
-            .set_follow_redirects(false);
+            .set_follow_redirects(false)
+            .set_transport_connect_timeout(Some(dial.deadline));
         if let Channel::Verified { anchors_pem } = dial.channel {
             config = config
                 .set_trust_anchors_pem(anchors_pem)
