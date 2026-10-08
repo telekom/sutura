@@ -22,16 +22,19 @@
 //! a page being kept off the site while nothing is.
 //!
 //! **The limit, next to the claim.** `exclude_docs` is ignore-file syntax, and this gate
-//! implements the two shapes it accepts rather than all of it - so a glob, a directory pattern or
-//! a `!` negation is REFUSED, because a pattern this cannot resolve is an exclusion nothing
-//! checks. The two it does implement match the way mkdocs matches them, [`exclude`] carries the
-//! measurement of what happened when they did not, and a pattern reaching more than one page is
-//! itself a finding.
+//! implements the shapes it accepts rather than all of it - so a glob, a `!` negation or a
+//! directory pattern other than `/dir/` is REFUSED, because a pattern this cannot resolve is an
+//! exclusion nothing checks. The ones it does implement match the way mkdocs matches them,
+//! [`exclude`] carries the measurement of what happened when they did not, and a page-name pattern
+//! reaching more than one page is itself a finding.
 //!
 //! A LINK from a published page into an excluded one is the third thing this holds, and it is
 //! here because `mkdocs build --strict` does NOT catch it: mkdocs logs that link at INFO and
 //! exits 0, measured. [`links`] carries the rule, the measurement, the `--8<--` includes it
 //! follows to find a page's real body, and the syntax it still does not read.
+//!
+//! A `src` that names no file is the fourth. [`embeds`] holds an `<iframe>`, an `<img>` and a
+//! markdown image to a file under the docs directory, and carries what it does not read.
 //!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:
@@ -54,6 +57,7 @@ use std::path::Path;
 use crate::Verdict;
 use crate::repo;
 
+mod embeds;
 mod exclude;
 mod links;
 mod site_links;
@@ -585,12 +589,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if found.is_empty() {
         println!(
-            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} asset(s) resolve",
+            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} iframe and image source(s) resolve, {} asset(s) resolve",
             nav.len(),
             present.len(),
             excluded.len(),
             sweep.scanned,
             published.len(),
+            sweep.embeds,
             declared.len()
         );
         return Verdict::Pass;

@@ -366,9 +366,12 @@ The site is mkdocs-material versioned by [mike](https://github.com/jimporter/mik
 is explicit rather than derived, and `cargo xtask check-docs` fails on a page in no nav entry, a nav
 entry with no file, or an asset that stopped resolving. A page that is deliberately not part of the
 site - the implementation plans are the case - is named in `exclude_docs` instead, and the same gate
-fails an exclusion naming no page, a page both navigated to and excluded, a pattern it cannot
-resolve to one file, and a published page that LINKS an excluded one. That last is not `--strict`'s
-job: mkdocs logs such a link at INFO and exits 0, measured. **This file is one of those published
+fails an exclusion naming no page, a page both navigated to and excluded, and a pattern that is
+neither one page nor one whole directory written `/dir/` (`/adr/` keeps the decision records off
+the site). It fails an `<iframe src>`, an `<img src>` or a `![](src)` image whose file is not under
+`docs/`, and it does not check a remote URL. It also fails a published page that LINKS an excluded
+one. That is not `--strict`'s job: mkdocs logs such a link at INFO and exits 0, measured.
+**This file is one of those published
 pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
 here resolves against that page's URL rather than the repository root, and the gate reads this file
 to judge it. `just validate` renders the site as its first step, so a page that cannot render fails

@@ -49,6 +49,7 @@ use std::path::Path;
 use crate::markdown::{self, Unlexable};
 
 use super::CONFIG;
+use super::embeds::{self, Embed, Reach};
 
 /// The `pymdownx.snippets` marker.
 const INCLUDE_MARKER: &str = "--8<--";
@@ -101,6 +102,8 @@ pub(super) struct Scan {
     read: usize,
     /// What this text pulls in with `--8<--`.
     includes: Vec<Include>,
+    /// The `src` of every iframe and image in it.
+    embeds: Vec<Embed>,
 }
 
 /// Every inline link target in the prose, as written.
@@ -214,6 +217,7 @@ fn scan(written: &Written<'_>, text: &str, excluded: &BTreeSet<String>) -> Resul
         problems: Vec::new(),
         read: 0,
         includes: Vec::new(),
+        embeds: embeds::of(&lines),
     };
     for line in &lines {
         out.includes.extend(include(line));
@@ -257,6 +261,29 @@ pub(super) struct Sweep {
     /// page, exit 0, 51 of 52 pages unscanned - because the other pages supply the count and a
     /// per-tree quantifier defends nothing about WHICH page.
     pub(super) scanned: usize,
+    /// How many iframe and image sources resolved to a file in the docs directory.
+    pub(super) embeds: usize,
+}
+
+/// Whether each embed in one file reaches a file in the docs directory.
+///
+/// A `src` in an included file resolves against the including page, the same as a link does.
+fn embed_problems(root: &Path, docs_dir: &str, written: &Written<'_>, found: &[Embed], out: &mut Sweep) {
+    for embed in found {
+        let shown = &embed.src;
+        match embeds::reached(written.page, embed) {
+            Reach::Elsewhere => {}
+            Reach::Unresolvable(why) => out.problems.push(format!(
+                "`{}` embeds `{shown}`, which cannot be checked: {why}",
+                written.file
+            )),
+            Reach::Docs(path) if root.join(docs_dir).join(&path).is_file() => out.embeds = out.embeds.saturating_add(1),
+            Reach::Docs(path) => out.problems.push(format!(
+                "`{}` embeds `{shown}`, which is `{docs_dir}/{path}`, and no such file exists - mkdocs copies what it finds and says nothing about the rest, so the reader gets an empty frame or a broken image",
+                written.file
+            )),
+        }
+    }
 }
 
 /// One published page and everything it pulls in. `true` when it was scanned end to end.
@@ -266,6 +293,7 @@ fn scan_page(
     text: String,
     excluded: &BTreeSet<String>,
     snippets: Snippets,
+    docs_dir: &str,
     out: &mut Sweep,
 ) -> bool {
     let mut pending = vec![(String::from(written.file), text)];
@@ -285,6 +313,7 @@ fn scan_page(
                 continue;
             }
         };
+        embed_problems(root, docs_dir, &here, &scanned.embeds, out);
         out.problems.extend(scanned.problems);
         out.read = out.read.saturating_add(scanned.read);
         for named in scanned.includes {
@@ -342,6 +371,7 @@ pub(super) fn sweep(
         problems: Vec::new(),
         read: 0,
         scanned: 0,
+        embeds: 0,
     };
     for page in published {
         let published_as = format!("{docs_dir}/{page}");
@@ -361,7 +391,7 @@ pub(super) fn sweep(
             file: &published_as,
             published: &published_as,
         };
-        if scan_page(root, &written, text, excluded, snippets, &mut out) {
+        if scan_page(root, &written, text, excluded, snippets, docs_dir, &mut out) {
             out.scanned = out.scanned.saturating_add(1);
         }
     }

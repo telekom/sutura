@@ -525,7 +525,7 @@ docs-list:
     pixi run --frozen -e docs docs-list
 
 # Named by the UTC second, never the next ordinal, so two branches do not contend for one (#937).
-# A new ADR: docs/adr/<YYYYMMDDHHMMSS>-<slug>.md, listed under exclude_docs in mkdocs.yml.
+# A new ADR: docs/adr/<YYYYMMDDHHMMSS>-<slug>.md. `exclude_docs` keeps the whole directory off the site.
 new-adr slug:
     cargo run -q -p xtask -- new-adr {{ quote(slug) }}
 
