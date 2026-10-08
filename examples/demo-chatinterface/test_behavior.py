@@ -434,10 +434,11 @@ class DemoBehavior(unittest.TestCase):
                     "PATH": f"{fake_bin}:{os.environ['PATH']}",
                     # The stub answers at once, so each call returns on its exit and these are never
                     # reached. A stub stalled past the 10s probe default reproduces the observed
-                    # `no container runtime (Cli)` red, so the red is CONSISTENT with that cause, not
-                    # proven: `Cli` also covers a probe that failed to spawn or exited non-zero,
-                    # which this does not touch. The query budget is lifted for the same stall; it
-                    # reports a wedged daemon rather than `Cli`.
+                    # red, which was then reported as `no container runtime (Cli)`, so the red is
+                    # CONSISTENT with that cause, not proven. A stalled `--version` is now
+                    # `SilentCli`, a non-zero exit `FailingCli` and a spawn failure `Cli`, so the
+                    # next red names its cause. The query budget is lifted for the same stall; it
+                    # reports a wedged daemon rather than a CLI cause.
                     "SUTURA_DOCKER_PROBE_TIMEOUT_SECS": str(HANG_CEILING_S),
                     "SUTURA_DOCKER_QUERY_TIMEOUT_SECS": str(HANG_CEILING_S),
                 },
