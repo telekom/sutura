@@ -30,7 +30,8 @@ and these keys. It requires `dir` and `data_dir`, but does not read them.
 | `max_response_bytes` | integer | `8388608` | The size limit for one response page. `0` is refused.                                                        |
 
 For TLS, the reader uses `security.outbound`: `transport_anchors` (a PEM file, or `system`) and an
-optional `client_certificate` and `client_key`. These keys are shared with the BigQuery source.
+optional `client_certificate` and `client_key`. The BigQuery source does not use them: a PEM file or a
+client certificate beside a `bigquery` source stops startup.
 
 ## Example
 
