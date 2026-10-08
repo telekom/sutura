@@ -213,7 +213,7 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     // `subscription_key` would not have shown it - a subscription belongs to one customer, so
     // summing per-link distinct counts happens to be right over this corpus, and a pull-up
     // protecting nothing reads as coverage.
-    // `the_refused_distinct_value_spans_two_join_keys` measures both halves of that.
+    // `the_distinct_value_spans_two_join_keys` measures both halves of that.
     (
         "metrics/products_in_use.md",
         Edit::Added(
@@ -669,7 +669,7 @@ type SeenUnder = std::collections::BTreeMap<(String, String, String), std::colle
 /// untested by the case that motivates it. A distinct PRODUCT key does span,
 /// and this is the pair that proves it.
 #[test]
-fn the_refused_distinct_value_spans_two_join_keys() {
+fn the_distinct_value_spans_two_join_keys() {
     let mut regions: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for row in rows_of("dim_customer.csv") {
         regions.insert(field(&row, 0), field(&row, 3));
@@ -693,7 +693,7 @@ fn the_refused_distinct_value_spans_two_join_keys() {
     );
     // **The other half of the pair, which is what makes the choice of metric non-arbitrary.** A
     // distinct SUBSCRIPTION key spans no customer over this corpus, so summing per-link distinct
-    // counts would be exactly right for it and the refusal would be untested by the case that
+    // counts would be exactly right for it and the differential would be untested by the case that
     // motivates it. That was true and unasserted until review measured both spans (4 against 1).
     // A corpus edit that fanned one subscription across two customers makes `subscription_key` an
     // equally good case, and this is the line that says so instead of the file going on claiming
