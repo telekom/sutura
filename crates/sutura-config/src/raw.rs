@@ -283,6 +283,14 @@ pub(crate) struct RawGovernance {
     /// (`MAX_ROWS`) when absent, which is every deployment's behaviour before this key existed.
     #[serde(default)]
     pub(crate) top_row_ceiling: Option<u32>,
+    /// How many rows a federated answer may return whole before it is refused -
+    /// `FederatedRowCeiling::DEFAULT` (`MAX_ROWS`) when absent, which is every deployment's
+    /// behaviour before this key existed. Bounded above by `FederatedRowCeiling::MAX`.
+    ///
+    /// The field is not spelled like its key: three `*_ceiling` fields in one struct trip
+    /// `clippy::struct_field_names`, and the key is the operator-facing name.
+    #[serde(default, rename = "federated_row_ceiling")]
+    pub(crate) federated_rows: Option<u32>,
 }
 
 /// The pair of numbers `RawGovernance::per_replica_spend_ceiling` holds together.

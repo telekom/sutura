@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use sutura_domain::model::InvalidIdentifier;
 use sutura_domain::pinned::InvalidVersion;
-use sutura_domain::plan::{InvalidRowCeiling, RowCeiling};
+use sutura_domain::plan::{FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidRowCeiling, RowCeiling, RowCeilings};
 use sutura_domain::source::ImpersonationCapability;
 
 use crate::api::ApiSettings;
@@ -377,6 +377,11 @@ pub enum SettingsError {
         #[source]
         cause: InvalidRowCeiling,
     },
+    #[error("`governance.federated_row_ceiling` is not usable")]
+    FederatedRowCeiling {
+        #[source]
+        cause: InvalidFederatedRowCeiling,
+    },
     /// The values are all well formed and the deployment they describe is one this service will
     /// not serve.
     ///
@@ -419,6 +424,7 @@ pub struct Settings {
     sources: SourceRegistry,
     spend_budget: Option<SpendBudget>,
     row_ceiling: RowCeiling,
+    federated_row_ceiling: FederatedRowCeiling,
 }
 
 impl Settings {
@@ -472,6 +478,7 @@ impl Settings {
             tools: parse::parse_tools(raw),
             spend_budget: parse::parse_spend_budget(raw)?,
             row_ceiling: parse::parse_row_ceiling(raw)?,
+            federated_row_ceiling: parse::parse_federated_row_ceiling(raw)?,
             sources,
         })
     }
@@ -835,6 +842,20 @@ impl Settings {
     #[inline]
     pub const fn row_ceiling(&self) -> RowCeiling {
         self.row_ceiling
+    }
+
+    /// The most rows a federated answer may return whole - [`FederatedRowCeiling::DEFAULT`] unless
+    /// `governance.federated_row_ceiling` configured another, at most [`FederatedRowCeiling::MAX`]
+    /// (`github.com/telekom/sutura#828`).
+    #[inline]
+    pub const fn federated_row_ceiling(&self) -> FederatedRowCeiling {
+        self.federated_row_ceiling
+    }
+
+    /// Both row ceilings, as the one value a service is composed with.
+    #[inline]
+    pub const fn row_ceilings(&self) -> RowCeilings {
+        RowCeilings::new(self.row_ceiling, self.federated_row_ceiling)
     }
 
     /// What goes into the agent-facing system prompt beyond the pinned bundle and the tool list.

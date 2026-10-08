@@ -42,7 +42,7 @@
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeiling};
+use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeiling, RowCeilings};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -108,9 +108,9 @@ pub(crate) type LegPreflight<W, B, C> =
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
 /// identities via [`ExecutedAs::and`]. The combiner applies the working-set ceiling, and the answer
-/// carries the usual row cap - unless the plan carries case 2's `top`
-/// (`github.com/telekom/sutura#777`), in which case `row_ceiling` bounds the combined set BEFORE it
-/// is ranked, and the row cap below never runs for this answer at all.
+/// carries a row cap, `row_ceilings.federated()` (`github.com/telekom/sutura#828`) - unless the plan
+/// carries case 2's `top` (`github.com/telekom/sutura#777`), in which case `row_ceilings.top()` bounds
+/// the combined set BEFORE it is ranked, and the row cap below never runs for this answer at all.
 pub(crate) fn answer_federated<W, B, C>(
     pinned: &PinnedDefinitions,
     plan: &FederatedPlan,
@@ -121,7 +121,7 @@ pub(crate) fn answer_federated<W, B, C>(
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
-    row_ceiling: RowCeiling,
+    row_ceilings: RowCeilings,
 ) -> Answering<W, B, C>
 where
     W: Warehouse + Sync,
@@ -365,15 +365,16 @@ where
     // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
     // is taken once, above the combine.
     if let Some(top) = plan.top() {
-        return ranked_answer::<W, B, C>(plan, &answer, row_ceiling, top, &credentials, pinned, executed_as);
+        return ranked_answer::<W, B, C>(plan, &answer, row_ceilings.top(), top, &credentials, pinned, executed_as);
     }
-    if exceeds_row_cap(answer.rows().len(), sutura_domain::plan::MAX_ROWS) {
+    let federated_ceiling = row_ceilings.federated().get();
+    if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
                 reason: RefusalReason::ResultTooLarge {
                     bound: sutura_domain::query::ResultBound::Rows {
-                        limit: sutura_domain::plan::MAX_ROWS,
+                        limit: federated_ceiling,
                     },
                 },
             },
