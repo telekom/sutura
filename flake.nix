@@ -1220,6 +1220,27 @@
           '');
         };
 
+        # The OpenMetadata venue (#152): starts the compose `openmetadata` profile and runs the live
+        # acceptance cells - the serving surface, a bearer-less read refused, and the golden catalog
+        # provisioned over the REST API and read back through `HttpSnapshotReader` - failing rather
+        # than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`. The `ci-openmetadata-tier` CI job runs it;
+        # `just openmetadata-acceptance` is its by-hand twin, and nothing checks that the two agree.
+        # An app for `apps.datahub-acceptance`'s reason: the runner needs the pinned toolchain and a
+        # docker socket a nix check does not have. No teardown: the CI runner is ephemeral.
+        apps.openmetadata-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-openmetadata-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with openmetadata
+            export SUTURA_DEV_REQUIRE_TIER=1
+            exec cargo test --profile ci -p sutura-catalog-openmetadata --features http --test provisioned -- --ignored --nocapture "$@"
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has

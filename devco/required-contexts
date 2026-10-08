@@ -236,6 +236,13 @@ ci.yml:oracle-tier
 # `ci-aggregate` holds run-or-fail for it.
 ci.yml:ci-datahub-tier
 
+# The OpenMetadata docker tier, advisory for `ci-datahub-tier`'s reason above: category-gated on
+# `catalog_openmetadata` (derived from `crates/sutura-catalog-openmetadata`; a docker-tier
+# `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on a
+# diff confined to other adapters, and a required context that does not report is a permanently
+# pending merge. `ci-aggregate` holds run-or-fail for it.
+ci.yml:ci-openmetadata-tier
+
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it
 # unsuited to a nix check, and a red kind cluster must not block unrelated work on a pull
