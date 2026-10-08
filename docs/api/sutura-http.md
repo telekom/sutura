@@ -715,7 +715,7 @@ Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it 
 
 **Only compiled when the `agent` feature is on**, and only mounted when the deployment set
 `server.agent_surface.enabled: true`. Without `security.inbound` it is served only on a
-`single-user` deployment that is loopback or behind the token and the limiter, with no
+`single-user` deployment reachable from this host only or behind the token and the limiter, with no
 impersonating source; anything else is a startup refusal (`AgentSurfaceWithoutInboundIdentity`),
 not a silent skip. `/mcp` is the streamable-HTTP
 transport's own conventional endpoint name, which is what an off-the-shelf MCP client already

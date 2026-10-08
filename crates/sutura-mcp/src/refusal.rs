@@ -150,11 +150,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "the relationship `{relationship}` crossing into `{source}` declares more than one join \
              key, and the two legs link on a single column"
         ),
-        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => format!(
-            "`{metric}` cannot be computed across two data systems because its {aggregate} \
-             aggregate is not additive; ask it without the dimension that sits on the second \
-             data system"
-        ),
         // Written for an agent: D19 + A4's own reason applies here too. A non-finite ratio or an
         // ambiguous join is the same plan against the same rows failing again - not an outage - so
         // retrying it will not change the answer.
@@ -271,7 +266,7 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
 }
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
@@ -335,10 +330,6 @@ mod tests {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                     .expect("a test relationship is a relationship"),
-            },
-            RefusalReason::MeasureDoesNotFederate {
-                metric: metric(),
-                aggregate: Aggregate::CountDistinct,
             },
             RefusalReason::FederatedAnswerNotWellFormed {
                 federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,

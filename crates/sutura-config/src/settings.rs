@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use sutura_domain::model::InvalidIdentifier;
 use sutura_domain::pinned::InvalidVersion;
 use sutura_domain::plan::{FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidRowCeiling, RowCeiling, RowCeilings};
-use sutura_domain::source::ImpersonationCapability;
+use sutura_domain::source::{ImpersonationCapability, host_is_loopback};
 
 use crate::api::ApiSettings;
 use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
@@ -646,13 +646,25 @@ impl Settings {
     ///
     /// The guard condition is stated here even though `AccessTokenRequired` and
     /// `RateLimitingDisabled` refuse the same off-host shapes today, so this rule does not depend on
-    /// those two staying as they are.
+    /// those two staying as they are. **Off-host here is wider than theirs:** a declared
+    /// `rate_limit.trusted_proxies` hop, a `security.tls_termination` that names a terminator other
+    /// than this process, or a `server.allowed_hosts` entry that is not a loopback address, says
+    /// callers arrive from beyond this host whatever the bind is. The limit: it reads what the
+    /// operator declared, so a hop the configuration does not name is outside it.
     #[must_use]
     pub fn agent_surface_refusals(&self) -> Vec<NotFitToServe> {
         if self.security.inbound().is_some() {
             return Vec::new();
         }
-        let off_host = !self.server.bind().is_loopback();
+        let tls = self.security.tls_termination();
+        let off_host = !self.server.bind().is_loopback()
+            || !self.rate_limit.trusted_proxies().is_empty()
+            || (tls.is_declared() && !tls.terminates_here())
+            || self
+                .server
+                .allowed_hosts()
+                .iter()
+                .any(|host| !host_is_loopback(host.as_str()));
         let mut refusals = Vec::new();
         let single_user = matches!(self.security.identity(), Some(DeploymentIdentity::StaticCredentials { .. }));
         let guarded = !off_host || (self.security.access_token().is_some() && self.rate_limit.enabled());

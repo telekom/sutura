@@ -209,6 +209,16 @@ pub const SERVICES: &[Service] = &[
         profile: Some("datahub"),
     },
     Service {
+        // The OpenMetadata metadata platform: a stack like `datahub` (the server, its `MySQL` store,
+        // its `OpenSearch` index and a migration job) and ONE row for the same reason - the server is
+        // the only container anything discovers, and it is healthy only after the migration job
+        // completed. OFF unless asked for: `sutura-catalog-openmetadata` IS a reader, so this is a
+        // cost argument, two JVMs and a migration, where `clickhouse` is one alpine container.
+        name: "openmetadata",
+        container_port: 8585,
+        profile: Some("openmetadata"),
+    },
+    Service {
         // The Oracle data source (`github.com/telekom/sutura#127`). Unlike Postgres and Keycloak,
         // Oracle Database is not packaged in `nixpkgs` and never converges to a nix-native tier -
         // `compose.services.yaml`'s own row says so - so this is the FIRST discoverable service
@@ -530,7 +540,7 @@ mod tests {
             .filter(|service| !service.is_default())
             .map(super::Service::name)
             .collect();
-        assert_eq!(opt_in, vec!["keycloak", "datahub", "oracle", "demo"]);
+        assert_eq!(opt_in, vec!["keycloak", "datahub", "openmetadata", "oracle", "demo"]);
 
         // And a CHEAP data source is not behind a profile: that is what an adapter is tested
         // against, so making it opt-in would be the tier failing at its own job. `clickhouse` is
@@ -556,14 +566,17 @@ mod tests {
         // the SHAPE: one registered name, and no row for a store.
         let names: Vec<&str> = SERVICES.iter().map(super::Service::name).collect();
         assert!(
-            names.contains(&"datahub"),
-            "the platform is registered under its GMS service name"
+            names.contains(&"datahub") && names.contains(&"openmetadata"),
+            "each platform is registered under the name of the container a reader dials"
         );
         for store in [
             "datahub-kafka",
             "datahub-mysql",
             "datahub-opensearch",
             "datahub-system-update",
+            "openmetadata-mysql",
+            "openmetadata-opensearch",
+            "openmetadata-migrate",
         ] {
             assert!(
                 !names.contains(&store),
@@ -596,7 +609,10 @@ mod tests {
         // ACTIVE profiles - so a profile missing from this walk leaves a container and a named
         // volume behind while the destroy reports success. Derived from `SERVICES`, so adding a
         // profile cannot forget to update it.
-        assert_eq!(super::profiles(), vec!["identity", "datahub", "oracle", "demo"]);
+        assert_eq!(
+            super::profiles(),
+            vec!["identity", "datahub", "openmetadata", "oracle", "demo"]
+        );
         for service in SERVICES {
             if let Some(profile) = service.profile() {
                 assert!(

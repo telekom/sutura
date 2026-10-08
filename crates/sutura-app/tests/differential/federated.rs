@@ -203,6 +203,110 @@ fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     assert!(matches!(mono, Compiled::Planned { .. }), "{mono:?}");
 }
 
+/// **What the splitter hands the fact leg for a distinct count: the column as a KEY under the leaf's
+/// label, and no term** - so the leg returns one row per distinct value and the combine counts them,
+/// rather than the leg returning a count no combine can add. The sum beside it is the control: its
+/// leaf is a term and no key, so the assertion is about the distinct count and not about every leg.
+#[test]
+fn a_distinct_count_is_a_key_of_the_fact_leg_and_not_a_term() {
+    let two = harness::bundle(&derived().two_source);
+    let fact_leg_of = |name: &str| {
+        let (_, query) = corpus::every_question()
+            .into_iter()
+            .find(|(at, _)| at == name)
+            .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+        match compile(&query, &ScopedView::everything(&two), RowCeiling::DEFAULT) {
+            Ok(Compiled::Federated { plan }) => plan,
+            other => panic!("{name} is a two-source question, not {other:?}"),
+        }
+    };
+    let leaf = sutura_domain::plan::InternalLabel::Leaf(0).label();
+
+    let distinct = fact_leg_of("two-source-a-distinct-value-spanning-join-keys");
+    assert!(
+        distinct.fact().keys().iter().any(|key| key.label() == leaf),
+        "the fact leg groups by the distinct column under `{leaf}`"
+    );
+    assert!(
+        distinct.fact().terms().is_empty(),
+        "no term: the count happens above the legs"
+    );
+
+    let summed = fact_leg_of("recurring-revenue-by-region");
+    assert!(
+        summed.fact().keys().iter().all(|key| key.label() != leaf),
+        "a summed leaf is never a key"
+    );
+    assert_eq!(summed.fact().terms().len(), 1, "a summed leaf is the leg's one term");
+}
+
+/// **A pulled-up distinct count has no row cap and is bounded by bytes instead: past a bound the
+/// answer is a refusal, and it is never a shorter answer.**
+///
+/// The fact leg returns one row per distinct value, so the count's input grows with the data. The
+/// bounds it meets are the engine's working set per leg and the combine's working set; over either,
+/// the service refuses with [`RefusalReason::ResourcesExhausted`] or [`RefusalReason::ResultTooLarge`].
+/// This sweeps both bounds in powers of two and holds every outcome to the whole answer or one of
+/// those two refusals.
+///
+/// **It holds the pool bound only.** At every ceiling here the pool refuses first, so the sweep never
+/// reaches a result budget, where a collector could truncate. The leg collector's result budget is
+/// held by `collect::budget_tests::the_engines_own_collection_is_refused_for_crossing_its_byte_budget`
+/// and the combine's by `combine::tests::refusals::a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short`.
+#[test]
+fn a_distinct_count_past_a_byte_bound_is_refused_and_never_answered_short() {
+    const NAME: &str = "two-source-a-distinct-value-spanning-join-keys";
+    let questions = corpus::every_question();
+    let question = |name: &str| {
+        questions
+            .iter()
+            .find(|(at, _)| at == name)
+            .unwrap_or_else(|| panic!("{name} is not a question in this corpus"))
+            .1
+            .clone()
+    };
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let pinned = || harness::bundle(&derived().two_source);
+    let unbounded = harness::two_engines(pinned());
+    let distinct = question(NAME);
+    let whole = match harness::answered(&unbounded, &distinct, NAME, &combiner) {
+        Ok(ToolOutcome::Answer { rows, .. }) => rows,
+        other => panic!("the unbounded two-engine answer is the reference, not {other:?}"),
+    };
+    let mut seen = Vec::new();
+    let (mut answers, mut refusals) = (0_u32, 0_u32);
+    for shift in 10..=26_u32 {
+        let bytes = 1_u64 << shift;
+        let bounded = harness::two_engines_at(pinned(), usize::try_from(bytes).expect("a ceiling fits a usize"));
+        for (axis, outcome) in [
+            ("legs", harness::answered(&bounded, &distinct, NAME, &combiner)),
+            (
+                "combine",
+                harness::answered_within(&unbounded, &distinct, NAME, &combiner, bytes),
+            ),
+        ] {
+            match outcome {
+                Ok(ToolOutcome::Answer { rows, .. }) => {
+                    assert_eq!(rows.rows(), whole.rows(), "{axis} at 2^{shift}: a different answer");
+                    answers += 1;
+                    seen.push(format!("{axis} 2^{shift}: answer"));
+                }
+                Ok(ToolOutcome::Refusal {
+                    reason: reason @ (RefusalReason::ResourcesExhausted { .. } | RefusalReason::ResultTooLarge { .. }),
+                }) => {
+                    refusals += 1;
+                    seen.push(format!("{axis} 2^{shift}: {reason:?}"));
+                }
+                other => panic!("{axis} at 2^{shift}: neither the whole answer nor a bound refusal: {other:?}"),
+            }
+        }
+    }
+    assert!(
+        answers > 0 && refusals > 0,
+        "the sweep must cross the bound, so both an answer and a refusal are seen: {seen:#?}"
+    );
+}
+
 // ----------------------------------------------------------------------------- the instrument ---
 
 /// **Two instances of the ENGINE hold the legs, which is the first two-source side a release can

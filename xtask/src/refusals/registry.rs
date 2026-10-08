@@ -53,8 +53,10 @@ const QUERY: Subject = Subject {
     // executable. 32: the same amendment's two-statement plan ADDED
     // `CrossModelRatioSpansSources` (a second fact or calendar off the metric's source) and
     // `CrossModelRatioWithoutSharedDimension` (no dimension both facts link to), each a shape the
-    // two fact legs cannot be built for, refused by name rather than planned.
-    variants: variants(32),
+    // two fact legs cannot be built for, refused by name rather than planned. 31: the distinct-key
+    // pull-up REMOVED `MeasureDoesNotFederate` - a distinct count across two sources is answered
+    // from the distinct keys the fact leg carries, so no site raises it any more.
+    variants: variants(31),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

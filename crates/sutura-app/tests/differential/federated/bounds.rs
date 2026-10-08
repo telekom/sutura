@@ -440,7 +440,7 @@ fn widest_left_join_shape_executes_in_both_topologies() {
 
 #[test]
 #[cfg(target_os = "linux")]
-fn the_distinct_key_refusal_has_no_execution_peak() {
+fn the_distinct_key_pull_up_answers_and_reserves_working_set() {
     let question = every_question()
         .iter()
         .position(|(name, _)| name == "two-source-a-distinct-value-spanning-join-keys")
@@ -449,8 +449,11 @@ fn the_distinct_key_refusal_has_no_execution_peak() {
         topology: Topology::Two,
         question,
     });
-    assert!(record.contains("\"status\":\"refused\""), "{record}");
-    assert!(record.contains("\"peak\":0"), "{record}");
+    assert!(record.contains("\"status\":\"ok\""), "{record}");
+    assert!(
+        !record.contains("\"peak\":0,"),
+        "an answered question reserved no working set: {record}"
+    );
 }
 
 #[test]

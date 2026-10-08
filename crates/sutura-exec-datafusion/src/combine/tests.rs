@@ -319,3 +319,110 @@ fn a_numeric_key_orders_by_value_and_not_by_its_rendered_text() {
     let families: Vec<&Value> = combined.rows().iter().filter_map(|row| row.first()).collect();
     assert_eq!(families, vec![&Value::Integer(9), &Value::Integer(10)]);
 }
+
+/// **The cell the pull-up exists for: two link values that carry one product, joined to one
+/// region.** The fact leg grouped by the product as a key, so each link holds its own distinct
+/// values - `c1` holds one product and `c2` holds two - and the combine counts the distinct values
+/// above the join. Adding the per-link counts answers 3, because product 7 is counted under both.
+#[test]
+fn a_distinct_count_counts_a_value_two_link_values_share_once() {
+    let fact = fact(vec![
+        fact_row("A", text("c1"), Value::Integer(7)),
+        fact_row("A", text("c2"), Value::Integer(7)),
+        fact_row("A", text("c2"), Value::Integer(9)),
+    ]);
+    let lookup = lookup(vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]]);
+
+    let combined = combined(&distinct_plan(), &fact, &lookup, UNBOUNDED);
+    assert_eq!(
+        combined.rows(),
+        &[vec![text("A"), text("north"), text("2026-06"), Value::Integer(2)]]
+    );
+}
+
+/// A NULL is not a value a distinct count counts, in a group whose other rows carry values and in
+/// a group that carries none - the same as `COUNT(DISTINCT x)` over one table.
+#[test]
+fn a_distinct_count_ignores_null_values() {
+    let fact = fact(vec![
+        fact_row("A", text("c1"), Value::Integer(7)),
+        fact_row("A", text("c2"), Value::Null),
+        fact_row("B", text("c1"), Value::Null),
+    ]);
+    let lookup = lookup(vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]]);
+
+    let combined = combined(&distinct_plan(), &fact, &lookup, UNBOUNDED);
+    assert_eq!(
+        combined.rows(),
+        &[
+            vec![text("A"), text("north"), text("2026-06"), Value::Integer(1)],
+            vec![text("B"), text("north"), text("2026-06"), Value::Integer(0)],
+        ]
+    );
+}
+
+/// A sum the leg aggregated beside a distinct count it only keyed: the leg returns the sum at the
+/// finer grain (one row per link and product), the combine adds those partial sums and counts the
+/// products once, and the division happens once above both - 350 over 2 products.
+#[test]
+fn a_sum_beside_a_distinct_count_adds_at_the_finer_grain() {
+    let fact = two_leaf_fact(vec![
+        vec![text("A"), text("c1"), text("2026-06"), Value::Integer(100), Value::Integer(7)],
+        vec![text("A"), text("c2"), text("2026-06"), Value::Integer(200), Value::Integer(7)],
+        vec![text("A"), text("c2"), text("2026-06"), Value::Integer(50), Value::Integer(9)],
+    ]);
+    let lookup = lookup(vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]]);
+
+    let combined = combined(&revenue_per_product_plan(), &fact, &lookup, UNBOUNDED);
+    assert_eq!(
+        combined.rows(),
+        &[vec![text("A"), text("north"), text("2026-06"), real(175.0)]]
+    );
+}
+
+/// **`-0.0` is `0.0` and every NaN is one value, whichever engine produced the leg.** `DuckDB`
+/// answers `COUNT(DISTINCT x)` over `{0.0, -0.0, NaN, -NaN, 1.5}` as 3, so a leg from it may hold
+/// either zero under either link. In a lone distinct count the grouped `DataFusion` plan merges the
+/// zeros itself and keeps the NaN payloads apart (`apache/datafusion#26091`), so without the NaN fold
+/// this cell counts 4. The zero fold is held by the two-distinct ratio cell below.
+#[test]
+fn a_distinct_count_over_floats_counts_zeros_and_nans_by_sql_equality() {
+    const POSITIVE_NAN: u64 = 0x7ff8_0000_0000_0001;
+    const NEGATIVE_NAN: u64 = 0xfff8_0000_0000_0002;
+    let fact = float_keyed_fact(&[
+        ("c1", Some(0.0)),
+        ("c1", Some(f64::from_bits(POSITIVE_NAN))),
+        ("c1", Some(1.5)),
+        ("c2", Some(-0.0)),
+        ("c2", Some(f64::from_bits(NEGATIVE_NAN))),
+        ("c2", None),
+    ]);
+    let lookup = lookup(vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]]);
+
+    let combined = combined(&distinct_plan(), &fact, &lookup, UNBOUNDED);
+    assert_eq!(
+        combined.rows(),
+        &[vec![text("A"), text("north"), text("2026-06"), Value::Integer(3)]]
+    );
+}
+
+/// **The shape where `DataFusion` counts the zeros apart, so the combine's own fold holds the answer.**
+/// A ratio of two distinct counts over different columns puts both in the combine's one aggregate,
+/// which stops `DataFusion` rewriting a single distinct aggregate, and there `0.0` under one link
+/// and `-0.0` under another are two values. SQL equality counts one, so each ratio is 1 over 1
+/// whichever way round the two columns sit.
+#[test]
+fn a_ratio_of_two_distinct_counts_counts_both_zeros_once() {
+    let lookup = lookup(vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]]);
+    for (numerator, denominator, fact) in [
+        ("product_key", "mrr_cents", float_pair_fact([0.0, -0.0], [1.0, 1.0])),
+        ("mrr_cents", "product_key", float_pair_fact([1.0, 1.0], [0.0, -0.0])),
+    ] {
+        let combined = combined(&distinct_ratio_plan(numerator, denominator), &fact, &lookup, UNBOUNDED);
+        assert_eq!(
+            combined.rows(),
+            &[vec![text("A"), text("north"), text("2026-06"), real(1.0)]],
+            "{numerator} over {denominator}"
+        );
+    }
+}
