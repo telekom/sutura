@@ -3693,8 +3693,8 @@ them one at a time.</p>
 <td>the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds</td>
 </tr>
 <tr>
-<td><code>server.agent_surface.enabled</code> with no <code>security.inbound</code>, unless <code>security.identity</code> is <code>single-user</code> and the bind is loopback or both <code>security.access_token</code> and <code>rate_limit.enabled</code> guard it</td>
-<td>without leg 1, <code>/mcp</code> answers every caller as the deployment with every tool. That is accepted only where the operator declared <code>single-user</code> and the surface is local or behind the deployment token and the limiter. A missing mode is not <code>single-user</code> (<code>AgentSurfaceWithoutInboundIdentity</code>)</td>
+<td><code>server.agent_surface.enabled</code> with no <code>security.inbound</code>, unless <code>security.identity</code> is <code>single-user</code> and <code>/mcp</code> is reachable from this host only or both <code>security.access_token</code> and <code>rate_limit.enabled</code> guard it</td>
+<td>without leg 1, <code>/mcp</code> answers every caller as the deployment with every tool. That is accepted only where the operator declared <code>single-user</code> and the surface is local or behind the deployment token and the limiter. A declared <code>rate_limit.trusted_proxies</code> hop, a <code>security.tls_termination</code> of <code>sidecar</code> or <code>ingress</code>, or a <code>server.allowed_hosts</code> entry that is not a loopback address counts as off-host. A missing mode is not <code>single-user</code> (<code>AgentSurfaceWithoutInboundIdentity</code>)</td>
 </tr>
 <tr>
 <td><code>server.agent_surface.enabled</code> with no <code>security.inbound</code> and a source declaring <code>impersonation-at-source</code></td>
@@ -4049,15 +4049,19 @@ already cleared the first one:</p>
 <li><strong>Deployment time (<code>server.agent_surface.enabled</code>, default <code>false</code>).</strong> Even a build with the
   feature linked stays off until an operator sets the key. Setting it without <code>security.inbound</code>
   is a startup refusal (<code>AgentSurfaceWithoutInboundIdentity</code>) unless <code>security.identity</code> is
-  <code>single-user</code> with its reason AND the bind is loopback or both <code>security.access_token</code> and
-  <code>rate_limit.enabled</code> guard it; a missing mode is refused. A source declaring
+  <code>single-user</code> with its reason AND <code>/mcp</code> is reachable from this host only, or both
+  <code>security.access_token</code> and <code>rate_limit.enabled</code> guard it; a missing mode is refused. Reachable
+  from this host only means a loopback bind, no <code>rate_limit.trusted_proxies</code> hop, a
+  <code>security.tls_termination</code> of <code>none</code> or <code>in-process</code>, and every <code>server.allowed_hosts</code> entry a
+  loopback address: the agent surface counts a declared proxy, TLS terminator or non-loopback host
+  name as off-host. A source declaring
   <code>impersonation-at-source</code> is refused by name on such a deployment
   (<code>AgentSurfaceOverAnImpersonatingSource</code>), because it has no verified caller to run as. Where
   it serves, <code>/mcp</code> answers every caller as the deployment with every tool. Both refusals come
   from <code>Settings::agent_surface_refusals</code>, which <code>sutura_http</code>'s assembly asks again for any
   attached mount (<code>RouterNotBuilt::AgentSurfaceNotFitToServe</code>). <code>single-user</code> is the operator's
-  written word, not a count of callers. The loopback condition reads only the bind address; a
-  proxy on the same host is outside it.</li>
+  written word, not a count of callers. The condition reads the configuration, so a hop it does
+  not declare is outside it, and <code>/v1</code> keeps reading the bind alone.</li>
 </ul>
 <p><code>/mcp</code> gets the same rate limit, body cap, deployment token gate and <code>Host</code> list as <code>/v1</code>: the
 general-tier limiter (its own store, keyed and swept like <code>/v1</code>'s), <code>server.max_body_bytes</code>,
@@ -4105,7 +4109,7 @@ controls exist there, and only <code>server.request_timeout_seconds</code> and
 <tr>
 <td>inbound identity (leg 1)</td>
 <td>where <code>security.inbound</code> is declared; otherwise every caller is the deployment</td>
-<td>where <code>security.inbound</code> is declared; otherwise only on <code>single-user</code>, loopback or behind both the token and the limiter, with no impersonating source, as the deployment</td>
+<td>where <code>security.inbound</code> is declared; otherwise only on <code>single-user</code>, reachable from this host only or behind both the token and the limiter, with no impersonating source, as the deployment</td>
 <td>never - every capability, as the deployment</td>
 <td><code>inbound_layered</code> from <code>assemble</code> and <code>agent_subtree</code> (<code>crates/sutura-http/src/router.rs</code>); <code>Settings::agent_surface_refusals</code>; <code>Permitted::every_capability()</code> in <code>crates/sutura-cli/src/mcp.rs</code></td>
 </tr>
@@ -4654,7 +4658,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>server.agent_surface.enabled</code></td>
 <td><code>false</code></td>
-<td>Mounts the agent surface at <code>/mcp</code>. Off by default even in a build with the <code>agent</code> feature linked. <code>true</code> with no <code>security.inbound</code> block refuses to start unless the deployment is <code>single-user</code> and loopback or behind both the token and the limiter, with no impersonating source, and <code>true</code> on a build without the <code>agent</code> feature refuses naming the feature. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
+<td>Mounts the agent surface at <code>/mcp</code>. Off by default even in a build with the <code>agent</code> feature linked. <code>true</code> with no <code>security.inbound</code> block refuses to start unless the deployment is <code>single-user</code> and reachable from this host only (no <code>rate_limit.trusted_proxies</code> hop, no <code>sidecar</code> or <code>ingress</code> <code>security.tls_termination</code>, no non-loopback <code>server.allowed_hosts</code> entry) or behind both the token and the limiter, with no impersonating source, and <code>true</code> on a build without the <code>agent</code> feature refuses naming the feature. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
 </tr>
 <tr>
 <td><code>server.allowed_hosts</code></td>

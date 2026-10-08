@@ -3260,7 +3260,7 @@ one path that is not behind the access token, because a probe has no credential 
 <p>Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it is mounted at all.</p>
 <p><strong>Only compiled when the <code>agent</code> feature is on</strong>, and only mounted when the deployment set
 <code>server.agent_surface.enabled: true</code>. Without <code>security.inbound</code> it is served only on a
-<code>single-user</code> deployment that is loopback or behind the token and the limiter, with no
+<code>single-user</code> deployment reachable from this host only or behind the token and the limiter, with no
 impersonating source; anything else is a startup refusal (<code>AgentSurfaceWithoutInboundIdentity</code>),
 not a silent skip. <code>/mcp</code> is the streamable-HTTP
 transport's own conventional endpoint name, which is what an off-the-shelf MCP client already
