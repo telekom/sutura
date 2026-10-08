@@ -404,6 +404,11 @@ fn a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short() {
         matches!(refused, CombineError::Exhausted { ceiling_bytes: 1024 }),
         "the result budget refused, not a short answer: {refused:?}"
     );
+    assert_eq!(
+        combiner.working_set_exhausted(&refused),
+        Some(1024),
+        "the port reads it as the working-set refusal, which a caller does not retry"
+    );
 }
 
 #[test]
