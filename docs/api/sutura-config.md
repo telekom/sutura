@@ -238,10 +238,9 @@ loopback literal through `crate::sources::transport::refuse_remote_plaintext`. T
 names the database by `service_name` rather than `database`, so there is no `database` field.
 **No password is held here:** `password_file` is a path the composition root reads at boot.
 
-**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+The connection stays on that host: the reader refuses a listener's redirect before
+authentication, held by `sutura-catalog-rdbms`'s
+`the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 
 ## `use PostgresCatalogConnection`
 
@@ -1867,10 +1866,9 @@ loopback literal through `crate::sources::transport::refuse_remote_plaintext`. T
 names the database by `service_name` rather than `database`, so there is no `database` field.
 **No password is held here:** `password_file` is a path the composition root reads at boot.
 
-**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+The connection stays on that host: the reader refuses a listener's redirect before
+authentication, held by `sutura-catalog-rdbms`'s
+`the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 
 ### `use PostgresCatalogConnection`
 
@@ -2220,10 +2218,9 @@ loopback literal through `crate::sources::transport::refuse_remote_plaintext`. T
 names the database by `service_name` rather than `database`, so there is no `database` field.
 **No password is held here:** `password_file` is a path the composition root reads at boot.
 
-**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+The connection stays on that host: the reader refuses a listener's redirect before
+authentication, held by `sutura-catalog-rdbms`'s
+`the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 
 ##### Methods
 
@@ -5316,7 +5313,7 @@ legitimate one.
 - `Oracle` - An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
 
   Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
-  included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
+  included. `SourcePlacement::Oracle` carries the two channels its driver can honour.
 - `Duckdb` - A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
 
   Declarable and openable behind the `duckdb` feature, `Postgres`'s shape. One process holds the
@@ -5536,7 +5533,7 @@ convenience, and nothing needs to clone a startup refusal.
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the
   driver has no TLS handshake to perform over a local socket, so the failure it produces there
   is a confusing one that names neither key. Refusing here says which two keys disagree.
-- `TlsNotDeliverable` - A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
+- `TlsNotDeliverable` - A TLS declaration a kind's driver cannot honour (`oracle` - see `SourcePlacement::Oracle`): it verifies only against a declared PEM bundle and presents no client certificate.
 
 #### Implements
 
@@ -5870,6 +5867,23 @@ Parses a declared service name.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `enum OracleChannel`
+
+```rust
+pub enum OracleChannel
+```
+
+How an Oracle listener is reached - the two `SourceTransport` states its driver can honour.
+
+##### Variants
+
+- `Plaintext` - No transport security. The parse allows it only for a loopback host.
+- `Verified` - TLS, verified against the certificates in the PEM bundle at this absolute path and no others: they replace the driver's bundled public certificate authorities.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 #### `enum InvalidOracleServiceName`
 
 ```rust
@@ -5976,14 +5990,11 @@ be skipped" look like the same sentence and are not.
   exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
 - `Oracle` - An Oracle Database, reached over its TCP listener.
 
-  **The static-credential half, in `Self::ClickHouse`'s shape - with no transport field, and
-  that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
-  shared rule confines the DECLARED host to a loopback literal - not the connection: the driver
-  follows a listener's redirect to any address, in plaintext (`crate::sources`' `oracle` parse
-  states it and names the cell that holds it). Plaintext only, because the driver takes no
-  caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
-  widens, so no declared `transport_anchors` could be what the source verifies against. A field
-  here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+  **The static-credential half, in `Self::ClickHouse`'s shape - with an `OracleChannel`
+  rather than a `SourceTransport`**, because the driver verifies against a PEM bundle and
+  presents no client certificate: `mutual` and `transport_anchors: system` are refused at parse
+  rather than carried here. A listener's redirect is refused, so the connection stays on the
+  declared host (`crate::sources`' `oracle` parse names the cell that holds it).
 - `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
 
 ##### Methods

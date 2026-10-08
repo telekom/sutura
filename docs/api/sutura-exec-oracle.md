@@ -35,22 +35,16 @@ answers `None`. This module's own `#[cfg(test)]` cell,
 
 ## Limits
 
-- **No transport of its own, and less than `sutura_exec_postgres` carries.** ADR 0010's
-  declared-trust-store rule (a bundle path, or the host store, resolved once by a composition
-  root and handed to the adapter as a `rustls::ClientConfig`) has NOWHERE to attach here:
-  `oracledb::Connection` builds its OWN `rustls::ClientConfig` internally, from a wallet
-  directory's `ewallet.pem` when one is configured and from the bundled `webpki-roots` set when
-  one is not (measured by reading `oracle/rust-oracledb/src/transport.rs`) - there is no
-  constructor that takes an external root store or a caller-built `ClientConfig` at all. So
-  `OracleWarehouse::connect_secured` takes a wallet directory rather than a caller-built
-  `rustls::ClientConfig`, and
-  a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
-  "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
-  an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
-  a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
-  The connection is not confined: `oracledb::connect` follows a listener's TNS REDIRECT to any
-  address it names, in plaintext, with no option to refuse.
-  `OracleWarehouse::connect_secured` therefore has no composition-root caller.
+- **TLS verifies against the declared anchors only.** `Channel::Verified` hands the driver
+  PEM certificates that REPLACE its bundled public certificate authorities, so a server is
+  admitted only under a certificate those anchors issue. The driver still builds its own
+  `rustls::ClientConfig`, so ADR 0010's host store (`transport_anchors: system`) and a client
+  certificate (`mutual`) have nothing here to reach, and `sutura-config` refuses both on a
+  `kind: oracle` source.
+- **A listener's redirect is refused before authentication**, as
+  `OracleError::RedirectRefused`: the driver is told not to follow one, so the connection
+  stays on the address the source declared. A clustered listener that redirects every client is
+  therefore refused too; declare the address that answers.
 - **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
   links this crate into both composition roots through `OracleWarehouse::connect`;
   `nix/shipped.nix` does not carry that feature - see its entry in `sutura-cli`'s manifest.
@@ -82,7 +76,9 @@ Why this data system could not answer.
 
 ### Variants
 
+- `TrustAnchors` - The declared trust anchors are not PEM certificates the driver can verify a server against.
 - `Connect`
+- `RedirectRefused` - The listener answered with a redirect. Every redirect is refused before authentication: the address it names is one no source declared, so no declared transport governs it.
 - `Execute`
 - `DivisionByZero` - The server refused a statement as `ORA-01476: divisor is equal to zero`.
 - `UnsupportedType` - A column came back as a type this adapter does not map. An error, not a stringified value.
@@ -122,11 +118,13 @@ An Oracle connection, behind the `Warehouse` port.
 ### Methods
 
 ```rust
-pub fn connect(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, service_name: &str, user: &str, password: &str, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
+pub fn connect(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, dial: Dial<'_>, user: &str, password: &str, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
 ```
 
-Opens one connection over a plain TCP EZCONNECT string (`host:port/service_name`), with no
-transport security at all.
+Opens one connection to the listener `dial` names.
+
+A redirect from the listener is refused before authentication as
+`OracleError::RedirectRefused`, so the connection stays on the declared address.
 
 ```rust
 pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, credential: &fixture::FixtureCredential, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
@@ -137,18 +135,52 @@ A connection config's host/port/credential for the fixture tier - the counterpar
 `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
 publishes - it is the image's name for itself.
 
-```rust
-pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, service_name: &str, user: &str, password: &str, result_budget: sutura_domain::warehouse::ResultBudget, wallet: Option<&OracleWallet>) -> Result<Self, OracleError>
-```
-
-Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based
-TLS - see the module header's limit on how far this reaches ADR 0010's declared-trust-store
-rule. `wallet` is a directory containing an `ewallet.pem`; `None` verifies against the
-driver's bundled `webpki-roots` set rather than against a declared anchor.
-
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `enum Channel`
+
+```rust
+pub enum Channel<'pem>
+```
+
+How the connection to the listener is secured.
+
+### Variants
+
+- `Plaintext` - No transport security. A composition root reaches this only for a loopback host.
+- `Verified` - TLS, verified against these PEM certificates and no others: they replace the driver's bundled public certificate authorities rather than adding to them.
+
+### Implements
+
+`Clone`, `Copy`, `Debug`
+
+## `struct Dial`
+
+```rust
+pub struct Dial<'dial>
+```
+
+Where one connection goes and how it is secured: an EZCONNECT `host:port/service_name`.
+
+### Methods
+
+```rust
+pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel: Channel<'dial>) -> Self
+```
+
+A dial bounded by `DIAL_DEADLINE`.
+
+```rust
+pub const fn within(self, deadline: std::time::Duration) -> Self
+```
+
+The same dial with its TCP connect bounded by `deadline` instead.
+
+### Implements
+
+`Clone`, `Copy`, `Debug`
 
 ## `struct DriverError`
 
@@ -168,20 +200,12 @@ type, so this is the newtype rather than a second, string-only error shape.
 
 `Debug`, `Display`, `Error`
 
-## `struct OracleWallet`
+## `constant DIAL_DEADLINE`
 
-```rust
-pub struct OracleWallet
-```
+How long the TCP connect to the listener may take before the dial is refused.
 
-A wallet directory for `OracleWarehouse::connect_secured` - a path to a directory containing
-`ewallet.pem`, and the password protecting the private key inside it (if any).
-
-### Methods
-
-```rust
-pub fn at(location: impl Into<String>, password: impl Into<String>) -> Self
-```
+The bound covers the connect only: a listener that accepts and then never answers is not bounded
+by it, because the driver reads its handshake with no timeout.
 
 ## Module `fixture`
 
