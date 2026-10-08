@@ -324,6 +324,16 @@ impl SocketDirectory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OracleServiceName(String);
 
+/// How an Oracle listener is reached - the two [`SourceTransport`] states its driver can honour.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OracleChannel {
+    /// No transport security. The parse allows it only for a loopback host.
+    Plaintext,
+    /// TLS, verified against the certificates in the PEM bundle at this absolute path and no
+    /// others: they replace the driver's bundled public certificate authorities.
+    Verified { anchors: PathBuf },
+}
+
 /// Why a declared Oracle service name is not one the driver would read as written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidOracleServiceName {
@@ -514,16 +524,14 @@ pub enum SourcePlacement {
     },
     /// An Oracle Database, reached over its TCP listener.
     ///
-    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with no transport field, and
-    /// that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
-    /// shared rule confines the DECLARED host to a loopback literal; a listener's redirect is refused,
-    /// so the connection stays there (`crate::sources`' `oracle` parse names the cell that holds
-    /// it). Plaintext only, because the driver takes no
-    /// caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
-    /// widens, so no declared `transport_anchors` could be what the source verifies against. A field
-    /// here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with an [`OracleChannel`]
+    /// rather than a [`SourceTransport`]**, because the driver verifies against a PEM bundle and
+    /// presents no client certificate: `mutual` and `transport_anchors: system` are refused at parse
+    /// rather than carried here. A listener's redirect is refused, so the connection stays on the
+    /// declared host (`crate::sources`' `oracle` parse names the cell that holds it).
     Oracle {
-        /// The listener's host - a loopback literal, by the parse's own refusal.
+        /// The listener's host. A loopback literal when the channel is plaintext, by the parse's
+        /// own refusal.
         host: HostName,
         /// The listener's port. `1521` by convention, declared rather than defaulted.
         port: u16,
@@ -533,6 +541,8 @@ pub enum SourcePlacement {
         user: String,
         /// The file that user's password is read from at boot.
         password_file: PathBuf,
+        /// How the channel to this source is secured.
+        channel: OracleChannel,
     },
     /// A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in
     /// this process, read-only, under the process's own operating-system identity.

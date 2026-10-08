@@ -27,20 +27,12 @@
 //!
 //! ## Limits
 //!
-//! - **No transport of its own, and less than `sutura_exec_postgres` carries.** ADR 0010's
-//!   declared-trust-store rule (a bundle path, or the host store, resolved once by a composition
-//!   root and handed to the adapter as a `rustls::ClientConfig`) has NOWHERE to attach here:
-//!   `oracledb::Connection` builds its OWN `rustls::ClientConfig` internally, from a wallet
-//!   directory's `ewallet.pem` when one is configured and from the bundled `webpki-roots` set when
-//!   one is not (measured by reading `oracle/rust-oracledb/src/transport.rs`) - there is no
-//!   constructor that takes an external root store or a caller-built `ClientConfig` at all. So
-//!   [`OracleWarehouse::connect_secured`] takes a wallet directory rather than a caller-built
-//!   `rustls::ClientConfig`, and
-//!   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
-//!   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
-//!   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
-//!   a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
-//!   [`OracleWarehouse::connect_secured`] therefore has no composition-root caller.
+//! - **TLS verifies against the declared anchors only.** [`Channel::Verified`] hands the driver
+//!   PEM certificates that REPLACE its bundled public certificate authorities, so a server is
+//!   admitted only under a certificate those anchors issue. The driver still builds its own
+//!   `rustls::ClientConfig`, so ADR 0010's host store (`transport_anchors: system`) and a client
+//!   certificate (`mutual`) have nothing here to reach, and `sutura-config` refuses both on a
+//!   `kind: oracle` source.
 //! - **A listener's redirect is refused before authentication**, as
 //!   [`OracleError::RedirectRefused`]: the driver is told not to follow one, so the connection
 //!   stays on the address the source declared. A clustered listener that redirects every client is
@@ -85,6 +77,12 @@ pub mod fixture;
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
 pub enum OracleError {
+    /// The declared trust anchors are not PEM certificates the driver can verify a server against.
+    #[error("the declared trust anchors are not usable certificates")]
+    TrustAnchors {
+        #[source]
+        cause: DriverError,
+    },
     #[error("could not connect to Oracle")]
     Connect {
         #[source]
@@ -200,86 +198,66 @@ impl core::fmt::Debug for OracleWarehouse {
     }
 }
 
+/// How the connection to the listener is secured.
+#[derive(Debug, Clone, Copy)]
+pub enum Channel<'pem> {
+    /// No transport security. A composition root reaches this only for a loopback host.
+    Plaintext,
+    /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
+    /// public certificate authorities rather than adding to them.
+    Verified { anchors_pem: &'pem str },
+}
+
+/// Where one connection goes and how it is secured: an EZCONNECT `host:port/service_name`.
+#[derive(Debug, Clone, Copy)]
+pub struct Dial<'dial> {
+    host: &'dial str,
+    port: u16,
+    service_name: &'dial str,
+    channel: Channel<'dial>,
+}
+
+impl<'dial> Dial<'dial> {
+    #[must_use]
+    pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel: Channel<'dial>) -> Self {
+        Self {
+            host,
+            port,
+            service_name,
+            channel,
+        }
+    }
+}
+
 impl OracleWarehouse {
-    /// Opens one connection over a plain TCP EZCONNECT string (`host:port/service_name`), with no
-    /// transport security at all.
+    /// Opens one connection to the listener `dial` names.
+    ///
+    /// A redirect from the listener is refused before authentication as
+    /// [`OracleError::RedirectRefused`], so the connection stays on the declared address.
     pub fn connect(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
-        host: &str,
-        port: u16,
-        service_name: &str,
+        dial: Dial<'_>,
         user: &str,
         password: &str,
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
-        Self::connect_string(
-            source,
-            posture,
-            &ezconnect(host, port, service_name),
-            user,
-            password,
-            result_budget,
-        )
-    }
-
-    /// Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based
-    /// TLS - see the module header's limit on how far this reaches ADR 0010's declared-trust-store
-    /// rule. `wallet` is a directory containing an `ewallet.pem`; `None` verifies against the
-    /// driver's bundled `webpki-roots` set rather than against a declared anchor.
-    pub fn connect_secured(
-        source: sutura_domain::model::SourceName,
-        posture: sutura_domain::source::SourcePosture,
-        host: &str,
-        port: u16,
-        service_name: &str,
-        user: &str,
-        password: &str,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-        wallet: Option<&OracleWallet>,
-    ) -> Result<Self, OracleError> {
-        let connect_string = format!("tcps://{}", ezconnect(host, port, service_name));
+        let address = ezconnect(dial.host, dial.port, dial.service_name);
+        let connect_string = match dial.channel {
+            Channel::Plaintext => address,
+            Channel::Verified { .. } => format!("tcps://{address}"),
+        };
         let mut config = oracledb::Config::default()
             .set_connect_string(&connect_string)
-            .map_err(|cause| OracleError::Connect { cause: cause.into() })?
-            .set_credentials(user, password);
-        if let Some(wallet) = wallet {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the wallet password's destination is a connection handshake, which is the one \
-                          place the value itself is the payload"
-            )]
-            let password = wallet.password.expose_secret();
+            .map_err(connect_err)?
+            .set_credentials(user, password)
+            .set_follow_redirects(false);
+        if let Channel::Verified { anchors_pem } = dial.channel {
             config = config
-                .set_wallet_location(wallet.location.clone())
-                .set_wallet_password(password);
+                .set_trust_anchors_pem(anchors_pem)
+                .map_err(|cause| OracleError::TrustAnchors { cause: cause.into() })?;
         }
-        Self::open(source, posture, config, result_budget)
-    }
-
-    /// The shared entry point both constructors above reduce to.
-    fn connect_string(
-        source: sutura_domain::model::SourceName,
-        posture: sutura_domain::source::SourcePosture,
-        connect_string: &str,
-        user: &str,
-        password: &str,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-    ) -> Result<Self, OracleError> {
-        let config = oracledb::Config::default()
-            .set_connect_string(connect_string)
-            .map_err(|cause| OracleError::Connect { cause: cause.into() })?
-            .set_credentials(user, password);
-        Self::open(source, posture, config, result_budget)
-    }
-
-    fn open(
-        source: sutura_domain::model::SourceName,
-        posture: sutura_domain::source::SourcePosture,
-        config: oracledb::Config,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-    ) -> Result<Self, OracleError> {
-        let connection = oracledb::connect(config.set_follow_redirects(false)).map_err(connect_err)?;
+        let connection = oracledb::connect(config).map_err(connect_err)?;
         Ok(Self {
             source,
             posture,
@@ -310,9 +288,7 @@ impl OracleWarehouse {
         Self::connect(
             source,
             posture,
-            host,
-            port,
-            "FREEPDB1",
+            Dial::new(host, port, "FREEPDB1", Channel::Plaintext),
             credential.user(),
             credential.password().expose_secret(),
             result_budget,
@@ -495,23 +471,6 @@ impl DriverError {
     /// which the module header's caveat distinguishes from a total budget.
     fn is_call_timeout(&self) -> bool {
         matches!(self.0.kind(), oracledb::ErrorKind::CallTimeoutExceeded)
-    }
-}
-
-/// A wallet directory for [`OracleWarehouse::connect_secured`] - a path to a directory containing
-/// `ewallet.pem`, and the password protecting the private key inside it (if any).
-pub struct OracleWallet {
-    location: String,
-    password: sutura_domain::identity::Secret,
-}
-
-impl OracleWallet {
-    #[must_use]
-    pub fn at(location: impl Into<String>, password: impl Into<String>) -> Self {
-        Self {
-            location: location.into(),
-            password: sutura_domain::identity::Secret::new(password.into()),
-        }
     }
 }
 

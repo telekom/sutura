@@ -135,7 +135,7 @@ pub enum SourceKind {
     /// An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
     ///
     /// Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
-    /// included. [`SourcePlacement::Oracle`] carries what the driver cannot be told about TLS.
+    /// included. [`SourcePlacement::Oracle`] carries the two channels its driver can honour.
     Oracle,
     /// A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
     ///
@@ -489,12 +489,12 @@ pub enum InvalidSourceRegistry {
          or dial over `host` instead of `unix_socket`"
     )]
     TlsOverUnixSocket { alias: SourceName, mode: &'static str },
-    /// A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see
-    /// `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
+    /// A TLS declaration a kind's driver cannot honour (`oracle` - see `SourcePlacement::Oracle`):
+    /// it verifies only against a declared PEM bundle and presents no client certificate.
     #[error(
-        "`sources.{alias}` is `kind: {}` and `sources.{alias}.transport_mode` is `{mode}` - its driver \
-         trusts the public certificate authorities compiled into it, and no declared \
-         `transport_anchors` can replace them. Write `transport_mode: plaintext` with a loopback `host`",
+        "`sources.{alias}` is `kind: {}` and declares `{mode}` - its driver verifies a server only \
+         against a PEM bundle and presents no client certificate. Write `transport_mode: verified` \
+         with `transport_anchors` naming a PEM bundle",
         kind.as_str()
     )]
     TlsNotDeliverable {

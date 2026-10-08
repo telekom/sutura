@@ -33,6 +33,10 @@ parking_lot = { workspace = true }
 # `xtask check-boundaries` holds (the harness reaches no adapter) is untouched.
 sutura-conformance = { workspace = true }
 sutura-dev = { workspace = true }
+# `tests/dial.rs`: an `rcgen`-issued leaf behind a real `rustls` server, the anchor cells' listener.
+# Both are already in `Cargo.lock`.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 [features]
 # THE FIXTURE-TIER CREDENTIAL AND THE CONNECTION CONFIG OVER IT - `sutura-exec-postgres`'s own

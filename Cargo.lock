@@ -4089,6 +4089,8 @@ version = "0.6.1"
 dependencies = [
  "oracledb",
  "parking_lot",
+ "rcgen",
+ "rustls",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",

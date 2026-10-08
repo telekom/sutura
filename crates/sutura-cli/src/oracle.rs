@@ -6,20 +6,19 @@
 //! query`/`mcp`. What stays per root is the feature-off refusal, because the two are different
 //! sentences - one names every declared source, the other the one it was asked about.
 //!
-//! **No channel resolution, and that absence is the placement's.** `sutura_config`'s
-//! `SourcePlacement::Oracle` carries no transport because the parse accepts only `plaintext` on a
-//! loopback host - the driver cannot be handed a declared trust store (see that variant's doc) - so
-//! this module dials `host:port/service_name` in the clear and nothing else. A listener's redirect
-//! is refused before authentication, so the connection stays on that address -
-//! `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused` holds it.
-//! The adapter's own `connect_secured` stays unwired until a declared store can reach it.
+//! **The channel is the placement's `OracleChannel`**: `plaintext` to a loopback host, or `verified`
+//! against a PEM bundle this module reads at boot and hands to the adapter as the ONLY anchors. A
+//! listener's redirect is refused before authentication, so the connection stays on the declared
+//! address - `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`
+//! holds it.
 //!
 //! The WHOLE module is behind `#[cfg(feature = "oracle")]` at its declaration in `main.rs`, so
 //! everything here may name an adapter type unconditionally.
 
+use sutura_config::sources::placement::OracleChannel;
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse as _;
-use sutura_exec_oracle::OracleWarehouse;
+use sutura_exec_oracle::{Channel, Dial, OracleWarehouse};
 
 use crate::commands::render;
 
@@ -47,15 +46,14 @@ const IMPERSONATION_DEFERRED: &str = "this adapter is one connection under the u
 ///
 /// # The limit, next to the claim
 ///
-/// The dial has no timeout of its own: the pinned driver connects with a bare
-/// `TcpStream::connect`. The parse confines the DECLARED host to a loopback literal, which narrows
-/// that dial to a local listener that accepts and then stalls.
+/// The dial has no timeout of its own: the driver connects with a bare `TcpStream::connect`.
 ///
 /// # Errors
 ///
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; the
 /// `impersonation-at-source` posture, which this adapter has nowhere to put; a password file that
-/// cannot be read or is empty; or a connection the listener or the database refused.
+/// cannot be read or is empty; an anchor bundle that cannot be read or holds no usable certificate;
+/// or a connection the listener or the database refused.
 pub(crate) fn build(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
@@ -70,6 +68,7 @@ pub(crate) fn build(
         ref service_name,
         ref user,
         ref password_file,
+        ref channel,
     } = *configured.placement()
     else {
         return Err(format!(
@@ -91,12 +90,23 @@ pub(crate) fn build(
                   value itself is the payload"
     )]
     let exposed = password.expose_secret();
+    let anchors_pem = match *channel {
+        OracleChannel::Plaintext => None,
+        OracleChannel::Verified { ref anchors } => Some(std::fs::read_to_string(anchors).map_err(|cause| {
+            format!(
+                "`sources.{source}.transport_anchors` ({}) could not be read: {cause}",
+                anchors.display()
+            )
+        })?),
+    };
+    let channel = anchors_pem
+        .as_deref()
+        .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
+    let dial = Dial::new(host.as_str(), port, service_name.as_str(), channel);
     OracleWarehouse::connect(
         source.clone(),
         identity.posture().clone(),
-        host.as_str(),
-        port,
-        service_name.as_str(),
+        dial,
         user,
         exposed,
         working_set.result_budget(),

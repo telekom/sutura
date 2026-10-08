@@ -9,36 +9,35 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, OracleServiceName, SourcePlacement};
-use crate::sources::transport::SourceTransport;
+use crate::sources::placement::{HostName, OracleChannel, OracleServiceName, SourcePlacement};
+use crate::sources::transport::{SourceTransport, TrustAnchors};
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
 ///
 /// **Every value the driver's connection needs is declared and nothing else is accepted**: the
 /// listener's host and port, the service name it resolves, the user and the file its password is
-/// read from. `transport_mode` is required and must be `plaintext`, so the channel is still a word
-/// an operator wrote rather than a default - and the parent's remote-plaintext rule then confines
-/// the DECLARED `host` to a loopback literal.
+/// read from. `transport_mode` is required, so the channel is a word an operator wrote rather than
+/// a default: `plaintext`, which the parent's remote-plaintext rule confines to a loopback `host`,
+/// or `verified` with `transport_anchors` naming a PEM bundle - the only anchors the server is
+/// verified against.
 ///
 /// The connection stays on that host: a listener's redirect is refused before authentication, held
 /// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
 ///
-/// # Why TLS is refused rather than wired
+/// # Why `mutual` and `transport_anchors: system` are refused
 ///
-/// The driver builds its own TLS configuration and takes no caller-built one: its trust store is a
-/// bundled public-CA set, and a wallet's certificates are ADDED to that set rather than replacing it
-/// (measured by reading the pinned driver's `transport.rs`). So a declared `transport_anchors` could
-/// never be the store an Oracle source verifies against - accepting `verified` would be the
-/// *reads as done and is not* defect `docs/adr/0010`'s declared-trust-store rule exists to name.
-/// Refused, with the reason, until the driver can be handed a root store.
+/// The driver builds its own TLS configuration from the PEM certificates it is handed: it reads no
+/// host store and presents a client certificate only from a wallet, which no key here declares.
+/// Accepting either would be the *reads as done and is not* defect `docs/adr/0010`'s
+/// declared-trust-store rule exists to name.
 ///
 /// # Errors
 ///
 /// A key that belongs to another kind; a missing `host`, `port`, `service_name`, `user`,
 /// `password_file` or `transport_mode`; a `host` that is not a usable host; a relative
-/// `password_file`; a transport declaration that is not usable, or not `plaintext`; and a
-/// non-loopback host.
+/// `password_file`; a transport declaration that is not usable, `mutual`, or `verified` against the
+/// host store; and a non-loopback host declared `plaintext`.
 pub(super) fn parse_placement(
     alias: &SourceName,
     kind: SourceKind,
@@ -82,20 +81,29 @@ pub(super) fn parse_placement(
         alias: alias.clone(),
         cause,
     })?;
-    if transport != SourceTransport::Plaintext {
-        return Err(InvalidSourceRegistry::TlsNotDeliverable {
-            alias: alias.clone(),
-            kind,
-            mode: transport.describe(),
-        });
-    }
     super::refuse_remote_plaintext(alias, &host, &transport)?;
+    let refused = |mode| InvalidSourceRegistry::TlsNotDeliverable {
+        alias: alias.clone(),
+        kind,
+        mode,
+    };
+    let channel = match transport {
+        SourceTransport::Plaintext => OracleChannel::Plaintext,
+        SourceTransport::Verified {
+            anchors: TrustAnchors::File(anchors),
+        } => OracleChannel::Verified { anchors },
+        SourceTransport::Verified {
+            anchors: TrustAnchors::System,
+        } => return Err(refused("verified with `transport_anchors: system`")),
+        SourceTransport::Mutual { .. } => return Err(refused("mutual")),
+    };
     Ok(SourcePlacement::Oracle {
         host,
         port,
         service_name,
         user,
         password_file,
+        channel,
     })
 }
 
@@ -175,7 +183,9 @@ mod tests {
                 service_name,
                 user,
                 password_file,
+                channel,
             } => {
+                assert_eq!(*channel, placement::OracleChannel::Plaintext);
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 1521);
                 assert_eq!(service_name.as_str(), "FREEPDB1");
@@ -186,24 +196,48 @@ mod tests {
         }
     }
 
-    /// **The refusal this kind adds.** A TLS mode is refused naming the kind and the mode, for both
-    /// TLS modes - a remote host WITH anchors is exactly what every other dialled kind accepts.
+    /// A remote host is declarable over `verified`, and the bundle it names is the channel's whole
+    /// trust: the placement carries that path and nothing that could widen it.
     #[test]
-    fn a_tls_transport_on_an_oracle_source_is_refused_naming_the_mode() {
+    fn a_verified_oracle_source_carries_the_bundle_it_declares() {
         let verified = RawSourceEntry {
             host: Some("db.example.com"),
             transport_mode: Some("verified"),
             transport_anchors: Some("/etc/sutura/ca.pem"),
             ..oracle("warehouse")
         };
+        let registry = SourceRegistry::parse(&[verified], Some(&single_user())).expect("a verified oracle entry parses");
+        let configured = registry.get(&alias("warehouse")).expect("the entry is there");
+        let placement::SourcePlacement::Oracle { channel, .. } = configured.placement() else {
+            panic!("expected an oracle placement, got {:?}", configured.placement());
+        };
+        assert_eq!(
+            *channel,
+            placement::OracleChannel::Verified {
+                anchors: std::path::PathBuf::from("/etc/sutura/ca.pem")
+            }
+        );
+    }
+
+    /// **The refusal this kind adds.** The two TLS declarations its driver cannot honour are refused
+    /// naming the kind and the declaration: a client certificate, and the host's own store.
+    #[test]
+    fn mutual_or_the_host_store_on_an_oracle_source_is_refused_naming_the_declaration() {
+        let system = RawSourceEntry {
+            host: Some("db.example.com"),
+            transport_mode: Some("verified"),
+            transport_anchors: Some("system"),
+            ..oracle("warehouse")
+        };
         let mutual = RawSourceEntry {
+            transport_anchors: Some("/etc/sutura/ca.pem"),
             client_certificate: Some("/etc/sutura/client.pem"),
             client_key: Some("/etc/sutura/client.key"),
             transport_mode: Some("mutual"),
-            ..verified.clone()
+            ..system.clone()
         };
-        for (mode, entry) in [("verified", verified), ("mutual", mutual)] {
-            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("a TLS oracle source is refused");
+        for (mode, entry) in [("verified with `transport_anchors: system`", system), ("mutual", mutual)] {
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the declaration is refused");
             assert!(
                 matches!(
                     error,
