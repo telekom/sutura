@@ -2660,10 +2660,11 @@ copied constant.</p>
 <h1 id="the-federated-cases-and-the-one-adapter-pair-that-runs-them">The federated cases, and the one adapter pair that runs them<a class="headerlink" href="#the-federated-cases-and-the-one-adapter-pair-that-runs-them" title="Permanent link">&para;</a></h1>
 <p>The three cases <code>docs/adr/0012</code> names - a filter on a remote dimension over an orphan key, a
 ratio whose denominator is zero for one subgroup, and a <code>CountDistinct</code> spanning two join keys -
-are <code>.case</code> files too. <code>federated_cases</code> holds the two with an answer; the <code>CountDistinct</code> one
-is refused by <code>FederatedPlan::new</code> and asserted as that refusal, since there is no plan to
-execute. Only <code>tests/federated_bound.rs</code> binds the two-warehouse arm, over two in-process
-engines of ONE kind, so these rows say nothing yet about any other adapter.</p>
+are <code>.case</code> files too, and <code>federated_cases</code> holds all three. The <code>CountDistinct</code> one is pulled
+up: the fact leg carries the distinct column as a key and the combine counts it, so the expected
+rows are the single-source distinct counts and a sum of per-leg counts would miss them. Only
+<code>tests/federated_bound.rs</code> binds the two-warehouse arm, over two in-process engines of ONE kind,
+so these rows say nothing yet about any other adapter.</p>
 <h1 id="null-placement-in-a-group-key-decided-and-what-the-null-row-does-and-does-not-detect">Null placement in a group key: decided, and what the null row does and does NOT detect<a class="headerlink" href="#null-placement-in-a-group-key-decided-and-what-the-null-row-does-and-does-not-detect" title="Permanent link">&para;</a></h1>
 <p><strong><code>ASC NULLS LAST</code>, everywhere, and it is not this corpus's choice to make.</strong> <code>sutura_sql</code>'s
 <code>ordered_nulls_last</code> states the placement in the AST for every dialect and
@@ -2865,7 +2866,7 @@ is caught by <code>the_loader_reads_every_case_file</code> in that module's own 
 <h3 id="fn-federated_cases"><code>fn federated_cases</code><a class="headerlink" href="#fn-federated_cases" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">federated_cases</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">FederatedCase</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Every federated question in the corpus with an answer, read from its <code>.case</code> file.</p>
+<p>Every federated question in the corpus, read from its <code>.case</code> file.</p>
 <h3 id="constant-table"><code>constant TABLE</code><a class="headerlink" href="#constant-table" title="Permanent link">&para;</a></h3>
 <p>The one table every case reads.</p>
 <h2 id="module-execute">Module <code>execute</code><a class="headerlink" href="#module-execute" title="Permanent link">&para;</a></h2>
