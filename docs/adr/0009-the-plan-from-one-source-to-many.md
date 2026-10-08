@@ -999,27 +999,28 @@ under a small budget and expects `CombineError::Exhausted`. No cell shows a full
 result budget before the pool.
 
 **Floats.** A distinct count accepts every type a single-source distinct count accepts; no type is
-judged. For a float column the combine folds every NaN to one NaN, so the federated count does not
-depend on which NaN payload a leg kept per link value. It does not fold `-0.0`. The count of the
-zeros depends on the plan shape: in a grouped aggregate with no `count(*)` or `count(col)` beside
-the distinct count, DataFusion 55.1 counts `-0.0` with `0.0`, in one batch and across several
-(probed by hand, 20,000 rows in 4 batches; a sum beside the distinct count did not split them
-either). A `count` in the same aggregate splits them (measured upstream in datafusion-cli, not by a
-cell here). The combine cannot build that shape: its leaves are `count_distinct`, `sum`, `min` or
-`max` (`combine.rs`, `leaf_expression`), and its one `count` is in `refuse_ambiguous_link`, an
-aggregate with no distinct count. The zero-merge rests on DataFusion's grouped plan and is held by the
-float cell, which goes red if DataFusion stops merging the zeros. Measured, `count(distinct)` over
-`{0.0, -0.0, NaN, -NaN, 1.0}`:
+judged. For a float column the combine folds every NaN to one NaN and `-0.0` to `0.0`, so the
+federated count does not depend on which NaN payload or which zero a leg kept per link value. Both
+folds are needed, and the zero fold is needed only in some plan shapes. In the combine's grouped
+aggregate DataFusion counts `-0.0` with `0.0` for a lone distinct count, with a sum beside it, and
+with a count leaf beside it, which the combine re-adds as a sum (reviewed with `0.0` under one
+link and `-0.0` under another). It counts them
+apart when the one aggregate holds two distinct counts over different columns, which a ratio of two
+distinct counts builds: with the zero fold removed that ratio answers 2.0 and 0.5 for the two orders
+of the columns, and with it 1.0, the SQL-equality answer. The likely cause is that DataFusion's
+single-distinct rewrite no longer applies; it was read in the source, not instrumented. The zero fold
+is held by the cell `a_ratio_of_two_distinct_counts_counts_both_zeros_once`. Measured,
+`count(distinct)` over `{0.0, -0.0, NaN, -NaN, 1.0}`:
 
 | Engine                                                          | Count |
 | --------------------------------------------------------------- | ----- |
 | DuckDB 1.5.5                                                    | 3     |
 | DataFusion 55.1, one source, sutura's plan (no cell holds this) | 5     |
 | DataFusion 55.1, a lone `count(DISTINCT x)` in datafusion-cli   | 4     |
-| Federated combine (grouped plan, NaN fold)                      | 3     |
+| Federated combine (NaN and zero folds)                          | 3     |
 
 The combine cell uses `{0.0, -0.0, two NaN payloads, 1.5, NULL}`; with the NaN fold removed it counts
-4. **Two shipped sources disagree for the same input.** The federated answer follows the semantics of
+4 (the lone distinct count merges the zeros, so only the NaN fold shows). **Two shipped sources disagree for the same input.** The federated answer follows the semantics of
 DuckDB. The one-source DataFusion path is not changed here. PostgreSQL and BigQuery were not
 measured.
 
@@ -1029,6 +1030,8 @@ What this does not show:
   host. CI and the nix venue are its evidence.
 - No live-source run was performed.
 - The peak over a network is not measured.
-- The sum-beside-distinct zero shape and the multi-batch shape were probed by hand and are not held
-  by a cell. The float cell holds a lone distinct count only.
+- The sum-beside-distinct and multi-batch zero shapes were probed by hand and are not held by a
+  cell, and no run forced more than one partition. The zero fold is held for the two-distinct ratio
+  only. A float distinct column was not run through the catalog and the two-engine differential: the
+  corpus has none.
 - The sixth amendment said the pull-up is still refused before execution. That is no longer true.

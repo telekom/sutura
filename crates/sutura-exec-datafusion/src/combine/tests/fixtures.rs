@@ -206,6 +206,20 @@ pub(super) fn revenue_per_product_plan() -> FederatedPlan {
     )
 }
 
+/// A ratio of two distinct counts over different columns: both are pulled-up keys of the fact leg,
+/// so the combine puts both in its one aggregate.
+pub(super) fn distinct_ratio_plan(numerator: &str, denominator: &str) -> FederatedPlan {
+    plan_for(
+        "distinct_ratio",
+        &Measure::Ratio {
+            numerator: term(Aggregate::CountDistinct, numerator),
+            denominator: term(Aggregate::CountDistinct, denominator),
+            zero_denominator: ZeroDenominator::Null,
+        },
+        true,
+    )
+}
+
 /// A decomposed average: the leg carries a sum and a count, and the division waits for the combine.
 pub(super) fn avg_plan() -> FederatedPlan {
     plan_for(
@@ -272,6 +286,29 @@ pub(super) fn float_keyed_fact(rows: &[FloatRow<'_>]) -> ResultBatches {
             Arc::new(Float64Array::from(values)),
         ],
         count,
+    )
+}
+
+/// A fact leg with two float key leaves, one row under `c1` and one under `c2`.
+pub(super) fn float_pair_fact(first: [f64; 2], second: [f64; 2]) -> ResultBatches {
+    let link = link();
+    let (first_leaf, second_leaf) = (leaf(0), leaf(1));
+    typed(
+        vec![
+            ("product_family", DataType::Utf8),
+            (link.as_str(), DataType::Utf8),
+            (TIME_BUCKET_LABEL, DataType::Utf8),
+            (first_leaf.as_str(), DataType::Float64),
+            (second_leaf.as_str(), DataType::Float64),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["A"; 2])),
+            Arc::new(StringArray::from(vec!["c1", "c2"])),
+            Arc::new(StringArray::from(vec!["2026-06"; 2])),
+            Arc::new(Float64Array::from(first.to_vec())),
+            Arc::new(Float64Array::from(second.to_vec())),
+        ],
+        2,
     )
 }
 

@@ -382,9 +382,9 @@ fn a_sum_beside_a_distinct_count_adds_at_the_finer_grain() {
 
 /// **`-0.0` is `0.0` and every NaN is one value, whichever engine produced the leg.** `DuckDB`
 /// answers `COUNT(DISTINCT x)` over `{0.0, -0.0, NaN, -NaN, 1.5}` as 3, so a leg from it may hold
-/// either zero under either link. The combine's grouped `DataFusion` plan merges the zeros and keeps
-/// the NaN payloads apart (`apache/datafusion#26091`), so without the combine's NaN fold it counts 4.
-/// The cell holds both halves: the fold, and the zero-merge the combine leaves to the engine.
+/// either zero under either link. In a lone distinct count the grouped `DataFusion` plan merges the
+/// zeros itself and keeps the NaN payloads apart (`apache/datafusion#26091`), so without the NaN fold
+/// this cell counts 4. The zero fold is held by the two-distinct ratio cell below.
 #[test]
 fn a_distinct_count_over_floats_counts_zeros_and_nans_by_sql_equality() {
     const POSITIVE_NAN: u64 = 0x7ff8_0000_0000_0001;
@@ -404,4 +404,25 @@ fn a_distinct_count_over_floats_counts_zeros_and_nans_by_sql_equality() {
         combined.rows(),
         &[vec![text("A"), text("north"), text("2026-06"), Value::Integer(3)]]
     );
+}
+
+/// **The shape where `DataFusion` counts the zeros apart, so the combine's own fold holds the answer.**
+/// A ratio of two distinct counts over different columns puts both in the combine's one aggregate,
+/// which stops `DataFusion` rewriting a single distinct aggregate, and there `0.0` under one link
+/// and `-0.0` under another are two values. SQL equality counts one, so each ratio is 1 over 1
+/// whichever way round the two columns sit.
+#[test]
+fn a_ratio_of_two_distinct_counts_counts_both_zeros_once() {
+    let lookup = lookup(vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]]);
+    for (numerator, denominator, fact) in [
+        ("product_key", "mrr_cents", float_pair_fact([0.0, -0.0], [1.0, 1.0])),
+        ("mrr_cents", "product_key", float_pair_fact([1.0, 1.0], [0.0, -0.0])),
+    ] {
+        let combined = combined(&distinct_ratio_plan(numerator, denominator), &fact, &lookup, UNBOUNDED);
+        assert_eq!(
+            combined.rows(),
+            &[vec![text("A"), text("north"), text("2026-06"), real(1.0)]],
+            "{numerator} over {denominator}"
+        );
+    }
 }
