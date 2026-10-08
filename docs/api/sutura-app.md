@@ -1113,6 +1113,13 @@ pub const fn prose(&self) -> CatalogProse
 ```
 
 ```rust
+pub const fn row_ceilings(self, row_ceilings: RowCeilings) -> Self
+```
+
+The row ceilings this deployment configured, so the bounds the prompt states are the ones the
+service enforces (`github.com/telekom/sutura#828`). `RowCeilings::DEFAULT` unless set.
+
+```rust
 pub const fn tools(&self) -> &'a [Tool]
 ```
 

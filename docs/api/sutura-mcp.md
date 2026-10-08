@@ -189,7 +189,7 @@ that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, row_ceilings: sutura_domain::plan::RowCeilings, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -372,7 +372,7 @@ router in front checks `Host` against the deployment's one list, see the module 
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, max_body: sutura_config::BodyLimit, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, row_ceilings: sutura_domain::plan::RowCeilings, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, max_body: sutura_config::BodyLimit, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -625,6 +625,13 @@ and what the deadline does not stop.
 
 **`tools` is required and is the fifth: only a composition root has read the settings** that
 say which operations this deployment mounts - the same list `sutura prompt` renders.
+
+```rust
+pub const fn row_ceilings(self, row_ceilings: sutura_domain::plan::RowCeilings) -> Self
+```
+
+The row ceilings this deployment configured, which the prompt states.
+`RowCeilings::DEFAULT` unless set.
 
 #### Implements
 

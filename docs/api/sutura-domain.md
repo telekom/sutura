@@ -7221,7 +7221,8 @@ How many rows a federated answer may return before it is refused - `github.com/t
 
 **A refusal and never a truncation:** the combined answer is counted after the combine, and one
 row over this is `RefusalReason::ResultTooLarge`, naming this number. `Self::DEFAULT` is
-`MAX_ROWS`, so a deployment that configures nothing is bounded as it always was.
+`MAX_ROWS`, so a deployment that configures nothing is bounded as it always was. A `top` answer
+is held to it too, over the combined set it is ranked from, after `RowCeiling`.
 
 **Its own type, with a maximum, and `RowCeiling` stays as it is.** A bound an operator can
 raise has to have a ceiling in code, or "configure it high enough" is how a replica holds an
