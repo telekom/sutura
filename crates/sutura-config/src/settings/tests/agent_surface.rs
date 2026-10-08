@@ -136,13 +136,14 @@ fn a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host() {
 
 #[test]
 fn a_loopback_agent_surface_answering_a_host_name_counts_as_off_host() {
-    // Every entry is read: a loopback address does not excuse a name before it or after it.
+    // Every entry is read: a loopback address does not excuse a name before it, after it or between two.
     for hosts in [
         r#""sutura.example.com""#,
         r#""localhost""#,
         r#""10.0.0.5""#,
         r#""127.0.0.1", "sutura.example.com""#,
         r#""sutura.example.com", "127.0.0.1""#,
+        r#""127.0.0.1", "sutura.example.com", "::1""#,
     ] {
         let named = format!("  allowed_hosts: [{hosts}]\n");
         let refusals = refused(&loopback(&named, "", ""));

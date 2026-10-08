@@ -4625,12 +4625,13 @@ configuration or a subject arrives per request.
 ##### Variants
 
 - `StaticCredentials` - Static credentials, one user, one host - the `single-user` mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.
-- `SubjectPerRequest` - A subject per request, established by the transport - the `multi-user` mode.
+- `SubjectPerRequest` - A subject per request - the `multi-user` mode.
 
-  **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
-  is currently a statement of intent whose only mechanical effect is that every shared source has
-  to be acknowledged on its own entry. That is the honest description and it is worth having: the
-  acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
+  **A declaration of intent, independent of the `security.inbound` block that makes a subject
+  arrive.** This mode alone establishes no subject: leg 1 is built, but it is configured under
+  `inbound`, and a `multi-user` deployment without that block still authenticates only the
+  deployment's bearer token. What this mode decides mechanically is that every shared source
+  has to be acknowledged on its own entry, and that the raw SQL tool is refused.
 
 ##### Methods
 
@@ -5505,14 +5506,10 @@ convenience, and nothing needs to clone a startup refusal.
   federation replaced it. The pool's own exchange needs the audience, and Google's library
   refuses an empty one outright.
 
-  **Corrected twice, and the second correction is narrower than the first.** The same round
-  said `audience` *and* `scope` become the credential document. Only the audience does: the
-  document shape has no `scopes` member and the driver's own scope option means
-  service-account impersonation, so `scope` is declared and sent by nothing - measured against
-  the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
-  `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
-  each caller's questions execute as, and `scope` alone is read by nothing - see
-  `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
+  Of the keys in the block, `audience` is read, `impersonate`'s KEYS decide which callers may be
+  served at all, and its VALUES name the account each caller's questions execute as - see
+  `sutura_exec_bigquery::DeclaredPrincipals::target`. There is no `scope` key: the credential
+  document has no `scopes` member, so one would reach nothing.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -6269,9 +6266,10 @@ executes as the asking subject has to say *which* pool receives that assertion, 
 source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
 sixth amendment.
 
-**What each declared value actually reaches.** `audience` is sent. `scope` is parsed and sent
-nowhere: the credential document has no `scopes` member, and the driver's own scope option
-selects the DELETED principal-switch mechanism rather than this one. `impersonate`'s KEYS decide
+**What each declared value actually reaches.** `audience` is sent. There is no `scope` key:
+the credential document has no `scopes` member, and the driver's own scope option selects the
+DELETED principal-switch mechanism rather than this one, so a declared scope would reach
+nothing and is refused as an unknown key. `impersonate`'s KEYS decide
 which subjects a source may be served for, and since `telekom/sutura#929` F3 its VALUES name the
 account each of those subjects executes as - sent as the credential document's
 `service_account_impersonation_url`, so changing one changes which account a caller's questions
@@ -6312,38 +6310,6 @@ Parses an audience.
 The accepted set is the printable ASCII a workload identity provider resource is built from -
 letters, digits and `/ : . - _` - so a value that would escape the STS request body cannot
 exist here. Bounded in length, because it is a foreign string heading for a request and a log.
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
-
-#### `struct WifScope`
-
-```rust
-pub struct WifScope
-```
-
-The OAuth scope an operator declares for the federated credential. Sent by nothing - see
-`WorkloadIdentityConfig::scope`.
-
-##### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-The scope, for building a request.
-
-```rust
-pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity>
-```
-
-Parses a scope.
-
-A scope is a URL (`https://www.googleapis.com/auth/bigquery.readonly`), so it allows the `%`
-and letters a URL does rather than the narrower set an audience does. A longer bound than an
-audience's, and the same reason for having one: it belongs in a request and a refusal should
-never log it raw.
 
 ##### Implements
 
@@ -6414,10 +6380,10 @@ pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::id
 The declared subject -> service-account map, for the composition root to hand the broker.
 
 ```rust
-pub fn parse(audience: impl AsRef<str>, scope: impl AsRef<str>, impersonate: &std::collections::BTreeMap<String, String>) -> Result<Self, InvalidWorkloadIdentity>
+pub fn parse(audience: impl AsRef<str>, impersonate: &std::collections::BTreeMap<String, String>) -> Result<Self, InvalidWorkloadIdentity>
 ```
 
-Parses a declared audience, scope and impersonation map together.
+Parses a declared audience and impersonation map together.
 
 `impersonate` is read as raw strings rather than already-parsed types, for the reason
 `RawSource` carries every field as one: the settings tree speaks in strings, and parsing
@@ -6432,7 +6398,7 @@ equal, and a declared key that is empty or whitespace-only is refused as unusabl
 parse that guards every principal identifier.
 
 ```rust
-pub fn parse_with_expectations(audience: impl AsRef<str>, scope: impl AsRef<str>, impersonate: &std::collections::BTreeMap<String, String>, expected_issuer: Option<&str>, expected_audience: Option<&str>) -> Result<Self, InvalidWorkloadIdentity>
+pub fn parse_with_expectations(audience: impl AsRef<str>, impersonate: &std::collections::BTreeMap<String, String>, expected_issuer: Option<&str>, expected_audience: Option<&str>) -> Result<Self, InvalidWorkloadIdentity>
 ```
 
 Parses a declaration that also names what the pool trusts - telekom/sutura#817's seam.
@@ -6441,24 +6407,6 @@ The two extra values are what make `expected_issuer()`/`expected_audience()` rea
 broker. Both are optional and parsed with the same rules as the values they must match on
 the inbound side: the issuer as an absolute `https` URI (the `crate::IssuerUrl` parse) and
 the audience as a provider resource (the `WifAudience` parse).
-
-```rust
-pub const fn scope(&self) -> &WifScope
-```
-
-The scope the exchanged credential would carry, and **no transport in this build sends it.**
-
-Stated here because this is where an operator declares it. The shipped path federates the
-asker's own assertion through an `external_account` credential document, and the pinned
-driver has nowhere to put a scope: the document shape
-(`cloud.google.com/go/auth@v0.23.2`'s `credsfile::ExternalAccountFile`) has no `scopes`
-member, and the driver's own `bigquery.impersonate.scopes` option is read as a request for
-service-account impersonation, which replaces the federated credential rather than scoping
-it. The `BigQuery` client's own default scope applies instead.
-
-**Declared and unread, not declared and ignored** - the distinction is that this is the
-sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
-Removing the key is a settings break and a follow-up; misreporting it is a defect now.
 
 ```rust
 pub fn with_delegation(self, delegation: Option<DelegationDeclared>) -> Self
@@ -6562,8 +6510,8 @@ pub enum InvalidWorkloadIdentity
 Why a declared workload-identity value is not usable.
 
 **The position is carried and the value is not**, for the reason every refusal about
-operator-written text carries it: an audience and a scope are foreign strings heading for a
-request, and neither belongs in a log.
+operator-written text carries it: an audience is a foreign string heading for a
+request, and it does not belong in a log.
 
 **No `Clone`**, for the reason `InvalidSourceRegistry` (`crate::sources`) already gives: its own
 `ImpersonationSubject` variant's cause is `sutura_domain::identity::InvalidPrincipalId`, which is
