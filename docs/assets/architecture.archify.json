@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "sutura: ports and adapters",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "repository": { "url": "https://github.com/telekom/sutura", "provider": "github", "link_mode": "web", "revision": "3e67a07ad8f80fc4125ac13c873a91a1473422f0" }
+  },
+  "components": [
+    { "id": "agent", "type": "external", "label": "AI agent", "sublabel": "MCP client", "pos": [40, 40], "size": [130, 60] },
+    { "id": "client", "type": "external", "label": "HTTP client", "sublabel": "app or script", "pos": [40, 170], "size": [130, 60] },
+    { "id": "idp", "type": "security", "label": "Identity provider", "sublabel": "issues access tokens", "pos": [40, 300], "size": [130, 64] },
+    { "id": "mcp", "type": "frontend", "label": "sutura-mcp", "sublabel": "tool surface", "pos": [250, 40], "size": [140, 60], "sources": [{ "path": "crates/sutura-mcp/src/server.rs", "label": "MCP server" }] },
+    { "id": "http", "type": "frontend", "label": "sutura-http", "sublabel": "/v1 API, OpenAPI", "pos": [250, 170], "size": [140, 60], "sources": [{ "path": "crates/sutura-http/Cargo.toml", "label": "HTTP transport" }] },
+    { "id": "app", "type": "backend", "label": "sutura-app", "sublabel": "service, Surface port", "pos": [470, 105], "size": [150, 60], "sources": [{ "path": "crates/sutura-app/src/surface.rs", "line": 98, "label": "Surface trait" }] },
+    { "id": "semantic", "type": "backend", "label": "sutura-semantic", "sublabel": "question to plan", "pos": [700, 105], "size": [150, 60], "sources": [{ "path": "crates/sutura-semantic/src/lib.rs", "line": 195, "label": "compile" }] },
+    { "id": "domain", "type": "backend", "label": "sutura-domain", "sublabel": "SemanticCatalog, Warehouse, CredentialBroker", "pos": [330, 300], "size": [300, 64], "tag": "ports", "sources": [{ "path": "crates/sutura-domain/src/pinned.rs", "line": 880, "label": "SemanticCatalog" }, { "path": "crates/sutura-domain/src/warehouse.rs", "line": 323, "label": "Warehouse" }, { "path": "crates/sutura-domain/src/identity/credential.rs", "line": 890, "label": "CredentialBroker" }] },
+    { "id": "catalogs", "type": "backend", "label": "sutura-catalog-*", "sublabel": "7 metadata adapters", "pos": [250, 440], "size": [160, 60], "sources": [{ "path": "crates/sutura-catalog-local/Cargo.toml", "label": "catalog adapters" }] },
+    { "id": "exec", "type": "backend", "label": "sutura-exec-*", "sublabel": "6 data-system adapters", "pos": [560, 440], "size": [160, 60], "sources": [{ "path": "crates/sutura-exec-datafusion/Cargo.toml", "label": "exec adapters" }] },
+    { "id": "sql", "type": "backend", "label": "sutura-sql", "sublabel": "plan to SQL dialect", "pos": [800, 440], "size": [150, 60], "sources": [{ "path": "crates/sutura-sql/Cargo.toml", "label": "renderer" }] },
+    { "id": "metadata", "type": "external", "label": "Metadata sources", "sublabel": "files, DataHub, OpenMetadata", "pos": [250, 580], "size": [160, 60] },
+    { "id": "data", "type": "database", "label": "Data systems", "sublabel": "BigQuery, PostgreSQL, DuckDB", "pos": [560, 580], "size": [160, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "One binary: sutura-cli wires adapters into ports", "wraps": ["mcp", "http", "app", "semantic", "domain", "catalogs", "exec", "sql"] }
+  ],
+  "connections": [
+    { "id": "agent-mcp", "from": "agent", "to": "mcp", "label": "MCP", "variant": "emphasis" },
+    { "id": "client-http", "from": "client", "to": "http", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "idp-http", "from": "idp", "to": "http", "label": "key set", "variant": "security", "fromSide": "right", "toSide": "bottom" },
+    { "id": "mcp-app", "from": "mcp", "to": "app", "label": "question" },
+    { "id": "http-app", "from": "http", "to": "app", "label": "question" },
+    { "id": "app-semantic", "from": "app", "to": "semantic", "label": "compile" },
+    { "id": "app-domain", "from": "app", "to": "domain", "label": "calls ports", "fromSide": "bottom", "toSide": "top" },
+    { "id": "catalogs-domain", "from": "catalogs", "to": "domain", "label": "implements", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "exec-domain", "from": "exec", "to": "domain", "label": "implements", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "exec-sql", "from": "exec", "to": "sql", "label": "render" },
+    { "id": "catalogs-metadata", "from": "catalogs", "to": "metadata", "label": "read snapshot", "fromSide": "bottom", "toSide": "top" },
+    { "id": "exec-data", "from": "exec", "to": "data", "label": "run plan", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Closed question", "items": ["A question names metrics, dimensions, a grain and a time range", "No tool takes SQL, a table name or a filter"] },
+    { "dot": "emerald", "title": "Pinned definitions", "items": ["A catalog loads without the caller's identity", "The snapshot digest goes with every answer"] },
+    { "dot": "rose", "title": "Identity", "items": ["sutura verifies the caller's token (leg 1)", "BigQuery can run as the caller's mapped account: built, not proven", "Other data systems run as one declared identity"] }
+  ]
+}

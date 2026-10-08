@@ -1,133 +1,78 @@
 ---
 title: Integrations
+description: The catalogs sutura reads definitions from, the data systems it runs questions on, and how it verifies callers.
 ---
 
 # Integrations
 
-What this runtime reads definitions from, what it executes against, and how far each one is proven.
+sutura connects to two kinds of system. A **catalog** supplies the definitions: models, joins and
+metrics. A **data system** holds the data and runs the queries. Each one has an adapter crate and
+a page here. [Inbound identity](integrations/identity.md) describes how sutura verifies callers.
 
-Every extent claim below routes to the page or the declaration that holds it. Nothing is restated
-here, because a second copy of a capability claim is the copy that rots into an overstatement.
+## Catalogs
 
-## Metadata sources
+| Catalog                                                | `kind`                  | Supplies                                      |
+| ------------------------------------------------------ | ----------------------- | --------------------------------------------- |
+| [Markdown catalog](integrations/catalogs/markdown.md)  | `markdown`              | Everything: models, joins, metrics, knowledge |
+| [DataHub](integrations/catalogs/datahub.md)            | `datahub`               | Models, descriptions, joins, metrics          |
+| [OKF](integrations/catalogs/okf.md)                    | `okf`                   | Tables and descriptions                       |
+| [Data Contract](integrations/catalogs/datacontract.md) | `datacontract`          | Tables, types, descriptions, joins            |
+| [OpenMetadata](integrations/catalogs/openmetadata.md)  | `openmetadata`          | Tables, types, descriptions, joins            |
+| [RDBMS dictionary](integrations/catalogs/rdbms.md)     | `rdbms`                 | Tables, types, descriptions                   |
+| [Wren](integrations/catalogs/wren.md)                  | none: an import command | A markdown catalog to review                  |
 
-A metadata source supplies definitions. `SemanticCatalog::load` takes no request context, so no
-catalog can return a different definition per caller - the digest that travels with an answer would
-otherwise describe something other than what produced it.
+A catalog that supplies part of the model declares the rest as absent. A catalog without metrics
+answers no certified question. One deployment uses catalogs of one kind. Several entries of that
+kind make one catalog.
 
-`SemanticCatalog::KIND` is what each adapter is measured against, and it is a per-adapter constant
-rather than a description:
+### Catalog settings
 
-| Source                        | Crate                         | `KIND`      | Measured against                               | What it can carry                                                        |
-| ----------------------------- | ----------------------------- | ----------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| Markdown + YAML frontmatter   | `sutura-catalog-local`        | `Golden`    | the hand-written oracle stating the same model | every kind the model defines                                             |
-| DataHub                       | `sutura-catalog-datahub`      | `Declaring` | its own `capabilities` declaration             | `docs/adr/0016-what-datahub-can-carry.md`                                |
-| OpenMetadata                  | `sutura-catalog-openmetadata` | `Declaring` | its own `capabilities` declaration             | [What an OpenMetadata catalog can carry](what-openmetadata-can-carry.md) |
-| OKF Frictionless Table Schema | `sutura-catalog-okf`          | `Declaring` | its own `capabilities` declaration             | [What an OKF-style catalog can carry](what-okf-can-carry.md)             |
-| An RDBMS dictionary           | `sutura-catalog-rdbms`        | `Declaring` | its own `capabilities` declaration             | [An RDBMS dictionary as a metadata source](rdbms-catalog-guidance.md)    |
+The catalogs are a list under `catalogs:`. Every entry has these keys:
 
-A `Declaring` adapter supplies part of the model and **declares the rest out**. An absence is
-declared rather than inferred from silence, which is why a partial source cannot quietly read as a
-complete one.
+| Key               | Type    | Default    | Meaning                                                                  |
+| ----------------- | ------- | ---------- | ------------------------------------------------------------------------ |
+| `name`            | string  | required   | The name of the entry                                                    |
+| `kind`            | string  | `markdown` | The catalog kind                                                         |
+| `dir`             | path    | required   | The directory that a file catalog reads. Optional for `rdbms`            |
+| `data_dir`        | path    | required   | Required, and not read by any catalog. Optional for `rdbms`              |
+| `version`         | string  | required   | The label of the snapshot, for example a commit ID. Up to 128 characters |
+| `refresh_seconds` | integer | not set    | `sutura serve` reads the catalog again at this interval. `0` is refused  |
 
-## Data sources
+All entries must have the same `version`. A key that sutura does not know is an error.
 
-A data source executes a compiled plan. The `Warehouse` port is synchronous and `execute` takes a
-`Deadline`.
+## Data systems
 
-| Source     | Crate                    | Renders | Executes                                                    | Identity it executes under                                 |
-| ---------- | ------------------------ | ------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
-| BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                                         | per subject - `PerSubjectCredential`                       |
-| Postgres   | `sutura-exec-postgres`   | yes     | yes                                                         | one declared shared service account - `NoPlaceForASubject` |
-| DuckDB     | `sutura-exec-duckdb`     | yes     | yes, behind a `duckdb` feature every release has; see below | one process identity - `NoPlaceForASubject`                |
-| DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer               | one process identity - `NoPlaceForASubject`                |
-| ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature              | one declared shared service account - `NoPlaceForASubject` |
-| Oracle     | `sutura-exec-oracle`     | yes     | declarable behind a default-off `oracle` feature; see below | one declared shared service account - `NoPlaceForASubject` |
+| Data system                                                   | `kind`       | Identity of the query                            |
+| ------------------------------------------------------------- | ------------ | ------------------------------------------------ |
+| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura              |
+| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura              |
+| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account |
+| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                |
+| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user                                |
+| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user                                |
 
-**Oracle is declarable and does not yet answer a whole-plan question.** A `kind: oracle` source is
-declarable and openable by a build carrying the `oracle` feature, default-off and in no published
-binary, over `transport_mode: plaintext` to a declared loopback host only: the driver trusts the
-certificate authorities compiled into it and takes no declared trust store, so `verified` and
-`mutual` are refused at load rather than half-honoured. **The loopback rule confines the first dial,
-not the connection:** the driver follows a listener's redirect to any address the listener names,
-still in plaintext, and authenticates there - so a loopback port-forward to a listener that
-redirects (a SCAN listener or a connection manager) sends the password and every row across the
-network in the clear. A cell holds that the driver follows; nothing in sutura can refuse it.
-Asked by hand against `compose.services.yaml`'s real
-`oracle` image (2026-09-23), a whole-plan question failed at the server, because the renderer ended
-it in `LIMIT n` and Oracle refuses that (`ORA-03049`). The renderer now ends it in
-`FETCH FIRST n ROWS ONLY`, which the Oracle goldens pin; no committed cell executes a whole-plan
-question against an Oracle server, so those goldens pin what this renderer emits and nothing a
-database agreed to. It signs in only as its declared shared service account - `NoPlaceForASubject`, so
-an `impersonation-at-source` declaration is refused at the composition root with the reason that no
-build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
-work lands.
+A federated question reads two data systems. Each one runs its part, and DataFusion joins the
+parts. ClickHouse cannot run a part of a federated question.
 
-**DuckDB is the local kind: one database file, opened read-only, raw SQL included.** A
-`kind: duckdb` source names one absolute `database_file`, and a build carrying the `duckdb`
-feature opens it - every release carries it, and a source build without it refuses the kind by
-name. Every musl release links the DuckDB driver statically; any other build mounts the `libduckdb`
-that `SUTURA_DUCKDB_ADBC_DRIVER` names, a source refusing at boot where neither is there, and a Nix
-build on Apple silicon presets it (a value you set wins). A raw `run_sql` text is screened by
-`DuckDB`'s own parser - reads only - and runs on the file opened read-only with external access off
-and the configuration locked ([Serving](serving.md#the-raw-sql-tool-over-a-duckdb-source)
-says what that refuses and what it does not). The golden row runs against a file opened that way. It
-executes as the one process that holds the file - `NoPlaceForASubject`, so an
-`impersonation-at-source` declaration is refused at the composition root. At the deadline a
-watchdog cancels the call's connection, a raw statement's included, and the stop lands at the
-engine's next interrupt check (`docs/adr/0029`).
+### Data system settings
 
-**ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
-`kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
-which every release binary carries now that `github.com/telekom/sutura#955` landed. The golden and differential suites run the example
-corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts beside the Postgres
-tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
-(`execute_packs!` in `crates/sutura-exec-clickhouse/tests/conformance.rs`). What the `Executes`
-column does NOT say about it: `Warehouse::EXECUTES_LEGS` is absent on the adapter - so a federated
-question involving a ClickHouse source is still refused by the capability gate. Its identity is one declared
-shared service account - `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused
-at the composition root with the reason that no build delivers it. Per-caller identity is the ADBC path's
-job once the ClickHouse ADBC migration (#1250) lands, and is not built (#1263).
+The data systems are a map under `sources:`. The key is the alias that a model names in `source:`.
+Every entry has these keys:
 
-**Postgres is answered over ADBC.** Every `kind: postgres` source runs through the ADBC PostgreSQL
-driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
-build mounts one named by `SUTURA_POSTGRES_ADBC_DRIVER` (a source refuses at boot where neither is
-there; a Nix build on Apple silicon presets it to a driver the flake builds, and a value you set
-wins). `sutura doctor`'s `pg driver` line says which driver this process would open and whether it
-initialises. **A source signs in only as its declared shared service account**: with a password or
-a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
-credential cache `KRB5CCNAME` names, filled from `KRB5_CLIENT_KTNAME`'s keytab - which the
-transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
-supported: they are blocked upstream (#42) and lift when the upstream work lands. The linked
-libpq is built without OAuth, and the connection string refuses SSPI and OAuth sign-in on either
-route. It also refuses `transport_anchors: system`, TLS or Kerberos over a
-unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
-hold to. The adapter's tier-backed cells run through a mounted driver in `checks.nextest` and
-through the linked static one on x86_64 musl in CI, where a Kerberos sign-in against a KDC tier and
-its refused negative control run too; aarch64 musl links it and nothing executes it.
+| Key                     | Type   | Default  | Meaning                                                                                                                    |
+| ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse` or `oracle`                                                        |
+| `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery only) |
+| `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`   |
+| `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                   |
+| `workload_identity`     | block  | not set  | The token exchange of an `impersonation-at-source` source. See [BigQuery](integrations/data-systems/bigquery.md)           |
 
-## Identity: what "impersonation" does and does not mean here
+`security.identity` is required as soon as one source is declared: `single-user` with
+`security.single_user_because`, or `multi-user`. In `single-user` mode, the reason in
+`single_user_because` is the acknowledgement for every shared source.
 
-`Warehouse::IMPERSONATION` says whether there is **a place in an adapter's path** for a subject's own
-credential to arrive. It does not say that a subject's identity has been proven to reach that source.
-Those are two claims and only the first is a constant.
+## Environment variables
 
-`IMPERSONATION` is a constant the trait declares **with no default**, so an adapter cannot be
-silent about it: a new data source either answers, or does not compile. Saying so explicitly is the
-point of the declaration - a file engine is the easiest source in the world to assume nothing about,
-and *"nobody declared anything for the engine"* is how a deployment ends up believing its whole
-surface impersonates because its network source does.
-
-⚠ The trait forces each adapter to answer; **nothing forces the table above to list every adapter.**
-The per-adapter constant in the source is the authority, and this page is a reading of it.
-
-The two legs, stated separately because they are proven to different depths:
-
-- **Leg 1 - knowing who is asking.** Built.
-- **Leg 2 - a source executing *as* them.** Built for BigQuery through a declared per-source map,
-  and **unproven**: the hosted venue that would show two subjects resolving to two accounts is
-  `wired` and nobody has dispatched it. The run this bullet used to cite was of an HTTP exchange the
-  ADBC adoption deleted. **No served binary has executed as a caller yet.**
-
-[Where each identity claim is proven](where-identity-is-proven.md) is the venue-by-venue table, and
-it is the only place that decides which venue may be cited for which claim.
+Every key has an environment variable: `SUTURA__` and the key path in capitals, with `__` between
+the parts. For example, `sources.local.data_dir` is `SUTURA__SOURCES__LOCAL__DATA_DIR`.
+[Configuration](configuration.md) describes how sutura layers files and variables.
