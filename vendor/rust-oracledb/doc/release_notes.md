@@ -3,6 +3,13 @@
 ## rust-oracledb 26.0.0-beta.5 (TBD)
 
 1.  Added methods
+    [Config::set_trust_anchors_pem()](crate::Config::set_trust_anchors_pem) and
+    [Config::trust_anchors_count()](crate::Config::trust_anchors_count) (and the
+    same methods on [PoolConfig](crate::PoolConfig)) to replace the public
+    certificate roots used to verify the database server in TCPS connections
+    and the error
+    [ErrorKind::InvalidTrustAnchors](crate::ErrorKind::InvalidTrustAnchors).
+1.  Added methods
     [Config::set_follow_redirects()](crate::Config::set_follow_redirects) and
     [Config::follow_redirects()](crate::Config::follow_redirects) (and the same
     methods on [PoolConfig](crate::PoolConfig)) to control whether a redirect
