@@ -6,8 +6,8 @@ description: What sutura is, what it enforces, and which page to read next.
 # sutura
 
 sutura answers questions about data with metric definitions that somebody certified. It answers
-as the person or agent that asks, where the data system can do this. When it cannot answer
-correctly, it refuses.
+as the person or agent that asks, where the data system can do this (built for BigQuery, not
+proven). When it cannot answer correctly, it refuses.
 
 An agent with a plain database connection writes its own SQL and runs it with the credential of
 the service. This causes two problems. Nobody certified the number, so "revenue" can mean
