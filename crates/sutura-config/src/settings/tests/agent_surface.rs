@@ -39,6 +39,12 @@ fn off_host(security: &str, rate_limit: &str) -> String {
     )
 }
 
+/// A loopback single-user agent deployment, with `server:` lines, `security:` lines and further
+/// groups of the caller's choosing.
+fn loopback(server: &str, security: &str, rest: &str) -> String {
+    format!("server:\n{server}  agent_surface:\n    enabled: true\nsecurity:\n{SINGLE_USER}{security}{rest}")
+}
+
 /// Two sources: `local` runs as the asking subject, `shared` as one identity.
 fn two_sources() -> &'static str {
     "sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n    \
@@ -112,4 +118,33 @@ fn an_agent_surface_over_an_impersonating_source_with_no_inbound_identity_is_not
     let rendered = refusals.first().expect("one refusal").to_string();
     assert!(rendered.contains("source `local` is `impersonation-at-source`"), "{rendered}");
     serves(&format!("{security}{DIRECT_INBOUND}{}", two_sources()));
+}
+
+#[test]
+fn a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host() {
+    let proxy = "  client_address: \"forwarded\"\n  trusted_proxies: [\"127.0.0.1\"]\n";
+    let refusals = refused(&loopback("", "", &format!("rate_limit:\n{proxy}")));
+    assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity]);
+    let rendered = refusals.first().expect("one refusal").to_string();
+    assert!(rendered.contains("rate_limit.trusted_proxies"), "{rendered}");
+    // Off-host is met as off-host is: the deployment token and the limiter.
+    serves(&loopback(
+        "",
+        &format!("  access_token: \"{TOKEN}\"\n"),
+        &format!("rate_limit:\n  enabled: true\n{proxy}"),
+    ));
+}
+
+#[test]
+fn a_loopback_agent_surface_answering_a_host_name_counts_as_off_host() {
+    for host in ["sutura.example.com", "localhost", "10.0.0.5"] {
+        let named = format!("  allowed_hosts: [\"{host}\"]\n");
+        let refusals = refused(&loopback(&named, "", ""));
+        assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity], "{host}");
+        let rendered = refusals.first().expect("one refusal").to_string();
+        assert!(rendered.contains("server.allowed_hosts"), "{rendered}");
+        serves(&loopback(&named, &format!("  access_token: \"{TOKEN}\"\n"), LIMITED));
+    }
+    // A loopback address names no caller from beyond this host.
+    serves(&loopback("  allowed_hosts: [\"127.0.0.1\", \"::1\"]\n", "", ""));
 }
