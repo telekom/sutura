@@ -108,7 +108,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/mimalloc_rust"]
+exclude = ["vendor/mimalloc_rust", "vendor/rust-oracledb"]
 
 [workspace.package]
 version = "0.6.1"
@@ -241,7 +241,10 @@ rustls-native-certs = "0.8.4"
 # depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys` into any build that also
 # links this adapter; both are already in `Cargo.lock` via other paths, so this adds no new package,
 # only a new feature activation on the one already there.
-oracledb = "26.0.0-beta.4"
+#
+# VENDORED at an unreleased upstream commit plus two local patches - `VENDOR.md` records which,
+# and the condition under which this goes back to the registry.
+oracledb = { path = "vendor/rust-oracledb" }
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly
