@@ -9,11 +9,14 @@ fn an_enabled_agent_surface_is_refused_by_a_build_without_the_feature() {
     // default build that must refuse at startup rather than silently serve no `/mcp` - the same
     // "configured for a build it does not have" refusal `serve_as_configured` gives for TLS.
     // Clearing `agent_refused_if_enabled`'s refusal body (or its call in `run`) reddens this cell.
+    // Single-user, so `NotFitToServe::AgentSurfaceWithoutInboundIdentity` lets these settings load.
     let settings = sutura_config::Settings::load(
-        &sutura_config::Sources::defaults(sutura_config::Environment::Development)
-            .with_overlay("server:\n  agent_surface:\n    enabled: true\n"),
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(
+            "server:\n  agent_surface:\n    enabled: true\nsecurity:\n  identity: \"single-user\"\n  \
+                 single_user_because: \"one operator\"\n",
+        ),
     )
-    .expect("an enabled agent surface parses");
+    .expect("an enabled single-user agent surface on loopback is fit to serve");
     let refused = super::super::agent_refused_if_enabled(&settings)
         .expect_err("an enabled agent surface on a build without the feature is a startup refusal");
     assert!(

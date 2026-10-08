@@ -1,5 +1,6 @@
-//! The served binary's AGENT-SURFACE cells (the `agent` feature): `/mcp` hidden behind leg 1,
-//! refused at boot without it, and two verified callers seeing two different tool lists.
+//! The served binary's AGENT-SURFACE cells (the `agent` feature): `/mcp` behind leg 1, refused at
+//! boot without it unless the deployment is `single-user`, and two verified callers seeing two
+//! different tool lists.
 //!
 //! Split out of `served.rs` (not a second harness) because the `max-lines` gate keeps a test file
 //! under a thousand lines; this module is `#[path = "served/agent.rs"]` from `served.rs`, so it
@@ -49,25 +50,51 @@ fn tool_names(reply: &crate::harness::Reply) -> Vec<String> {
         .collect()
 }
 
-/// A mounted agent surface with no `security.inbound` block does not boot, naming both the key
-/// that turned it on and the key that is missing.
+/// A mounted agent surface with no `security.inbound` block on a `multi-user` deployment does not
+/// boot, naming the key that turned it on and the key that is missing.
 ///
-/// The assembly refusal `AgentSurfaceWithoutInboundIdentity`, on the composed binary: a surface
-/// that would be reachable by whoever can route a packet has to be refused rather than skipped,
-/// and #302's limit carries forward - this is its own `served.rs` cell proving exit-without-bind.
+/// `NotFitToServe::AgentSurfaceWithoutInboundIdentity`, on the composed binary: `/mcp` answering
+/// every caller as the deployment is refused unless the operator declared `single-user`, and #302's
+/// limit carries forward - this is its own `served.rs` cell proving exit-without-bind.
 #[cfg(feature = "agent")]
 #[test]
-fn a_mounted_agent_surface_with_no_inbound_identity_stops_the_process() {
-    let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
+fn a_multi_user_agent_surface_with_no_inbound_identity_stops_the_process() {
+    let settings = crate::harness::deployment(
+        &example_root(),
+        crate::harness::AGENT_LOOPBACK,
+        "  identity: \"multi-user\"\n",
+    );
     let said = refused_to_start(Environment::Development, written("agent-no-inbound", &settings), &[]);
     let told = said.join("\n");
     assert!(
-        told.contains("agent surface is mounted") && told.contains("security.inbound"),
+        told.contains("server.agent_surface.enabled is true and no security.inbound is declared"),
         "the refusal did not name the mount and the missing declaration:\n{told}"
     );
     assert!(
         !told.contains("\"msg\":\"listening\""),
         "a deployment refused for an inbound-less agent surface opened a listener:\n{told}"
+    );
+}
+
+/// A `single-user` loopback deployment serves `/mcp` with no `security.inbound`, as the deployment:
+/// every tool, `run_sql` included, and no token asked for because none is configured.
+///
+/// The posture `/v1` already has there. Red on a tree that refused every inbound-less mount.
+#[cfg(feature = "agent")]
+#[test]
+fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment() {
+    let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
+    let served = start_configured("agent-single-user", &settings);
+    drop(served.mcp(None, &initialize(1)));
+    let tools = tool_names(&served.mcp(None, &tools_list(2)));
+    assert_eq!(
+        tools,
+        vec![
+            String::from("describe_catalog"),
+            String::from("ask_metric"),
+            String::from("run_sql")
+        ],
+        "a deployment with no inbound identity answers with every tool it enables"
     );
 }
 

@@ -63,8 +63,9 @@ const STARTUP: Subject = Subject {
     declared_in: "crates/sutura-config/src/settings/posture.rs",
     allow_file: "devco/startup-refusals-unprovoked-allow",
     // 17: `DelegationWithoutDirectInbound` (#1230), a delegation exchange declared on a deployment
-    // that verifies no `direct` caller.
-    variants: variants(17),
+    // that verifies no `direct` caller. 19: `AgentSurfaceWithoutInboundIdentity` and
+    // `AgentSurfaceOverAnImpersonatingSource` (#1293), where `/mcp` may not run without leg 1.
+    variants: variants(19),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

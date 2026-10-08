@@ -427,9 +427,9 @@ impl ServiceState {
     /// The same state, with the agent surface's transport attached.
     ///
     /// Called by the composition root, under the `agent` feature, when the deployment set
-    /// `server.agent_surface.enabled: true`. A state carrying a mount but no inbound identity is a
-    /// state `crate::router::assemble` refuses (`AgentSurfaceWithoutInboundIdentity`): the agent
-    /// surface must never be reachable where no caller can be verified.
+    /// `server.agent_surface.enabled: true`. A state carrying a mount on settings whose
+    /// `Settings::agent_surface_refusals` is not empty is a state `crate::router::assemble` refuses
+    /// (`AgentSurfaceNotFitToServe`), whether or not that switch was set.
     #[cfg(feature = "agent")]
     #[must_use]
     pub fn with_agent_surface(mut self, mount: AgentMount) -> Self {

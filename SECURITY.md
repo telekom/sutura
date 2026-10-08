@@ -84,6 +84,9 @@ And on the identity path, now that one exists:
 - a key removed from the key set that keeps verifying past the bound, or a forged key id that turns
   requests into outbound fetches
 - a deployment that declares an inbound identity and serves without one
+- `/mcp` served with no inbound identity where the startup refusals should stop it: a `multi-user`
+  or undeclared mode, a non-loopback bind without both the deployment token and the limiter, or a
+  source that runs as the asking subject
 - an operation invoked without the scope that governs it, on either transport
 - an outcome returned without a record having been written first
 - a **claim** about identity that the build does not deliver: a record, provenance value, log line or
@@ -140,6 +143,10 @@ is the state of the repository, recorded in `.agents/skills/sutura/invariants` a
   that FAILS does refuse the boot and names the data system's own complaint), and the origin half of a
   `one_to_one`, which nothing asks about. A report that a row inserted after boot changes an answer is
   the state of the repository
+- **`single-user` as a fact.** `security.identity: single-user` is a mode and a reason the operator
+  writes; nothing counts who calls. On such a deployment with no inbound identity, `/mcp` answers
+  every caller as the deployment with every capability, as `/v1` does there. A report that a second
+  person reached it is the state of the repository
 - a **row**-level entitlement between callers. Scopes narrow which operations a caller may invoke and
   decide nothing about which rows an answer contains
 - **binding a gateway identity assertion to a request.** The replay window is bounded by this

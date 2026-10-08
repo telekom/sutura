@@ -714,8 +714,10 @@ Where the browser interface over that description is served.
 Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it is mounted at all.
 
 **Only compiled when the `agent` feature is on**, and only mounted when the deployment set
-`server.agent_surface.enabled: true` AND declared `security.inbound` - the latter is a startup
-refusal (`AgentSurfaceWithoutInboundIdentity`), not a silent skip. `/mcp` is the streamable-HTTP
+`server.agent_surface.enabled: true`. Without `security.inbound` it is served only on a
+`single-user` deployment that is loopback or behind the token and the limiter, with no
+impersonating source; anything else is a startup refusal (`AgentSurfaceWithoutInboundIdentity`),
+not a silent skip. `/mcp` is the streamable-HTTP
 transport's own conventional endpoint name, which is what an off-the-shelf MCP client already
 tries by default. Not versioned under `API_V1_PREFIX`: MCP versions its own tool set by the
 protocol's `protocolVersion` negotiation, a different axis, and it is not a route this crate
@@ -3195,7 +3197,7 @@ Assembling the router: four tiers, and what guards each.
 | liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 | documentation | anybody, when it is served at all | public | yes, when one is configured |
 | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
-| agent surface (`/mcp`), when mounted | a verified caller with the token, when one is configured | general, its own store | yes, when one is configured |
+| agent surface (`/mcp`), when mounted | a caller with the token, when one is configured, verified where `security.inbound` is declared | general, its own store | yes, when one is configured |
 
 Liveness has no token because a probe has no credential to present, which is exactly why its
 body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
@@ -3284,16 +3286,13 @@ Why the router could not be assembled.
   It reads the generated interface description, which is generated from the handlers' own
   `#[utoipa::path]` attributes - so it is checked against the routes the router actually mounts
   and not against a second list somebody kept in step.
-- `AgentSurfaceWithoutInboundIdentity` - The agent surface is mounted and the deployment declared no inbound identity to verify a caller with.
+- `AgentSurfaceNotFitToServe` - An agent surface is mounted on a deployment that may not serve one without an inbound identity.
 
-  **The mechanism that makes "the agent surface is only served where a caller can be verified"
-  un-forgettable.** `sutura-mcp`'s streamable-HTTP transport is a network-reachable surface;
-  serving it on a deployment with no `security.inbound` block would expose every tool it offers
-  to whoever can route a packet, answered as the deployment. Leg 1's own assembly guard
-  (`InboundIdentityNotAttached`) covers the reverse direction - declared, no gate; this covers
-  mounted transport with no declaration at all. The composition root builds one `AgentMount`
-  from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
-  when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
+  **The last door, over the SAME predicate `Settings::refusals` asks.** That check is keyed on
+  `server.agent_surface.enabled`; this one on a mount being attached, because no type ties
+  `ServiceState::with_agent_surface` to the switch. Both call
+  `sutura_config::Settings::agent_surface_refusals`, so the two cannot disagree about which
+  deployment may serve `/mcp` without leg 1.
 - `AgentSurfaceSpendPushMismatched` - The mounted agent surface's spend-headroom declaration disagrees with the state it is attached to.
 
   **The half `SpendHeadroomPush` cannot hold by itself.** That type makes the handle
@@ -3607,9 +3606,9 @@ pub fn with_agent_surface(self, mount: AgentMount) -> Self
 The same state, with the agent surface's transport attached.
 
 Called by the composition root, under the `agent` feature, when the deployment set
-`server.agent_surface.enabled: true`. A state carrying a mount but no inbound identity is a
-state `crate::router::assemble` refuses (`AgentSurfaceWithoutInboundIdentity`): the agent
-surface must never be reachable where no caller can be verified.
+`server.agent_surface.enabled: true`. A state carrying a mount on settings whose
+`Settings::agent_surface_refusals` is not empty is a state `crate::router::assemble` refuses
+(`AgentSurfaceNotFitToServe`), whether or not that switch was set.
 
 ```rust
 pub fn with_inbound_identity(self, gate: Arc<crate::inbound::InboundGate>) -> Self

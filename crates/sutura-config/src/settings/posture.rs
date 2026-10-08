@@ -223,6 +223,37 @@ pub enum NotFitToServe {
         key = DeploymentIdentity::KEY
     )]
     RunSqlEnabledInMultiUserMode,
+    /// The agent surface is on, no inbound identity is declared, and this is not a deployment where
+    /// `/mcp` may answer every caller as the deployment.
+    ///
+    /// Without `security.inbound`, `/mcp` serves every caller as the deployment with every
+    /// capability, the posture `/v1` already has there. That is accepted only where the operator
+    /// declared `single-user` with its written reason AND the surface is reachable from loopback
+    /// only, or sits behind the deployment token and the limiter. A missing mode is not single-user,
+    /// so a deployment that says nothing gets this refusal. **The limit:** `single-user` is a word
+    /// an operator writes, not a count of who calls.
+    #[error(
+        "server.agent_surface.enabled is true and no security.inbound is declared, so /mcp would \
+         answer every caller as the deployment. That is served only where {key} is `single-user` with \
+         its written reason AND the bind is loopback or both security.access_token and \
+         rate_limit.enabled guard it. Declare security.inbound, meet both conditions, or turn the agent \
+         surface off",
+        key = DeploymentIdentity::KEY
+    )]
+    AgentSurfaceWithoutInboundIdentity,
+    /// The agent surface is on, no inbound identity is declared, and a source runs each question as
+    /// the asking subject.
+    ///
+    /// With no inbound identity nobody is verified, so that source has no caller to run as. Read
+    /// off the source's declared posture, not its kind: a new kind declares a posture, and a new
+    /// posture has to answer `SourcePosture::deliverable_by`'s exhaustive match.
+    #[error(
+        "source `{alias}` is `impersonation-at-source`, server.agent_surface.enabled is true and no \
+         security.inbound is declared. That source runs each question as the verified caller, and \
+         without an inbound identity /mcp verifies nobody. Declare security.inbound, or turn the agent \
+         surface off"
+    )]
+    AgentSurfaceOverAnImpersonatingSource { alias: SourceName },
     /// A per-replica spend ceiling declared over a `BigQuery` source, whose ADBC transport prices
     /// nothing.
     ///
