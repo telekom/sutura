@@ -1,0 +1,15 @@
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -892,7 +892,11 @@ async fn collected(
+     let mut stream = frame.execute_stream().await.map_err(exhaustion)?;
+     let mut accumulating = Accumulating::announcing(announced, usize::MAX, budget);
+     while let Some(batch) = stream.next().await {
+-        accumulating.push(batch.map_err(exhaustion)?).map_err(|cause| match cause {
++        let pushed = accumulating.push(batch.map_err(exhaustion)?);
++        if matches!(pushed, Err(UnannouncedBatch::OverBudget { .. })) {
++            break;
++        }
++        pushed.map_err(|cause| match cause {
+             UnannouncedBatch::OverBudget { .. } => CombineError::Exhausted { ceiling_bytes },
+             UnannouncedBatch::OverBound { .. } | UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => {
+                 CombineError::Unannounced { cause }

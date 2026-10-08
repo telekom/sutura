@@ -26,7 +26,8 @@ use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
 /// The metric's own rows (and any same-source dimension) form the fact leg; everything on the one
 /// remote data system forms the lookup leg. The link between them is the relationship's join column,
 /// grouped into the fact leg and projected from the lookup leg under the same label - so the combiner
-/// can find it. A measure that cannot decompose is refused rather than pulled up.
+/// can find it. A measure that cannot decompose (a distinct count) is pulled up: the fact leg
+/// carries its column as one more key and the combine counts the distinct values above.
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
@@ -40,17 +41,6 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
 
     // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
     let federation = Federation::of_metric(closed, model.name());
-    // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
-    if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
-        Carried::Keys { pulled, .. } => Some(pulled.above()),
-        _ => None,
-    }) {
-        return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
-            metric: metric.name().clone(),
-            aggregate: keys,
-        }));
-    }
-
     // One remote data system (more are refused upstream); its dimensions must all be reached through
     // one first hop, because the combiner links the legs on a single column - and a remote
     // dimension's HOP 1 is what the link is: it is the hop that crosses into the remote system, and
@@ -174,12 +164,14 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
             Carried::CountIf { ref column, .. } => PlanTerm::CountIf {
                 column: PlanColumn::new(owning_table, column.clone()),
             },
-            // Unreachable: the refusal above returned for any Keys leaf.
-            Carried::Keys { .. } => {
-                return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
-                    metric: metric.name().clone(),
-                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
-                }));
+            // No term: the leg groups by the column, one row per distinct value, and the combine
+            // counts them. `FederatedPlan::new` checks the key is on the leg under this label.
+            Carried::Keys { ref column, .. } => {
+                fact_keys.push(PlanKey::new(
+                    ResultLabel::internal(label),
+                    PlanColumn::new(owning_table, column.clone()),
+                ));
+                continue;
             }
         };
         let leg_term = LegTerm::new(plan_term, ResultLabel::internal(label));

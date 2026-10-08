@@ -238,9 +238,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref source,
             ref relationship,
         } => (StatusCode::CONFLICT, federation_link_compound(source, relationship)),
-        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => {
-            (StatusCode::CONFLICT, measure_does_not_federate(metric, aggregate))
-        }
         RefusalReason::FederatedAnswerNotWellFormed { .. } => (StatusCode::CONFLICT, federated_answer_not_well_formed()),
         RefusalReason::PlanTablesShareAnIdentifier { .. } => (StatusCode::CONFLICT, plan_tables_share_an_identifier()),
         // 409, with the federation group above - a shape this build does not execute.
@@ -433,11 +430,6 @@ fn federation_link_compound(
     format!("`{relationship}` crossing into `{source}` declares more than one join key")
 }
 
-/// A measure that would have to be recombined into a number it cannot make.
-fn measure_does_not_federate(metric: &sutura_domain::model::MetricName, aggregate: sutura_domain::model::Aggregate) -> String {
-    format!("`{metric}` cannot be combined across two data systems: its {aggregate} aggregate is not additive")
-}
-
 /// D19 + A4's own reason: a non-finite ratio or an ambiguous join is the SAME plan against the
 /// SAME rows failing again, which is what 409 says and what the `503` this used to leave as -
 /// "worth retrying" - does not. Carries no cell: see `FederatedAnswerRefusal`'s own note on why a
@@ -524,7 +516,6 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
-        | RefusalReason::MeasureDoesNotFederate { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }
         | RefusalReason::SourceUnavailable { .. }

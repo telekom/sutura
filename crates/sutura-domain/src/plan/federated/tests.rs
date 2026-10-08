@@ -213,36 +213,64 @@ fn matching_bucket_and_terms_construct_the_negative_control() {
     assert!(plan.is_ok(), "{plan:?}");
 }
 
-/// **A carried leaf with no re-aggregating function is refused before a plan exists**, which is the
-/// one thing `reaggregates` decides and the refusal that keeps a combiner's own
-/// unsupported-aggregate arm unreachable through this constructor.
-///
-/// An exact distinct count is the case: no function adds per-group distinct counts back up, so the
-/// honest answer is to refuse the slice rather than to certify a re-count. It is refused HERE, at
-/// construction, rather than when a group is reduced - reduced, the same plan refused a group
-/// holding a value and answered null for a group of nulls, under the metric's own certified name.
+/// **A distinct count is a key of the fact leg, not a term**, so the plan exists exactly when the
+/// leg projects the distinct column under the leaf's own label - the one name the combiner reads it
+/// back by.
 #[test]
-fn a_carried_leaf_with_no_reaggregating_function_does_not_construct() {
-    let refused = try_plan_for(
-        "distinct_customers",
-        &Measure::Simple(term(Aggregate::CountDistinct, "customer_key")),
-        true,
-    )
-    .expect_err("a distinct count has no re-aggregating function");
+fn a_distinct_count_constructs_when_the_fact_leg_projects_its_key() {
+    let plan = try_distinct_plan(fact_leg_keyed_by(vec![distinct_key(0)], Vec::new()));
+    assert!(plan.is_ok(), "{plan:?}");
+}
+
+/// The twin of the cell above, and the refusal it exists for: a leg that never grouped by the
+/// column cannot have its distinct values counted above, so the plan does not exist rather than
+/// counting nothing under the metric's own certified name.
+#[test]
+fn a_distinct_count_whose_key_the_fact_leg_does_not_project_does_not_construct() {
+    let refused = try_distinct_plan(fact_leg_keyed_by(Vec::new(), Vec::new())).expect_err("no leaf key, no plan");
     assert!(
         matches!(
             refused,
-            FederatedPlanError::LeafDoesNotReaggregate {
-                aggregate: Aggregate::CountDistinct
-            }
+            FederatedPlanError::KeyNotOnLeg { side: crate::plan::LegSide::Fact, ref label } if *label == InternalLabel::Leaf(0).label()
         ),
         "{refused:?}"
     );
 }
 
-/// The negative control for the cell above, and it is not decoration: without it the refusal would
-/// pass just as well against a constructor that refused every measure. A sum re-aggregates with a
-/// sum, so the same shape constructs.
+/// A pulled-up leaf is a key and never also a term: a leg that projects the distinct column AND
+/// carries a term under its label would count one column two ways.
+#[test]
+fn a_distinct_count_carried_as_a_term_too_does_not_construct() {
+    let leg = fact_leg_keyed_by(vec![distinct_key(0)], placeholder_terms(&distinct_federation()));
+    let refused = try_distinct_plan(leg).expect_err("a leaf is a key or a term, not both");
+    assert!(
+        matches!(refused, FederatedPlanError::TermsDoNotMatchFederation),
+        "{refused:?}"
+    );
+}
+
+/// A distinct count over another model's column would need its own fact leg, which counts distinct
+/// values per link and so cannot be pulled up - the catalog refuses it at load, and this holds the
+/// same shape as a type. The second leg carries a term under the leaf's label, so only the rule
+/// about a pulled-up leaf on the second partition refuses.
+#[test]
+fn a_distinct_count_naming_another_model_does_not_construct() {
+    let federation = Federation::of(&Measure::Simple(Term::Aggregate(AggregatedColumn::on_model(
+        Aggregate::CountDistinct,
+        column("customer_key"),
+        crate::model::ModelName::parse("orders").expect("a test model is a model"),
+    ))));
+    let second = second_fact_carrying(placeholder_terms(&federation));
+    let refused = two_fact_plan(federation, second).expect_err("a distinct count cannot ride a second fact leg");
+    assert!(
+        matches!(refused, FederatedPlanError::TermsDoNotMatchFederation),
+        "{refused:?}"
+    );
+}
+
+/// The negative control for the cells above, and it is not decoration: without it the refusals
+/// would pass just as well against a constructor that refused every measure. A sum re-aggregates
+/// with a sum, so the same shape constructs.
 #[test]
 fn a_carried_leaf_that_reaggregates_constructs() {
     assert!(

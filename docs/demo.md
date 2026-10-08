@@ -9,8 +9,8 @@ tool to call and how to phrase the answer, and no guarantee lives there. Every n
 from a certified question the runtime answered, or from a refusal the runtime decided - the client
 is a renderer and nothing more. And it is a SINGLE-USER demo: the deployment reads the example as
 one shared service user, acknowledged by the operator, so it proves **neither caller identity nor
-source impersonation**. [Where each identity claim is proven](where-identity-is-proven.md) is the
-authority on what may be cited where.
+source impersonation**. [Inbound identity](integrations/identity.md) describes what sutura
+verifies about a caller.
 
 ## What it brings up
 
@@ -137,8 +137,7 @@ Its limits, beside the claims:
 - **One subject, chosen by the launcher.** The chat client does not log in; every chat presents the
   same subject's token. It shows a real issuer's token verified on `/mcp`, not a person signing in.
 - **Still a single shared source identity.** The verified caller does not change who reads the
-  example - this is not source impersonation, and this demo is not a venue
-  [where identity is proven](where-identity-is-proven.md) records.
+  example. This is not source impersonation.
 - **The token travels in the container's environment**, the way the model key does, so anyone who
   can inspect the container can read it until it expires.
 
