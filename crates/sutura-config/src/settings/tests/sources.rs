@@ -136,7 +136,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
          local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/local\"\n    posture: \"shared-service-user\"\n    \
          acknowledged_because: \"a directory of CSVs this deployment owns\"\n  \
          warehouse:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/warehouse\"\n    posture: \"impersonation-at-source\"\n    \
-         workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
+         workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n    \
          verification_identity: \"sutura_anchor_reader\"\n",
     );
     let settings = Settings::load(&sources).expect("two sources load");
