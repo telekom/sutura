@@ -1,13 +1,13 @@
 diff --git a/crates/sutura-exec-bigquery/src/principal.rs b/crates/sutura-exec-bigquery/src/principal.rs
-index 5baad62b1..fb963ef2d 100644
+index 18d271e71..b8bb2dd1c 100644
 --- a/crates/sutura-exec-bigquery/src/principal.rs
 +++ b/crates/sutura-exec-bigquery/src/principal.rs
-@@ -325,7 +325,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
+@@ -372,7 +372,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
              }
              // Unreachable: the pass above established that every source has one of the two halves.
              // Answered rather than unwrapped, because `unwrap_used` is denied.
--            let Some((principals, delegation)) = self.impersonating.get(source) else {
-+            let Some((principals, delegation)) = self.impersonating.values().next() else {
+-            let Some((principals, presenting)) = self.impersonating.get(source) else {
++            let Some((principals, presenting)) = self.impersonating.values().next() else {
                  return Ok(Minted::Refused { source: source.clone() });
              };
              // **The authorization decision, and both ways out of it are refusals.** A caller with no

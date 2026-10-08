@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `ClickHouse`, over its HTTP interface.
 //!
-//! One connection under the deployment's declared identity (`SharedServiceUser`) - the static
-//! half, like `sutura_exec_postgres`: no OAuth, no impersonation.
+//! The deployment's declared service user authenticates every request. A `shared-service-user`
+//! source runs every statement as that user; an `impersonation-at-source` source runs each one as
+//! the `ClickHouse` user its declared map names for the asking subject, through `EXECUTE AS` - see
+//! [`execute_as`]. No OAuth: the subject never authenticates to `ClickHouse` itself.
 //!
 //! # Why `ureq` and not an async driver
 //!
@@ -76,10 +78,13 @@
 //! `Warehouse::dry_run`'s own doc names for an adapter where checking is not cheaper than running.
 
 mod deadline;
+pub mod execute_as;
 #[cfg(feature = "fixtures")]
 pub mod fixture;
 pub mod tls;
 pub mod transport;
+
+use std::borrow::Cow;
 
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::SourceName;
@@ -92,6 +97,8 @@ use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, Res
 use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use transport::ClickHouseTransport;
+
+use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
 
 /// Why this data system could not answer.
 ///
@@ -119,13 +126,43 @@ where
     /// header.
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
-    /// The credential broker handed this adapter subject material it has nowhere to put.
+    /// The credential broker handed this adapter a subject's own credential, which it has nowhere
+    /// to put: it authenticates as the deployment and switches to a declared user per statement.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
-         credential to arrive: it is one connection under the deployment's declared identity. This is \
-         a wiring defect between the credential broker and the source declaration"
+         credential to arrive: it authenticates as the deployment's declared user and runs each \
+         statement as a declared ClickHouse user. This is a wiring defect between the credential \
+         broker and the source declaration"
     )]
     NoPlaceForASubject { at: String, presented: &'static str },
+    /// The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
+    #[error("source `{at}` was handed a principal that is not a ClickHouse user this adapter can name")]
+    NotAClickHouseUser {
+        at: String,
+        #[source]
+        cause: NotAClickHouseUser,
+    },
+    /// The boot probe's `EXECUTE AS` did not run - refused (no setting, no grant) or unreachable.
+    #[error(
+        "the boot probe `EXECUTE AS {user}` did not run. It needs the server setting \
+         `access_control_improvements.allow_impersonate_user = 1` and `GRANT IMPERSONATE ON {user}` \
+         to this source's service user; ClickHouse Cloud offers neither"
+    )]
+    ExecuteAsRefused {
+        user: ClickHouseUser,
+        #[source]
+        cause: E,
+    },
+    /// The boot probe ran, and not as the declared user, or as the service user itself.
+    #[error(
+        "`EXECUTE AS {user}` ran as `{current}`, authenticated as `{authenticated}` - a declared user \
+         must be a user other than this source's service user, and the statement must run as it"
+    )]
+    ExecuteAsNotHonoured {
+        user: ClickHouseUser,
+        current: String,
+        authenticated: String,
+    },
     #[error("the credential broker presented a leg that disagrees with how this source is declared")]
     PresentedDisagreesWithPosture {
         #[source]
@@ -169,6 +206,9 @@ where
 /// type rather than as the two-level generic clippy's `type_complexity` lint asks not to repeat.
 type ChResult<T, E> = core::result::Result<T, ClickHouseError<E>>;
 
+/// Which user a statement runs as: `None` is the service user, `Some` the declared user switched to.
+type RunsAs = Option<ClickHouseUser>;
+
 /// A `ClickHouse` connection, behind the [`Warehouse`] port.
 ///
 /// Generic in [`ClickHouseTransport`] so this crate's own conformance pack can bind the port to a
@@ -211,22 +251,71 @@ where
         }
     }
 
-    /// Refuses credential material this adapter has nowhere to put, then checks the presented leg
-    /// against how this source was DECLARED - `sutura_exec_postgres::deliverable`'s exact
-    /// shape, for the exact reason (`docs/adr/0008` part 4).
-    fn deliverable(&self, presented: &Presented) -> ChResult<(), T::Error> {
-        match *presented {
-            Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+    /// Checks the presented leg against how this source was DECLARED (`docs/adr/0008` part 4),
+    /// then answers which user the statement runs as: `None` for the service user, `Some` for the
+    /// principal a broker named. A subject's own credential has nowhere to go and is refused.
+    fn deliverable(&self, presented: &Presented) -> ChResult<RunsAs, T::Error> {
+        let named = match *presented {
+            Presented::SharedServiceUser { .. } => None,
+            Presented::SubjectPrincipal { ref name } => Some(name),
+            Presented::SubjectToken { .. } => {
                 return Err(ClickHouseError::NoPlaceForASubject {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),
                 });
             }
-        }
+        };
         presented
             .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| ClickHouseError::PresentedDisagreesWithPosture { cause })
+            .map_err(|cause| ClickHouseError::PresentedDisagreesWithPosture { cause })?;
+        named
+            .map(|name| ClickHouseUser::parse(name.as_str()))
+            .transpose()
+            .map_err(|cause| ClickHouseError::NotAClickHouseUser {
+                at: String::from(self.source.as_str()),
+                cause,
+            })
+    }
+
+    /// Refuses unless the server runs a statement as `user` for this source's service user.
+    ///
+    /// The boot pre-flight for an `impersonation-at-source` source, run once per declared user, so
+    /// a missing server setting or grant stops the process rather than its first question. It also
+    /// refuses a declared user that IS the service user, which would serve that subject as the
+    /// deployment. The limit: it proves the grant at boot; a grant revoked later surfaces as a
+    /// refused question (`Code: 497`), never as an answer as the service user.
+    ///
+    /// # Errors
+    ///
+    /// [`ClickHouseError::ExecuteAsRefused`] if the server refuses the statement, and
+    /// [`ClickHouseError::ExecuteAsNotHonoured`] if it runs as anyone but `user`, or as the
+    /// service user.
+    pub fn refuse_unless_executes_as(&self, user: &ClickHouseUser) -> ChResult<(), T::Error> {
+        let probe = user.execute_as("SELECT currentUser(), authenticatedUser()");
+        let body = self
+            .transport
+            .run(&probe, &[], boot_deadline())
+            .map_err(|cause| ClickHouseError::ExecuteAsRefused {
+                user: user.clone(),
+                cause,
+            })?;
+        let rows = rows_from_json_with_limit::<T::Error>(&body, self.result_budget, Some(1))?;
+        let (current, authenticated) = match rows.rows().first().map(Vec::as_slice) {
+            Some([Value::Text(current), Value::Text(authenticated)]) => (current.clone(), authenticated.clone()),
+            _ => {
+                return Err(ClickHouseError::MalformedResponse {
+                    expected: "one row of two user names",
+                });
+            }
+        };
+        if current != user.as_str() || current == authenticated {
+            return Err(ClickHouseError::ExecuteAsNotHonoured {
+                user: user.clone(),
+                current,
+                authenticated,
+            });
+        }
+        Ok(())
     }
 
     fn render(executable: Executable<'_>) -> ChResult<GeneratedQuery, T::Error> {
@@ -239,13 +328,20 @@ where
     }
 
     fn run(&self, query: &GeneratedQuery, deadline: Deadline) -> ChResult<RowSet, T::Error> {
-        self.run_with_limit(query, deadline, None)
+        self.run_as(None, query, deadline, None)
     }
 
-    fn run_with_limit(&self, query: &GeneratedQuery, deadline: Deadline, most_rows: Option<usize>) -> ChResult<RowSet, T::Error> {
+    fn run_as(
+        &self,
+        user: Option<&ClickHouseUser>,
+        query: &GeneratedQuery,
+        deadline: Deadline,
+        most_rows: Option<usize>,
+    ) -> ChResult<RowSet, T::Error> {
+        let statement = user.map_or_else(|| Cow::Borrowed(query.sql()), |user| Cow::Owned(user.execute_as(query.sql())));
         let body = self
             .transport
-            .run(query.sql(), query.params(), deadline)
+            .run(&statement, query.params(), deadline)
             .map_err(|cause| ClickHouseError::Endpoint { cause })?;
         rows_from_json_with_limit(&body, self.result_budget, most_rows)
     }
@@ -257,10 +353,9 @@ where
 {
     type Error = ClickHouseError<T::Error>;
 
-    /// **One connection under the deployment's declared identity**, so there is nowhere for a
-    /// subject's own credential to arrive - the static-credential half, exactly
-    /// `sutura_exec_postgres`'s own declaration and for the same reason.
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    /// A presented principal becomes the user each statement runs as, through `EXECUTE AS` - see
+    /// [`execute_as`]. A subject's own credential still has nowhere to arrive.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
     fn source(&self) -> &SourceName {
         &self.source
@@ -276,9 +371,9 @@ where
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        self.deliverable(presented)?;
+        let user = self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let rows = self.run_with_limit(&query, deadline, executable.row_limit())?;
+        let rows = self.run_as(user.as_ref(), &query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| ClickHouseError::Shape { cause })

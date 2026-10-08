@@ -56,7 +56,7 @@ proof of impersonation.
   caller without rows is a `Refusal`. **A federated answer whose legs decide identity differently IS
   disclosed rather than refused since `docs/adr/0040`, and that does not make the disclosure a
   control.** The refusal that stood there (`ExecutedAs::uniform` and the `UniformlyExecuted` that
-  `PinnedDefinitions::provenance` took) is deleted because BigQuery is the only impersonating adapter,
+  `PinnedDefinitions::provenance` took) is deleted because BigQuery was then the only impersonating adapter,
   so refusing the mix prevented BigQuery from federating with a shared-posture adapter. The
   arithmetic it named is unchanged -
   rows a shared identity may see plus rows the asker may see is a total no identity is entitled to -

@@ -22,6 +22,12 @@
 //! One broker with one answer to *what does this leg present* is the shape `docs/adr/0008` part 4
 //! already assumes: a composition root picks one.
 //!
+//! **A switching source is the second thing it presents** ([`DeclaredPrincipalBroker::switching`]):
+//! the same map and the same refusals, but the leg carries the declared principal alone, as
+//! [`Presented::SubjectPrincipal`], for a source that authenticates the deployment and switches per
+//! statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
+//! is the key, and an anonymous or undeclared caller is refused exactly as below.
+//!
 //! # What it refuses, which is the half that matters
 //!
 //! - **A source it holds neither half for** - refused as `credential_unavailable`, so a forgotten
@@ -163,6 +169,21 @@ impl DeclaredPrincipals {
         Ok(Self(declared))
     }
 
+    /// Parses a declaration for a source that SWITCHES to the declared principal on the
+    /// deployment's own connection - [`DeclaredPrincipalBroker::switching`]. The values are not
+    /// service accounts, so only emptiness is refused here: the crate that sends a value narrows it
+    /// (`sutura_exec_clickhouse::execute_as::ClickHouseUser` for `EXECUTE AS`).
+    ///
+    /// # Errors
+    ///
+    /// [`NoDeclaredPrincipals::Empty`] for a declaration naming nobody.
+    pub fn switched(declared: BTreeMap<SubjectKey, PrincipalName>) -> Result<Self, NoDeclaredPrincipals> {
+        if declared.is_empty() {
+            return Err(NoDeclaredPrincipals::Empty);
+        }
+        Ok(Self(declared))
+    }
+
     /// The account this source is to execute this subject's questions as, if it declares the
     /// subject at all.
     ///
@@ -217,9 +238,19 @@ pub enum DeclaredPrincipalsUnusable {
     },
 }
 
-/// One impersonating source's declared subjects, and the exchange its callers' tokens go through
-/// in `direct` mode - `None` presents the inbound assertion itself.
-type Impersonating = (DeclaredPrincipals, Option<Delegation>);
+/// What an impersonating source is presented for a declared subject.
+#[derive(Debug, Clone)]
+enum Presenting {
+    /// The subject's own assertion beside the declared account - or, with a [`Delegation`], the
+    /// token that assertion is exchanged for in `direct` mode.
+    Assertion(Option<Delegation>),
+    /// The declared principal alone, as [`Presented::SubjectPrincipal`]: the source authenticates
+    /// the deployment and switches to it per statement, so no subject material leaves this process.
+    Principal,
+}
+
+/// One impersonating source's declared subjects, and what each of them is presented as.
+type Impersonating = (DeclaredPrincipals, Presenting);
 
 /// Presents the asking subject's own credential at a source that declares it, beside the account
 /// declared for that subject - and the operator's witness for a shared one.
@@ -260,7 +291,16 @@ impl DeclaredPrincipalBroker {
     /// Declares one impersonating source and the subjects it may be asked as.
     #[must_use]
     pub fn impersonating(mut self, at: SourceName, declared: DeclaredPrincipals) -> Self {
-        drop(self.impersonating.insert(at, (declared, None)));
+        drop(self.impersonating.insert(at, (declared, Presenting::Assertion(None))));
+        self
+    }
+
+    /// Declares one impersonating source that switches to each declared subject's principal on the
+    /// deployment's own connection - `ClickHouse`'s `EXECUTE AS`. The same map and the same refusal
+    /// as [`Self::impersonating`]; only what is presented differs.
+    #[must_use]
+    pub fn switching(mut self, at: SourceName, declared: DeclaredPrincipals) -> Self {
+        drop(self.impersonating.insert(at, (declared, Presenting::Principal)));
         self
     }
 
@@ -268,7 +308,10 @@ impl DeclaredPrincipalBroker {
     /// serves leg 1 only, and what this source presents is the token `delegation` exchanges it for.
     #[must_use]
     pub fn impersonating_delegated(mut self, at: SourceName, declared: DeclaredPrincipals, delegation: Delegation) -> Self {
-        drop(self.impersonating.insert(at, (declared, Some(delegation))));
+        drop(
+            self.impersonating
+                .insert(at, (declared, Presenting::Assertion(Some(delegation)))),
+        );
         self
     }
 
@@ -329,7 +372,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             }
             // Unreachable: the pass above established that every source has one of the two halves.
             // Answered rather than unwrapped, because `unwrap_used` is denied.
-            let Some((principals, delegation)) = self.impersonating.get(source) else {
+            let Some((principals, presenting)) = self.impersonating.get(source) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
             // **The authorization decision, and both ways out of it are refusals.** A caller with no
@@ -356,6 +399,15 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // name the asker.
             let Some(target) = key.and_then(|key| principals.target(key)) else {
                 return Ok(Minted::Refused { source: source.clone() });
+            };
+            let delegation = match *presenting {
+                Presenting::Assertion(ref delegation) => delegation,
+                // A name does not age, so the bound is the caller's own assertion where leg 1 had one.
+                Presenting::Principal => {
+                    drop(presented.insert(source.clone(), Presented::SubjectPrincipal { name: target.clone() }));
+                    deadlines.push(assertion_expires.unwrap_or(Expiry::NothingExpires));
+                    continue;
+                }
             };
             // **The asking subject's OWN assertion (or, for a delegated source, the token exchanged
             // for it below), plus the account declared beside that subject.** The transport puts it

@@ -16,10 +16,14 @@
 //!
 //! `ClickHouseSource` pins `T = transport::Http` **here, at the composition root** - the adapter
 //! itself stays generic over `sutura_exec_clickhouse::transport::ClickHouseTransport`, the same
-//! way `crate::serve::BigQuerySource` pins a wire while `BigQueryWarehouse` stays generic. That
-//! generic is what a per-subject `ClickHouse` identity would arrive through: a transport constructed
-//! per request rather than one holding a configured identity. Collapsing the adapter to a concrete
-//! type to simplify this file would close that door, so it is not done.
+//! way `crate::serve::BigQuerySource` pins a wire while `BigQueryWarehouse` stays generic: the
+//! adapter's own cells bind it to a canned transport.
+//!
+//! # Per-subject execution
+//!
+//! An `impersonation-at-source` source keeps ONE transport under the declared service user; each
+//! statement switches to the subject's declared user with `EXECUTE AS`. `build` probes every
+//! declared user at boot, and `declared_principals` hands the same map to `serve::broker`.
 //!
 //! The WHOLE module is behind `#[cfg(feature = "clickhouse")]` at its declaration in `main.rs`,
 //! which is what lets everything here name an adapter type unconditionally - `serve::broker` and
@@ -28,6 +32,7 @@
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_exec_clickhouse::ClickHouseWarehouse;
+use sutura_exec_clickhouse::execute_as::ClickHouseUser;
 use sutura_exec_clickhouse::transport::{BasicAuth, Endpoint, Http};
 
 use crate::commands::render;
@@ -37,32 +42,6 @@ use crate::commands::render;
 /// Named once for the reason `crate::serve::BigQuerySource` is: it appears in a registry type, a
 /// `Warehouse` bound and a constructor's return, and the two layers ARE the composition.
 pub(crate) type ClickHouseSource = ClickHouseWarehouse<Http>;
-
-/// Why an `impersonation-at-source` `clickhouse` entry is refused, in terms of what is missing
-/// rather than of what to go and build.
-///
-/// **The mechanism is `SourcePosture::deliverable_by`, unchanged and unnarrowed** - it compares the
-/// declared posture against this adapter's own `IMPERSONATION` constant and flips on its own the day
-/// that constant changes. What this sentence adds is the one thing the domain refusal cannot know:
-/// its generic remedy says *deploy a build whose adapter for that source can impersonate*, and for
-/// `ClickHouse` there is no such build to deploy. Per-subject identity here is wanted and blocked on
-/// work outside this repository, so an operator who reads only the generic remedy would go looking
-/// for a feature flag that does not exist.
-///
-/// It is appended to the domain refusal rather than replacing it, and it becomes unreachable - not
-/// wrong - the day the adapter declares `PerSubjectCredential`: `deliverable_by` returns `Ok` then
-/// and this branch is never taken. That is the *one constant plus one arm* shape, kept on purpose.
-///
-/// **It deliberately names no cargo flag, and `cargo xtask check-feature-remedies` is why.** That
-/// gate resolves every feature a refusal directs a reader at against the crate's own `[features]`
-/// table, and it caught an earlier wording of this sentence for spelling `--features`: there is no
-/// value for that flag that makes this source openable, so naming it would have been the
-/// unactionable remedy that gate exists to refuse. What is left says what does not exist - which is
-/// the honest answer, and the shape the gate's own doc names as earning no remedy.
-const IMPERSONATION_DEFERRED: &str = "this adapter presents one HTTP Basic credential the deployment declared, and ClickHouse has \
-     no per-subject path in this repository yet - so no build of sutura opens an \
-     `impersonation-at-source` ClickHouse source today, whatever it was compiled with. Declare \
-     `shared-service-user` with an acknowledgement instead";
 
 /// Builds one `ClickHouse` adapter from a declared entry, after checking this build can deliver the
 /// source's posture.
@@ -82,9 +61,10 @@ const IMPERSONATION_DEFERRED: &str = "this adapter presents one HTTP Basic crede
 ///
 /// # Errors
 ///
-/// A placement the dispatcher should have sent elsewhere; a source with no declared identity; the
-/// `impersonation-at-source` posture, which this adapter has nowhere to put; a password file that
-/// cannot be read or is empty; or declared TLS material that is not usable.
+/// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
+/// password file that cannot be read or is empty; declared TLS material that is not usable; and,
+/// for an `impersonation-at-source` source, a declared user this adapter cannot name or one the
+/// server will not run a statement as (`refuse_unless_executes_as`, once per declared user).
 pub(crate) fn build(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
@@ -99,6 +79,7 @@ pub(crate) fn build(
         ref user,
         ref password_file,
         ref transport,
+        ref impersonate,
     } = *configured.placement()
     else {
         return Err(format!(
@@ -110,20 +91,66 @@ pub(crate) fn build(
         .identity()
         .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
     // Against this adapter's OWN constant, which is the point of the cross-check being per adapter.
-    // See `IMPERSONATION_DEFERRED` for why its remedy is widened rather than the comparison narrowed.
     identity
         .posture()
         .deliverable_by(ClickHouseSource::IMPERSONATION, source)
-        .map_err(|cause| format!("{}\n{IMPERSONATION_DEFERRED}", render(&cause)))?;
+        .map_err(|cause| render(&cause))?;
+    let users = declared_users(source, impersonate)?;
     let password = crate::password_file::read(source, password_file)?;
     let auth = Some(BasicAuth::new(user.clone(), password));
     let transport = open_transport(source, host, port, auth, transport, working_set.bytes() as u64)?;
-    Ok(ClickHouseWarehouse::of(
+    let warehouse = ClickHouseWarehouse::of(
         source.clone(),
         identity.posture().clone(),
         transport,
         working_set.result_budget(),
-    ))
+    );
+    for declared in users.values() {
+        warehouse
+            .refuse_unless_executes_as(declared)
+            .map_err(|cause| format!("`sources.{source}.impersonate`: {}", render(&cause)))?;
+    }
+    Ok(warehouse)
+}
+
+/// The declared map, each user parsed by the adapter that names it in `EXECUTE AS`.
+type Users = std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>;
+
+/// The declared subject -> user map, each user parsed by the adapter that names it in `EXECUTE AS`.
+fn declared_users(source: &SourceName, impersonate: &sutura_config::sources::placement::DeclaredUsers) -> Result<Users, String> {
+    impersonate
+        .iter()
+        .map(|(subject, user)| {
+            ClickHouseUser::parse(user)
+                .map(|user| (subject.clone(), user))
+                .map_err(|cause| {
+                    format!("`sources.{source}.impersonate` names `{user}`, which is not a ClickHouse user: {cause}")
+                })
+        })
+        .collect()
+}
+
+/// The broker's half of an `impersonation-at-source` source: its declared map, as the principals
+/// `DeclaredPrincipalBroker::switching` presents. `None` for a source that is not impersonating.
+pub(crate) fn declared_principals(
+    source: &SourceName,
+    configured: &sutura_config::ConfiguredSource,
+) -> Result<Option<sutura_exec_bigquery::DeclaredPrincipals>, String> {
+    let sutura_config::SourcePlacement::ClickHouse { ref impersonate, .. } = *configured.placement() else {
+        return Ok(None);
+    };
+    if impersonate.is_empty() {
+        return Ok(None);
+    }
+    let mut principals = std::collections::BTreeMap::new();
+    for (subject, user) in declared_users(source, impersonate)? {
+        let name = sutura_domain::identity::PrincipalName::parse(user.as_str())
+            .map_err(|cause| format!("`sources.{source}.impersonate` names `{user}`, which is not a principal: {cause}"))?;
+        drop(principals.insert(subject, name));
+    }
+    sutura_exec_bigquery::DeclaredPrincipals::switched(principals)
+        .map(Some)
+        .map_err(|cause| format!("`sources.{source}.impersonate` is unusable: {cause}"))
 }
 
 /// The transport for the channel this source declared: plaintext, or TLS over the declared store.

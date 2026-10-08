@@ -49,12 +49,19 @@ PY
 }
 
 # Only the HTTP interface, on loopback, and no system log tables: nothing here is kept past `stop`.
-# The one user is the one the adapter's `shared-service-user` posture connects as; its password is
-# stored as a digest, and the plaintext lives only in `$cred`, 0600, removed with the home. YAML
-# rather than XML because every path here is under the worktree, and an XML closing tag for the
-# server's scratch directory spells a machine-shared root to `check-worktree-state`.
+# `$user` is the one the adapter connects as; its password is stored as a digest, and the plaintext
+# lives only in `$cred`, 0600, removed with the home. YAML rather than XML because every path here
+# is under the worktree, and an XML closing tag for the server's scratch directory spells a
+# machine-shared root to `check-worktree-state`.
+#
+# `EXECUTE AS` (crates/sutura-exec-clickhouse/src/execute_as.rs): the server setting, and
+# `IMPERSONATE` on the two analyst users ONLY - `ALL` includes `IMPERSONATE` on every user, hence the
+# revoke. `sutura_ungranted` exists and is not granted. The three log in with a digest of a value
+# nobody keeps. A row policy on `execute_as.conformance_events` (the conformance corpus table) shows
+# `sutura_analyst_a` every row and `sutura_analyst_b` none; `$user` has no policy and reads all.
 write_config() {
   digest="$(printf '%s' "$password" | sha256sum | cut -d' ' -f1)"
+  unusable="$(od -An -v -tx1 -N24 < /dev/urandom | tr -d ' \n' | sha256sum | cut -d' ' -f1)"
   cat > "$home/config.yaml" <<EOC
 logger:
   level: warning
@@ -65,6 +72,8 @@ path: $home/data/
 tmp_path: $home/data/scratch/
 user_files_path: $home/data/user_files/
 disable_internal_dns_cache: 1
+access_control_improvements:
+  allow_impersonate_user: 1
 users:
   $user:
     password_sha256_hex: $digest
@@ -72,6 +81,19 @@ users:
       ip: 127.0.0.1
     profile: default
     quota: default
+    grants:
+      query:
+        - GRANT ALL ON *.*
+        - REVOKE IMPERSONATE ON *
+        - REVOKE ACCESS MANAGEMENT ON *.*
+        - GRANT IMPERSONATE ON sutura_analyst_a
+        - GRANT IMPERSONATE ON sutura_analyst_b
+$(for analyst in sutura_analyst_a:1 sutura_analyst_b:0 sutura_ungranted:0; do
+    printf '  %s:\n    password_sha256_hex: %s\n' "${analyst%:*}" "$unusable"
+    printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
+    printf '    grants:\n      query:\n        - GRANT SELECT ON execute_as.*\n'
+    printf '    databases:\n      execute_as:\n        conformance_events:\n          filter: "%s"\n' "${analyst#*:}"
+  done)
 profiles:
   default: {}
 quotas:

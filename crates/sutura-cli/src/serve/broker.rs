@@ -57,6 +57,11 @@ pub(crate) fn build_broker(
         if let Some(SourcePosture::SharedServiceUser { declared }) = source.posture() {
             broker = broker.shared(alias.clone(), declared.clone());
         }
+        #[cfg(feature = "clickhouse")]
+        if let Some(declared) = crate::clickhouse::declared_principals(alias, source)? {
+            broker = broker.switching(alias.clone(), declared);
+            continue;
+        }
         let Some(workload) = source.workload_identity() else {
             continue;
         };

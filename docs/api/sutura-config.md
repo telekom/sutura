@@ -5513,6 +5513,7 @@ convenience, and nothing needs to clone a startup refusal.
   `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
   each caller's questions execute as, and `scope` alone is read by nothing - see
   `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
+- `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -6001,6 +6002,30 @@ then on the variant is the answer.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidImpersonate`
+
+```rust
+pub enum InvalidImpersonate
+```
+
+Why a `clickhouse` source's `impersonate` map is not one it can be served under.
+
+##### Variants
+
+- `Missing` - An impersonating source declared no subject, so no caller could ever be served there.
+- `NotImpersonating` - A map on a source that is not impersonating, which nothing would read.
+- `Subject`
+- `DuplicateSubject` - Two keys that parse to one subject - the parse trims, so they differ only in whitespace.
+- `EmptyUser`
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `type_alias DeclaredUsers`
+
+A `clickhouse` source's declared subject -> `ClickHouse` user map.
 
 ### Module `transport`
 

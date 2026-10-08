@@ -252,10 +252,10 @@ fn a_subject_credential_is_refused_as_no_place_to_arrive() {
     assert!(matches!(error, ClickHouseError::NoPlaceForASubject { .. }), "{error}");
 }
 
-/// The other subject shape: a principal name has nowhere to arrive either, and the cell above
-/// presents only a token, so dropping this arm from the match left every cell green.
+/// A principal at a SHARED source disagrees with its declaration and is refused, never run as the
+/// service user under that name.
 #[test]
-fn a_subject_principal_is_refused_as_no_place_to_arrive() {
+fn a_subject_principal_at_a_shared_source_is_refused() {
     let case = sutura_conformance::corpus::cases()
         .into_iter()
         .next()
@@ -270,9 +270,124 @@ fn a_subject_principal_is_refused_as_no_place_to_arrive() {
         sutura_conformance::corpus::deadline(),
     );
     assert!(
-        matches!(outcome, Err(ClickHouseError::NoPlaceForASubject { .. })),
-        "a subject principal has nowhere to arrive on this adapter: {outcome:?}"
+        matches!(outcome, Err(ClickHouseError::PresentedDisagreesWithPosture { .. })),
+        "a principal at a shared source disagrees with its declaration: {outcome:?}"
     );
+    assert_eq!(warehouse.transport.last_statement(), None, "nothing was sent");
+}
+
+fn impersonating(transport: Scripted) -> ClickHouseWarehouse<Scripted> {
+    ClickHouseWarehouse::of(
+        sutura_conformance::corpus::source(),
+        SourcePosture::ImpersonationAtSource,
+        transport,
+        budget(),
+    )
+}
+
+fn as_principal(name: &str) -> Presented {
+    Presented::SubjectPrincipal {
+        name: PrincipalName::parse(name).expect("a test name is a name"),
+    }
+}
+
+/// The presented principal becomes the user of THAT statement: the per-statement form, quoted, and
+/// carrying the rendered plan - never the session form `EXECUTE AS <user>` on its own.
+#[test]
+fn an_impersonating_source_sends_each_statement_as_the_presented_user() {
+    let case = sutura_conformance::corpus::cases()
+        .into_iter()
+        .next()
+        .expect("the corpus has a case");
+    let warehouse = impersonating(Scripted::answering("[\"region\"]\n[\"String\"]\n[\"north\"]\n"));
+    warehouse
+        .execute(
+            Executable::Query(case.plan()),
+            &as_principal("analyst_one"),
+            sutura_conformance::corpus::deadline(),
+        )
+        .expect("a well-formed response decodes");
+    let sent = warehouse.transport.last_statement().expect("the statement was sent");
+    let rendered = sutura_sql::generate::generate(case.plan(), Dialect::ClickHouse).expect("the corpus plan renders");
+    assert_eq!(sent, format!("EXECUTE AS \"analyst_one\" {}", rendered.sql()));
+}
+
+/// A presented principal that could close its quoted identifier is refused before anything is sent.
+#[test]
+fn a_principal_that_is_not_a_clickhouse_user_is_refused_before_sending() {
+    let case = sutura_conformance::corpus::cases()
+        .into_iter()
+        .next()
+        .expect("the corpus has a case");
+    let warehouse = impersonating(Scripted::answering("[]\n[]\n"));
+    let outcome = warehouse.execute(
+        Executable::Query(case.plan()),
+        &as_principal("a\" SELECT 1 --"),
+        sutura_conformance::corpus::deadline(),
+    );
+    assert!(
+        matches!(outcome, Err(ClickHouseError::NotAClickHouseUser { .. })),
+        "{outcome:?}"
+    );
+    assert_eq!(warehouse.transport.last_statement(), None, "nothing was sent");
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Code: 344. IMPERSONATE feature is disabled")]
+struct Refused;
+
+/// Answers every `run` with a refusal, the shape the server gives when the setting or grant is missing.
+struct Refusing;
+
+impl ClickHouseTransport for Refusing {
+    type Error = Refused;
+
+    fn run(&self, _statement: &str, _params: &[ParamValue], _deadline: Deadline) -> Result<Vec<u8>, Self::Error> {
+        Err(Refused)
+    }
+}
+
+fn probe_user() -> crate::execute_as::ClickHouseUser {
+    crate::execute_as::ClickHouseUser::parse("analyst_one").expect("a test user parses")
+}
+
+/// The boot pre-flight: refused by the server is a typed refusal naming the user.
+#[test]
+fn the_boot_probe_refuses_when_the_server_refuses_execute_as() {
+    let warehouse = ClickHouseWarehouse::of(
+        sutura_conformance::corpus::source(),
+        SourcePosture::ImpersonationAtSource,
+        Refusing,
+        budget(),
+    );
+    let outcome = warehouse.refuse_unless_executes_as(&probe_user());
+    assert!(
+        matches!(outcome, Err(ClickHouseError::ExecuteAsRefused { ref user, .. }) if *user == probe_user()),
+        "{outcome:?}"
+    );
+}
+
+/// The boot pre-flight sends the per-statement probe, and accepts only an answer naming the
+/// declared user as current and someone else as authenticated.
+#[test]
+fn the_boot_probe_accepts_only_the_declared_user_switched_from_the_service_user() {
+    let names = "[\"currentUser()\",\"authenticatedUser()\"]\n[\"String\",\"String\"]\n";
+    let honoured = impersonating(Scripted::answering(&format!("{names}[\"analyst_one\",\"sutura\"]\n")));
+    honoured
+        .refuse_unless_executes_as(&probe_user())
+        .expect("the declared user, switched from the service user, is honoured");
+    assert_eq!(
+        honoured.transport.last_statement().as_deref(),
+        Some("EXECUTE AS \"analyst_one\" SELECT currentUser(), authenticatedUser()")
+    );
+    for answered in ["[\"sutura\",\"sutura\"]", "[\"analyst_one\",\"analyst_one\"]"] {
+        let warehouse = impersonating(Scripted::answering(&format!("{names}{answered}\n")));
+        let outcome = warehouse.refuse_unless_executes_as(&probe_user());
+        assert!(
+            matches!(outcome, Err(ClickHouseError::ExecuteAsNotHonoured { .. })),
+            "{answered}: {outcome:?}"
+        );
+    }
 }
 
 /// `Warehouse::EXECUTES_LEGS` stays at its domain default, so a leg needs a combiner this adapter

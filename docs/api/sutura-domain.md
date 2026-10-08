@@ -5677,7 +5677,7 @@ make unrepresentable.
 
 The argument is `ExecutedAs`, so an answer whose legs decided identity differently is
 answered with one entry per source rather than refused - `docs/adr/0040`, taken because
-`BigQuery` is the only impersonating adapter, so a `BigQuery` leg paired with a
+`BigQuery` was then the only impersonating adapter, so a `BigQuery` leg paired with a
 shared-posture leg is cross-posture. **The record is not the control:** it travels in the
 same body as the rows, so a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
 source's own entry carries, refused by `sutura_config::Settings::refusals` before a listener
@@ -11287,7 +11287,7 @@ both of which happen before a listener is bound.
 
 An answer whose legs decide identity differently is **answered**, and `ExecutedAs` is what says
 so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
-came from which. `docs/adr/0040` is the record, and `BigQuery` being the only impersonating adapter
+came from which. `docs/adr/0040` is the record, and `BigQuery` then being the only impersonating adapter
 is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
 by construction, so refusing the mix prevented that pairing.
 

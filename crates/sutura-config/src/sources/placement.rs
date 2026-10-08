@@ -11,7 +11,10 @@
 //! argument that is **ours rather than the provider's format rules restated** - see
 //! [`BillingProject`].
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use sutura_domain::identity::{InvalidPrincipalId, SubjectKey};
 
 use super::SourceKind;
 use super::transport::SourceTransport;
@@ -511,6 +514,10 @@ pub enum SourcePlacement {
         password_file: PathBuf,
         /// How the channel to this source is secured.
         transport: SourceTransport,
+        /// Which `ClickHouse` user each declared subject's statements run as, through `EXECUTE AS`.
+        /// Non-empty exactly when the source is `impersonation-at-source`. The values are parsed
+        /// again by `sutura_exec_clickhouse::execute_as::ClickHouseUser`, the crate that sends them.
+        impersonate: DeclaredUsers,
     },
     /// An Oracle Database, reached over its TCP listener.
     ///
@@ -563,6 +570,35 @@ impl SourcePlacement {
             Self::Duckdb { .. } => SourceKind::Duckdb,
         }
     }
+}
+
+/// A `clickhouse` source's declared subject -> `ClickHouse` user map.
+pub type DeclaredUsers = BTreeMap<SubjectKey, String>;
+
+/// Why a `clickhouse` source's `impersonate` map is not one it can be served under.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidImpersonate {
+    /// An impersonating source declared no subject, so no caller could ever be served there.
+    #[error(
+        "the source is `impersonation-at-source` and declares no `impersonate` map - name each \
+         subject it may be asked as and the ClickHouse user that subject executes as"
+    )]
+    Missing,
+    /// A map on a source that is not impersonating, which nothing would read.
+    #[error(
+        "`impersonate` is declared on a source that is not `impersonation-at-source` - remove it, or write the posture you meant"
+    )]
+    NotImpersonating,
+    #[error("a declared subject is not usable")]
+    Subject {
+        #[source]
+        cause: InvalidPrincipalId,
+    },
+    /// Two keys that parse to one subject - the parse trims, so they differ only in whitespace.
+    #[error("two declared subjects are the same subject")]
+    DuplicateSubject,
+    #[error("a declared ClickHouse user is empty")]
+    EmptyUser,
 }
 
 #[cfg(test)]

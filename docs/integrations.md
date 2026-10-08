@@ -41,7 +41,7 @@ A data source executes a compiled plan. The `Warehouse` port is synchronous and 
 | Postgres   | `sutura-exec-postgres`   | yes     | yes                                                         | one declared shared service account - `NoPlaceForASubject` |
 | DuckDB     | `sutura-exec-duckdb`     | yes     | yes, behind a `duckdb` feature every release has; see below | one process identity - `NoPlaceForASubject`                |
 | DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer               | one process identity - `NoPlaceForASubject`                |
-| ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature              | one declared shared service account - `NoPlaceForASubject` |
+| ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature              | per subject, as a declared user - `PerSubjectCredential`   |
 | Oracle     | `sutura-exec-oracle`     | yes     | declarable behind a default-off `oracle` feature; see below | one declared shared service account - `NoPlaceForASubject` |
 
 **Oracle is declarable and does not yet answer a whole-plan question.** A `kind: oracle` source is

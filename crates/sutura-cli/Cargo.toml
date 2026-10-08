@@ -60,7 +60,11 @@ postgres = ["dep:sutura-exec-postgres"]
 # `join_use_nulls = 0` an outer join's unmatched side answered `''` where the engine says `NULL`.
 # `JOIN_USE_NULLS` in `request_settings` now asks for `1` on every request, held by
 # `every_request_asks_the_server_for_standard_outer_join_nulls`.
-clickhouse = ["dep:sutura-exec-clickhouse"]
+#
+# `sutura-exec-bigquery` is named for its `DeclaredPrincipalBroker`, the one broker that reads a
+# declared subject map: an `impersonation-at-source` ClickHouse source is served through it. Without
+# `adbc` that crate links no driver; `wire` is the delegation client `serve::broker` composes.
+clickhouse = ["dep:sutura-exec-clickhouse", "dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver.
 #
