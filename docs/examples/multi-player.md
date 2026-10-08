@@ -1,6 +1,6 @@
 ---
 title: Multi player
-description: Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own Google service account (built, not proven).
+description: Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own Google service account.
 ---
 
 # Multi player

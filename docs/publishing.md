@@ -8,13 +8,13 @@ description: How every version of this site stays published, and the one setting
 Every version of this site stays published. `main` has a directory, each release has its own, and a
 URL somebody cited a year ago still resolves to the text they read.
 
-That is [mike](https://github.com/jimporter/mike)'s job. `.github/workflows/docs.yml` builds the
-site with mkdocs-material and hands it to mike, which owns the `gh-pages` branch: the version
-directories, `versions.json`, the root redirect and the `.nojekyll` marker. The header's version
-selector is Material's own, driven by `extra.version.provider: mike` in `mkdocs.yml`.
+[mike](https://github.com/jimporter/mike) does this. `.github/workflows/docs.yml` builds the site
+with mkdocs-material and hands it to mike. mike owns the `gh-pages` branch: the version directories,
+`versions.json`, the root redirect and the `.nojekyll` marker. The header's version selector is
+Material's own, and `extra.version.provider: mike` in `mkdocs.yml` drives it.
 
-Both tools come from pixi's isolated `docs` environment, so a local build uses the versions CI
-does and there is no pip and no npm in the path.
+Both tools come from pixi's isolated `docs` environment. A local build therefore uses the versions
+that CI uses, and there is no pip and no npm in the path.
 
 ## The layout mike produces
 
@@ -37,17 +37,19 @@ gh-pages/
 | pull request                    | nothing                        | builds with `--strict`, so a broken link or an orphan page fails the PR |
 
 Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
-the job fail rather than overwrite: a failed job is recoverable and a deleted version is not.
+the job fail, and the publish does not overwrite. You can recover from a failed job, but you cannot
+recover a deleted version.
 
-`latest` is the main branch and `X.Y.Z/` is a release (owner decision, 2026-10-06). The root redirect
-points at `latest`. A release tag published before main ever was points the root at its own
-directory, so the site has a working root from the first deployment. Release directories keep the
-form `0.6.1/`, without the tag's `v`, so every link already published still resolves.
+`latest` is the main branch and `X.Y.Z/` is a release. The root redirect points at `latest`. If a
+release tag is published before main is published for the first time, the root redirect points at
+the directory of that release. The site therefore has a working root from the first deployment.
+Release directories keep the form `0.6.1/`, without the `v` of the tag, so every link that is
+already published still resolves.
 
 ## The one repository setting
 
 Publishing works from a cold start, because mike creates `gh-pages` itself when it is absent.
-*Serving* needs one manual step no workflow can perform. In **Settings -> Pages -> Build and
+*Serving* needs one manual step that no workflow can do. In **Settings -> Pages -> Build and
 deployment**:
 
 - **Source: Deploy from a branch**
@@ -58,8 +60,8 @@ The site then answers at <https://telekom.github.io/sutura/>.
 !!! warning "The branch has to exist first"
 
     The dropdown lists only branches that are already there, so let the `docs` workflow run once
-    before looking for `gh-pages` in it. A push to `main` touching any documentation path does it,
-    and so does a manual `workflow_dispatch`.
+    before you look for `gh-pages` in it. A push to `main` that touches any documentation path does
+    it, and so does a manual `workflow_dispatch`.
 
 Do not pick **GitHub Actions** as the source. It serves one uploaded artifact as the whole site: one
 current version, no history, no version directories. It is also the source that fails a deployment
@@ -80,53 +82,52 @@ graph LR
 ```
 ````
 
-It is Material's own SuperFences integration rather than the mermaid2 plugin, because that
-integration hands mermaid the active colour scheme. A bare CDN import leaves every diagram stuck in
+This is Material's own SuperFences integration and not the mermaid2 plugin, because that
+integration gives mermaid the active colour scheme. A bare CDN import leaves every diagram stuck in
 light mode.
 
 !!! warning "Mermaid is not bundled"
 
     Material's bundle loads the mermaid library from a public CDN at runtime, so a diagram does not
-    render for a reader with no direct egress and the fence degrades to a code block. No page may
+    render for a reader with no direct egress, and the fence degrades to a code block. No page may
     depend on a diagram to be understood until mermaid is vendored under `docs/assets`.
 
 ## Brand assets
 
 `docs/css/telekom.css` makes Telekom magenta (`#E20074`) the Material `custom` primary, with a
-darker or lifted shade of it as the accent.
-The header, links and hover states come from eight `--md-*` variables. The two colour schemes differ only
-because `#E20074` clears WCAG AA on Material's light background and not on its dark one; the
-measured ratios sit next to each value.
+darker or lifted shade of it as the accent. Eight `--md-*` variables set the header, links and hover
+states. The two colour schemes differ only because `#E20074` clears WCAG AA on Material's light
+background and not on its dark background. The measured ratios sit next to each value.
 
-Both image slots are filled by an original mark rather than by any Telekom trademark:
+An original mark fills both image slots, and no Telekom trademark is used:
 
 | Slot        | File                                          | `mkdocs.yml` key              |
 | ----------- | --------------------------------------------- | ----------------------------- |
 | Header mark | `docs/assets/sutura.svg`                      | `logo: assets/sutura.svg`     |
 | Favicon     | `docs/assets/favicon.svg`, plus `favicon.png` | `favicon: assets/favicon.svg` |
 
-The mark is a hexagon cut into two congruent halves whose seam never closes: a seam is what
-*sutura* means, the hexagon is the ports-and-adapters shape, and the seam is one straight, full-bleed channel.
-Each half is the other rotated 180 degrees about the centre, so the optical weight is equal by
-construction. The favicon is drawn separately rather than scaled, because the primary mark turns to
-mud at 16px.
+The mark is a hexagon cut into two congruent halves whose seam never closes. *Sutura* means a seam,
+the hexagon is the ports-and-adapters shape, and the seam is one straight, full-bleed channel. Each
+half is the other rotated 180 degrees about the centre, so the optical weight is equal by
+construction. The favicon is drawn separately and is not scaled, because the primary mark becomes
+unclear at 16px.
 
 The **T and the wordmark are deliberately absent.** They are trademarks, nothing here approximates
-one, and no asset without verifiable provenance was used. TeleNeo, the brand face, is licensed and
-cannot be redistributed here, and linking a font CDN would break the self-contained rule, so
-Material's own font stack is used instead.
+one, and no asset without verifiable provenance is used. TeleNeo, the brand face, is licensed and
+cannot be redistributed here, and linking a font CDN would break the self-contained rule, so the
+site uses Material's own font stack instead.
 
 Material's header carries the brand magenta in *both* colour schemes, so a magenta mark on it is
-invisible. `brightness(0) invert(1)` flattens the artwork and turns it white, joining the header
-text: one filter rather than a second white-only file to keep in sync.
+invisible. `brightness(0) invert(1)` flattens the artwork and turns it white, so it matches the
+header text. This is one filter, not a second white-only file to keep in sync.
 
-`cargo xtask check-docs` validates both keys, so a path that stops resolving fails a gate instead
-of silently rendering nothing.
+`cargo xtask check-docs` validates both keys, so a path that stops resolving fails a gate and does
+not silently render nothing.
 
 ## Running it by hand
 
-CI publishes the docs automatically on merge to `main` and on a `v*` tag, so running it by hand is
-not normally needed.
+CI publishes the docs automatically on merge to `main` and on a `v*` tag, so you do not normally
+need to run it by hand.
 
 Render the site to `site/`:
 

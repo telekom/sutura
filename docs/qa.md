@@ -86,12 +86,10 @@ Yes. A supported federated question splits into fact and lookup legs, executes e
 then joins the results. Each leg is presented either the asking subject's credential or that
 source's acknowledged shared identity. The answer records the posture of each leg, even when they
 differ. That record reaches the caller with the rows; it is a
-disclosure, not an authorization check (see
-`docs/adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md`).
+disclosure, not an authorization check.
 
-BigQuery can carry a per-subject credential, but its real two-subject venue is wired with no
-observed run. The other adapters still execute under a shared identity, and no live test has shown
-two subjects receiving different rows ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
+BigQuery supports secure-impersonation ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
+The other adapters run as a shared service user.
 
 ## Why are definitions not editable here?
 

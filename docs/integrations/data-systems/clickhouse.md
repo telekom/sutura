@@ -5,6 +5,8 @@ description: Answer questions over a ClickHouse server through its HTTP interfac
 
 # ClickHouse
 
+<span class="sutura-badge sutura-badge--recommended">Recommended</span>
+
 The `clickhouse` data system answers questions over a ClickHouse server through its HTTP
 interface. sutura renders each plan as ClickHouse SQL and sends the values as ClickHouse query
 parameters. The crate is `sutura-exec-clickhouse`, and the source kind is `clickhouse`.
@@ -54,6 +56,8 @@ sources:
 ```
 
 ## Identity
+
+This data system supports `shared-service-user` only today, and [#1263](https://github.com/telekom/sutura/issues/1263) tracks secure-impersonation, which waits for the ADBC migration in [#1250](https://github.com/telekom/sutura/issues/1250).
 
 sutura signs in as the one user in `user`. Every caller's query runs as that user. The source must
 use `posture: shared-service-user`.

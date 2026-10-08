@@ -6,14 +6,14 @@ description: Where each toolchain reads its package source, and the traps behind
 # Building without direct egress
 
 Nothing that touches the network is hardcoded here. Every fetch reads its location from the
-environment, with a public default. No internal hostname or credential appears in this repository:
-the tables give the *shape*, the values are yours.
+environment, with a public default. No internal hostname or credential appears in this repository.
+The tables give the *shape*, and the values are yours.
 
 !!! tip "Prefer a mirror over a proxy"
 
-    A mirror is a normal HTTPS endpoint. A proxy sits in every connection and is where `407` and
-    TLS-interception failures come from. A `407` usually means you are proxying something that has
-    a mirror.
+    A mirror is a normal HTTPS endpoint. A proxy sits in every connection, and `407` and
+    TLS-interception failures come from it. A `407` usually means you are proxying something that
+    has a mirror.
 
 | Placeholder                                             | Means                                         |
 | ------------------------------------------------------- | --------------------------------------------- |
@@ -51,9 +51,9 @@ machine <host>
 A missing netrc shows up as `HTTP error 401` on a `.narinfo` while `nix-cache-info` succeeds,
 because cache-info is often anonymous. Use a scoped token, mode 0600.
 
-Flake inputs come from their forge, but once locked their unpacked source is a store path a mirror
-usually serves, so a locked build often needs no forge access. `flake.lock` pins by hash, so a
-mirror cannot substitute different content undetected.
+Flake inputs come from their forge. Once locked, their unpacked source is a store path that a
+mirror usually serves, so a locked build often needs no forge access. `flake.lock` pins by hash, so
+a mirror cannot substitute different content undetected.
 
 ## Rust
 
@@ -70,13 +70,13 @@ registry = "sparse+https://<host>/<path>/<crates>/index/"
 fails with a confusing clone error.
 
 `rustup` is not involved in the Nix path. `flake.nix` and `devenv.nix` resolve the single pinned
-toolchain through rust-overlay from `devco/rust-toolchain-nightly.toml` (the top-level
-`rust-toolchain.toml` is the rustup-facing copy of the same pin) - so the compilers come from the
-Nix cache and the crates mirror above is all this section needs.
+toolchain through rust-overlay from `devco/rust-toolchain-nightly.toml`. The top-level
+`rust-toolchain.toml` is the rustup-facing copy of the same pin. The compilers come from the Nix
+cache, so the crates mirror above is all this section needs.
 
 If you do use rustup, set `RUSTUP_DIST_SERVER` and `RUSTUP_UPDATE_ROOT`. An exact version pin needs
-that version to exist on the mirror, and a lazily-caching remote `404`s until something asks, which
-reads as "no such version".
+that version to exist on the mirror. A lazily-caching remote answers `404` until something asks, and
+that reads as "no such version".
 
 ## Conda, via pixi
 
@@ -87,8 +87,8 @@ channels = ["conda-forge"]
 ```
 
 That name is public because this repository is public. The redirect to a mirror goes in pixi's
-**global** configuration instead, so the manifest resolves identically for everybody and no internal
-URL is ever committed:
+**global** configuration instead. Then the manifest resolves identically for everybody, and no
+internal URL is ever committed:
 
 ```toml
 # ~/.pixi/config.toml
@@ -96,12 +96,12 @@ URL is ever committed:
 "https://conda.anaconda.org" = ["https://<host>/<path>/<conda>"]
 ```
 
-The key is the upstream URL, the value is a list, and pixi matches the **longest** key prefix - so
-the entry above covers every channel on that host, and a longer key overrides it for one channel.
+The key is the upstream URL and the value is a list. pixi matches the **longest** key prefix, so the
+entry above covers every channel on that host. A longer key overrides it for one channel.
 
-Two things follow from the value being a list. The original URL is not tried unless you repeat it,
-and repodata is fetched from the **first** entry - that file carries the SHA256 of every package,
-so it decides what all the later downloads are checked against.
+Two things follow from the value being a list. First, pixi does not try the original URL unless you
+repeat it. Second, pixi fetches repodata from the **first** entry. That file carries the SHA256 of
+every package, so it decides what all the later downloads are checked against.
 
 Check what pixi reads rather than what you wrote:
 
@@ -112,8 +112,8 @@ pixi info -vvv        # every location searched, in priority order
 
 ### Where that file lives
 
-Highest priority wins, and a project-local `.pixi/config.toml` is merged on top of all of it -
-which is the one file a mirror URL must not go in, because it is inside the repository.
+The layer with the highest priority wins. A project-local `.pixi/config.toml` is merged on top of
+all of it. That is the one file where a mirror URL must not go, because it is inside the repository.
 
 |        | Linux                                                                  | macOS                                            | Windows                                                           |
 | ------ | ---------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
@@ -127,7 +127,7 @@ Both reproduce a resolve without your machine's settings in it.
 ## pip
 
 **This repository installs nothing from PyPI.** `pixi.toml` has `[dependencies]` only - conda
-packages from `conda-forge` - and no `[pypi-dependencies]` table, so no pip, no uv and no PyPI
+packages from `conda-forge` - and no `[pypi-dependencies]` table. So no pip, no uv and no PyPI
 index takes part in any build, gate or docs render. A `pip.conf` on your machine changes nothing
 here.
 
@@ -139,10 +139,10 @@ If you add a `[pypi-dependencies]` entry, pixi resolves it with uv. One thing fi
 index-url = "https://<host>/<path>/<pypi>/simple"
 ```
 
-**That does not redirect anything.** Per pixi's documented behaviour, `index-url` and
-`extra-index-urls` in the global config are written into a manifest by `pixi init` and are
-otherwise not interpreted, because the manifest is meant to be complete on its own. Only
-`keyring-provider` and `allow-insecure-host` apply globally.
+**That does not redirect anything.** Per pixi's documented behaviour, `pixi init` writes `index-url`
+and `extra-index-urls` from the global config into a manifest. Pixi does not interpret them
+otherwise, because the manifest is meant to be complete on its own. Only `keyring-provider` and
+`allow-insecure-host` apply globally.
 
 What does redirect uv is `[mirrors]`, and it needs **two** entries, because the index and the files
 are served from different hosts:
@@ -161,8 +161,8 @@ are served from different hosts:
     With the first entry and not the second, the resolve succeeds against the mirror and every
     download then goes to the public host.
 
-If you run plain `pip` or `conda` on the same machine for other work, they read their own files and
-neither is used by this repository:
+If you run plain `pip` or `conda` on the same machine for other work, they read their own files.
+This repository uses neither:
 
 | Tool         | File                                                                                                    | Key                          |
 | ------------ | ------------------------------------------------------------------------------------------------------- | ---------------------------- |
@@ -171,9 +171,9 @@ neither is used by this repository:
 | pip, Windows | `%APPDATA%\pip\pip.ini`                                                                                 | the same                     |
 | conda        | `~/.condarc`                                                                                            | `channel_alias`              |
 
-`~/.pip/pip.conf` is the legacy path and still works; `pip config debug` prints the exact list. In
+`~/.pip/pip.conf` is the legacy path and still works. `pip config debug` prints the exact list. In
 `.condarc`, `channel_alias` defaults to anaconda.org, so without it a bare `conda-forge` resolves
-there no matter what else you set; `conda config --show-sources` prints what is in effect.
+there no matter what else you set. `conda config --show-sources` prints what is in effect.
 
 ## Docker
 
@@ -209,7 +209,8 @@ their own bundle:
 
 ## Proxy, where there is no mirror
 
-Set both cases, and always set `no_proxy`, or internal hosts get sent to the proxy and fail:
+Set both cases. Always set `no_proxy`, or your tools send internal hosts to the proxy and those
+requests fail:
 
 ```bash
 export https_proxy=http://<proxy>:<port>  HTTPS_PROXY=$https_proxy
@@ -229,13 +230,13 @@ pixi run --frozen python -c "print('ok')"
 docker pull <docker-mirror>/nixos/nix:2.35.2
 ```
 
-`nix-cache-info` returning 200 while a build reports 401 means artifacts need credentials: back to
-the netrc step.
+`nix-cache-info` returning 200 while a build reports 401 means artifacts need credentials. Go back
+to the netrc step.
 
 ## Why none of these values are in the repository
 
 They configure a **network**, not a project. A contributor on a different network needs different
-ones, and both would be wrong for the public CI runner, which needs none at all. This repository is
+ones. Both would be wrong for the public CI runner, which needs none at all. This repository is
 also public, so committing them would publish the shape of an internal estate to everybody who
 clones it.
 

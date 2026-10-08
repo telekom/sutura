@@ -11,8 +11,9 @@ the structure of the tables and their descriptions. It supplies no metrics and n
 
 ## When to use it
 
+- Use it for single-player governance. One owner keeps the table descriptors as files in the
+  repository. The [single player](../../examples/single-player.md) example shows this model with the markdown catalog.
 - Your tables are already described as Frictionless Table Schema files.
-- You want an agent to see the tables and their descriptions before anyone writes a metric.
 
 ## Settings
 

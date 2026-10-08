@@ -6,7 +6,7 @@ description: Answer questions over an Oracle Database as one declared user.
 # Oracle
 
 The `oracle` data system answers questions over an Oracle Database. sutura renders each plan as
-Oracle SQL and runs it through Oracle's Rust driver. The crate is `sutura-exec-oracle`, and the
+Oracle SQL. It connects through [Oracle's own pure-Rust driver](https://github.com/oracle/rust-oracledb), so the Oracle Instant Client and the Oracle Client C libraries are not needed. The crate is `sutura-exec-oracle`, and the
 source kind is `oracle`. The adapter is built with the `oracle` feature.
 
 ## When to use it
@@ -46,6 +46,8 @@ sources:
 ```
 
 ## Identity
+
+This data system supports `shared-service-user` only, and [#923](https://github.com/telekom/sutura/issues/923) and [#1217](https://github.com/telekom/sutura/issues/1217) track secure-impersonation.
 
 sutura connects as the one user in `user`. Every caller's query runs as that user. The source must
 use `posture: shared-service-user`.

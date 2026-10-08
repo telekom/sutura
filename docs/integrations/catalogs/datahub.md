@@ -5,6 +5,8 @@ description: Read models, joins and certified metrics from a DataHub deployment.
 
 # DataHub
 
+<span class="sutura-badge sutura-badge--recommended">Recommended</span>
+
 The DataHub catalog reads the semantic model from a DataHub deployment over its OpenAPI v3 entity
 API. The crate is `sutura-catalog-datahub`, and the catalog kind is `datahub`. It reads datasets
 as models, semantic models for their joins, and metrics. A metric becomes a certified metric when
@@ -12,9 +14,9 @@ the deployment writes the sutura metric document into a structured property.
 
 ## When to use it
 
+- Use it for multi-player governance. Many owners keep their definitions in one shared DataHub, and
+  one reviewed catalog is the source of truth. The [multi player](../../examples/multi-player.md) example uses this catalog.
 - Your organisation already keeps its datasets and their descriptions in DataHub.
-- Your data is in BigQuery. sutura maps DataHub's `bigquery` platform to a data system.
-- You want the catalog team to own definitions, and sutura to read them.
 
 ## Settings
 
@@ -58,8 +60,3 @@ alias is the catalog `name`.
 
 The reader sends the token from `token_file` on every request. It is one token for every caller,
 because sutura loads a catalog without a caller's identity.
-
-## Sizing
-
-The reader reads one page of at most 1000 entities for each entity type. A response that reports
-more pages is refused.
