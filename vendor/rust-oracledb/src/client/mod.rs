@@ -826,7 +826,6 @@ impl Client {
         self.caps.max_string_size()
     }
 
-    /// Creates a new client and returns it.
     /// Returns a client that is not connected and supports the given TTC
     /// field version, for unit tests.
     #[cfg(test)]
@@ -836,6 +835,7 @@ impl Client {
         client
     }
 
+    /// Creates a new client and returns it.
     pub(crate) fn new(config: Config, pool_id: String) -> Self {
         let cache_size = config.stmtcachesize();
         Self {

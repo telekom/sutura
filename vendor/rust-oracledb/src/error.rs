@@ -503,12 +503,13 @@ impl Error {
         )
     }
 
-    /// Creates an error for attempting Deep Data Security over a non-TCPS
-    /// connection.
+    /// Creates an error for a statement with no SQL and no cursor.
     pub(crate) fn empty_statement() -> Error {
         Error::new(ErrorKind::EmptyStatement, None)
     }
 
+    /// Creates an error for attempting Deep Data Security over a non-TCPS
+    /// connection.
     pub(crate) fn end_user_security_context_requires_tcps() -> Error {
         Error::new(ErrorKind::EndUserSecurityContextRequiresTcps, None)
     }
