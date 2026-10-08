@@ -206,6 +206,7 @@ where
             permitted,
             prose,
             settings.prompt().list_physical_schema(),
+            settings.row_ceilings(),
             admission,
             reply,
             instructions,
