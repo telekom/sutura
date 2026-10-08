@@ -2716,14 +2716,9 @@ digest. The values are in minor units: <code>202121</code> is 2021.21.</p>
 </span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">  </span><span class="p">]</span>
 </span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="p">}</span>
 </span></code></pre></div>
-<p><code>executed_as</code> tells you which identity read each source. Open <a href="http://127.0.0.1:8080/docs">http://127.0.0.1:8080/docs</a> for the
-API in a browser.</p>
-<div class="admonition warning">
-<p class="admonition-title">Limit</p>
-<p><code>GET /v1/catalog</code> does not return the knowledge documents (glossary, caveats, worked examples).
-MCP returns them. <a href="https://github.com/telekom/sutura/issues/1293">telekom/sutura#1293</a> tracks
-this.</p>
-</div>
+<p><code>executed_as</code> tells you which identity read each source. <code>GET /v1/catalog</code> lists the metrics and
+carries the glossary, caveats, worked examples and undefined terms in its <code>knowledge</code> field, the
+same text MCP returns. Open <a href="http://127.0.0.1:8080/docs">http://127.0.0.1:8080/docs</a> for the API in a browser.</p>
 <h2 id="6-ask-over-mcp">6. Ask over MCP<a class="headerlink" href="#6-ask-over-mcp" title="Permanent link">&para;</a></h2>
 <h3 id="claude-code">Claude Code<a class="headerlink" href="#claude-code" title="Permanent link">&para;</a></h3>
 <p>Claude Code starts sutura as a subprocess and talks MCP over its standard input and output:</p>
