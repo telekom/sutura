@@ -189,6 +189,7 @@ fn a_rdbms_catalog_declaring_the_system_trust_store_is_refused_naming_it() {
 /// Postgres one does not either - while `native_dictionary`, which no reader in this build reads, is
 /// refused naming the catalog and the key rather than opened as the documentation-schema reader.
 #[test]
+#[cfg(feature = "oracle")]
 fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
     let scratch = ScratchDir::prepared();
     let oracle = oracle_connection(&readable_password_file(&scratch).display().to_string());
@@ -214,6 +215,7 @@ fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
 /// An Oracle catalog's `password_file` is read at boot through the same read a `sources:` Oracle
 /// entry uses, and a missing one is refused naming the catalog's own key.
 #[test]
+#[cfg(feature = "oracle")]
 fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
     let err = crate::catalog::open_catalog(&catalogs(&oracle_connection("/definitely/not/a/real/secret")), None)
         .expect_err("an unreadable password file is a composition refusal");
@@ -223,6 +225,7 @@ fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
     );
 }
 
+#[cfg(feature = "oracle")]
 fn oracle_connection(password_file: &str) -> String {
     format!(
         "      dialect: \"oracle\"\n      host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      \

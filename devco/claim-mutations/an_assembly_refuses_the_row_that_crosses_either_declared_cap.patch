@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-rdbms/src/documentation.rs b/crates/sutura-catalog-rdbms/src/documentation.rs
+index 92b75fb2d..6abc5206b 100644
+--- a/crates/sutura-catalog-rdbms/src/documentation.rs
++++ b/crates/sutura-catalog-rdbms/src/documentation.rs
+@@ -266,7 +266,7 @@ impl TableAccumulator {
+ /// the row that crosses the row cap while it decodes one.
+ #[derive(Debug, thiserror::Error)]
+ enum CapExceeded {
+-    #[error("the dictionary stream reached the declared maximum of {limit} rows")]
++    #[error("the dictionary stream reached the declared ceiling of {limit} rows")]
+     Rows { limit: u64 },
+     #[error("the dictionary stream reached the declared maximum of {limit} bytes")]
+     Bytes { limit: u64 },

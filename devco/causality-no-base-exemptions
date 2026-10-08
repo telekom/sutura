@@ -9,3 +9,4 @@
 # Refused on every run: a line with no reason, and a name that matches no `fn` in the tree (stale).
 # The key is the bare fn name, so one entry exempts every scoped test of that name. Delete an entry
 # with its reason once its test runs at base - nothing refuses one that merely stopped being needed.
+an_oracle_dictionary_in_a_build_without_the_feature_is_refused_naming_it # cfg(not(feature = "oracle")): every causality run passes --all-features, so the cell is compiled out at base and head; it runs at the default set in `just check-default-features`

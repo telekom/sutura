@@ -70,7 +70,9 @@ pub(crate) struct Row {
 
 impl Row {
     /// The decoded text's UTF-8 length plus one byte for the key flag - never zero, so every row
-    /// spends from the byte cap.
+    /// spends from the byte cap. The Oracle reader's accounting; the Postgres reader bills the
+    /// Arrow batch's own size.
+    #[cfg(feature = "live-oracle")]
     pub(crate) fn decoded_len(&self) -> u64 {
         let text = [
             &self.environment,
@@ -112,6 +114,7 @@ impl<'env> Assembly<'env> {
 
     /// Counts one row of `size` bytes against the declared caps, refusing the row that crosses
     /// either, so the caller abandons its stream there rather than after it.
+    #[cfg(feature = "live-oracle")]
     pub(crate) fn admit(&mut self, size: u64) -> Result<(), RdbmsError> {
         self.count_row()?;
         self.bill(size)
