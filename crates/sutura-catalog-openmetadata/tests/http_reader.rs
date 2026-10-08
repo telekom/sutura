@@ -412,12 +412,15 @@ mod tests {
     /// across a hundred and one default-sized pages: the refusal names the bound, and no snapshot of
     /// the first hundred thousand comes back.
     ///
-    /// RED/GREEN mutation: raise `DEFAULT_MAX_ENTITIES`, delete `Pager::advance`'s bound check, or
-    /// answer `Ok(false)` where it refuses - the read then returns a snapshot (or runs the script out)
+    /// The two literals are the bound the readers ship with, never read from the constant, so moving
+    /// the constant in either direction is a red cell.
+    ///
+    /// RED/GREEN mutation: raise or lower `DEFAULT_MAX_ENTITIES`, delete `Pager::advance`'s bound
+    /// check, or answer `Ok(false)` where it refuses - the read then returns a snapshot (or runs the script out)
     /// and this assertion goes red.
     #[test]
     fn a_list_above_the_entity_bound_is_refused_not_truncated() {
-        let over = DEFAULT_MAX_ENTITIES + 1;
+        let over = 100_001;
         let names: Vec<String> = (0..over).map(|n| format!("m{n}")).collect();
         let mut answers = vec![Scripted::ok(&tables_page())];
         let pages: Vec<_> = names.chunks(DEFAULT_PAGE_SIZE).collect();
@@ -432,12 +435,7 @@ mod tests {
         drop(server.finish());
         assert_eq!(
             paging_cause(&error),
-            (
-                "metrics",
-                PagingRefusal::TooManyEntities {
-                    max: DEFAULT_MAX_ENTITIES
-                }
-            )
+            ("metrics", PagingRefusal::TooManyEntities { max: 100_000 })
         );
     }
 
