@@ -423,19 +423,19 @@ impl OsonDecoder {
             OSON_TYPE_FALSE => Ok(JsonValue::Boolean(false)),
             OSON_TYPE_DATE | OSON_TYPE_TIMESTAMP7 => {
                 let bytes = buf.read_bytes(constants::ORA_TYPE_SIZE_DATE)?;
-                let value = OracleTimestamp::from_buf(bytes);
+                let value = OracleTimestamp::try_from_buf(bytes)?;
                 Ok(JsonValue::Timestamp(value))
             }
             OSON_TYPE_TIMESTAMP => {
                 let bytes =
                     buf.read_bytes(constants::ORA_TYPE_SIZE_TIMESTAMP)?;
-                let value = OracleTimestamp::from_buf(bytes);
+                let value = OracleTimestamp::try_from_buf(bytes)?;
                 Ok(JsonValue::Timestamp(value))
             }
             OSON_TYPE_TIMESTAMP_TZ => {
                 let bytes =
                     buf.read_bytes(constants::ORA_TYPE_SIZE_TIMESTAMP_TZ)?;
-                let value = OracleTimestamp::from_buf(bytes);
+                let value = OracleTimestamp::try_from_buf(bytes)?;
                 Ok(JsonValue::Timestamp(value))
             }
             OSON_TYPE_BINARY_DOUBLE => {

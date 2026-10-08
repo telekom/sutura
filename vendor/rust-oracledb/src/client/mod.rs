@@ -749,6 +749,7 @@ impl Client {
             final_resp.transfer_info(&mut initial_resp);
             Ok(final_resp)
         } else {
+            ExecuteMessage::check_executable(statement)?;
             let mut message =
                 ExecuteMessage::new(statement, params, parse_only);
             let mut response = self.process_message(&mut message)?;
@@ -826,6 +827,15 @@ impl Client {
     }
 
     /// Creates a new client and returns it.
+    /// Returns a client that is not connected and supports the given TTC
+    /// field version, for unit tests.
+    #[cfg(test)]
+    pub(crate) fn with_ttc_field_version(version: u8) -> Self {
+        let mut client = Self::new(Config::default(), String::new());
+        client.override_ttc_field_version = version;
+        client
+    }
+
     pub(crate) fn new(config: Config, pool_id: String) -> Self {
         let cache_size = config.stmtcachesize();
         Self {

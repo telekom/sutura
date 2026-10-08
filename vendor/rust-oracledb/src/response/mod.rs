@@ -389,6 +389,15 @@ impl Response {
         self.end_of_fetch
     }
 
+    /// Returns a response that reads the given bytes, for unit tests.
+    #[cfg(test)]
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Response {
+        Response {
+            buf: ReadBuffer::from_bytes(bytes),
+            ..Response::new()
+        }
+    }
+
     pub(crate) fn new() -> Response {
         Response {
             packets: Vec::new(),

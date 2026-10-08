@@ -36,7 +36,6 @@ use std::fmt::Write;
 use crate::constants;
 use crate::db_type::DbType;
 use crate::error::Error;
-use crate::read_buffer::FromBuf;
 use crate::write_buffer::ToBuf;
 use crate::write_buffer::WriteBuffer;
 
@@ -220,8 +219,13 @@ impl fmt::Display for OracleTimestamp {
     }
 }
 
-impl FromBuf for OracleTimestamp {
-    fn from_buf(buf: &[u8]) -> Self {
+impl OracleTimestamp {
+    /// Decodes a value the database encoded. A value shorter than a date or
+    /// a time zone given as a region name returns an error.
+    pub(crate) fn try_from_buf(buf: &[u8]) -> Result<Self, Error> {
+        if buf.len() < constants::ORA_TYPE_SIZE_DATE {
+            return Err(Error::out_of_data());
+        }
         let mut nanoseconds: u32 = 0;
         let mut tz_hour_offset: i8 = 0;
         let mut tz_minute_offset: i8 = 0;
@@ -233,7 +237,9 @@ impl FromBuf for OracleTimestamp {
             && buf[12] != 0
         {
             if buf[11] & 0x80 != 0 {
-                todo!();
+                return Err(Error::not_implemented(
+                    "time zone region names".to_string(),
+                ));
             }
             tz_hour_offset =
                 buf[11].wrapping_sub(constants::TZ_HOUR_OFFSET) as i8;
@@ -241,7 +247,7 @@ impl FromBuf for OracleTimestamp {
             tz_minute_offset =
                 buf[12].wrapping_sub(constants::TZ_MINUTE_OFFSET) as i8;
         }
-        Self {
+        Ok(Self {
             year: ((buf[0] as i16 - 100) * 100 + buf[1] as i16 - 100),
             month: buf[2],
             day: buf[3],
@@ -251,7 +257,7 @@ impl FromBuf for OracleTimestamp {
             nanoseconds,
             tz_hour_offset,
             tz_minute_offset,
-        }
+        })
     }
 }
 
@@ -334,5 +340,40 @@ impl TryFrom<OracleTimestamp> for chrono::NaiveDateTime {
                 ts.nanoseconds()
             ))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+
+    #[test]
+    fn a_date_decodes() {
+        let value =
+            OracleTimestamp::try_from_buf(&[120, 126, 1, 2, 4, 6, 8]).unwrap();
+        assert_eq!((value.year, value.month, value.day), (2026, 1, 2));
+        assert_eq!((value.hour, value.minute, value.second), (3, 5, 7));
+    }
+
+    #[test]
+    fn a_value_shorter_than_a_date_returns_an_error() {
+        let error = OracleTimestamp::try_from_buf(&[120, 126, 1])
+            .err()
+            .expect("a short value is refused");
+        assert_eq!(*error.kind(), ErrorKind::OutOfData);
+    }
+
+    /// The hour byte's high bit marks a time zone given as a region name.
+    #[test]
+    fn a_time_zone_region_name_returns_an_error() {
+        let buf = [120, 126, 1, 2, 4, 6, 8, 0, 0, 0, 0, 0x80 | 20, 60];
+        let error = OracleTimestamp::try_from_buf(&buf)
+            .err()
+            .expect("a region name is refused");
+        assert_eq!(
+            *error.kind(),
+            ErrorKind::NotImplemented("time zone region names".to_string())
+        );
     }
 }

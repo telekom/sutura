@@ -209,9 +209,6 @@ impl ExecuteMessage<'_, '_> {
             buf.write_ub4(0); // number of chunk ids
         }
         if !statement.has_cursor() || statement.is_ddl() {
-            if statement.sql().is_empty() {
-                todo!();
-            }
             let sql_bytes = statement.sql().as_bytes();
             buf.write_bytes_with_length(sql_bytes);
             buf.write_ub4(1); // al8i4[0] parse
@@ -281,6 +278,19 @@ impl ExecuteMessage<'_, '_> {
         if !bind_indexes.is_empty() {
             self.write_bind_params(buf, bind_indexes);
         }
+    }
+
+    /// Returns an error for a statement that has neither SQL to parse nor a
+    /// cursor to execute.
+    pub(crate) fn check_executable(
+        statement: &CachedStatement,
+    ) -> Result<(), Error> {
+        if (!statement.has_cursor() || statement.is_ddl())
+            && statement.sql().is_empty()
+        {
+            return Err(Error::empty_statement());
+        }
+        Ok(())
     }
 
     /// Creates a new execute message.
@@ -360,7 +370,9 @@ impl Message for ExecuteMessage<'_, '_> {
             resp.advance(num_bytes.into())?; // registration
         }
         if self.array_dml_row_counts {
-            todo!();
+            return Err(Error::not_implemented(
+                "array DML row counts".to_string(),
+            ));
         }
         Ok(())
     }
@@ -404,5 +416,32 @@ impl Message for ExecuteMessage<'_, '_> {
         } else {
             self.write_reexecute(client, buf);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+    use crate::statement::StatementOptions;
+
+    #[test]
+    fn a_statement_with_no_sql_and_no_cursor_returns_an_error() {
+        let statement =
+            CachedStatement::new("", &StatementOptions::new()).unwrap();
+        let error = ExecuteMessage::check_executable(&statement)
+            .err()
+            .expect("an empty statement is refused");
+        assert_eq!(*error.kind(), ErrorKind::EmptyStatement);
+    }
+
+    #[test]
+    fn a_statement_with_sql_is_executable() {
+        let statement = CachedStatement::new(
+            "select 1 from dual",
+            &StatementOptions::new(),
+        )
+        .unwrap();
+        assert!(ExecuteMessage::check_executable(&statement).is_ok());
     }
 }

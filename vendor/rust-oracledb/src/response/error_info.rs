@@ -70,16 +70,17 @@ impl ErrorInfo {
             let _logical_rowid = resp.read_bytes_with_length()?;
         }
         if resp.read_ub2()? > 0 {
-            // batch errors
-            todo!();
+            return Err(Error::not_implemented("batch errors".to_string()));
         }
         if resp.read_ub4()? > 0 {
-            // batch error offsets
-            todo!();
+            return Err(Error::not_implemented(
+                "batch error offsets".to_string(),
+            ));
         }
         if resp.read_ub2()? > 0 {
-            // batch error messages
-            todo!();
+            return Err(Error::not_implemented(
+                "batch error messages".to_string(),
+            ));
         }
         let error_num = resp.read_ub4()?;
         let rowcount = resp.read_ub8()?;
@@ -163,5 +164,48 @@ impl DbError {
     /// Returns the offset associated with the database error.
     pub fn offset(&self) -> usize {
         self.offset
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+
+    /// The encoded fields before the batch error count, each zero.
+    const FIELDS_BEFORE_BATCH_ERRORS: usize = 25;
+
+    fn refused(tail: &[u8]) -> Error {
+        let mut bytes = vec![0; FIELDS_BEFORE_BATCH_ERRORS];
+        bytes.extend_from_slice(tail);
+        let mut resp = Response::from_bytes(&bytes);
+        let client = Client::with_ttc_field_version(1);
+        ErrorInfo::deserialize(&mut resp, &client)
+            .err()
+            .expect("the error information is refused")
+    }
+
+    #[test]
+    fn batch_errors_return_an_error() {
+        assert_eq!(
+            *refused(&[1, 1]).kind(),
+            ErrorKind::NotImplemented("batch errors".to_string())
+        );
+    }
+
+    #[test]
+    fn batch_error_offsets_return_an_error() {
+        assert_eq!(
+            *refused(&[0, 1, 1]).kind(),
+            ErrorKind::NotImplemented("batch error offsets".to_string())
+        );
+    }
+
+    #[test]
+    fn batch_error_messages_return_an_error() {
+        assert_eq!(
+            *refused(&[0, 0, 1, 1]).kind(),
+            ErrorKind::NotImplemented("batch error messages".to_string())
+        );
     }
 }

@@ -154,7 +154,9 @@ impl Metadata {
         ) {
             let num_annotations = resp.read_ub4()?;
             if num_annotations > 0 {
-                todo!();
+                return Err(Error::not_implemented(
+                    "column annotations".to_string(),
+                ));
             }
         }
         if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_23_4)
@@ -384,5 +386,30 @@ impl Metadata {
     /// refer to a vector or the vector data is flexible, None is returned.
     pub fn vector_storage_format(&self) -> Option<VectorStorageFormat> {
         self.vector_storage_format.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+
+    /// A `VARCHAR2` column with every field zero, then one annotation.
+    #[test]
+    fn column_annotations_return_an_error() {
+        let mut bytes = vec![constants::ORA_TYPE_NUM_VARCHAR as u8, 0, 0, 0];
+        bytes.extend([0; 18]);
+        bytes.extend([1, 1]);
+        let mut resp = Response::from_bytes(&bytes);
+        let client = Client::with_ttc_field_version(
+            constants::TTC_FIELD_VERSION_23_1_EXT_3,
+        );
+        let error = Metadata::from_response(&mut resp, &client)
+            .err()
+            .expect("the metadata is refused");
+        assert_eq!(
+            *error.kind(),
+            ErrorKind::NotImplemented("column annotations".to_string())
+        );
     }
 }

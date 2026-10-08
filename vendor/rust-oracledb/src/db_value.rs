@@ -131,9 +131,16 @@ impl DbValue {
             constants::ORA_TYPE_NUM_DATE
             | constants::ORA_TYPE_NUM_TIMESTAMP
             | constants::ORA_TYPE_NUM_TIMESTAMP_LTZ
-            | constants::ORA_TYPE_NUM_TIMESTAMP_TZ => Ok(resp
-                .read_value::<OracleTimestamp>()?
-                .map(DbValue::Timestamp)),
+            | constants::ORA_TYPE_NUM_TIMESTAMP_TZ => {
+                let bytes = resp.read_bytes_with_length()?;
+                if bytes.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(DbValue::Timestamp(
+                        OracleTimestamp::try_from_buf(&bytes)?,
+                    )))
+                }
+            }
             constants::ORA_TYPE_NUM_INTERVAL_DS => Ok(resp
                 .read_value::<OracleIntervalDS>()?
                 .map(DbValue::IntervalDS)),

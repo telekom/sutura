@@ -47,6 +47,7 @@ pub enum ErrorKind {
     DbError(DbError),
     DeadConnection,
     DifferentTypes(&'static DbType, &'static DbType),
+    EmptyStatement,
     EndUserSecurityContextRequiresTcps,
     IfileCycleDetected(String, String),
     IntegerTooLarge(usize, usize),
@@ -213,6 +214,9 @@ impl fmt::Display for Error {
                  database type {}",
                     subsequent_db_type, initial_db_type
                 )?
+            }
+            ErrorKind::EmptyStatement => {
+                fmt.write_str("the statement has no SQL and no cursor")?
             }
             ErrorKind::EndUserSecurityContextRequiresTcps => fmt.write_str(
                 "end_user_security_context requires use of the tcps protocol",
@@ -501,6 +505,10 @@ impl Error {
 
     /// Creates an error for attempting Deep Data Security over a non-TCPS
     /// connection.
+    pub(crate) fn empty_statement() -> Error {
+        Error::new(ErrorKind::EmptyStatement, None)
+    }
+
     pub(crate) fn end_user_security_context_requires_tcps() -> Error {
         Error::new(ErrorKind::EndUserSecurityContextRequiresTcps, None)
     }
