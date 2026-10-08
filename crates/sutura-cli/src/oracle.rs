@@ -9,11 +9,10 @@
 //! **No channel resolution, and that absence is the placement's.** `sutura_config`'s
 //! `SourcePlacement::Oracle` carries no transport because the parse accepts only `plaintext` on a
 //! loopback host - the driver cannot be handed a declared trust store (see that variant's doc) - so
-//! this module dials `host:port/service_name` in the clear and nothing else. **That is the first
-//! dial only:** the driver follows a listener's TNS REDIRECT to any address it names, unchecked and
-//! still in the clear, and authenticates there - `crate::serve::oracle`'s
-//! `a_listener_redirect_is_followed_to_an_address_nobody_declared` holds that limit. The adapter's own
-//! `connect_secured` stays unwired until a declared store can reach it.
+//! this module dials `host:port/service_name` in the clear and nothing else. A listener's redirect
+//! is refused before authentication, so the connection stays on that address -
+//! `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused` holds it.
+//! The adapter's own `connect_secured` stays unwired until a declared store can reach it.
 //!
 //! The WHOLE module is behind `#[cfg(feature = "oracle")]` at its declaration in `main.rs`, so
 //! everything here may name an adapter type unconditionally.
@@ -50,9 +49,7 @@ const IMPERSONATION_DEFERRED: &str = "this adapter is one connection under the u
 ///
 /// The dial has no timeout of its own: the pinned driver connects with a bare
 /// `TcpStream::connect`. The parse confines the DECLARED host to a loopback literal, which narrows
-/// that first dial to a local listener that accepts and then stalls - and does not reach a
-/// redirect's dial at all, which is a second bare `TcpStream::connect` to whatever address the
-/// listener names.
+/// that dial to a local listener that accepts and then stalls.
 ///
 /// # Errors
 ///

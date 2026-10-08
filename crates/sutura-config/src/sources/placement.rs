@@ -516,15 +516,14 @@ pub enum SourcePlacement {
     ///
     /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with no transport field, and
     /// that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
-    /// shared rule confines the DECLARED host to a loopback literal - not the connection: the driver
-    /// follows a listener's redirect to any address, in plaintext (`crate::sources`' `oracle` parse
-    /// states it and names the cell that holds it). Plaintext only, because the driver takes no
+    /// shared rule confines the DECLARED host to a loopback literal; a listener's redirect is refused,
+    /// so the connection stays there (`crate::sources`' `oracle` parse names the cell that holds
+    /// it). Plaintext only, because the driver takes no
     /// caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
     /// widens, so no declared `transport_anchors` could be what the source verifies against. A field
     /// here that could only ever hold `Plaintext` would be a choice the type pretends exists.
     Oracle {
-        /// The listener's host - a loopback literal, by the parse's own refusal. The first dial only:
-        /// a listener's redirect is followed wherever it points.
+        /// The listener's host - a loopback literal, by the parse's own refusal.
         host: HostName,
         /// The listener's port. `1521` by convention, declared rather than defaulted.
         port: u16,

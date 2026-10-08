@@ -511,10 +511,9 @@ impl PostgresCatalogConnection {
 /// names the database by `service_name` rather than `database`, so there is no `database` field.
 /// **No password is held here:** `password_file` is a path the composition root reads at boot.
 ///
-/// **Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-/// driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-/// no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-/// there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+/// The connection stays on that host: the reader refuses a listener's redirect before
+/// authentication, held by `sutura-catalog-rdbms`'s
+/// `the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OracleCatalogConnection {
     host: HostName,

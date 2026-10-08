@@ -21,13 +21,8 @@ use sutura_domain::model::SourceName;
 /// an operator wrote rather than a default - and the parent's remote-plaintext rule then confines
 /// the DECLARED `host` to a loopback literal.
 ///
-/// **The limit, next to that claim: it confines the first dial, not the connection.** The pinned
-/// driver follows a listener's TNS REDIRECT to whatever address the listener names - unchecked,
-/// with no option to refuse, still plaintext - and authenticates there. So a loopback listener
-/// that redirects (a port-forward to a SCAN listener or a connection manager does, routinely) sends
-/// the password and every row across the network in the clear. Held by `sutura-cli`'s
-/// `a_listener_redirect_is_followed_to_an_address_nobody_declared`, which goes red the day the
-/// driver stops following.
+/// The connection stays on that host: a listener's redirect is refused before authentication, held
+/// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
 ///
 /// # Why TLS is refused rather than wired
 ///

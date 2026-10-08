@@ -53,8 +53,8 @@ pub(crate) fn open_oracle(
 
 /// `sutura serve`'s own `oracle` cells: the refusal for a build that did not link the adapter, the
 /// posture refusal, the furthest a fixture with no server reaches - the declared password file,
-/// alone and beside a `files` source - and the listener that redirects, proving the driver follows
-/// it to an address nobody declared.
+/// alone and beside a `files` source - and the listener that redirects, refused before
+/// authentication.
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "oracle")]
@@ -171,73 +171,24 @@ mod tests {
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
-    /// One TNS packet in the pre-negotiation framing the driver reads first: a 16-bit length, two
-    /// zero bytes, the type, a zero flags byte, two zero bytes - and, for a DATA packet, two zero
-    /// data-flag bytes - then the body.
-    #[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
-    #[cfg(feature = "oracle")]
-    fn tns_packet(packet_type: u8, body: &[u8]) -> Vec<u8> {
-        let header = if packet_type == 6 { 10 } else { 8 };
-        let length = u16::try_from(header + body.len()).expect("a test packet fits a 16-bit length");
-        let mut packet = length.to_be_bytes().to_vec();
-        packet.extend([0, 0, packet_type, 0, 0, 0]);
-        if packet_type == 6 {
-            packet.extend([0, 0]);
-        }
-        packet.extend(body);
-        packet
-    }
-
-    /// **The limit this kind's loopback rule does NOT reach.** `sutura-config` confines the DECLARED `host` to a loopback
-    /// literal; the pinned driver, on a listener's TNS REDIRECT, dials whatever address the listener
-    /// names - no check, no option to refuse, still plaintext - and authenticates there.
-    ///
-    /// The fake listener on the declared address answers the driver's CONNECT with a REDIRECT to a
-    /// second listener; the cell asserts the second one was dialled. It redirects to another loopback
-    /// PORT rather than off the machine, so it runs in a sandbox with no other address - the driver
-    /// checks neither, which is the property. If a driver release starts refusing redirects this goes
-    /// red, and the limit sentences in `crate::oracle`, `sutura-config` and the docs can be narrowed.
+    /// **Refused before authentication, and the redirect's address is never dialled.** The fake
+    /// listener on the declared address answers the driver's CONNECT with a REDIRECT to a second
+    /// loopback listener no source declares. It redirects to another loopback PORT rather than off
+    /// the machine, so it runs in a sandbox with no other address; the refusal does not depend on
+    /// where the redirect points.
     #[test]
-    #[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
     #[cfg(feature = "oracle")]
-    fn a_listener_redirect_is_followed_to_an_address_nobody_declared() {
-        use std::io::{Read as _, Write as _};
-
-        let redirected = std::net::TcpListener::bind("127.0.0.1:0").expect("a second listener binds");
-        let redirected_port = redirected.local_addr().expect("it has an address").port();
-        let declared = std::net::TcpListener::bind("127.0.0.1:0").expect("the declared listener binds");
-        let declared_port = declared.local_addr().expect("it has an address").port();
-
-        let (dialled, told) = std::sync::mpsc::channel();
-        drop(std::thread::spawn(move || {
-            // Accepted and closed at once: that the driver arrived is the whole measurement.
-            if let Ok((stream, _)) = redirected.accept() {
-                drop(stream);
-                let _ignored = dialled.send(());
-            }
-        }));
-        drop(std::thread::spawn(move || {
-            let Ok((mut stream, _)) = declared.accept() else { return };
-            let _ignored = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
-            let mut connect = [0_u8; 4096];
-            let _ignored = stream.read(&mut connect);
-            let address = format!("(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT={redirected_port}))");
-            let data = format!("{address}\u{0}(DESCRIPTION=(CONNECT_DATA=(SERVICE_NAME=FREEPDB1)))");
-            let length = u16::try_from(data.len()).expect("the redirect fits").to_be_bytes();
-            let mut reply = tns_packet(5, &length);
-            reply.extend(tns_packet(6, data.as_bytes()));
-            // Closed once written: the driver has the bytes, and nothing here can then hold it open.
-            let _ignored = stream.write_all(&reply);
-        }));
-
+    fn a_listener_redirect_to_an_address_nobody_declared_is_refused() {
+        let listener = sutura_dev::tns_listener::RedirectingListener::start().expect("the fake listener binds");
         let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-redirect-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
         let password = directory.join("password");
         std::fs::write(&password, "not-a-real-password").expect("the password file writes");
         let entry = format!(
-            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {declared_port}\n    \
+            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {}\n    \
              service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
              transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
+            listener.port(),
             password.display()
         );
         let opened = open_engine(
@@ -248,10 +199,11 @@ mod tests {
             None,
         );
         let _ignored = std::fs::remove_dir_all(&directory);
-        let _refused = refusal(opened, "the redirected listener closes before any authentication completes");
+        let error = refusal(opened, "a listener that redirects is refused");
+        assert!(error.contains("redirected the connection"), "{error}");
         assert!(
-            told.recv_timeout(std::time::Duration::from_secs(10)).is_ok(),
-            "the driver did not dial the address the listener redirected it to"
+            !listener.target_was_dialled(std::time::Duration::from_secs(2)),
+            "the address the redirect named was dialled"
         );
     }
 }

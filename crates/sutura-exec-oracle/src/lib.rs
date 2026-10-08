@@ -40,9 +40,11 @@
 //!   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
 //!   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
 //!   a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
-//!   The connection is not confined: `oracledb::connect` follows a listener's TNS REDIRECT to any
-//!   address it names, in plaintext, with no option to refuse.
 //!   [`OracleWarehouse::connect_secured`] therefore has no composition-root caller.
+//! - **A listener's redirect is refused before authentication**, as
+//!   [`OracleError::RedirectRefused`]: the driver is told not to follow one, so the connection
+//!   stays on the address the source declared. A clustered listener that redirects every client is
+//!   therefore refused too; declare the address that answers.
 //! - **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
 //!   links this crate into both composition roots through [`OracleWarehouse::connect`];
 //!   `nix/shipped.nix` does not carry that feature - see its entry in `sutura-cli`'s manifest.
@@ -85,6 +87,13 @@ pub mod fixture;
 pub enum OracleError {
     #[error("could not connect to Oracle")]
     Connect {
+        #[source]
+        cause: DriverError,
+    },
+    /// The listener answered with a redirect. Every redirect is refused before authentication: the
+    /// address it names is one no source declared, so no declared transport governs it.
+    #[error("the listener redirected the connection to an address this source does not declare")]
+    RedirectRefused {
         #[source]
         cause: DriverError,
     },
@@ -270,7 +279,7 @@ impl OracleWarehouse {
         config: oracledb::Config,
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
-        let connection = oracledb::connect(config).map_err(|cause| OracleError::Connect { cause: cause.into() })?;
+        let connection = oracledb::connect(config.set_follow_redirects(false)).map_err(connect_err)?;
         Ok(Self {
             source,
             posture,
@@ -593,6 +602,16 @@ fn collect_rows(
         }
     }
     collected.finish(labels).map_err(|cause| OracleError::Shape { cause })
+}
+
+/// The error from opening the connection, with a refused redirect as its own variant.
+fn connect_err(cause: oracledb::Error) -> OracleError {
+    let cause = DriverError::from(cause);
+    if matches!(cause.0.kind(), oracledb::ErrorKind::RedirectNotAllowed) {
+        OracleError::RedirectRefused { cause }
+    } else {
+        OracleError::Connect { cause }
+    }
 }
 
 /// The error from the RUN of a statement, with the one server refusal this adapter refuses to
