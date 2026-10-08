@@ -51,6 +51,7 @@ pub struct Config {
     stmtcachesize: Option<usize>,
     auth_mode: Option<u8>,
     driver_name: Option<String>,
+    follow_redirects: Option<bool>,
     osuser: Option<String>,
     program: Option<String>,
     machine: Option<String>,
@@ -62,6 +63,15 @@ pub struct Config {
 }
 
 impl Config {
+    /// Returns an error if the listener may not redirect the connection.
+    pub(crate) fn check_redirect_allowed(&self) -> Result<(), Error> {
+        if self.follow_redirects() {
+            Ok(())
+        } else {
+            Err(Error::redirect_not_allowed())
+        }
+    }
+
     /// Returns the new password to use, if one was configured.
     pub(crate) fn get_new_password_bytes(&self) -> Option<Vec<u8>> {
         self.new_password.as_ref().map(|s| s.get_value())
@@ -112,6 +122,12 @@ impl Config {
         self.driver_name
             .as_deref()
             .unwrap_or(defaults::default_driver_name())
+    }
+
+    /// Returns whether a redirect sent by the listener is followed when
+    /// establishing a connection to the database. The default value is true.
+    pub fn follow_redirects(&self) -> bool {
+        self.follow_redirects.unwrap_or(true)
     }
 
     /// Returns the full connect descriptor associated with the configuration.
@@ -187,6 +203,14 @@ impl Config {
     /// Sets the driver name to use when connecting to the database.
     pub fn set_driver_name(mut self, value: impl Into<String>) -> Self {
         self.driver_name = Some(value.into());
+        self
+    }
+
+    /// Sets whether a redirect sent by the listener is followed when
+    /// establishing a connection to the database. When false, the connection
+    /// attempt fails with an error as soon as the listener sends a redirect.
+    pub fn set_follow_redirects(mut self, value: bool) -> Self {
+        self.follow_redirects = Some(value);
         self
     }
 
@@ -335,6 +359,7 @@ impl Default for Config {
             stmtcachesize: None,
             auth_mode: None,
             driver_name: None,
+            follow_redirects: None,
             osuser: None,
             program: None,
             machine: None,
@@ -344,5 +369,23 @@ impl Default for Config {
             wallet_password: None,
             transport_connect_timeout: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+
+    #[test]
+    fn redirects_are_followed_by_default() {
+        assert!(Config::default().check_redirect_allowed().is_ok());
+    }
+
+    #[test]
+    fn redirects_are_refused_when_disabled() {
+        let config = Config::default().set_follow_redirects(false);
+        let err = config.check_redirect_allowed().unwrap_err();
+        assert_eq!(err.kind(), &ErrorKind::RedirectNotAllowed);
     }
 }

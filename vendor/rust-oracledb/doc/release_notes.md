@@ -2,6 +2,12 @@
 
 ## rust-oracledb 26.0.0-beta.5 (TBD)
 
+1.  Added methods
+    [Config::set_follow_redirects()](crate::Config::set_follow_redirects) and
+    [Config::follow_redirects()](crate::Config::follow_redirects) (and the same
+    methods on [PoolConfig](crate::PoolConfig)) to control whether a redirect
+    sent by the listener is followed, and the error
+    [ErrorKind::RedirectNotAllowed](crate::ErrorKind::RedirectNotAllowed).
 1.  Added support for specifying the transport connect timeout and ensure it is
     actually used when establishing a connection to the database
     ([issue 35](https://github.com/oracle/rust-oracledb/issues/35)).

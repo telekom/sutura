@@ -633,6 +633,7 @@ impl Client {
         while !connect_message.accepted {
             self.process_message(&mut connect_message)?;
             if connect_message.redirect_data_len > 0 {
+                self.config.check_redirect_allowed()?;
                 let mut response = Response::new();
                 self.receive_response(&mut connect_message, &mut response)?;
                 let redirect_data =

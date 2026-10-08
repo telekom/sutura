@@ -108,6 +108,12 @@ impl PoolConfig {
         self.connection_config.driver_name()
     }
 
+    /// Returns whether a redirect sent by the listener is followed when
+    /// establishing a connection to the database. The default value is true.
+    pub fn follow_redirects(&self) -> bool {
+        self.connection_config.follow_redirects()
+    }
+
     /// Returns the full connect descriptor associated with the configuration.
     pub fn get_connect_descriptor(&self) -> String {
         self.connection_config.get_connect_descriptor()
@@ -203,6 +209,15 @@ impl PoolConfig {
     /// Sets the driver name to use when connecting to the database.
     pub fn set_driver_name(mut self, value: impl Into<String>) -> Self {
         self.connection_config = self.connection_config.set_driver_name(value);
+        self
+    }
+
+    /// Sets whether a redirect sent by the listener is followed when
+    /// establishing a connection to the database. When false, the connection
+    /// attempt fails with an error as soon as the listener sends a redirect.
+    pub fn set_follow_redirects(mut self, value: bool) -> Self {
+        self.connection_config =
+            self.connection_config.set_follow_redirects(value);
         self
     }
 

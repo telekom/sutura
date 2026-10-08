@@ -850,6 +850,14 @@ supported.
 See the [Oracle Database Security Guide][oracle-db-security-guide] for more
 configuration information.
 
+A listener can redirect the client to another address, for example to a
+database instance in a cluster. By default, rust-oracledb connects to the
+address in the redirect. To refuse every redirect, call
+[Config::set_follow_redirects()](crate::Config::set_follow_redirects) with
+`false`. The connection attempt then fails with
+[ErrorKind::RedirectNotAllowed](crate::ErrorKind::RedirectNotAllowed). A
+database in a cluster usually needs redirects, so leave the default for it.
+
 ## <a name="resetpassword"></a> 2.9 Resetting Passwords
 
 After connecting to Oracle Database, passwords can be changed by calling

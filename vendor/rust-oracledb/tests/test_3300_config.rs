@@ -36,6 +36,7 @@ fn test_3300() -> Result<(), oracledb::Error> {
     let default_config = oracledb::Config::default();
     assert_eq!(default_config.auth_mode(), oracledb::AUTH_MODE_DEFAULT);
     assert!(default_config.cclass().is_none());
+    assert!(default_config.follow_redirects());
     assert!(default_config.get_connect_descriptor().is_empty());
     assert!(default_config.user().is_none());
     assert!(default_config.wallet_location().is_none());
@@ -45,6 +46,7 @@ fn test_3300() -> Result<(), oracledb::Error> {
         .set_cclass("cclass_3300")
         .set_credentials("user_3300", "password_3300")
         .set_driver_name("driver_name_3300")
+        .set_follow_redirects(false)
         .set_machine("machine_3300")?
         .set_osuser("osuser_3300")?
         .set_program("program_3300")?
@@ -55,6 +57,7 @@ fn test_3300() -> Result<(), oracledb::Error> {
     assert_eq!(config.auth_mode(), oracledb::AUTH_MODE_SYSDBA);
     assert_eq!(config.cclass(), Some("cclass_3300"));
     assert_eq!(config.driver_name(), "driver_name_3300");
+    assert!(!config.follow_redirects());
     assert_eq!(config.machine(), "machine_3300");
     assert_eq!(config.osuser(), "osuser_3300");
     assert_eq!(config.program(), "program_3300");

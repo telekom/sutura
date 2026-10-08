@@ -83,6 +83,7 @@ pub enum ErrorKind {
     PoolIncrementZero,
     PoolMaxInvalid,
     PoolNotOpen,
+    RedirectNotAllowed,
     ServerVersionNotSupported,
     StreamOperation,
     TlsOperation,
@@ -347,6 +348,10 @@ impl fmt::Display for Error {
                  connections and must be non-zero",
             )?,
             ErrorKind::PoolNotOpen => fmt.write_str("pool is not open")?,
+            ErrorKind::RedirectNotAllowed => fmt.write_str(
+                "the listener redirected the connection but the \
+                 configuration does not allow redirects",
+            )?,
             ErrorKind::ServerVersionNotSupported => fmt.write_str(
                 "connections to this database server are not supported",
             )?,
@@ -693,6 +698,10 @@ impl Error {
 
     pub(crate) fn pool_not_open() -> Error {
         Error::new(ErrorKind::PoolNotOpen, None)
+    }
+
+    pub(crate) fn redirect_not_allowed() -> Error {
+        Error::new(ErrorKind::RedirectNotAllowed, None)
     }
 
     pub(crate) fn server_version_not_supported() -> Error {
