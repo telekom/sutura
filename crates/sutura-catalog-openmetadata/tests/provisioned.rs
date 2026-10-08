@@ -25,8 +25,8 @@
 //! **Limits, next to the claims.** The bearer is the image's built-in administrator, logged in with
 //! the upstream container's own default credential - a throwaway tier's, in no shipped or example
 //! config. Authorization beyond "a token or none" is not exercised. What the wire mapping does not
-//! write (a compound key, the nullability, a physical table name) is never provisioned, so if the
-//! reader learns to carry one, nothing here reads that back.
+//! write (the nullability, a physical table name) is never provisioned, so if the reader learns to
+//! carry one, nothing here reads that back. A compound key is written and not read back.
 //!
 //! **Fail-closed where a tier was provisioned, loudly skipped where one was not**:
 //! `sutura_dev::provisioned::here` panics under `SUTURA_DEV_REQUIRE_TIER` and prints a notice on a
@@ -198,12 +198,15 @@ mod tests {
         /// column's description keeps its apostrophe, and no golden column prose holds a backtick;
         /// whether any other character is escaped is not measured.
         DescriptionEscaping,
-        /// A compound primary key: the server refuses two columns each tagged `PRIMARY_KEY`, and a
-        /// compound one is a table-level `PRIMARY_KEY` constraint, which the reader does not read.
+        /// A compound primary key: provisioned as a table-level `PRIMARY_KEY` constraint, which the
+        /// reader does not read. Measured on the pinned release: the server refuses two columns each
+        /// tagged `PRIMARY_KEY`, so the table-level constraint is the only wire form.
         CompoundPrimaryKey,
-        /// A compound-key relationship: `usage_subscription` has two keys, and a side declaring more
-        /// than one column is refused by `one_referenced` rather than narrowed. The limit is this
-        /// adapter's, not `OpenMetadata`'s - `columns`/`referredColumns` are arrays.
+        /// A compound-key relationship: `usage_subscription` carries two limits. The adapter's:
+        /// a side declaring more than one column is refused by `one_referenced` rather than narrowed
+        /// (`columns`/`referredColumns` are arrays). The wire shape's: its second key is a truncated
+        /// equality (`TruncatedEqual`, grain month), which a `TableConstraint` cannot state, so it is
+        /// never provisioned.
         Relationship(&'static str),
         /// Every metric: its binding is a free-text expression, reported and never minted - the
         /// declared half-a-definition (`docs/what-openmetadata-can-carry.md`).

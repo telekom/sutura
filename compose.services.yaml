@@ -532,7 +532,7 @@ services:
   # is the finding it was decided against. This is the instance that finding left unmeasured, and
   # `just openmetadata-acceptance` is the one thing that talks to it.
   #
-  # **`openmetadata` IS the server container**: the key is a DISCOVERY name, and the four below it
+  # **`openmetadata` IS the server container**: the key is a DISCOVERY name, and the three below it
   # (`openmetadata-mysql`, `openmetadata-opensearch`, `openmetadata-migrate`) are its store, its
   # search index and its migration job, none of which publishes a port or is a row in
   # `sutura_dev::scope::SERVICES`. The server is healthy only after the migration job exited
