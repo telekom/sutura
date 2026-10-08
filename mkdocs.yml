@@ -86,6 +86,13 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
+  # The icon shortcodes of the Integrations cards, `:simple-duckdb:` and `:material-database:`.
+  # Material bundles the icon sets and `to_svg` inlines each one, so no icon is fetched at read
+  # time. Write only `:simple-*:`, `:material-*:`, `:octicons-*:` and `:fontawesome-*:` in a page:
+  # an emoji shortcode such as `:book:` renders as an image from a CDN.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
@@ -181,14 +188,16 @@ exclude_docs: |
 #
 # Each top-level entry is a tab (`navigation.tabs`). The User Guide is for a person who asks
 # questions or runs a deployment. Integrations has one page for each adapter. Reference is for a
-# person who builds, verifies or changes sutura.
+# person who verifies a release or publishes the docs. Contributing is for a person who opens an
+# issue, reports a vulnerability or changes sutura. Each tab title starts with one emoji, written as
+# a literal character that the browser font draws.
 #
 # Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
 hooks:
   - docs/.tools/version.py
 
 nav:
-  - User Guide:
+  - 📖 User Guide:
       - Introduction: index.md
       - Getting started: getting-started.md
       - Concepts: concepts.md
@@ -196,8 +205,9 @@ nav:
       - Serving over HTTP: serving.md
       - The agent prompt: agent-prompt.md
       - Questions and answers: qa.md
-  - Integrations:
-      - integrations.md
+  - 🧩 Integrations:
+      - integrations/index.md
+      - Kinds and settings: integrations.md
       - Catalogs:
           - Markdown catalog: integrations/catalogs/markdown.md
           - DataHub: integrations/catalogs/datahub.md
@@ -215,16 +225,15 @@ nav:
           - Oracle: integrations/data-systems/oracle.md
       - Identity:
           - Inbound identity: integrations/identity.md
-  - Examples:
+  - 💻 Examples:
       - examples/index.md
       - Single player: examples/single-player.md
       - Multi player: examples/multi-player.md
       - The local chat demo: demo.md
-  - Reference:
+  - 📚 Reference:
       - Configuration: configuration.md
       - Verifying a release: verifying-a-release.md
       - Building without direct egress: enterprise-mirrors.md
-      - Contributing: contributing.md
       - Publishing the docs: publishing.md
       - API:
           - api/index.md
@@ -263,7 +272,12 @@ nav:
           - sutura-conformance: api/sutura-conformance.md
           - sutura-dev: api/sutura-dev.md
 
-  - Changelog: changelog.md
+  - 🤝 Contributing:
+      - Contributing: contributing.md
+      - Open an issue: open-an-issue.md
+      - Report a security issue: report-a-security-issue.md
+
+  - 📝 Changelog: changelog.md
 
 extra:
   version:
