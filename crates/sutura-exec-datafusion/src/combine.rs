@@ -761,8 +761,9 @@ fn leaf_expression(carried: &Carried, column: Expr, reading: Reading) -> Result<
 ///
 /// **A float is widened to 64 bits and canonicalised, because the engines a leg can come from do not
 /// agree on what two floats are the same value.** `DuckDB` counts `-0.0` with `0.0` and every NaN as
-/// one value; `DataFusion` hashes the bits, so it counts them apart. A leg groups by the column in
-/// its own engine, so a bit-level count above would answer by which engine produced the leg - and
+/// one value; `DataFusion` counts the NaN payloads apart (`apache/datafusion#26091`) and, with another
+/// aggregate beside the distinct count, the zeros too. A leg groups by the column in its own engine,
+/// so a bit-level count above would answer by which engine produced the leg - and
 /// over a `DuckDB` leg that holds `0.0` under one link and `-0.0` under another, by which row the
 /// engine happened to keep. The widening is exact for every float width, so no two distinct values
 /// meet. NULL stays NULL and is not counted.

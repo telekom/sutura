@@ -382,8 +382,10 @@ fn a_sum_beside_a_distinct_count_adds_at_the_finer_grain() {
 
 /// **`-0.0` is `0.0` and every NaN is one value, whichever engine produced the leg.** `DuckDB`
 /// answers `COUNT(DISTINCT x)` over `{0.0, -0.0, NaN, -NaN, 1.5}` as 3, so a leg from it may hold
-/// either zero under either link; `DataFusion` hashes the bits and would count 5. The combine
-/// counts what SQL equality counts, so the answer cannot depend on which representative a leg kept.
+/// either zero under either link. `DataFusion` counts a lone `COUNT(DISTINCT x)` over them as 4 (the
+/// zeros merge, the NaN payloads stay apart, `apache/datafusion#26091`) and, with another aggregate
+/// beside it, as 5. The combine counts what SQL equality counts, so the answer cannot depend on which
+/// representative a leg kept.
 #[test]
 fn a_distinct_count_over_floats_counts_zeros_and_nans_by_sql_equality() {
     const POSITIVE_NAN: u64 = 0x7ff8_0000_0000_0001;
