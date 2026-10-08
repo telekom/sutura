@@ -18,16 +18,19 @@ source kind is `oracle`. The adapter is built with the `oracle` feature.
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key              | Type          | Default  | Meaning                                                       |
-| ---------------- | ------------- | -------- | ------------------------------------------------------------- |
-| `host`           | string        | required | The listener host. A loopback IP address, such as `127.0.0.1` |
-| `port`           | integer       | required | The listener port. Oracle uses `1521`                         |
-| `service_name`   | string        | required | The service name: letters, digits, `_` and `.`                |
-| `user`           | string        | required | The user that sutura connects as                              |
-| `password_file`  | absolute path | required | A file that holds the password. sutura reads it at startup    |
-| `transport_mode` | string        | required | `plaintext`                                                   |
+| Key                 | Type          | Default  | Meaning                                                                                                    |
+| ------------------- | ------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `host`              | string        | required | The listener host. With `plaintext`, a loopback IP address, such as `127.0.0.1`; with `verified`, any host |
+| `port`              | integer       | required | The listener port. Oracle uses `1521`                                                                      |
+| `service_name`      | string        | required | The service name: letters, digits, `_` and `.`                                                             |
+| `user`              | string        | required | The user that sutura connects as                                                                           |
+| `password_file`     | absolute path | required | A file that holds the password. sutura reads it at startup                                                 |
+| `transport_mode`    | string        | required | `plaintext` or `verified`                                                                                  |
+| `transport_anchors` | absolute path | none     | For `verified`: a PEM bundle. Its certificates are the only ones the server is verified against            |
 
-sutura connects at startup, so it does not start if the listener or the login fails.
+sutura connects at startup, so it does not start if the listener or the login fails. The connect to
+the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
+it logs in, so declare the address that answers.
 
 ## Example
 

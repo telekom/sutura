@@ -68,7 +68,8 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 
 `plaintext` needs a loopback IP address as `host`. `verified` and `mutual` need `host`, not
 `unix_socket`. A build with the `rdbms` feature reads PostgreSQL dictionaries; the Oracle
-dictionary needs a build with the `oracle` feature.
+dictionary needs a build with the `oracle` feature. The Oracle reader refuses a listener that
+redirects the connection, before it logs in.
 
 ## Example
 
