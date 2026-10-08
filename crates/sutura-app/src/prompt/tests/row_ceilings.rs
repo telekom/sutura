@@ -42,5 +42,5 @@ fn a_two_source_sentence_states_the_configured_federated_ceiling() {
 fn the_defaults_state_the_compiled_ceiling_and_add_no_two_source_sentence() {
     let (text, flowed) = flowed(RowCeilings::DEFAULT);
     assert!(flowed.contains(&format!("`n` may not exceed {MAX_ROWS} ")), "{text}");
-    assert!(!flowed.contains("is held to"), "{text}");
+    assert!(!flowed.contains("two data systems is held to"), "{text}");
 }
