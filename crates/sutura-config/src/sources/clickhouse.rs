@@ -83,17 +83,16 @@ pub(super) fn parse_placement(
     })
 }
 
-/// The eight keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
+/// The seven keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
 ///
-/// The `files` key, the four `bigquery` keys, and the three dialled keys this kind does not read -
+/// The `files` key, the three `bigquery` keys, and the three dialled keys this kind does not read -
 /// see this module's own header for why `unix_socket` and `database` are an absence in the adapter
 /// rather than a pending feature; `service_name` is `oracle`'s.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 8] {
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 7] {
     [
         ("data_dir", written(entry.data_dir)),
         ("billing_project", written(entry.billing_project)),
         ("dataset", written(entry.dataset)),
-        ("credential_file", written(entry.credential_file)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
         ("unix_socket", written(entry.unix_socket)),
         ("database", written(entry.database)),
@@ -128,7 +127,6 @@ mod tests {
             data_dir: None,
             billing_project: None,
             dataset: None,
-            credential_file: None,
             max_bytes_billed: None,
             posture: "shared-service-user",
             acknowledged_because: Some("one service user reaching the database for everybody who asks"),

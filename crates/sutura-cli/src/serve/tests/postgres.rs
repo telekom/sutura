@@ -11,9 +11,9 @@ use super::{OpenedSources, bundle_over, default_timeout, one_worker, open_engine
 /// `127.0.0.1` with `transport_mode: "plaintext"` is the one combination issue 124's non-loopback
 /// fail-closed still parses - a remote host declared plaintext is a settings-tree refusal, tested in
 /// `sutura-config`, and would stop these cells before they reached the composition root's own cross-
-/// check. The password file points at a path that is not there, for the reason `bigquery_entry`'s
-/// credential file does: a refusal naming that key is proof the composition reached the connection
-/// layer, which is the furthest a test with no server can get.
+/// check. The password file points at a path that is not there: a refusal naming that key is proof
+/// the composition reached the connection layer, which is the furthest a test with no server can
+/// get.
 ///
 /// Gated on `postgres` itself: the only caller today is the impersonation cross-check below, which
 /// is gated the same way - unlike `bigquery_entry`, nothing here is exercised on a build without the

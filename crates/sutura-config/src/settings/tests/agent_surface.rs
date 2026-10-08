@@ -43,8 +43,7 @@ fn off_host(security: &str, rate_limit: &str) -> String {
 fn two_sources() -> &'static str {
     "sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n    \
      posture: \"impersonation-at-source\"\n    workload_identity:\n      \
-     audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-     scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n  shared:\n    kind: \"files\"\n    \
+     audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n  shared:\n    kind: \"files\"\n    \
      data_dir: \"/srv/sutura/shared\"\n    posture: \"shared-service-user\"\n"
 }
 

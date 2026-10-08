@@ -425,16 +425,12 @@ pub enum InvalidSourceRegistry {
     /// federation replaced it. The pool's own exchange needs the audience, and Google's library
     /// refuses an empty one outright.
     ///
-    /// **Corrected twice, and the second correction is narrower than the first.** The same round
-    /// said `audience` *and* `scope` become the credential document. Only the audience does: the
-    /// document shape has no `scopes` member and the driver's own scope option means
-    /// service-account impersonation, so `scope` is declared and sent by nothing - measured against
-    /// the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
-    /// `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
-    /// each caller's questions execute as, and `scope` alone is read by nothing - see
-    /// `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
+    /// Of the keys in the block, `audience` is read, `impersonate`'s KEYS decide which callers may be
+    /// served at all, and its VALUES name the account each caller's questions execute as - see
+    /// `sutura_exec_bigquery::DeclaredPrincipals::target`. There is no `scope` key: the credential
+    /// document has no `scopes` member, so one would reach nothing.
     #[error(
-        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, the `scope` (declared for a future transport, and sent by none in this build - the driver applies its own), and the `impersonate` map naming which subjects may be served here"
+        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, and the `impersonate` map naming which subjects may be served here"
     )]
     MissingWorkloadIdentity { alias: SourceName },
     /// A workload-identity block was declared on a source that is not impersonating.
@@ -533,7 +529,6 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) data_dir: Option<&'raw str>,
     pub(crate) billing_project: Option<&'raw str>,
     pub(crate) dataset: Option<&'raw str>,
-    pub(crate) credential_file: Option<&'raw str>,
     pub(crate) max_bytes_billed: Option<u64>,
     pub(crate) posture: &'raw str,
     pub(crate) acknowledged_because: Option<&'raw str>,
@@ -682,7 +677,7 @@ fn parse_entry(
     };
 
     // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
-    // impersonating shape, and only it. An impersonating entry must name the provider and scope its
+    // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
     let workload_identity = match entry.workload_identity.as_ref() {
         None if matches!(entry.posture.trim(), "impersonation-at-source") => {
@@ -695,7 +690,6 @@ fn parse_entry(
         Some(raw) => Some(
             WorkloadIdentityConfig::parse_with_expectations(
                 &raw.audience,
-                &raw.scope,
                 &raw.impersonate,
                 raw.expected_issuer.as_deref(),
                 raw.expected_audience.as_deref(),

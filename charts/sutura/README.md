@@ -38,7 +38,7 @@ Every credential-shaped setting is a Kubernetes Secret, mounted or injected, nev
 | `tls.secretName`                    | `server.tls_certificate` / `server.tls_key` | volume, a `kubernetes.io/tls` Secret |
 | `security.inbound.keySetSecretName` | `security.inbound.key_set_file`             | volume, an opaque Secret             |
 
-A source's own credential (`sources.<alias>.credential_file`, `password_file`,
+A source's own credential (`sources.<alias>.password_file`,
 `client_certificate`, `client_key`) has no dedicated value: point `extraVolumes` /
 `extraVolumeMounts` at a Secret, then name the mount path in `config.base.sources.<alias>`.
 

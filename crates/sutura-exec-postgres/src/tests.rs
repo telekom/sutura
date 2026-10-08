@@ -1,6 +1,6 @@
 //! The pure halves of this adapter, hermetic: the tuning value's parse and the deadline clamp.
 
-use crate::{PostgresError, parse_statement_timeout};
+use crate::{PostgresError, parse_statement_timeout, statement_timeout_under};
 
 #[test]
 fn a_statement_timeout_is_a_u32_ceiling_or_it_is_refused() {
@@ -26,6 +26,20 @@ fn a_statement_timeout_is_a_u32_ceiling_or_it_is_refused() {
         parse_statement_timeout("15000.5"),
         Err(PostgresError::InvalidStatementTimeout { .. })
     ));
+}
+
+#[test]
+fn the_environment_moves_the_statement_timeout_only_in_a_dev_build() {
+    assert_eq!(statement_timeout_under(true, Some("250")).expect("a dev build reads it"), 250);
+    assert!(matches!(
+        statement_timeout_under(true, Some("not-a-number")),
+        Err(PostgresError::InvalidStatementTimeout { .. })
+    ));
+    assert_eq!(statement_timeout_under(true, None).expect("unset is the default"), 15_000);
+    // A shipped build ignores the variable - even an unparseable one, which is not worth refusing
+    // a boot over when nothing reads it.
+    assert_eq!(statement_timeout_under(false, Some("250")).expect("ignored"), 15_000);
+    assert_eq!(statement_timeout_under(false, Some("not-a-number")).expect("ignored"), 15_000);
 }
 
 /// `deadline::deadline_statement_timeout_ms`'s clamp, hermetic - no tier, no connection: the

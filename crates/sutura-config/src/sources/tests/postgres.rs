@@ -11,7 +11,6 @@ fn postgres(written: &str) -> RawSourceEntry<'_> {
         data_dir: None,
         billing_project: None,
         dataset: None,
-        credential_file: None,
         max_bytes_billed: None,
         posture: "shared-service-user",
         acknowledged_because: Some("one service role reaching the database for everybody who asks"),

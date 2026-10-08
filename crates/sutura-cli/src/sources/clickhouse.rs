@@ -161,8 +161,7 @@ mod tests {
     fn wif_for_clickhouse() -> String {
         String::from(
             "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
-             workloadIdentityPools/p/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/\
-             bigquery.readonly\"\n",
+             workloadIdentityPools/p/providers/sso\"\n",
         )
     }
 

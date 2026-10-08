@@ -27,7 +27,6 @@ fn shared(written: &str) -> RawSourceEntry<'_> {
         data_dir: Some(DATA),
         billing_project: None,
         dataset: None,
-        credential_file: None,
         max_bytes_billed: None,
         posture: "shared-service-user",
         acknowledged_because: Some("one process reading a directory of files as itself"),
@@ -53,7 +52,6 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         audience: String::from(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
         ),
-        scope: String::from("https://www.googleapis.com/auth/bigquery.readonly"),
         impersonate: std::collections::BTreeMap::new(),
         expected_issuer: None,
         expected_audience: None,
@@ -68,7 +66,6 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         data_dir: Some(DATA),
         billing_project: None,
         dataset: None,
-        credential_file: None,
         max_bytes_billed: None,
         posture: "impersonation-at-source",
         acknowledged_because: None,

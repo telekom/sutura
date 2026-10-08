@@ -104,16 +104,15 @@ pub(super) fn parse_placement(
     })
 }
 
-/// The seven keys an `oracle` entry has no use for, paired with whether this entry wrote each.
+/// The six keys an `oracle` entry has no use for, paired with whether this entry wrote each.
 ///
-/// The `files` key, the four `bigquery` keys, and the two dialled keys this kind does not read: the
+/// The `files` key, the three `bigquery` keys, and the two dialled keys this kind does not read: the
 /// driver dials a TCP listener, and names the database by `service_name` rather than `database`.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 7] {
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 6] {
     [
         ("data_dir", written(entry.data_dir)),
         ("billing_project", written(entry.billing_project)),
         ("dataset", written(entry.dataset)),
-        ("credential_file", written(entry.credential_file)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
         ("unix_socket", written(entry.unix_socket)),
         ("database", written(entry.database)),
@@ -146,7 +145,6 @@ mod tests {
             data_dir: None,
             billing_project: None,
             dataset: None,
-            credential_file: None,
             max_bytes_billed: None,
             posture: "shared-service-user",
             acknowledged_because: Some("one service user reaching the database for everybody who asks"),
@@ -168,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn an_oracle_source_declares_its_listener_its_service_and_its_credential_file() {
+    fn an_oracle_source_declares_its_listener_its_service_and_its_password_file() {
         let registry =
             SourceRegistry::parse(&[oracle("warehouse")], Some(&single_user())).expect("a complete oracle entry parses");
         let configured = registry.get(&alias("warehouse")).expect("the entry is there");

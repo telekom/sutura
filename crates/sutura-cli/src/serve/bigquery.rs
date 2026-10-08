@@ -94,7 +94,6 @@ fn build_bigquery(
         ref billing_project,
         ref dataset,
         max_bytes_billed,
-        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -121,7 +120,7 @@ fn build_bigquery(
             source,
         )
         .map_err(super::flatten)?;
-    // **The ADBC driver authenticates itself, so there is no credential file to read and no token
+    // **The ADBC driver authenticates itself, so there is no credential to read and no token
     // rotation to drive - the removed `wire` half.** The driver is opened at BOOT rather than on the
     // first question, which is the same argument the inbound key set is read before the listener
     // opens: a driver this process cannot open has to stop it, not become a deployment that answers
