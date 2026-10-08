@@ -368,6 +368,44 @@ fn every_caller_facing_refusal_is_reachable_and_every_wiring_defect_is_not() {
     );
 }
 
+/// **The combine's own result budget, held directly.** A bare scan reserves nothing from the pool,
+/// so the budget derived from the same ceiling is what the collected answer meets. A full federated
+/// question meets the pool first (`docs/adr/0009`'s seventh amendment), which is why this calls
+/// `collected` rather than `combine`: nothing above it can hold the two numbers apart.
+#[test]
+fn a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short() {
+    const CEILING: usize = 1024;
+    let rows = 200_i64;
+    let region: ArrayRef = Arc::new(StringArray::from(
+        (0..rows).map(|row| format!("{row:0>512}")).collect::<Vec<String>>(),
+    ));
+    let amount: ArrayRef = Arc::new(Int64Array::from((0..rows).collect::<Vec<i64>>()));
+    let wide = datafusion::arrow::record_batch::RecordBatch::try_from_iter([("region", region), ("amount_cents", amount)])
+        .expect("a test batch is rectangular");
+    let context = datafusion::prelude::SessionContext::new();
+    drop(context.register_batch("wide", wide).expect("an in-memory batch registers"));
+
+    let combiner = combiner();
+    let refused = combiner
+        .runtime()
+        .expect("the combiner holds its runtime")
+        .block_on(async {
+            let frame = context.table("wide").await.expect("the registered table resolves");
+            crate::combine::collected(
+                frame,
+                CEILING as u64,
+                crate::pool::WorkingSet::of_bytes(core::num::NonZeroUsize::new(CEILING).expect("a positive ceiling")),
+            )
+            .await
+        })
+        .expect_err("a wide answer does not fit a kibibyte");
+
+    assert!(
+        matches!(refused, CombineError::Exhausted { ceiling_bytes: 1024 }),
+        "the result budget refused, not a short answer: {refused:?}"
+    );
+}
+
 #[test]
 fn a_combiner_keyed_to_a_subject_discriminates_and_discloses_nothing() {
     // `docs/adr/0039` step 5's wiring, and the property is the NEGATIVE one: two subjects on one

@@ -68,7 +68,7 @@ use datafusion::arrow::array::{Array as _, Float64Array};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, JoinType, TableReference};
 use datafusion::datasource::MemTable;
-use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif};
+use datafusion::functions::expr_fn::{coalesce, isnan, nullif};
 use datafusion::functions_aggregate::expr_fn::{count, count_distinct, max, min, sum};
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -759,23 +759,25 @@ fn leaf_expression(carried: &Carried, column: Expr, reading: Reading) -> Result<
 
 /// The value a distinct count compares, which for a float is the one SQL equality means.
 ///
-/// **A float is widened to 64 bits and canonicalised, because the engines a leg can come from do not
-/// agree on what two floats are the same value.** `DuckDB` counts `-0.0` with `0.0` and every NaN as
-/// one value; `DataFusion` counts the NaN payloads apart (`apache/datafusion#26091`) and, with another
-/// aggregate beside the distinct count, the zeros too. A leg groups by the column in its own engine,
-/// so a bit-level count above would answer by which engine produced the leg - and
-/// over a `DuckDB` leg that holds `0.0` under one link and `-0.0` under another, by which row the
-/// engine happened to keep. The widening is exact for every float width, so no two distinct values
-/// meet. NULL stays NULL and is not counted.
+/// **A float is widened to 64 bits and every NaN is folded to one, because the engines a leg can
+/// come from do not agree on what two floats are the same value.** `DuckDB` counts every NaN as one
+/// value; `DataFusion` counts the payloads apart (`apache/datafusion#26091`), so a count above would
+/// answer by which engine produced the leg. The widening is exact for every float width, so no two
+/// distinct values meet. NULL stays NULL and is not counted.
+///
+/// **`-0.0` is not folded, and that rests on the plan shape.** In a grouped aggregate with no
+/// `count(*)` or `count(col)` beside the distinct count, `DataFusion` counts `-0.0` with `0.0`.
+/// A count in the same aggregate splits them, but the combine cannot build that shape: the leaves
+/// reach [`leaf_expression`] as `count_distinct`, `sum`, `min` or `max` only, and the one `count`
+/// the combine writes is in [`refuse_ambiguous_link`], an aggregate with no distinct count. The
+/// zero-merge is held by the cell `a_distinct_count_over_floats_counts_zeros_and_nans_by_sql_equality`,
+/// which goes red if `DataFusion` stops merging them.
 fn distinct_key(column: Expr, float: bool) -> Result<Expr, CombineError> {
     if !float {
         return Ok(column);
     }
     let wide = cast(column, DataType::Float64);
-    // `abs`, because `DataFusion` compares floats in total order, where `-0.0 = 0.0` is false and
-    // `abs(-0.0) = 0.0` is true; a `+ 0.0` would be folded away before it ran.
-    when(abs(wide.clone()).eq(lit(0.0_f64)), lit(0.0_f64))
-        .when(isnan(wide.clone()), lit(f64::NAN))
+    when(isnan(wide.clone()), lit(f64::NAN))
         .otherwise(wide)
         .map_err(|cause| CombineError::Build { cause })
 }

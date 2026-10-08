@@ -985,26 +985,43 @@ answer's own maximum row count. **Over any of them the service refuses and never
 count over a truncated key set is a smaller number that looks right. No setting was added. A sweep
 cell in the two-engine differential applies ceilings of 2^10 to 2^26 bytes, once to the legs and
 once to the combine, over the derived corpus's distinct question (57 fact-leg rows and 40 lookup-leg
-rows). All 34 outcomes were either the whole answer or one of `ResourcesExhausted` and
-`ResultTooLarge`. The legs refused up to 2^21 bytes and answered from 2^22. The combine refused up
-to 2^20 and answered from 2^21. These are this corpus's numbers on one developer host, not defaults.
+rows). All 34 outcomes were either the whole answer or a refusal. The legs refused up to 2^21 bytes
+and answered from 2^22. The combine refused up to 2^20 and answered from 2^21. These are this
+corpus's numbers on one developer host, not defaults.
+
+**Which bound a full question meets first.** The pool: in a review run of the sweep, all 23
+refusals were `ResourcesExhausted` and none was `ResultTooLarge`, so the sweep holds the pool bound
+only. The result budgets are held below the question. The leg collector's by
+`collect::budget_tests::the_engines_own_collection_is_refused_for_crossing_its_byte_budget`, and the
+combine collector's by the unit cell
+`a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short`, which collects a bare scan
+under a small budget and expects `CombineError::Exhausted`. No cell shows a full question reaching a
+result budget before the pool.
 
 **Floats.** A distinct count accepts every type a single-source distinct count accepts; no type is
-judged. For a float column the combine first canonicalises -0.0 to 0.0 and every NaN to one NaN, so
-the federated count follows SQL equality and does not depend on which signed zero or NaN payload a
-leg kept per link value. Measured, `count(distinct)` over `{0.0, -0.0, NaN, -NaN, 1.0}`:
+judged. For a float column the combine folds every NaN to one NaN, so the federated count does not
+depend on which NaN payload a leg kept per link value. It does not fold `-0.0`. The count of the
+zeros depends on the plan shape: in a grouped aggregate with no `count(*)` or `count(col)` beside
+the distinct count, DataFusion 55.1 counts `-0.0` with `0.0`, in one batch and across several
+(probed by hand, 20,000 rows in 4 batches; a sum beside the distinct count did not split them
+either). A `count` in the same aggregate splits them (measured upstream in datafusion-cli, not by a
+cell here). The combine cannot build that shape: its leaves are `count_distinct`, `sum`, `min` or
+`max` (`combine.rs`, `leaf_expression`), and its one `count` is in `refuse_ambiguous_link`, an
+aggregate with no distinct count. The zero-merge rests on DataFusion's grouped plan and is held by the
+float cell, which goes red if DataFusion stops merging the zeros. Measured, `count(distinct)` over
+`{0.0, -0.0, NaN, -NaN, 1.0}`:
 
-| Engine                                                    | Count |
-| --------------------------------------------------------- | ----- |
-| DuckDB 1.5.5                                              | 3     |
-| DataFusion 55.1, one source, sutura's plan                | 5     |
-| DataFusion 55.1, a lone `count(DISTINCT x)` (zeros merge) | 4     |
-| Federated combine (same three classes, below)             | 3     |
+| Engine                                                          | Count |
+| --------------------------------------------------------------- | ----- |
+| DuckDB 1.5.5                                                    | 3     |
+| DataFusion 55.1, one source, sutura's plan (no cell holds this) | 5     |
+| DataFusion 55.1, a lone `count(DISTINCT x)` in datafusion-cli   | 4     |
+| Federated combine (grouped plan, NaN fold)                      | 3     |
 
-The combine cell uses `{0.0, -0.0, two NaN payloads, 1.5, NULL}`; with the canonicalisation removed it
-counts 4. **Two shipped sources disagree for the same input.** The federated answer follows the
-semantics of DuckDB. The one-source DataFusion path is not changed here. PostgreSQL and BigQuery
-were not measured.
+The combine cell uses `{0.0, -0.0, two NaN payloads, 1.5, NULL}`; with the NaN fold removed it counts
+4. **Two shipped sources disagree for the same input.** The federated answer follows the semantics of
+DuckDB. The one-source DataFusion path is not changed here. PostgreSQL and BigQuery were not
+measured.
 
 What this does not show:
 
@@ -1012,6 +1029,6 @@ What this does not show:
   host. CI and the nix venue are its evidence.
 - No live-source run was performed.
 - The peak over a network is not measured.
-- The signed-zero half of the canonicalisation is not pinned by itself: with only that half removed,
-  the whole suite stays green (5282 passed). The NaN half is pinned by the float cell.
+- The sum-beside-distinct zero shape and the multi-batch shape were probed by hand and are not held
+  by a cell. The float cell holds a lone distinct count only.
 - The sixth amendment said the pull-up is still refused before execution. That is no longer true.

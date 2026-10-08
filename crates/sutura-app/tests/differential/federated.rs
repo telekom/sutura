@@ -247,8 +247,12 @@ fn a_distinct_count_is_a_key_of_the_fact_leg_and_not_a_term() {
 /// bounds it meets are the engine's working set per leg and the combine's working set; over either,
 /// the service refuses with [`RefusalReason::ResourcesExhausted`] or [`RefusalReason::ResultTooLarge`].
 /// This sweeps both bounds in powers of two and holds every outcome to the whole answer or one of
-/// those two refusals - a count over a truncated key set would be a different, smaller number, and
-/// no assertion on a single ceiling could see that.
+/// those two refusals.
+///
+/// **It holds the pool bound only.** At every ceiling here the pool refuses first, so the sweep never
+/// reaches a result budget, where a collector could truncate. The leg collector's result budget is
+/// held by `collect::budget_tests::the_engines_own_collection_is_refused_for_crossing_its_byte_budget`
+/// and the combine's by `combine::tests::refusals::a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short`.
 #[test]
 fn a_distinct_count_past_a_byte_bound_is_refused_and_never_answered_short() {
     const NAME: &str = "two-source-a-distinct-value-spanning-join-keys";

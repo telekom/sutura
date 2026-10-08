@@ -1248,7 +1248,8 @@ default, and both say so rather than leaving the reader to infer it.
 either run.** The measurement it asks for above - *how much of a distinct-key leg the engine's memory
 pool can actually see* - is answered only for the shape the small corpus produces: `0009`'s first
 amendment records that the distinct-key case is REFUSED before execution in two-source topology and
-therefore contributed a zero operator peak, so the pull-up's cost at the grain this record reasons
+therefore contributed a zero operator peak (the seventh amendment of `0009` removed that refusal; the
+pull-up now runs), so the pull-up's cost at the grain this record reasons
 about is still unobserved. And the deadline figure is from an in-process engine over local files: the
 federated and networked legs this record exists for are not measured, which is exactly where a
 deadline is the bound that binds. Those two remain open under *what is explicitly not decided*; the
