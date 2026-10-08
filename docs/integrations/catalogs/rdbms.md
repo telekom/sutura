@@ -67,8 +67,8 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 | `connection.client_certificate`, `connection.client_key` | path    | none                | The client identity for `mutual`                                     |
 
 `plaintext` needs a loopback IP address as `host`. `verified` and `mutual` need `host`, not
-`unix_socket`. The release binary reads PostgreSQL dictionaries; the Oracle dictionary needs a
-build with the `oracle` feature.
+`unix_socket`. A build with the `rdbms` feature reads PostgreSQL dictionaries; the Oracle
+dictionary needs a build with the `oracle` feature.
 
 ## Example
 

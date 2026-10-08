@@ -114,9 +114,9 @@ question would leak rows between callers.
 
 Each release has four artifacts: musl and glibc builds for x86_64 and aarch64. Each artifact is
 a distroless image that holds only the binary. The release binary links the features that
-`nix/shipped.nix` lists: the adapters on the [Integrations](integrations.md) pages, the agent
-surface and TLS. The Oracle adapter is built with the `oracle` feature. `just build-release`
-builds the release binary, and Nix compiles and links the ADBC drivers into it.
+`nix/shipped.nix` lists, and `sutura doctor` shows which adapters a binary links. The Oracle
+adapter is built with the `oracle` feature. `just build-release` builds the release binary, and
+Nix compiles and links the ADBC drivers into it.
 
 In the development shell, a `cargo` build can select one feature:
 
@@ -143,8 +143,8 @@ double-free detection. This costs 23-43% against plain mimalloc, and it is still
 ## What exists today
 
 - The shipped binary serves HTTP and MCP, compiles questions and runs local files through
-  DataFusion. It links the catalogs and data systems on the [Integrations](integrations.md)
-  pages, except Oracle.
+  DataFusion. It links the adapters that `nix/shipped.nix` lists, and
+  [Integrations](integrations.md) describes each adapter.
 - `security.inbound` verifies a caller (leg 1). On BigQuery, a query can run as the caller's mapped
   account (leg 2). Leg 2 is built and not proven. Every other source runs as its declared identity.
 - Results leave the process as rows, not as Arrow. Arrow is used inside the process only.
