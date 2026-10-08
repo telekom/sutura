@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="The catalogs sutura reads definitions from, the data systems it runs questions on, and how it verifies callers.">
       
       
       
         <link rel="canonical" href="https://telekom.github.io/sutura/main/integrations/">
       
       
-        <link rel="prev" href="../demo/">
+        <link rel="prev" href="../qa/">
       
       
-        <link rel="next" href="../where-identity-is-proven/">
+        <link rel="next" href="catalogs/markdown/">
       
       
         
@@ -92,7 +92,7 @@
 
   
 
-<header class="md-header md-header--shadow" data-md-component="header">
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
     <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
@@ -218,13 +218,131 @@
     
   </nav>
   
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href=".." class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
 </header>
     
     <div class="md-container" data-md-component="container">
       
       
-        
-          
         
       
       <main class="md-main" data-md-component="main">
@@ -238,8 +356,10 @@
                     
 
 
+  
 
-<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
     <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
@@ -284,16 +404,20 @@
       
         
       
-    
-    
-    
-      
         
+      
         
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
@@ -308,7 +432,7 @@
   <span class="md-ellipsis">
     
   
-    Using it
+    User Guide
   
 
     
@@ -319,7 +443,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -330,40 +454,12 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Using it
+    User Guide
   
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Concepts
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
               
             
               
@@ -401,14 +497,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../qa/" class="md-nav__link">
+      <a href="../concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Questions and answers
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
   
 
     
@@ -450,82 +602,6 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-    
-    
-    
-      
-        
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../examples/" class="md-nav__link ">
-              
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Examples
-  
-
-    
-  </span>
-  
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Examples
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
               
                 
   
@@ -533,14 +609,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/single-player/" class="md-nav__link">
+      <a href="../qa/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Single player
+    Questions and answers
   
 
     
@@ -580,27 +656,14 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
     
     
     
       
         
+        
+      
+      
         
       
     
@@ -609,17 +672,17 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
   <span class="md-ellipsis">
     
   
-    Operating it
+    Integrations
   
 
     
@@ -630,100 +693,16 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
   
-    Operating it
+    Integrations
   
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../serving/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Serving over HTTP
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../verifying-a-release/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Verifying a release
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../demo/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The local chat demo
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
             
               
                 
@@ -792,32 +771,66 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#metadata-sources" class="md-nav__link">
+  <a href="#catalogs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Metadata sources
+        Catalogs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Catalogs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#catalog-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog settings
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#data-sources" class="md-nav__link">
+  <a href="#data-systems" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Data sources
+        Data systems
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data systems">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-system-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data system settings
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#identity-what-impersonation-does-and-does-not-mean-here" class="md-nav__link">
+  <a href="#environment-variables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Identity: what "impersonation" does and does not mean here
+        Environment variables
       
     </span>
   </a>
@@ -839,15 +852,86 @@
   
   
   
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Catalogs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Catalogs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
     <li class="md-nav__item">
-      <a href="../where-identity-is-proven/" class="md-nav__link">
+      <a href="catalogs/markdown/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Where each identity claim is proven
+    Markdown catalog
   
 
     
@@ -868,14 +952,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../how-a-join-key-is-compared/" class="md-nav__link">
+      <a href="catalogs/datahub/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    How a federated join key is compared
+    DataHub
   
 
     
@@ -896,14 +980,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../rdbms-catalog-guidance/" class="md-nav__link">
+      <a href="catalogs/okf/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    An RDBMS dictionary as a metadata source
+    OKF
   
 
     
@@ -924,14 +1008,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-agent-identity-can-carry/" class="md-nav__link">
+      <a href="catalogs/datacontract/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    What an agent identity can carry
+    Data Contract
   
 
     
@@ -952,14 +1036,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-okf-can-carry/" class="md-nav__link">
+      <a href="catalogs/openmetadata/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    What an OKF-style catalog can carry
+    OpenMetadata
   
 
     
@@ -980,14 +1064,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-openmetadata-can-carry/" class="md-nav__link">
+      <a href="catalogs/rdbms/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    What an OpenMetadata catalog can carry
+    RDBMS dictionary
   
 
     
@@ -1008,14 +1092,119 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-a-data-contract-can-carry/" class="md-nav__link">
+      <a href="catalogs/wren/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    What an Open Data Contract Standard catalog can carry
+    Wren
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data systems
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Data systems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="data-systems/datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion (files)
   
 
     
@@ -1036,14 +1225,393 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="data-systems/duckdb/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Changelog
+    DuckDB
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="data-systems/bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="data-systems/postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PostgreSQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="data-systems/clickhouse/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ClickHouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="data-systems/oracle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Oracle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identity
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Identity
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inbound identity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/single-player/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single player
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/multi-player/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi player
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The local chat demo
   
 
     
@@ -1083,30 +1651,32 @@
       
         
       
-    
-    
-    
-      
-        
         
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
     
   
-    Building it
+    Reference
   
 
     
@@ -1122,7 +1692,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Building it
+    Reference
   
 
           </label>
@@ -1135,14 +1705,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Architecture
+    Configuration
   
 
     
@@ -1163,14 +1733,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../verifying-a-release/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Contributing
+    Verifying a release
   
 
     
@@ -1199,6 +1769,34 @@
     
   
     Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
   
 
     
@@ -1313,13 +1911,16 @@
     
     
       
+      
+        
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1341,14 +1942,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2159,6 +2760,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2186,32 +2814,66 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#metadata-sources" class="md-nav__link">
+  <a href="#catalogs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Metadata sources
+        Catalogs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Catalogs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#catalog-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog settings
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#data-sources" class="md-nav__link">
+  <a href="#data-systems" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Data sources
+        Data systems
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data systems">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-system-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data system settings
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#identity-what-impersonation-does-and-does-not-mean-here" class="md-nav__link">
+  <a href="#environment-variables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Identity: what "impersonation" does and does not mean here
+        Environment variables
       
     </span>
   </a>
@@ -2239,203 +2901,206 @@
 
 
 <h1 id="integrations">Integrations<a class="headerlink" href="#integrations" title="Permanent link">&para;</a></h1>
-<p>What this runtime reads definitions from, what it executes against, and how far each one is proven.</p>
-<p>Every extent claim below routes to the page or the declaration that holds it. Nothing is restated
-here, because a second copy of a capability claim is the copy that rots into an overstatement.</p>
-<h2 id="metadata-sources">Metadata sources<a class="headerlink" href="#metadata-sources" title="Permanent link">&para;</a></h2>
-<p>A metadata source supplies definitions. <code>SemanticCatalog::load</code> takes no request context, so no
-catalog can return a different definition per caller - the digest that travels with an answer would
-otherwise describe something other than what produced it.</p>
-<p><code>SemanticCatalog::KIND</code> is what each adapter is measured against, and it is a per-adapter constant
-rather than a description:</p>
+<p>sutura connects to two kinds of system. A <strong>catalog</strong> supplies the definitions: models, joins and
+metrics. A <strong>data system</strong> holds the data and runs the queries. Each one has an adapter crate and
+a page here. <a href="identity/">Inbound identity</a> describes how sutura verifies callers.</p>
+<h2 id="catalogs">Catalogs<a class="headerlink" href="#catalogs" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Source</th>
-<th>Crate</th>
-<th><code>KIND</code></th>
-<th>Measured against</th>
-<th>What it can carry</th>
+<th>Catalog</th>
+<th><code>kind</code></th>
+<th>Supplies</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Markdown + YAML frontmatter</td>
-<td><code>sutura-catalog-local</code></td>
-<td><code>Golden</code></td>
-<td>the hand-written oracle stating the same model</td>
-<td>every kind the model defines</td>
+<td><a href="catalogs/markdown/">Markdown catalog</a></td>
+<td><code>markdown</code></td>
+<td>Everything: models, joins, metrics, knowledge</td>
 </tr>
 <tr>
-<td>DataHub</td>
-<td><code>sutura-catalog-datahub</code></td>
-<td><code>Declaring</code></td>
-<td>its own <code>capabilities</code> declaration</td>
-<td><code>docs/adr/0016-what-datahub-can-carry.md</code></td>
+<td><a href="catalogs/datahub/">DataHub</a></td>
+<td><code>datahub</code></td>
+<td>Models, descriptions, joins, metrics</td>
 </tr>
 <tr>
-<td>OpenMetadata</td>
-<td><code>sutura-catalog-openmetadata</code></td>
-<td><code>Declaring</code></td>
-<td>its own <code>capabilities</code> declaration</td>
-<td><a href="../what-openmetadata-can-carry/">What an OpenMetadata catalog can carry</a></td>
+<td><a href="catalogs/okf/">OKF</a></td>
+<td><code>okf</code></td>
+<td>Tables and descriptions</td>
 </tr>
 <tr>
-<td>OKF Frictionless Table Schema</td>
-<td><code>sutura-catalog-okf</code></td>
-<td><code>Declaring</code></td>
-<td>its own <code>capabilities</code> declaration</td>
-<td><a href="../what-okf-can-carry/">What an OKF-style catalog can carry</a></td>
+<td><a href="catalogs/datacontract/">Data Contract</a></td>
+<td><code>datacontract</code></td>
+<td>Tables, types, descriptions, joins</td>
 </tr>
 <tr>
-<td>An RDBMS dictionary</td>
-<td><code>sutura-catalog-rdbms</code></td>
-<td><code>Declaring</code></td>
-<td>its own <code>capabilities</code> declaration</td>
-<td><a href="../rdbms-catalog-guidance/">An RDBMS dictionary as a metadata source</a></td>
+<td><a href="catalogs/openmetadata/">OpenMetadata</a></td>
+<td><code>openmetadata</code></td>
+<td>Tables, types, descriptions, joins</td>
+</tr>
+<tr>
+<td><a href="catalogs/rdbms/">RDBMS dictionary</a></td>
+<td><code>rdbms</code></td>
+<td>Tables, types, descriptions</td>
+</tr>
+<tr>
+<td><a href="catalogs/wren/">Wren</a></td>
+<td>none: an import command</td>
+<td>A markdown catalog to review</td>
 </tr>
 </tbody>
 </table>
-<p>A <code>Declaring</code> adapter supplies part of the model and <strong>declares the rest out</strong>. An absence is
-declared rather than inferred from silence, which is why a partial source cannot quietly read as a
-complete one.</p>
-<h2 id="data-sources">Data sources<a class="headerlink" href="#data-sources" title="Permanent link">&para;</a></h2>
-<p>A data source executes a compiled plan. The <code>Warehouse</code> port is synchronous and <code>execute</code> takes a
-<code>Deadline</code>.</p>
+<p>A catalog that supplies part of the model declares the rest as absent. A catalog without metrics
+answers no certified question. One deployment uses catalogs of one kind. Several entries of that
+kind make one catalog.</p>
+<h3 id="catalog-settings">Catalog settings<a class="headerlink" href="#catalog-settings" title="Permanent link">&para;</a></h3>
+<p>The catalogs are a list under <code>catalogs:</code>. Every entry has these keys:</p>
 <table>
 <thead>
 <tr>
-<th>Source</th>
-<th>Crate</th>
-<th>Renders</th>
-<th>Executes</th>
-<th>Identity it executes under</th>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>BigQuery</td>
-<td><code>sutura-exec-bigquery</code></td>
-<td>yes</td>
-<td>yes</td>
-<td>per subject - <code>PerSubjectCredential</code></td>
+<td><code>name</code></td>
+<td>string</td>
+<td>required</td>
+<td>The name of the entry</td>
 </tr>
 <tr>
-<td>Postgres</td>
-<td><code>sutura-exec-postgres</code></td>
-<td>yes</td>
-<td>yes</td>
-<td>one declared shared service account - <code>NoPlaceForASubject</code></td>
+<td><code>kind</code></td>
+<td>string</td>
+<td><code>markdown</code></td>
+<td>The catalog kind</td>
 </tr>
 <tr>
-<td>DuckDB</td>
-<td><code>sutura-exec-duckdb</code></td>
-<td>yes</td>
-<td>yes, behind a <code>duckdb</code> feature every release has; see below</td>
-<td>one process identity - <code>NoPlaceForASubject</code></td>
+<td><code>dir</code></td>
+<td>path</td>
+<td>required</td>
+<td>The directory that a file catalog reads. Optional for <code>rdbms</code></td>
 </tr>
 <tr>
-<td>DataFusion</td>
-<td><code>sutura-exec-datafusion</code></td>
-<td>-</td>
-<td>yes, one source's share of a federated answer</td>
-<td>one process identity - <code>NoPlaceForASubject</code></td>
+<td><code>data_dir</code></td>
+<td>path</td>
+<td>required</td>
+<td>Required, and not read by any catalog. Optional for <code>rdbms</code></td>
 </tr>
 <tr>
-<td>ClickHouse</td>
-<td><code>sutura-exec-clickhouse</code></td>
-<td>yes</td>
-<td>yes, behind a default-off <code>clickhouse</code> feature</td>
-<td>one declared shared service account - <code>NoPlaceForASubject</code></td>
+<td><code>version</code></td>
+<td>string</td>
+<td>required</td>
+<td>The label of the snapshot, for example a commit ID. Up to 128 characters</td>
 </tr>
 <tr>
-<td>Oracle</td>
-<td><code>sutura-exec-oracle</code></td>
-<td>yes</td>
-<td>declarable behind a default-off <code>oracle</code> feature; see below</td>
-<td>one declared shared service account - <code>NoPlaceForASubject</code></td>
+<td><code>refresh_seconds</code></td>
+<td>integer</td>
+<td>not set</td>
+<td><code>sutura serve</code> reads the catalog again at this interval. <code>0</code> is refused</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Oracle is declarable and does not yet answer a whole-plan question.</strong> A <code>kind: oracle</code> source is
-declarable and openable by a build carrying the <code>oracle</code> feature, default-off and in no published
-binary, over <code>transport_mode: plaintext</code> to a declared loopback host only: the driver trusts the
-certificate authorities compiled into it and takes no declared trust store, so <code>verified</code> and
-<code>mutual</code> are refused at load rather than half-honoured. <strong>The loopback rule confines the first dial,
-not the connection:</strong> the driver follows a listener's redirect to any address the listener names,
-still in plaintext, and authenticates there - so a loopback port-forward to a listener that
-redirects (a SCAN listener or a connection manager) sends the password and every row across the
-network in the clear. A cell holds that the driver follows; nothing in sutura can refuse it.
-Asked by hand against <code>compose.services.yaml</code>'s real
-<code>oracle</code> image (2026-09-23), a whole-plan question failed at the server, because the renderer ended
-it in <code>LIMIT n</code> and Oracle refuses that (<code>ORA-03049</code>). The renderer now ends it in
-<code>FETCH FIRST n ROWS ONLY</code>, which the Oracle goldens pin; no committed cell executes a whole-plan
-question against an Oracle server, so those goldens pin what this renderer emits and nothing a
-database agreed to. It signs in only as its declared shared service account - <code>NoPlaceForASubject</code>, so
-an <code>impersonation-at-source</code> declaration is refused at the composition root with the reason that no
-build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
-work lands.</p>
-<p><strong>DuckDB is the local kind: one database file, opened read-only, raw SQL included.</strong> A
-<code>kind: duckdb</code> source names one absolute <code>database_file</code>, and a build carrying the <code>duckdb</code>
-feature opens it - every release carries it, and a source build without it refuses the kind by
-name. Every musl release links the DuckDB driver statically; any other build mounts the <code>libduckdb</code>
-that <code>SUTURA_DUCKDB_ADBC_DRIVER</code> names, a source refusing at boot where neither is there, and a Nix
-build on Apple silicon presets it (a value you set wins). A raw <code>run_sql</code> text is screened by
-<code>DuckDB</code>'s own parser - reads only - and runs on the file opened read-only with external access off
-and the configuration locked (<a href="../serving/#the-raw-sql-tool-over-a-duckdb-source">Serving</a>
-says what that refuses and what it does not). The golden row runs against a file opened that way. It
-executes as the one process that holds the file - <code>NoPlaceForASubject</code>, so an
-<code>impersonation-at-source</code> declaration is refused at the composition root. At the deadline a
-watchdog cancels the call's connection, a raw statement's included, and the stop lands at the
-engine's next interrupt check (<code>docs/adr/0029</code>).</p>
-<p><strong>ClickHouse is the newest row and the one whose columns need reading together.</strong> It executes: a
-<code>kind: clickhouse</code> source is declarable and openable by a build carrying the <code>clickhouse</code> feature,
-which every release binary carries now that <code>github.com/telekom/sutura#955</code> landed. The golden and differential suites run the example
-corpus against a real ClickHouse - the server <code>nix/clickhouse-tier.nix</code> starts beside the Postgres
-tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
-(<code>execute_packs!</code> in <code>crates/sutura-exec-clickhouse/tests/conformance.rs</code>). What the <code>Executes</code>
-column does NOT say about it: <code>Warehouse::EXECUTES_LEGS</code> is absent on the adapter - so a federated
-question involving a ClickHouse source is still refused by the capability gate. Its identity is one declared
-shared service account - <code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused
-at the composition root with the reason that no build delivers it. Per-caller identity is the ADBC path's
-job once the ClickHouse ADBC migration (#1250) lands, and is not built (#1263).</p>
-<p><strong>Postgres is answered over ADBC.</strong> Every <code>kind: postgres</code> source runs through the ADBC PostgreSQL
-driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
-build mounts one named by <code>SUTURA_POSTGRES_ADBC_DRIVER</code> (a source refuses at boot where neither is
-there; a Nix build on Apple silicon presets it to a driver the flake builds, and a value you set
-wins). <code>sutura doctor</code>'s <code>pg driver</code> line says which driver this process would open and whether it
-initialises. <strong>A source signs in only as its declared shared service account</strong>: with a password or
-a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
-credential cache <code>KRB5CCNAME</code> names, filled from <code>KRB5_CLIENT_KTNAME</code>'s keytab - which the
-transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
-supported: they are blocked upstream (#42) and lift when the upstream work lands. The linked
-libpq is built without OAuth, and the connection string refuses SSPI and OAuth sign-in on either
-route. It also refuses <code>transport_anchors: system</code>, TLS or Kerberos over a
-unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
-hold to. The adapter's tier-backed cells run through a mounted driver in <code>checks.nextest</code> and
-through the linked static one on x86_64 musl in CI, where a Kerberos sign-in against a KDC tier and
-its refused negative control run too; aarch64 musl links it and nothing executes it.</p>
-<h2 id="identity-what-impersonation-does-and-does-not-mean-here">Identity: what "impersonation" does and does not mean here<a class="headerlink" href="#identity-what-impersonation-does-and-does-not-mean-here" title="Permanent link">&para;</a></h2>
-<p><code>Warehouse::IMPERSONATION</code> says whether there is <strong>a place in an adapter's path</strong> for a subject's own
-credential to arrive. It does not say that a subject's identity has been proven to reach that source.
-Those are two claims and only the first is a constant.</p>
-<p><code>IMPERSONATION</code> is a constant the trait declares <strong>with no default</strong>, so an adapter cannot be
-silent about it: a new data source either answers, or does not compile. Saying so explicitly is the
-point of the declaration - a file engine is the easiest source in the world to assume nothing about,
-and <em>"nobody declared anything for the engine"</em> is how a deployment ends up believing its whole
-surface impersonates because its network source does.</p>
-<p>⚠ The trait forces each adapter to answer; <strong>nothing forces the table above to list every adapter.</strong>
-The per-adapter constant in the source is the authority, and this page is a reading of it.</p>
-<p>The two legs, stated separately because they are proven to different depths:</p>
-<ul>
-<li><strong>Leg 1 - knowing who is asking.</strong> Built.</li>
-<li><strong>Leg 2 - a source executing <em>as</em> them.</strong> Built for BigQuery through a declared per-source map,
-  and <strong>unproven</strong>: the hosted venue that would show two subjects resolving to two accounts is
-  <code>wired</code> and nobody has dispatched it. The run this bullet used to cite was of an HTTP exchange the
-  ADBC adoption deleted. <strong>No served binary has executed as a caller yet.</strong></li>
-</ul>
-<p><a href="../where-identity-is-proven/">Where each identity claim is proven</a> is the venue-by-venue table, and
-it is the only place that decides which venue may be cited for which claim.</p>
+<p>All entries must have the same <code>version</code>. A key that sutura does not know is an error.</p>
+<h2 id="data-systems">Data systems<a class="headerlink" href="#data-systems" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Data system</th>
+<th><code>kind</code></th>
+<th>Identity of the query</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="data-systems/datafusion/">DataFusion (files)</a></td>
+<td><code>files</code></td>
+<td>The operating-system user of sutura</td>
+</tr>
+<tr>
+<td><a href="data-systems/duckdb/">DuckDB</a></td>
+<td><code>duckdb</code></td>
+<td>The operating-system user of sutura</td>
+</tr>
+<tr>
+<td><a href="data-systems/bigquery/">BigQuery</a></td>
+<td><code>bigquery</code></td>
+<td>One service account, or the caller's own account (built, not proven)</td>
+</tr>
+<tr>
+<td><a href="data-systems/postgres/">PostgreSQL</a></td>
+<td><code>postgres</code></td>
+<td>One declared role</td>
+</tr>
+<tr>
+<td><a href="data-systems/clickhouse/">ClickHouse</a></td>
+<td><code>clickhouse</code></td>
+<td>One declared user</td>
+</tr>
+<tr>
+<td><a href="data-systems/oracle/">Oracle</a></td>
+<td><code>oracle</code></td>
+<td>One declared user</td>
+</tr>
+</tbody>
+</table>
+<p>A federated question reads two data systems. Each one runs its part, and DataFusion joins the
+parts. ClickHouse cannot run a part of a federated question.</p>
+<h3 id="data-system-settings">Data system settings<a class="headerlink" href="#data-system-settings" title="Permanent link">&para;</a></h3>
+<p>The data systems are a map under <code>sources:</code>. The key is the alias that a model names in <code>source:</code>.
+Every entry has these keys:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>required</td>
+<td><code>files</code>, <code>duckdb</code>, <code>bigquery</code>, <code>postgres</code>, <code>clickhouse</code> or <code>oracle</code></td>
+</tr>
+<tr>
+<td><code>posture</code></td>
+<td>string</td>
+<td>required</td>
+<td><code>shared-service-user</code>: one identity for every caller. <code>impersonation-at-source</code>: the caller's own identity (BigQuery only; built, not proven)</td>
+</tr>
+<tr>
+<td><code>acknowledged_because</code></td>
+<td>text</td>
+<td>not set</td>
+<td>Your reason to serve one identity to every caller. Required for a shared source when <code>security.identity</code> is <code>multi-user</code></td>
+</tr>
+<tr>
+<td><code>verification_identity</code></td>
+<td>text</td>
+<td>not set</td>
+<td>The identity that checks anchors at startup. Only on an <code>impersonation-at-source</code> source</td>
+</tr>
+<tr>
+<td><code>workload_identity</code></td>
+<td>block</td>
+<td>not set</td>
+<td>The token exchange of an <code>impersonation-at-source</code> source. See <a href="data-systems/bigquery/">BigQuery</a></td>
+</tr>
+</tbody>
+</table>
+<p><code>security.identity</code> is required as soon as one source is declared: <code>single-user</code> with
+<code>security.single_user_because</code>, or <code>multi-user</code>. In <code>single-user</code> mode, the reason in
+<code>single_user_because</code> is the acknowledgement for every shared source.</p>
+<h2 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p>Every key has an environment variable: <code>SUTURA__</code> and the key path in capitals, with <code>__</code> between
+the parts. For example, <code>sources.local.data_dir</code> is <code>SUTURA__SOURCES__LOCAL__DATA_DIR</code>.
+<a href="../configuration/">Configuration</a> describes how sutura layers files and variables.</p>
 
 
 
@@ -2510,7 +3175,7 @@ it is the only place that decides which venue may be cited for which claim.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>

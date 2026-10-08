@@ -21,6 +21,10 @@
          <lastmod>2026-10-08</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/configuration/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/contributing/</loc>
          <lastmod>2026-10-08</lastmod>
     </url>
@@ -37,10 +41,6 @@
          <lastmod>2026-10-08</lastmod>
     </url>
     <url>
-         <loc>https://telekom.github.io/sutura/main/how-a-join-key-is-compared/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
          <loc>https://telekom.github.io/sutura/main/integrations/</loc>
          <lastmod>2026-10-08</lastmod>
     </url>
@@ -53,35 +53,11 @@
          <lastmod>2026-10-08</lastmod>
     </url>
     <url>
-         <loc>https://telekom.github.io/sutura/main/rdbms-catalog-guidance/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
          <loc>https://telekom.github.io/sutura/main/serving/</loc>
          <lastmod>2026-10-08</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/verifying-a-release/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
-         <loc>https://telekom.github.io/sutura/main/what-a-data-contract-can-carry/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
-         <loc>https://telekom.github.io/sutura/main/what-agent-identity-can-carry/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
-         <loc>https://telekom.github.io/sutura/main/what-okf-can-carry/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
-         <loc>https://telekom.github.io/sutura/main/what-openmetadata-can-carry/</loc>
-         <lastmod>2026-10-08</lastmod>
-    </url>
-    <url>
-         <loc>https://telekom.github.io/sutura/main/where-identity-is-proven/</loc>
          <lastmod>2026-10-08</lastmod>
     </url>
     <url>
@@ -205,7 +181,67 @@
          <lastmod>2026-10-08</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/examples/multi-player/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/examples/single-player/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/identity/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/datacontract/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/datahub/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/markdown/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/okf/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/openmetadata/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/rdbms/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/catalogs/wren/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/bigquery/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/clickhouse/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/datafusion/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/duckdb/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/oracle/</loc>
+         <lastmod>2026-10-08</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/postgres/</loc>
          <lastmod>2026-10-08</lastmod>
     </url>
 </urlset>
