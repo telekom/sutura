@@ -6,21 +6,19 @@
 //!
 //! # What is measured, and what is NOT
 //!
-//! **The `Table` and `Metric` wire shapes are read against the published JSON Schema**
-//! (`open-metadata/OpenMetadata`'s `openmetadata-spec`, `table.json`/`metric.json` on `main`) and
-//! the `TableResource`/`MetricResource` Java sources for which fields the list endpoint returns
-//! unconditionally versus only behind `?fields=` - not against a provisioned instance (the nix
-//! sandbox has no network; this is a schema read, not a live one). `docs/what-openmetadata-can-carry.md`
-//! was corrected against the same schema read (its `foreignKeys`/`referencedTable` shape was a
-//! first-draft invention no real deployment serves; `harvest_relationship` below reads
-//! `tableConstraints` instead). So the mapping functions here are a **first claim** this crate has
-//! made about `OpenMetadata`'s served envelope, the same way `sutura-catalog-datahub`'s `dataset`
-//! mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
-//! a typed [`HttpReaderError::UnexpectedShape`] naming the entity and the field, rather than
-//! reading past a missing or mistyped key with a default - a guess that happened to be wrong would
-//! otherwise certify a bundle silently missing a model, a join or a metric. **Do not cite this
-//! reader as proof the `OpenMetadata` half works against a real instance until an acceptance leg
-//! measures it - the schema read is not that leg.**
+//! **The `Table` and `Metric` wire shapes were first read against the published JSON Schema**
+//! (`open-metadata/OpenMetadata`'s `openmetadata-spec`, `table.json`/`metric.json` on `main`) and the
+//! `TableResource`/`MetricResource` Java sources for which fields the list endpoint returns
+//! unconditionally versus only behind `?fields=`. `docs/what-openmetadata-can-carry.md` was corrected
+//! against the same schema read (its `foreignKeys`/`referencedTable` shape was a first-draft
+//! invention no real deployment serves; `harvest_relationship` below reads `tableConstraints`
+//! instead). Both entities are read through this reader against a provisioned instance by
+//! `tests/provisioned.rs`, which reads the golden catalog back in `ci-openmetadata-tier`, minus its
+//! named `NOT_CARRIED` rows (metrics are read, never defined). That is evidence only of a run of it,
+//! not of another server release or shape. Each mapping refuses an unexpected shape as a typed
+//! [`HttpReaderError::UnexpectedShape`] naming the entity and the field, rather than reading past a
+//! missing or mistyped key with a default - a guess that happened to be wrong would otherwise
+//! certify a bundle silently missing a model, a join or a metric.
 //!
 //! # What every read is bounded by
 //!

@@ -57,6 +57,9 @@ mod moved_jobs_aggregate;
 #[path = "affected/mutation_tests.rs"]
 mod mutation_tests;
 #[cfg(test)]
+#[path = "affected/openmetadata_aggregate.rs"]
+mod openmetadata_aggregate;
+#[cfg(test)]
 #[path = "affected/oracle_aggregate.rs"]
 mod oracle_aggregate;
 
