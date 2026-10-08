@@ -30,7 +30,8 @@ interface description, rate limiting and a bearer gate; `sutura-mcp` serves the 
 process's own standard input and output, and `just mcp-e2e` drives that one end to end. What is absent
 is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
 as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
-`docs/adr/0014-how-a-caller-proves-who-it-is.md` designs.
+`docs/adr/0014-how-a-caller-proves-who-it-is.md` designs, except on a declared `single-user` deployment
+(`docs/adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md`).
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.

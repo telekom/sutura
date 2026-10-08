@@ -7,7 +7,7 @@
 //! | liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 //! | documentation | anybody, when it is served at all | public | yes, when one is configured |
 //! | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
-//! | agent surface (`/mcp`), when mounted | a verified caller with the token, when one is configured | general, its own store | yes, when one is configured |
+//! | agent surface (`/mcp`), when mounted | a caller with the token, when one is configured, verified where `security.inbound` is declared | general, its own store | yes, when one is configured |
 //!
 //! Liveness has no token because a probe has no credential to present, which is exactly why its
 //! body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
@@ -950,6 +950,12 @@ mod tests {
         };
         // No mode declared, and the switch never set, so `Settings::load` had nothing to refuse.
         let refused = mounted("").expect_err("a mount on a deployment with no declared mode assembles nothing");
+        assert!(
+            refused
+                .to_string()
+                .contains(&sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity.to_string()),
+            "the operator reads which refusal stopped the mount: {refused}"
+        );
         let RouterNotBuilt::AgentSurfaceNotFitToServe { refusals } = refused else {
             panic!("expected the agent-surface refusal, got {refused:?}");
         };

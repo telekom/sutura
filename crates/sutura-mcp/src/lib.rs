@@ -169,7 +169,9 @@ pub enum Asking {
 /// The transport an agent client launches a server over: it spawns the process and speaks the
 /// protocol on its pipes. There is no socket, no port and no listener, which is also why there is no
 /// authentication here - the process boundary is the boundary, and a deployment that needs a
-/// network-reachable agent surface needs the identity leg `docs/adr/0014` designs first.
+/// network-reachable agent surface needs the identity leg `docs/adr/0014` designs first, unless it
+/// is a declared `single-user` deployment
+/// (`docs/adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md`).
 ///
 /// Takes [`std::sync::Arc<S>`] rather than an owned `S`, for the one edge the engine's own drop
 /// cannot cover. The service's engine shuts its nested runtime down through `shutdown_background`, so

@@ -85,4 +85,5 @@ whatever `ServiceState::with_agent_surface` attached, and no type ties that moun
   surface this record opens.
 - The refusals read the configuration, not the command, so `sutura mcp` over stdio reading a file
   that sets `server.agent_surface.enabled` is refused by them too, as by every other `NotFitToServe`.
+- (2) reads only the bind address; a proxy on the same host is outside it.
 - (2) accepts any enabled limiter; it does not judge its tier.

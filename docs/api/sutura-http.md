@@ -3197,7 +3197,7 @@ Assembling the router: four tiers, and what guards each.
 | liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 | documentation | anybody, when it is served at all | public | yes, when one is configured |
 | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
-| agent surface (`/mcp`), when mounted | a verified caller with the token, when one is configured | general, its own store | yes, when one is configured |
+| agent surface (`/mcp`), when mounted | a caller with the token, when one is configured, verified where `security.inbound` is declared | general, its own store | yes, when one is configured |
 
 Liveness has no token because a probe has no credential to present, which is exactly why its
 body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
