@@ -2749,8 +2749,8 @@ extracts. It is tested against a fake reader that serves recorded documents - th
 not mocked HTTP. <code>SnapshotReader</code> is the seam a real reader over <code>OpenMetadata</code>'s <code>REST</code> API
 (<code>/api/v1/tables</code>, <code>/api/v1/metrics</code>, …) implements, with a bearer credential; that HTTP reader is
 deliberately NOT in the default build, so the crate stays green (a service has no network in the
-nix sandbox). That reader is <code>src/http.rs</code>, behind the default-off <code>http</code> feature; the live
-provisioned leg is the recorded follow-up.</p>
+nix sandbox). That reader is <code>src/http.rs</code>, behind the default-off <code>http</code> feature; its live
+provisioned leg is <code>tests/provisioned.rs</code>, run in <code>ci-openmetadata-tier</code> (evidence only of a run of it).</p>
 <h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
 <p><code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code> are provided unconditionally: a <code>Table</code> with its
 <code>columns[]</code> becomes a model, its <code>description</code> the model's description, and a <code>tableConstraint</code> /
@@ -3018,21 +3018,19 @@ into one <code>crate::document::Snapshot</code>.</p>
 <p>Behind the crate's default-off <code>http</code> feature - see <code>Cargo.toml</code>'s own comment on why - so a
 build that does not ask for this reader links no outbound TLS stack.</p>
 <h1 id="what-is-measured-and-what-is-not">What is measured, and what is NOT<a class="headerlink" href="#what-is-measured-and-what-is-not" title="Permanent link">&para;</a></h1>
-<p><strong>The <code>Table</code> and <code>Metric</code> wire shapes are read against the published JSON Schema</strong>
-(<code>open-metadata/OpenMetadata</code>'s <code>openmetadata-spec</code>, <code>table.json</code>/<code>metric.json</code> on <code>main</code>) and
-the <code>TableResource</code>/<code>MetricResource</code> Java sources for which fields the list endpoint returns
-unconditionally versus only behind <code>?fields=</code> - not against a provisioned instance (the nix
-sandbox has no network; this is a schema read, not a live one). <code>docs/what-openmetadata-can-carry.md</code>
-was corrected against the same schema read (its <code>foreignKeys</code>/<code>referencedTable</code> shape was a
-first-draft invention no real deployment serves; <code>harvest_relationship</code> below reads
-<code>tableConstraints</code> instead). So the mapping functions here are a <strong>first claim</strong> this crate has
-made about <code>OpenMetadata</code>'s served envelope, the same way <code>sutura-catalog-datahub</code>'s <code>dataset</code>
-mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
-a typed <code>HttpReaderError::UnexpectedShape</code> naming the entity and the field, rather than
-reading past a missing or mistyped key with a default - a guess that happened to be wrong would
-otherwise certify a bundle silently missing a model, a join or a metric. <strong>Do not cite this
-reader as proof the <code>OpenMetadata</code> half works against a real instance until an acceptance leg
-measures it - the schema read is not that leg.</strong></p>
+<p><strong>The <code>Table</code> and <code>Metric</code> wire shapes were first read against the published JSON Schema</strong>
+(<code>open-metadata/OpenMetadata</code>'s <code>openmetadata-spec</code>, <code>table.json</code>/<code>metric.json</code> on <code>main</code>) and the
+<code>TableResource</code>/<code>MetricResource</code> Java sources for which fields the list endpoint returns
+unconditionally versus only behind <code>?fields=</code>. <code>docs/what-openmetadata-can-carry.md</code> was corrected
+against the same schema read (its <code>foreignKeys</code>/<code>referencedTable</code> shape was a first-draft
+invention no real deployment serves; <code>harvest_relationship</code> below reads <code>tableConstraints</code>
+instead). Both entities are read through this reader against a provisioned instance by
+<code>tests/provisioned.rs</code>, which reads the golden catalog back in <code>ci-openmetadata-tier</code>, minus its
+named <code>NOT_CARRIED</code> rows (metrics are read, never defined). That is evidence only of a run of it,
+not of another server release or shape. Each mapping refuses an unexpected shape as a typed
+<code>HttpReaderError::UnexpectedShape</code> naming the entity and the field, rather than reading past a
+missing or mistyped key with a default - a guess that happened to be wrong would otherwise
+certify a bundle silently missing a model, a join or a metric.</p>
 <h1 id="what-every-read-is-bounded-by">What every read is bounded by<a class="headerlink" href="#what-every-read-is-bounded-by" title="Permanent link">&para;</a></h1>
 <p><code>ReadBounds</code> carries a request timeout and a response-size cap, both <strong>settings with defaults,
 not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
