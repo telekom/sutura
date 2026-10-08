@@ -360,5 +360,5 @@ Over HTTP, a refusal has its own status. For example, `"grain": "week"` returns 
 
 - [Serving over HTTP](../serving.md): all settings, tokens, postures and refusal statuses.
 - [Concepts](../concepts.md): metrics, grains, dimensions and refusals.
-- [Where each identity claim is proven](../where-identity-is-proven.md): what single-player does not
-  prove.
+- [Inbound identity](../integrations/identity.md): how a multi-user deployment verifies callers.
+- [Multi player](multi-player.md): Keycloak, DataHub and BigQuery, with an identity for each caller.

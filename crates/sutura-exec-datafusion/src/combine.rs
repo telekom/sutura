@@ -68,8 +68,8 @@ use datafusion::arrow::array::{Array as _, Float64Array};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, JoinType, TableReference};
 use datafusion::datasource::MemTable;
-use datafusion::functions::expr_fn::{coalesce, nullif};
-use datafusion::functions_aggregate::expr_fn::{count, max, min, sum};
+use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif};
+use datafusion::functions_aggregate::expr_fn::{count, count_distinct, max, min, sum};
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
@@ -192,9 +192,9 @@ pub enum CombineError {
     DuplicateLabels { side: &'static str, label: String },
     /// A carried leaf names an aggregate no re-aggregating expression exists for.
     ///
-    /// Unreachable through `FederatedPlan::new`, which refuses such a leaf before a plan exists.
-    /// Kept rather than assumed away: the constructor is the only thing closing it, and a second
-    /// producer of plans would not be.
+    /// Unreachable through `Carried`, whose `combine` is a `Sum`, a `Min`, a `Max` or a
+    /// `CountDistinct` over a pulled-up key. Kept rather than assumed away: the classification is the
+    /// only thing closing it, and a second producer of plans would not be.
     #[error("the combine has no re-aggregating expression for `{aggregate}`")]
     UnsupportedAggregate { aggregate: Aggregate },
     /// A link column carries an Arrow type this domain maps no cell of, so a question naming it
@@ -494,12 +494,24 @@ fn answer_labels(plan: &FederatedPlan) -> Vec<String> {
 /// Every carried leaf, in `labels` order.
 type Leaves = Vec<Leaf>;
 
-/// One carried leaf: the label the splitter projected it under, how its column re-aggregates, and
-/// the registered table it is read from.
+/// One carried leaf: the label the splitter projected it under, how its column is read above the
+/// legs, and the registered table it is read from.
 ///
 /// A named alias because the spelled-out form is past `clippy.toml`'s type-complexity threshold,
 /// and naming it says which part of the triple is the label.
-type Leaf = (String, LeafKind, &'static str);
+type Leaf = (String, Reading, &'static str);
+
+/// How a carried leaf's column is read above the legs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    /// A column a leg aggregated, re-aggregated here by a sum, a minimum or a maximum.
+    Reaggregated(LeafKind),
+    /// A pulled-up key: the leg grouped by the column and the distinct values are counted here.
+    ///
+    /// Any type a single-source `COUNT(DISTINCT)` accepts, so no type is judged. `float` is the one
+    /// type whose equality the engines disagree on, and [`distinct_key`] is what settles it.
+    Counted { float: bool },
+}
 
 /// The label of every carried leaf, in carried order, with its type judged.
 ///
@@ -520,8 +532,14 @@ fn leaf_labels(plan: &FederatedPlan, fact: &LegSchema, second_fact: Option<&LegS
                 (Some(_), Some(second)) => (second, SECOND_FACT_TABLE),
                 _ => (fact, FACT_TABLE),
             };
-            let kind = schema.leaf_kind(&label)?;
-            Ok((label, kind, table))
+            let reading = if carried.is_pulled_up() {
+                Reading::Counted {
+                    float: schema.kind_of(&label)?.is_floating(),
+                }
+            } else {
+                Reading::Reaggregated(schema.leaf_kind(&label)?)
+            };
+            Ok((label, reading, table))
         })
         .collect()
 }
@@ -688,12 +706,12 @@ fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
 fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Result<Expr, CombineError> {
     match *above {
         Above::Total(ref carried) => {
-            let &(ref label, kind, table) = leaves.get(*cursor).ok_or_else(|| CombineError::MissingColumn {
+            let &(ref label, reading, table) = leaves.get(*cursor).ok_or_else(|| CombineError::MissingColumn {
                 side: FACT,
                 label: InternalLabel::Leaf(*cursor).label(),
             })?;
             *cursor = cursor.saturating_add(1);
-            leaf_expression(carried, qualified(table, label), kind)
+            leaf_expression(carried, qualified(table, label), reading)
         }
         Above::Quotient {
             ref numerator,
@@ -721,19 +739,49 @@ fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Resul
 
 /// One carried leaf, re-aggregated by its own [`Carried::combine`].
 ///
-/// Only three aggregates can arrive: `FederatedPlan::new` refuses a leaf whose `combine` has no
-/// re-aggregating function, so the fourth arm is a refusal for a plan this workspace's own
-/// constructor could not have built.
-fn leaf_expression(carried: &Carried, column: Expr, kind: LeafKind) -> Result<Expr, CombineError> {
+/// Only four aggregates can arrive, and a `CountDistinct` only over a pulled-up key: any other pair
+/// is a plan this workspace's own classification could not have built.
+fn leaf_expression(carried: &Carried, column: Expr, reading: Reading) -> Result<Expr, CombineError> {
     let aggregate = carried.combine();
-    match aggregate {
-        Aggregate::Sum => Ok(leaf_sum(column, kind)),
+    match (aggregate, reading) {
+        (Aggregate::CountDistinct, Reading::Counted { float }) => Ok(count_distinct(distinct_key(column, float)?)),
+        (Aggregate::Sum, Reading::Reaggregated(kind)) => Ok(leaf_sum(column, kind)),
         // No cast: a minimum and a maximum are exact in the column's own type, and casting one would
         // be the widening `sutura_domain::warehouse::arrow` refuses for a 32-bit float.
-        Aggregate::Min => Ok(min(column)),
-        Aggregate::Max => Ok(max(column)),
-        Aggregate::Count | Aggregate::Avg | Aggregate::CountDistinct => Err(CombineError::UnsupportedAggregate { aggregate }),
+        (Aggregate::Min, Reading::Reaggregated(_)) => Ok(min(column)),
+        (Aggregate::Max, Reading::Reaggregated(_)) => Ok(max(column)),
+        (Aggregate::Sum | Aggregate::Min | Aggregate::Max, Reading::Counted { .. })
+        | (Aggregate::Count | Aggregate::Avg | Aggregate::CountDistinct, _) => {
+            Err(CombineError::UnsupportedAggregate { aggregate })
+        }
     }
+}
+
+/// The value a distinct count compares, which for a float is the one SQL equality means.
+///
+/// **A float is widened to 64 bits and canonicalised, because the engines a leg can come from do not
+/// agree on what two floats are the same value.** `DuckDB` counts `-0.0` with `0.0` and every NaN as
+/// one value; `DataFusion` counts the NaN payloads apart (`apache/datafusion#26091`), so a count
+/// above would answer by which engine produced the leg. The widening is exact for every float width,
+/// so no two distinct values meet. NULL stays NULL and is not counted.
+///
+/// **The `-0.0` arm is needed because the zeros are counted apart in some plan shapes.** `DataFusion`
+/// merges them in a lone distinct count, and with a sum beside it, but counts them apart when the one
+/// aggregate holds two distinct counts over different columns (measured; the likely cause is that its
+/// single-distinct rewrite no longer applies). A ratio of two distinct counts builds that aggregate.
+/// Without the arm the answer depends on which zero a leg kept per link value. The arm is held by
+/// `a_ratio_of_two_distinct_counts_counts_both_zeros_once`.
+fn distinct_key(column: Expr, float: bool) -> Result<Expr, CombineError> {
+    if !float {
+        return Ok(column);
+    }
+    let wide = cast(column, DataType::Float64);
+    // `abs`, because `DataFusion` compares floats in total order, where `-0.0 = 0.0` is false and
+    // `abs(-0.0) = 0.0` is true; a `+ 0.0` would be folded away before it ran.
+    when(abs(wide.clone()).eq(lit(0.0_f64)), lit(0.0_f64))
+        .when(isnan(wide.clone()), lit(f64::NAN))
+        .otherwise(wide)
+        .map_err(|cause| CombineError::Build { cause })
 }
 
 /// A leaf's total, accumulated wide enough that no total this workspace can produce wraps.

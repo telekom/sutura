@@ -110,3 +110,12 @@ path = ".agents/skill-library/README.md"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "the sutura authors"
 SPDX-License-Identifier = "Apache-2.0"
+
+# The architecture diagram page. archify rendered its SVG, and its colour tokens and SVG classes
+# are copied from archify's viewer template (MIT). The page around them is ours. `VENDOR.md` has the
+# commit.
+[[annotations]]
+path = "docs/assets/architecture.html"
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["the sutura authors", "2026 tt-a1i (Archify)", "2025 Cocoon AI"]
+SPDX-License-Identifier = "Apache-2.0 AND MIT"

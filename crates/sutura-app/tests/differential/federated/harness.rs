@@ -121,6 +121,41 @@ pub(super) fn two_engines(pinned: PinnedDefinitions) -> Side<sutura_exec_datafus
     }
 }
 
+/// The two-engine side with every engine opened at a `ceiling_bytes` working set, which bounds what
+/// one leg may hold and what the combine may hold.
+///
+/// **Validated against the unbounded registry first**, so the bundle is certified by the same anchors
+/// as every other side and only the ANSWER meets the ceiling: a ceiling tight enough to refuse a
+/// question would otherwise refuse the anchors, and the cell would be about the boot.
+pub(super) fn two_engines_at(
+    pinned: PinnedDefinitions,
+    ceiling_bytes: usize,
+) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
+    let validated = two_engines(pinned);
+    let ceiling = core::num::NonZeroUsize::new(ceiling_bytes).expect("a ceiling is positive");
+    let open = |name: &SourceName| {
+        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
+            name.clone(),
+            posture(),
+            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
+        )
+        .expect("an in-process engine starts");
+        for (table, csv) in tables_on(&derived().data, name, validated.bundle.get()) {
+            engine
+                .attach_csv(&table, &csv)
+                .unwrap_or_else(|e| panic!("the engine could not attach {}: {e}", csv.display()));
+        }
+        engine
+    };
+    let warehouses = sutura_app::Warehouses::of(open(&source()))
+        .and(open(&lookup_source()))
+        .expect("two sources, one registry");
+    Side {
+        bundle: validated.bundle,
+        warehouses,
+    }
+}
+
 /// The two-engine registry, and whatever the bundle validated to. [`validating_on_two_sources`]'s
 /// twin, split out for its reason: the violated corpus reads the `Err` this one unwraps, and on this
 /// topology that refusal is the one a RELEASE would give.
@@ -205,6 +240,21 @@ where
     W: sutura_domain::warehouse::Warehouse + Sync,
     W::Error: Send,
 {
+    answered_within(side, query, name, combiner, BUDGET)
+}
+
+/// [`answered`] with the combine's working set at `combine_bytes` rather than [`BUDGET`].
+pub(super) fn answered_within<W>(
+    side: &Side<W>,
+    query: &Query,
+    name: &str,
+    combiner: &sutura_exec_datafusion::DataFusionCombiner,
+    combine_bytes: u64,
+) -> Result<ToolOutcome, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
+{
     match sutura_app::answer(
         &side.bundle,
         query,
@@ -212,7 +262,7 @@ where
         &shared_credential(),
         &side.warehouses,
         combiner,
-        BUDGET,
+        combine_bytes,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
         RowCeiling::DEFAULT,
@@ -317,10 +367,7 @@ where
                      one refuses, not {from_one:?}"
                 );
                 assert!(
-                    matches!(
-                        reason,
-                        RefusalReason::MeasureDoesNotFederate { .. } | RefusalReason::MultiMetricFederationNotExecutable { .. }
-                    ),
+                    matches!(reason, RefusalReason::MultiMetricFederationNotExecutable { .. }),
                     "{name}: a two-source question this corpus refuses must say why, not {reason:?}"
                 );
                 Reached::RefusedAsUnfederatable
@@ -383,7 +430,7 @@ enum Reached {
     /// for an unrelated reason, rather than folding into [`Self::Diverged`] and losing the
     /// distinction between "both sides agree something is wrong" and "the two sides disagree".
     FailedTogether,
-    /// The two-source topology refused a measure it cannot re-aggregate.
+    /// The two-source topology refused a question over several metrics, which it cannot execute.
     RefusedAsUnfederatable,
     /// D19 + A4: the federated combiner refused a non-finite ratio as
     /// `RefusalReason::FederatedAnswerNotWellFormed` where the mono path still leaves the
@@ -437,11 +484,11 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
         "two-source-a-zero-denominator-that-fails",
         Reached::FederatedRefusedWhatMonoFailed,
     ),
-    // A distinct value spanning join keys, which is separate feature work rather than a defect.
-    (
-        "two-source-a-distinct-value-spanning-join-keys",
-        Reached::RefusedAsUnfederatable,
-    ),
+    // A distinct value spanning join keys: the fact leg carries the values as a key and the count
+    // happens above the join, so a sum of per-link counts would over-count the shared ones.
+    ("two-source-a-distinct-value-spanning-join-keys", Reached::Agreed),
+    // The distinct value is the link column itself, so the fact leg groups by one column twice.
+    ("two-source-a-distinct-count-of-the-link-column", Reached::Agreed),
     // `github.com/telekom/sutura#777`'s case 2 - a federated `top` ranks above the combine.
     ("two-source-a-case-2-combine-then-rank-top", Reached::Agreed),
 ];

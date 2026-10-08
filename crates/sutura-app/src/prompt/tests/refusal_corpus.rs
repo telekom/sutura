@@ -11,7 +11,7 @@
 //! live where the refusals are produced. What this list buys is the second net the function below
 //! documents.
 
-use sutura_domain::model::{Aggregate, Grain, ModelName, SourceName, TableName};
+use sutura_domain::model::{Grain, ModelName, SourceName, TableName};
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_METRICS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
 
 use super::{dimension_name, metric_name};
@@ -91,10 +91,6 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
             source: SourceName::parse("geo").expect("a test source is a source"),
             relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                 .expect("a test relationship is a relationship"),
-        },
-        RefusalReason::MeasureDoesNotFederate {
-            metric: metric_name("active_subscriptions"),
-            aggregate: Aggregate::CountDistinct,
         },
         RefusalReason::FederatedAnswerNotWellFormed {
             federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
@@ -176,7 +172,6 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::FederationNotExecutable
             | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::FederationLinkCompound { .. }
-            | RefusalReason::MeasureDoesNotFederate { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }
             | RefusalReason::SourceUnavailable { .. }

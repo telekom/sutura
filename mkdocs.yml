@@ -41,6 +41,8 @@ theme:
     - content.tooltips
     - navigation.instant
     - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
     - navigation.indexes
@@ -209,55 +211,64 @@ exclude_docs: |
   adr/20261001045714-cube-documents.md
   adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md
   crap.md
+  how-a-join-key-is-compared.md
   what-a-bpmn-file-actually-carries.md
+  what-a-data-contract-can-carry.md
   what-an-rdf-graph-can-carry.md
+  what-okf-can-carry.md
+  what-openmetadata-can-carry.md
+  where-identity-is-proven.md
 
-# Explicit, not derived from filenames. A nav that falls out of directory order silently
-# reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
-# the files on disk in both directions.
+# Explicit, not derived from filenames. A nav that falls out of directory order reorders itself
+# when a page is added, and `cargo xtask check-docs` checks this list against the files on disk in
+# both directions.
 #
-# THREE SECTIONS, BY AUDIENCE, AND THE ORDER IS THE POINT: ask sutura a question, then run a
-# deployment of it, then work on sutura itself. `Reference` dissolved (owner-decided on #325) -
-# it mixed all three audiences under one label, which is why a first-time reader could not tell
-# which half of it was addressed to them. Architecture and the API move into *Building it*
-# because both describe the internals a contributor reads, not a question a caller asks or a
-# setting an operator sets; the ADRs leave the built site entirely, per `exclude_docs` above.
+# Each top-level entry is a tab (`navigation.tabs`). The User Guide is for a person who asks
+# questions or runs a deployment. Integrations has one page for each adapter. Reference is for a
+# person who builds, verifies or changes sutura.
 #
-# No section index pages. Material would render one for each section heading, and `index.md`
-# already routes to every page here; three more landing pages would restate that table three
-# times. `navigation.indexes` stays on because a section index is worth having as soon as a
-# section has enough pages to need one.
 # Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
 hooks:
   - docs/.tools/version.py
 
 nav:
-  - Using it:
+  - User Guide:
       - Introduction: index.md
-      - Concepts: concepts.md
       - Getting started: getting-started.md
-      - Questions and answers: qa.md
+      - Concepts: concepts.md
+      - Architecture: architecture.md
+      - Serving over HTTP: serving.md
       - The agent prompt: agent-prompt.md
+      - Questions and answers: qa.md
+  - Integrations:
+      - integrations.md
+      - Catalogs:
+          - Markdown catalog: integrations/catalogs/markdown.md
+          - DataHub: integrations/catalogs/datahub.md
+          - OKF: integrations/catalogs/okf.md
+          - Data Contract: integrations/catalogs/datacontract.md
+          - OpenMetadata: integrations/catalogs/openmetadata.md
+          - RDBMS dictionary: integrations/catalogs/rdbms.md
+          - Wren: integrations/catalogs/wren.md
+      - Data systems:
+          - DataFusion (files): integrations/data-systems/datafusion.md
+          - DuckDB: integrations/data-systems/duckdb.md
+          - BigQuery: integrations/data-systems/bigquery.md
+          - PostgreSQL: integrations/data-systems/postgres.md
+          - ClickHouse: integrations/data-systems/clickhouse.md
+          - Oracle: integrations/data-systems/oracle.md
+      - Identity:
+          - Inbound identity: integrations/identity.md
   - Examples:
       - examples/index.md
       - Single player: examples/single-player.md
-  - Operating it:
-      - Serving over HTTP: serving.md
-      - Verifying a release: verifying-a-release.md
+      - Multi player: examples/multi-player.md
       - The local chat demo: demo.md
-      - Integrations: integrations.md
-      - Where each identity claim is proven: where-identity-is-proven.md
-      - How a federated join key is compared: how-a-join-key-is-compared.md
-      - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
-      - What an agent identity can carry: what-agent-identity-can-carry.md
-      - What an OKF-style catalog can carry: what-okf-can-carry.md
-      - What an OpenMetadata catalog can carry: what-openmetadata-can-carry.md
-      - What an Open Data Contract Standard catalog can carry: what-a-data-contract-can-carry.md
-      - Changelog: changelog.md
-  - Building it:
-      - Architecture: architecture.md
-      - Contributing: contributing.md
+  - Reference:
+      - Configuration: configuration.md
+      - Verifying a release: verifying-a-release.md
       - Building without direct egress: enterprise-mirrors.md
+      - Contributing: contributing.md
       - Publishing the docs: publishing.md
       - API:
           - api/index.md
@@ -295,6 +306,8 @@ nav:
           # predicate would exempt all of them and check nothing.
           - sutura-conformance: api/sutura-conformance.md
           - sutura-dev: api/sutura-dev.md
+
+  - Changelog: changelog.md
 
 extra:
   version:

@@ -27,18 +27,19 @@ which cannot be re-aggregated across legs is REFUSED.
 descends, and otherwise retrieve finer-grained rows and compute above. Decision 3 of the same record
 retires the per-leg **row** cap in favour of a working set bounded in bytes.
 
-**Corrected, and this is the one worth reading before citing either record: the two are not
-opposites, and the refusal was never superseded.** What the plan changed is the DEFAULT - push what
-descends, retrieve and compute above - and it kept this record's refusal for the measures that cannot
-be recombined at all. `RefusalReason::MeasureDoesNotFederate` is live and is raised at two sites in
-`crates/sutura-semantic/src/plan.rs`; `docs/adr/0005`'s status table still carries its row. So the
-behaviour this record decided is the behaviour the tree has, and the paragraph above disowned it - the
-shape that makes a reader trust the wrong document, which is exactly what the next paragraph warns
-about one revision too late.
+**Corrected, and this is the one worth reading before citing either record: the two disagreed until
+[the plan's seventh amendment](0009-the-plan-from-one-source-to-many.md).** The plan changed the DEFAULT -
+push what descends, retrieve and compute above - and for a while the tree kept this record's refusal
+for the measures that cannot be recombined at all: `RefusalReason::MeasureDoesNotFederate`, raised by
+the splitter for a distinct count. **That refusal is deleted and the plan's decision is what the tree
+does:** a distinct count across two sources is answered, the fact leg carrying the distinct column as
+a key and the combine counting it above, and `docs/adr/0005`'s status table no longer carries the row.
+So the paragraph above agrees with the tree again, and the earlier correction that said otherwise is
+what this one replaces.
 
 A previous revision of this page put those two facts in this paragraph and left four later parts
 arguing the withdrawn design: an ordered step whose evidence was a refusal that no longer exists
-(**and it does exist - see the correction above; only that step's ordering moved**), a
+(**it existed when this was written and is deleted since - see the correction above**), a
 guarantee table asserting both that a non-combinable measure refuses and that a per-leg cap is
 asserted, and two open questions that were closed. **Each is rewritten below rather than struck.** A
 banner over a live design is the shape this repository has already paid for once, and a reader who
@@ -1247,7 +1248,8 @@ default, and both say so rather than leaving the reader to infer it.
 either run.** The measurement it asks for above - *how much of a distinct-key leg the engine's memory
 pool can actually see* - is answered only for the shape the small corpus produces: `0009`'s first
 amendment records that the distinct-key case is REFUSED before execution in two-source topology and
-therefore contributed a zero operator peak, so the pull-up's cost at the grain this record reasons
+therefore contributed a zero operator peak (the seventh amendment of `0009` removed that refusal; the
+pull-up now runs), so the pull-up's cost at the grain this record reasons
 about is still unobserved. And the deadline figure is from an in-process engine over local files: the
 federated and networked legs this record exists for are not measured, which is exactly where a
 deadline is the bound that binds. Those two remain open under *what is explicitly not decided*; the
