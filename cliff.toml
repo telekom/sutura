@@ -73,6 +73,12 @@ protect_breaking_commits = true
 split_commits = false
 topo_order = false
 sort_commits = "newest"
+# The changelog is a published page, and `cargo xtask check-docs` refuses a published page that
+# names a path under the decision-record directory, which is not part of the site. A subject that
+# cites a record by path is rendered with the record's number instead.
+commit_preprocessors = [
+  { pattern = 'docs/adr/(\d+)', replace = "ADR $1" },
+]
 
 # `filter_commits` is deliberately left off. A conventional type that matches no parser below
 # keeps its own type as the group name, so it renders in a section named after itself instead

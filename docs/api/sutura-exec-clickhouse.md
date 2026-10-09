@@ -277,7 +277,7 @@ This is the TLS half of `sutura_config::sources::transport`, turned into a verif
 configuration owns the three-state DECLARATION (`plaintext` /
 `verified` / `mutual`), and this module owns turning a declared `verified` or `mutual` channel
 into the thing the client connects with. **The declared-trust-store rule extends rather than
-forks** (`docs/adr/0010`): a PEM bundle or the host's system store, read once by `config` and
+forks** (the architecture decision): a PEM bundle or the host's system store, read once by `config` and
 never a fallback, exactly as the Postgres source channel reads it.
 
 The read itself lives in `sutura-tls`, shared with the Postgres source channel and the

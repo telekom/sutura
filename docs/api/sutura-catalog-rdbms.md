@@ -10,7 +10,7 @@ The public API of `sutura-catalog-rdbms`, rendered from rustdoc JSON.
 A `SemanticCatalog` over an RDBMS dictionary - the narrowest declaration, and the one that
 needs no service.
 
-`docs/adr/0011-pluggable-by-declaration.md` defines the role this conversion implements. A
+The architecture decision defines the role this conversion implements. A
 database dictionary is mainly DDL and comments: the tables, the columns, their constraints, and
 table prose. It is not a
 semantic layer and does not pretend to be one - which is the whole point of a **declaring**

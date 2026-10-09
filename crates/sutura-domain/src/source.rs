@@ -2,7 +2,7 @@
 //! each leg of an answer actually executed as.
 //!
 //! **Three facts by three different declarers, and conflating any two of them is how a mode acquires
-//! two owners.** [Pluggable by declaration](https://github.com/telekom/sutura/blob/main/docs/adr/0011-pluggable-by-declaration.md)
+//! two owners.** The pluggable-by-declaration decision
 //! is explicit about the split and this module is that split expressed as types:
 //!
 //! | Fact | Who declares it | The type here |

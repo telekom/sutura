@@ -24,6 +24,10 @@
 //! relative target inside an included file against the INCLUDING page, which is what mkdocs does
 //! and what `docs/contributing.md`'s own comment warns about.
 //!
+//! **Any text that names the decision-record directory is the same defect, and is refused too.**
+//! A plain mention is read from the raw text of every page and everything it includes, fenced code
+//! and comments included, so it is a finding wherever it sits.
+//!
 //! **The limits, next to the claim.** This reads inline markdown links, `](target)`, in the prose
 //! [`crate::markdown`] leaves after removing fenced code blocks, HTML comments and inline code
 //! spans. Angle-bracket destinations, `](<a b.md>)`, percent-encoded paths and a case difference
@@ -53,6 +57,10 @@ use super::embeds::{self, Embed, Reach};
 
 /// The `pymdownx.snippets` marker.
 const INCLUDE_MARKER: &str = "--8<--";
+
+/// The decision-record directory. `exclude_docs` keeps the records off the site, so a path into it
+/// on a published page - a link or a plain mention - names a file the reader cannot open.
+const ADR_DIRECTORY: &str = "docs/adr/";
 
 /// How many distinct files one page may pull in before this refuses to keep following.
 ///
@@ -313,6 +321,11 @@ fn scan_page(
                 continue;
             }
         };
+        if body.contains(ADR_DIRECTORY) {
+            out.problems.push(format!(
+                "`{file}` names `{ADR_DIRECTORY}`, which is not part of the site - the decision records are kept off it, so a published page carries no path into them. Say what the decision is instead"
+            ));
+        }
         embed_problems(root, docs_dir, &here, &scanned.embeds, out);
         out.problems.extend(scanned.problems);
         out.read = out.read.saturating_add(scanned.read);

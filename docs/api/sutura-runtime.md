@@ -170,7 +170,7 @@ nothing.
 
 Collects every series at boot, and freezes them into an immutable `Registry`.
 
-`docs/adr/0015`'s scrape contract - **a scrape takes no request-path lock and registration is
+The architecture decision's scrape contract - **a scrape takes no request-path lock and registration is
 boot-only** - is held by shape rather than by convention. Registration the registry hands out
 after `build` would need a `&mut` into shared state or a lock; `Registry` has neither, so the
 only way to add a series is through this builder, and once `build` has run the set is closed.
@@ -563,7 +563,7 @@ labels.
 
 # Why this is not a crate
 
-`docs/adr/0015` Decision 3 prices it: a facade crate arrives with a global recorder, a macro
+The architecture decision prices it: a facade crate arrives with a global recorder, a macro
 layer and a label API typed as `String` - which is precisely the cardinality hole this module
 exists to close. The Prometheus text environment format is stable and line-oriented; every gauge
 here is an atomic load; the histograms are a fixed bucket array and cumulative counters. Writing
@@ -588,7 +588,7 @@ and there is no `check-boundaries`-style gate for construction sites.
 # The memory series, and their limit
 
 The three engine-pool series - reserved bytes, the limit, and refusals - are **not shipped at
-all**: `docs/adr/0015` specifies them and keeps them absent rather than zero (the pool bounds
+all**: the architecture decision specifies them and keeps them absent rather than zero (the pool bounds
 the engine's own operators and nothing else). There is no `Option` gauge and no live closure,
 because the exact-series snapshot test means an author who registers one would be trading an
 asserted export for a silent gap. The transport module records the same absence in its own doc.
@@ -596,7 +596,7 @@ asserted export for a silent gap. The transport module records the same absence 
 # A scrape must not make the service work
 
 `Registry::render` reads atomics and fixed strings only. The registry holds no `Surface`, no
-catalog, no engine and no data source - the design `docs/adr/0015` states and the metrics route's
+catalog, no engine and no data source - the design the architecture decision states and the metrics route's
 state type enforces. `render` takes **no lock of any kind**: registration happens through a
 `RegistryBuilder`, and `RegistryBuilder::build` freezes the series into an immutable `Vec`
 before the registry is shared.
@@ -740,7 +740,7 @@ pub struct RegistryBuilder
 
 Collects every series at boot, and freezes them into an immutable `Registry`.
 
-`docs/adr/0015`'s scrape contract - **a scrape takes no request-path lock and registration is
+The architecture decision's scrape contract - **a scrape takes no request-path lock and registration is
 boot-only** - is held by shape rather than by convention. Registration the registry hands out
 after `build` would need a `&mut` into shared state or a lock; `Registry` has neither, so the
 only way to add a series is through this builder, and once `build` has run the set is closed.
@@ -960,7 +960,7 @@ Idempotent: the second and later calls do nothing.
 A relative time range - `last: { count, unit }` - resolved against this deployment's own wall
 clock into the absolute `TimeRange` the domain already knows how to hold. `telekom/sutura#778`.
 
-**Not `docs/adr/0029`'s clock.** That one is monotonic (`std::time::Instant`) and exists for a
+**Not the architecture decision's clock.** That one is monotonic (`std::time::Instant`) and exists for a
 deadline that must not be fooled by a wall-clock jump; the domain reads no clock of either kind.
 This one answers "what calendar day is it", which a monotonic instant cannot say, and it lives
 here rather than in `sutura-domain` for the same reason the rest of this crate does: two

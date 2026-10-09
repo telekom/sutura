@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
-//! `check-docs` refuses an iframe or an image whose `src` names no file, through the real binary.
+//! `check-docs` refuses an iframe or an image whose `src` names no file, and a published page that
+//! names a path into the decision-record directory, through the real binary.
 //!
 //! A dedicated `tests/` target, so `just causality` can run it against the base tree: the base
 //! gate exits 0 over each fixture below, and these cells are red there by assertion.
@@ -85,4 +86,32 @@ fn a_markdown_image_over_a_missing_file_is_refused_naming_the_page_and_the_src()
     assert!(text.contains("assets/diagram.png"), "{text}");
     let present = site("image-present", page, Some("diagram.png"));
     assert!(check_docs(&present).status.success(), "{}", said(&check_docs(&present)));
+}
+
+#[test]
+fn a_published_page_naming_the_decision_record_directory_is_refused_naming_the_page() {
+    for (case, body) in [
+        (
+            "adr-link",
+            "# Architecture\n\n[a decision](https://example.com/blob/main/docs/adr/0008-x.md)\n\n[home](index.md)\n",
+        ),
+        (
+            "adr-mention",
+            "# Architecture\n\nThe decision is in `docs/adr/0008-x.md`.\n\n[home](index.md)\n",
+        ),
+    ] {
+        let root = site(case, body, None);
+        let output = check_docs(&root);
+        let text = said(&output);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(text.contains("docs/architecture.md"), "{text}");
+        assert!(text.contains("docs/adr/"), "{text}");
+    }
+    let control = site(
+        "adr-absent",
+        "# Architecture\n\nThe decision is in a record.\n\n[home](index.md)\n",
+        None,
+    );
+    let output = check_docs(&control);
+    assert!(output.status.success(), "{}", said(&output));
 }

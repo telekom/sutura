@@ -65,8 +65,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 - `Warehouse`
 - `Combine` - The federated combiner could not assemble the two legs' results.
 
-  **Typed in the COMBINER's own error, which is what the port being a port buys.** `docs/adr/0039`
-  step 3 moved the combine into an adapter, so the cause is that implementor's type exactly as
+  **Typed in the COMBINER's own error, which is what the port being a port buys.** The architecture decision moved the combine into an adapter, so the cause is that implementor's type exactly as
   `Self::Warehouse`'s is a data adapter's - and `sutura-app` still names no engine.
 
   **An internal defect rather than a refusal, and only because the two governance outcomes are
@@ -84,7 +83,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
   **Its own variant rather than a refusal, and its own variant rather than sharing the one
   above.** A refusal would let a client library retry a governance decision until something
   works, which is what `sutura_domain::query::ToolOutcome` exists to prevent. And sharing
-  `Warehouse` would collapse two causes a caller has to act on differently: `docs/adr/0014`
+  `Warehouse` would collapse two causes a caller has to act on differently: the architecture decision
   makes the point that a caller told "unavailable, retry" against an authorization-server
   outage will retry successfully, while one told the same against a bound that fires again
   retries forever.
@@ -118,7 +117,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 - `Unreadable` - A result came back as Arrow and one of its columns could not become a domain value.
 
   **This variant is where the Arrow port's decode moved to, not a new failure mode.**
-  `docs/adr/0039` step 2 puts the one Arrow-to-`Value`
+  the architecture decision puts the one Arrow-to-`Value`
   decode in the interior and step 2's second half moves the CALL to the presentation edge, so
   the failure that used to arrive wrapped in an adapter's own error - `BigQueryError::
   Unreadable`, the engine's `DataFusionError::Unreadable` - arrives here instead, for every
@@ -180,7 +179,7 @@ One call's result: what the caller is told, and what it ran under.
 
 **Two values rather than one, and the second one never reaches the caller.** The outcome is the
 answer or the refusal, and it goes back through the transport. The deadline is the `Expiry` the
-credentials this call executed with carried, and it goes to the audit sink - `docs/adr/0008` fixes
+credentials this call executed with carried, and it goes to the audit sink - the architecture decision fixes
 the record's content as the chain, the outcome, the posture per leg **and the expiry the
 credentials carried**, and until this type existed there was no way for the last of those to reach
 `surface::LocalService`, which is what writes the record.
@@ -241,7 +240,7 @@ is the other one of the two we opened" were the same refusal.
 `broker` is what turns that into what each leg presents. The credential is minted **once, for
 every source the plan reads**, which is one source today and is the shape a federated answer
 needs: one asker and one deadline for N legs, rather than N mintings that could disagree.
-`docs/adr/0008` is the decision and `sutura_domain::identity::LegCredentials` is where the
+the architecture decision is the decision and `sutura_domain::identity::LegCredentials` is where the
 argument lives.
 
 The order is deliberate: mint **before** the pre-flight and before execution. A pre-flight asked
@@ -270,7 +269,7 @@ guard un-skippable rather than merely conventional is on the domain side:
 pub fn scoped_for<'a>(pinned: &'a sutura_domain::pinned::PinnedDefinitions, context: &sutura_domain::identity::RequestContext) -> sutura_domain::pinned::view::ScopedView<'a>
 ```
 
-The view a request context resolves against - `docs/adr/0028`.
+The view a request context resolves against - the architecture decision.
 
 **Here, beside `Asked` and `crate::capability::Permitted`**, so no transport owns the
 decision: `answer` below reads it, and so does every route that renders a catalog through
@@ -357,7 +356,7 @@ operator reads the fix out of the response rather than out of this comment.
 # Why this takes strings rather than a parsed scope type
 
 `sutura_http::inbound::Scopes` is where a scope claim is parsed and bounded, and it stays there.
-Moving it would be taking a decision `docs/adr/0014`'s closing section explicitly reserves - *"how
+Moving it would be taking a decision the architecture decision's closing section explicitly reserves - *"how
 [the agent surface] is reached at all, and then which crate the validator moves to ... is an
 architecture decision, not a refactor"* - and nothing here needs the parse: this compares against
 two fixed literals, and a string that could not be a scope simply matches neither.
@@ -464,7 +463,7 @@ compiles it, so an adapter taking the default cannot execute the metric; refusin
 here, naming the metric, is what stands between that and a served bundle with a metric that
 is silently skipped or a measure quietly substituted. Read off the ONE adapter type
 `Warehouses<W>` holds, the way `EXECUTES_LEGS` is - so it is a fact about the build, not
-about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
+about the data. No adapter this workspace ships opts in; the architecture decision is the decision.
 
 **"Before any anchor runs" is a placement, not an assertion.** It is true because this check
 sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and the ordering
@@ -527,7 +526,7 @@ Runs one literal statement against the deployment's configured source, or says w
 # PR1's scope, stated as a limit rather than left implicit
 
 **This targets the sole registered data system, and refuses `RunSqlError::NoAcceptingSource`
-where more than one is open or none is.** `docs/adr/0013`'s showcase is one Postgres source; a
+where more than one is open or none is.** The architecture decision's showcase is one Postgres source; a
 deployment naming which of several sources the raw tool may run over is future work, not a
 decision this function makes by omission - a second source is refused rather than guessed at.
 
@@ -541,7 +540,7 @@ reason: a broker is an adapter outside the hexagon, and its answer is input.
 
 **Every failure to execute becomes a refusal, never a `RunSqlError`.** The statement is the
 caller's own text, so a syntax error, a statement timeout, or the server refusing a write inside
-the read-only transaction `docs/adr/0013`'s amendment wraps every call in are all answers *about
+the read-only transaction the architecture decision's amendment wraps every call in are all answers *about
 that statement* - not an infrastructure outage this deployment must page for. What remains an
 `Err` is only what happens before the statement ever reaches the data system: the broker not
 answering, or credentials that do not fit.
@@ -728,7 +727,7 @@ means rather than a field added to one.
 - `Warehouse`
 - `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
 
-  **Its own variant because the two outages are retried differently**, which `docs/adr/0014`
+  **Its own variant because the two outages are retried differently**, which the architecture decision
   states as a requirement rather than a preference: an authorization server that is down comes
   back, and a caller told the same sentence for both will retry a data-system outage the same
   way and learn nothing. A transport chooses a different code for it.
@@ -856,7 +855,7 @@ ceiling out of its settings.
 
 A setter rather than a constructor argument, so every existing caller of `Self::start` and
 `Self::start_composed` - most of which configure no ceiling at all - keeps its original
-argument list. `docs/adr/0030` is the record; `governance.per_replica_spend_ceiling` absent
+argument list. The architecture decision is the record; `governance.per_replica_spend_ceiling` absent
 is the state every one of those callers is already in.
 
 #### Implements
@@ -985,7 +984,7 @@ pub enum Tool
 
 One operation a transport exposes.
 
-Three variants: the certified surface's own two operations, and `docs/adr/0013`'s raw tool -
+Three variants: the certified surface's own two operations, and the architecture decision's raw tool -
 `Surface::run_sql`. The raw tool is not in `Tool::ALL`:
 unlike `Catalog` and `Query`, no transport mounts it unconditionally, so a composition root adds
 `Tool::RunSql` to the list it passes only when `tools.run_sql.enabled` is true for the deployment
@@ -1005,7 +1004,7 @@ actually be called.
 
 - `Catalog` - Reading what this deployment defines. `GET /v1/catalog`, `sutura catalog`, and whatever an MCP transport would call it. `Surface::definitions`.
 - `Query` - Asking one certified question. `Surface::answer`.
-- `RunSql` - Running one literal, ungoverned SQL statement - `docs/adr/0013`'s tool, off by default. `Surface::run_sql`. Present here only when a deployment turned it on; see this type's own documentation for why it is not in `Tool::ALL`.
+- `RunSql` - Running one literal, ungoverned SQL statement - the architecture decision's tool, off by default. `Surface::run_sql`. Present here only when a deployment turned it on; see this type's own documentation for why it is not in `Tool::ALL`.
 
 #### Methods
 
@@ -1025,7 +1024,7 @@ pub const fn summary(self) -> &'static str
 
 What it does, in one line, for the operations list.
 
-`RunSql`'s wording is `docs/adr/0022`'s framing for this tool, restated for an agent rather
+`RunSql`'s wording is the architecture decision's framing for this tool, restated for an agent rather
 than an operator: ungoverned, runs under the deployment's own role rather than the asking
 subject's, and its result carries none of the provenance a `query` answer carries. It never
 calls the raw tool's own result "certified" in any form, including a negated one - the word
@@ -1135,7 +1134,7 @@ what lets the rendering be pinned by a snapshot rather than described.
 `catalog_knowledge` states: the metric list and every knowledge section are the view's, so a
 served caller's prompt names only what that caller may see, and the operator-side commands say
 `ScopedView::everything` out loud. The definitions version and digest stay the bundle's -
-`docs/adr/0028`'s "the digest is the bundle's, not the view's".
+the architecture decision's "the digest is the bundle's, not the view's".
 
 ### `fn catalog_knowledge`
 
@@ -1155,7 +1154,7 @@ the deployment's whole-bundle text, the same for every caller, and the MCP trans
 reply carries them under their own heading so they are not mistaken for catalog prose.
 
 **Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - the same rule the MCP catalog
-reply (`sutura_mcp::wire::CatalogContent`) and `docs/adr/0028` state for the metric listing. A caller sees
+reply (`sutura_mcp::wire::CatalogContent`) and the architecture decision state for the metric listing. A caller sees
 only the knowledge that belongs to the metrics it is granted: glossary entries, caveats and worked
 examples stay with their metric, and an entry whose metric is invisible is withheld. The caveat
 all-referents rule is the ADR's own: a caveat survives only when every metric it refers to is
@@ -1382,7 +1381,7 @@ which is the case the caller has already turned into a refusal by the time it as
 
 One leg, so one entry: `ExecutedAs` is non-empty by construction and has no `remove`. The
 federated path builds its own two-leg record from both adapters - which may name two
-different postures since `docs/adr/0040`.
+different postures since the architecture decision.
 
 ```rust
 pub fn get(&self, source: &SourceName) -> Option<&W>
@@ -1482,7 +1481,7 @@ derive gives this type an `Error::source`, and `clippy::same_name_method` is den
 
 The metadata assembler: N catalog contributions become one pinned bundle.
 
-This is the *"metadata sources compose"* half of `docs/adr/0011` and of #115's step 4.
+This is the *"metadata sources compose"* half of the architecture decision and of #115's step 4.
 `sutura_domain::pinned::SemanticCatalog::load` reads one source; a deployment may declare
 several. The assembler is where they stop being several:
 
@@ -1506,7 +1505,7 @@ One limit is stated here because it decides what the wave-one deployment looks l
 may reference only a model its own source also declares, because each contribution arrives
 already assembled. The cross-source-reference case - the literal "`DataHub`'s model, metrics
 certified here" - lands with a raw-content port, which is a separate decision recorded in
-`docs/adr/0011`.
+the architecture decision.
 
 ### `enum CompositionError`
 
@@ -1525,7 +1524,7 @@ reviewed, so the refusal is what carries the names.
 - `Empty` - Nothing was contributed; a deployment serves at least one metadata source.
 - `Manifest` - The composed contributions are not a manifest: nothing to record, or two of them naming one source. Distinct from `CompositionError::Empty`, which is this function's own check on its input - this one is the manifest refusing to record a composition it cannot represent. Only `NoContributors` is unreachable from here: `CompositionError::Empty` above wins first on any input that would otherwise produce it. `DuplicateSource` IS reachable through this public function - `assemble` runs no source-name uniqueness check of its own, only the per-element checks below - and is exercised directly by a test on this function, not only on `ContributionManifest::parse`. What keeps a duplicated name off the *served* path is `Catalogs::parse` in `sutura-config` refusing it at configuration time, before assembly runs.
 - `NotASingleContribution` - A contribution's own manifest did not name exactly one source, so this bundle cannot say who contributed it. The `count` is what a reader needs: the manifest is supposed to be the per-source record, and a value that failed to be one has nothing to merge under.
-- `VersionMismatch` - Two contributors certify different snapshots. A bundle is one version, and `docs/adr/0011`'s amendment records the decision: two sources certified at different times is the "answers that differ across a refresh boundary" shape, refused rather than papered over.
+- `VersionMismatch` - Two contributors certify different snapshots. A bundle is one version, and the architecture decision's amendment records the decision: two sources certified at different times is the "answers that differ across a refresh boundary" shape, refused rather than papered over.
 - `MetricCollision` - The one interpretation has no precedence, declared or otherwise: two definitions of one number is the failure this system exists to prevent.
 - `ElementCollision` - Any other element two sources supply: a model, a relationship, a glossary term, a caveat, an absence or a worked example. `kind` is the closed vocabulary the message renders and the other fields are typed. It is not a `CompositionError::MetricCollision` because the rule for metrics is the stronger one - no precedence at all - while other elements could in principle be titled, and neither is today.
 - `Unfaithful` - A contributor's declaration disagrees with its own content. Per contributor, not per bundle: on the merged result this check would say nothing once two sources are merged.
@@ -1606,7 +1605,7 @@ What this surface can be asked to do, named once for every transport that offers
 # Why the vocabulary is here rather than in a transport
 
 `crate::surface::Surface` has three operations - read the pinned bundle, answer one governed
-question, and (`docs/adr/0013`, off by default) run one raw statement - and those three *are* the
+question, and (the architecture decision, off by default) run one raw statement - and those three *are* the
 tool set. A transport renames them for its own protocol: the agent surface calls them tools and
 the HTTP surface calls them routes. Neither owns the set.
 
@@ -1626,7 +1625,7 @@ line for the two refusal vocabularies: *"Nothing compares the two sentences, and
 
 **A scope decides which capabilities a caller may use. It decides nothing about which rows a
 question reaches.** Every capability reads the same pinned bundle and every question executes
-under the same identity, because no source executes as the asking subject: `docs/adr/0014`'s leg 1
+under the same identity, because no source executes as the asking subject: the architecture decision's leg 1
 establishes *who is asking* and leg 2 does not exist. So a deployment that grants one caller
 `sutura:catalog.read` and not `sutura:metrics.ask` has narrowed what that caller may *do*, and has
 not narrowed what any answer would contain.
@@ -1638,7 +1637,7 @@ module - and if they ever disagree it is the refusal that is the control.
 
 # A scope names a capability and never a metric
 
-`docs/adr/0014`'s *What is not decided* left this open with a leaning: *"A scope naming a metric
+The architecture decision's *What is not decided* left this open with a leaning: *"A scope naming a metric
 couples the authorization server to the catalog, and a scope naming a capability does not. The
 second is almost certainly right and it is not yet argued."* This module takes the second, and the
 argument is that a catalog edit must not be able to change what a token means. A scope naming
@@ -1682,7 +1681,7 @@ deterministic.
   `crate::surface::Surface::answer`.
 - `RunSql` - Run one literal SQL statement against the configured source, off by default and refused where the deployment cannot execute it as the asking subject or is not declared single-user.
 
-  `crate::surface::Surface::run_sql`. `docs/adr/0013` is the record: its result carries no
+  `crate::surface::Surface::run_sql`. The architecture decision is the record: its result carries no
   `sutura_domain::pinned::Provenance` and no field a definition digest could occupy, so a raw
   answer cannot be rendered as a certified one.
 
@@ -1721,7 +1720,7 @@ scope, and every authorization server configured with the old one would stop gra
 
 Prefixed, so a token minted for another resource server that happens to carry `catalog.read`
 does not read as a grant here. The audience check is what actually keeps such a token out -
-`docs/adr/0014` Decision 2 - and this is defence in depth rather than the control.
+the architecture decision - and this is defence in depth rather than the control.
 
 #### Implements
 
@@ -1758,7 +1757,7 @@ operator reads the fix out of the response rather than out of this comment.
 # Why this takes strings rather than a parsed scope type
 
 `sutura_http::inbound::Scopes` is where a scope claim is parsed and bounded, and it stays there.
-Moving it would be taking a decision `docs/adr/0014`'s closing section explicitly reserves - *"how
+Moving it would be taking a decision the architecture decision's closing section explicitly reserves - *"how
 [the agent surface] is reached at all, and then which crate the validator moves to ... is an
 architecture decision, not a refactor"* - and nothing here needs the parse: this compares against
 two fixed literals, and a string that could not be a scope simply matches neither.
@@ -1827,7 +1826,7 @@ pub fn without(self, capability: Capability) -> Self
 Removes one capability, whatever granted it.
 
 **A deployment-level narrowing, and deliberately independent of a caller's own scopes.** A
-tool that is off for this DEPLOYMENT - `docs/adr/0013`'s off-by-default raw SQL tool is the
+tool that is off for this DEPLOYMENT - the architecture decision's off-by-default raw SQL tool is the
 first one - has to be absent for every caller including one presenting every scope this
 surface knows, and including the no-authentication single-player case
 `Self::every_capability` answers. Applying this after either constructor is what makes "a
@@ -2273,7 +2272,7 @@ caller has to recombine. It stays a `Result` so `?` in a composition root keeps 
 
 The per-replica spend counter: in-process, windowed, keyed by the asking subject.
 
-`docs/adr/0030-where-a-budget-lives.md` decides every shape here; this module is the mechanism.
+The architecture decision decides every shape here; this module is the mechanism.
 Three decisions worth restating because a reader of the code alone could miss them:
 
 **Fixed windows, not sliding ones.** A subject's spend resets to zero the first time this
@@ -2281,7 +2280,7 @@ ledger is consulted after the window has elapsed, rather than decaying continuou
 reason about - "how much has this subject spent since their window started" needs one `Instant`
 and one running total, not a queue of timestamped charges to prune - and the cost a sliding
 window would avoid (a subject who spends right at a boundary can spend up to twice the ceiling
-across the seam) is not a cost `docs/adr/0030` asked this record to close: the record's own
+across the seam) is not a cost the architecture decision asked this record to close: the record's own
 scope is a per-replica counter that resets on restart in addition to its own window, so a seam
 effect inside one window is not the precision this shape is buying.
 
@@ -2345,7 +2344,7 @@ pub fn headroom_bytes(&self, now: Instant) -> Option<u64>
 ```
 
 The tightest remaining headroom across every subject this ledger is currently tracking, or
-`None` where no ceiling is configured (`docs/adr/0030`'s "absent means no budget").
+`None` where no ceiling is configured (the architecture decision's "absent means no budget").
 
 **Deployment-wide, never per-subject** - ADR-0015 Decision 5 types every metric label
 parameter as `&'static str` precisely so request-owned text (a `Subject`'s own identifier
@@ -2365,7 +2364,7 @@ A ledger bounded by `budget`, or unbounded if `None`.
 pub fn no_budget() -> Self
 ```
 
-No ceiling configured. Every question is admitted and nothing is counted - `docs/adr/0030`'s
+No ceiling configured. Every question is admitted and nothing is counted - the architecture decision's
 "absent means no budget, which is today's behaviour" read back as a constructor.
 
 ```rust
@@ -2381,7 +2380,7 @@ resets to the full ceiling on every restart, and `sum()` over N replicas is `N *
 total_spend`, a number that moves whenever N does. This total only grows, so
 `sum(rate(sutura_spend_bytes_total[5m]))` is correct across a restart (a monitoring
 system's counter-reset handling) and across a changing replica count - the owner decision
-`docs/adr/0030`'s amendment records, 2026-09-18: aggregation belongs to the monitoring
+the architecture decision's amendment records, 2026-09-18: aggregation belongs to the monitoring
 system, never to enforcement, which stays per-replica either way.
 
 **Exported as `sutura_spend_bytes_total` by both transports, by different routes.**
@@ -2404,4 +2403,4 @@ priced adapter can be served with one; `DuckDB` and Postgres answer
 `PreFlight::Accepted { estimated_bytes: None }`, and `ClickHouse` and Oracle take the port's
 own default `PreFlight::NotAsked`. A dashboard reading `sum(rate(...))` of zero here
 therefore cannot distinguish "nothing was spent" from "no call was ever priced" - see
-`docs/adr/0030`'s amendment for the same sentence.
+the architecture decision's amendment for the same sentence.

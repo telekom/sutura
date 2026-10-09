@@ -65,7 +65,7 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **mcp**: Ship the rendered agent prompt as MCP initialize.instructions (#838)
 - **xtask**: Causality accepts a declared claim-cell arm (#835)
 - **surface**: Resolve a relative time range at the deployment's clock (#830)
-- **identity**: Per-metric visibility, steps 2-4 of docs/adr/0028 (#825)
+- **identity**: Per-metric visibility, steps 2-4 of ADR 0028 (#825)
 - **cli,app,domain**: A closed enum over the shipped warehouse kinds (#827)
 - **e2e**: Wave-one E2E over the real docker DataHub tier plus its hosted job (#791)
 - **http**: A budget refusal counts as itself in sutura_questions_total (#818)

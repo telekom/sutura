@@ -370,7 +370,8 @@ fails an exclusion naming no page, a page both navigated to and excluded, and a 
 neither one page nor one whole directory written `/dir/` (`/adr/` keeps the decision records off
 the site). It fails an `<iframe src>`, an `<img src>` or a `![](src)` image whose file is not under
 `docs/`, and it does not check a remote URL. It also fails a published page that LINKS an excluded
-one. That is not `--strict`'s job: mkdocs logs such a link at INFO and exits 0, measured.
+one. That is not `--strict`'s job: mkdocs logs such a link at INFO and exits 0, measured. It fails a
+published page that names a path inside the decision-record directory, in a link or in prose.
 **This file is one of those published
 pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
 here resolves against that page's URL rather than the repository root, and the gate reads this file

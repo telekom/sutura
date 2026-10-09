@@ -270,7 +270,7 @@ Reads the declared password file into a `Secret`.
 
 The password is trimmed exactly once after reading, so a trailing newline from a mounted secret
 is not part of the credential. The read `String` is shadowed by that `Secret`, not dropped - it
-is not zeroised, and it lives unzeroised until this function returns (`docs/adr/0020`'s "not
+is not zeroised, and it lives unzeroised until this function returns (the architecture decision's "not
 claimed" list).
 
 # Errors
