@@ -57,12 +57,13 @@ pub enum DeploymentIdentity {
     /// Static credentials, one user, one host - the `single-user` mode. Carries the operator's own
     /// reason, so the mode is unreachable by leaving a key out.
     StaticCredentials { declared: AcknowledgementReason },
-    /// A subject per request, established by the transport - the `multi-user` mode.
+    /// A subject per request - the `multi-user` mode.
     ///
-    /// **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
-    /// is currently a statement of intent whose only mechanical effect is that every shared source has
-    /// to be acknowledged on its own entry. That is the honest description and it is worth having: the
-    /// acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
+    /// **A declaration of intent, independent of the `security.inbound` block that makes a subject
+    /// arrive.** This mode alone establishes no subject: leg 1 is built, but it is configured under
+    /// `inbound`, and a `multi-user` deployment without that block still authenticates only the
+    /// deployment's bearer token. What this mode decides mechanically is that every shared source
+    /// has to be acknowledged on its own entry, and that the raw SQL tool is refused.
     SubjectPerRequest,
 }
 

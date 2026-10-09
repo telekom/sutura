@@ -460,9 +460,7 @@ mod tests {
     /// A configuration directory declaring one `bigquery` source over a dataset nothing reaches.
     ///
     /// Every key `sutura_config` requires of a `bigquery` entry, and not one of them is read by the
-    /// refusals below: the credential file names nothing deliberately (the ADBC driver authenticates
-    /// itself, so a boot that read this path would be reading a file no transport in this build
-    /// wants), and no question is ever asked of the dataset - `crate::sources::open_engine` refuses
+    /// refusals below: no question is ever asked of the dataset - `crate::sources::open_engine` refuses
     /// while composing, before `commands::query` reaches an anchor.
     #[cfg(feature = "bigquery")]
     fn config_declaring_bigquery(source: &str, into: &Path) -> PathBuf {
@@ -474,7 +472,6 @@ mod tests {
                 "security:\n  identity: single-user\n  single_user_because: \"one developer, one \
                  laptop, one dataset\"\nsources:\n  {source}:\n    kind: bigquery\n    \
                  billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
-                 credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
                  max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
             ),
         )

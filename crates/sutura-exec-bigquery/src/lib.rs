@@ -608,10 +608,10 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     /// that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
     /// one pinned source.
     ///
-    /// `impersonation` is whether this source impersonates and at what scope - the source's declared
-    /// `workload_identity.scope`, or [`adbc::Impersonation::Disabled`] for a shared one. Taken here
-    /// rather than read per request because it is a property of the source, and a declared scope the
-    /// driver would refuse then fails before a listener is bound.
+    /// `impersonation` is whether this source impersonates and through which pool - the source's
+    /// declared `workload_identity.audience`, or [`adbc::Impersonation::Disabled`] for a shared
+    /// one. Taken here rather than read per request because it is a property of the source, and a
+    /// pool the driver would refuse then fails before a listener is bound.
     ///
     /// `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
     /// every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound

@@ -11,7 +11,6 @@ fn postgres(written: &str) -> RawSourceEntry<'_> {
         data_dir: None,
         billing_project: None,
         dataset: None,
-        credential_file: None,
         max_bytes_billed: None,
         posture: "shared-service-user",
         acknowledged_because: Some("one service role reaching the database for everybody who asks"),
@@ -152,10 +151,8 @@ fn a_postgres_source_must_declare_exactly_one_of_host_or_unix_socket() {
 
 #[test]
 fn a_relative_password_file_or_unix_socket_is_refused_naming_the_key() {
-    // The same fact `a_relative_credential_file_is_refused_and_the_refusal_names_the_key` proves
-    // for `bigquery`, over the two `postgres` paths that were untested: a working directory is
-    // whatever this process's supervisor chose, and a password file or a socket resolved against it
-    // is a different file on every host.
+    // Over the two `postgres` paths: a working directory is whatever this process's supervisor chose,
+    // and a password file or a socket resolved against it is a different file on every host.
     let entries = [RawSourceEntry {
         password_file: Some("pg-password"),
         ..postgres("warehouse")
