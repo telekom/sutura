@@ -2321,6 +2321,7 @@ jobs:
       bigquery-conformance,
       causality,
       postgres-linked-driver,
+      cross,
     ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
@@ -2346,6 +2347,7 @@ jobs:
           CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}
           PGD_RESULT: ${{ needs.postgres-linked-driver.result }}
           PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}
+          CROSS_RESULT: ${{ needs.cross.result }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2477,6 +2479,14 @@ jobs:
               *) fail "postgres-linked-driver reported '$PGD_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
+          # The link matrix. Its legs report `cross / link (<triple>)`, contexts the ruleset does not
+          # list, so this is the only way a red one gates a merge. It never runs in the merge queue
+          # (see `cross`'s own `if:`), and the classification may skip it: `skipped` is allowed, a
+          # leg that RAN and is not green is the failure.
+          case "$CROSS_RESULT" in
+            skipped|success) ;;
+            *) fail "cross reported '$CROSS_RESULT' - a link leg that ran is not green" ;;
+          esac
           echo "ci-aggregate: ok - every category-gated leg green"
 
   # `needs: [ci]` keeps the file's stated order - classify, gates, tests, then build - so a
