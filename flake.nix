@@ -789,6 +789,16 @@
           postgres-linked-driver = shipped.linkedDriversTests."adbc-postgres-tier-x86_64-unknown-linux-musl-test"
             or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
+          # The vendored `oracledb`'s own unit tests for the modules this repository patched, which
+          # the workspace's `nextest` never compiles. `nix/vendored-oracledb.nix` says what it runs,
+          # and it goes away with the vendored copy.
+          vendored-oracledb = import ./nix/vendored-oracledb.nix {
+            inherit craneLib;
+            inherit (commonArgs) buildInputs;
+            cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
+            noArtifacts = inheritedArtifacts null;
+          };
+
           # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
           # if pixi.lock disagrees; nix is the authority.
 
