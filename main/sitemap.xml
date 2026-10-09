@@ -45,11 +45,19 @@
          <lastmod>2026-10-09</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/open-an-issue/</loc>
+         <lastmod>2026-10-09</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/publishing/</loc>
          <lastmod>2026-10-09</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/qa/</loc>
+         <lastmod>2026-10-09</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/report-a-security-issue/</loc>
          <lastmod>2026-10-09</lastmod>
     </url>
     <url>
@@ -186,6 +194,10 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/examples/single-player/</loc>
+         <lastmod>2026-10-09</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/</loc>
          <lastmod>2026-10-09</lastmod>
     </url>
     <url>

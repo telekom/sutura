@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Read tables, descriptions and joins from an OpenMetadata deployment.">
+        <meta name="description" content="How to report a suspected vulnerability in sutura, and what is in scope.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/integrations/catalogs/openmetadata/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/report-a-security-issue/">
       
       
-        <link rel="prev" href="../datacontract/">
+        <link rel="prev" href="../open-an-issue/">
       
       
-        <link rel="next" href="../rdbms/">
+        <link rel="next" href="../changelog/">
       
       
         
       
       
-      <link rel="icon" href="../../../assets/favicon.svg">
+      <link rel="icon" href="../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>OpenMetadata - sutura</title>
+        <title>Report a security issue - sutura</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../../../css/telekom.css">
+      <link rel="stylesheet" href="../css/telekom.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#openmetadata" class="md-skip">
+        <a href="#security-policy" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../../../assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              OpenMetadata
+              Report a security issue
             
           </span>
         </div>
@@ -232,7 +232,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../.." class="md-tabs__link">
+        <a href=".." class="md-tabs__link">
           
   
   
@@ -250,13 +250,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../integrations/" class="md-tabs__link">
           
   
   
@@ -278,7 +276,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../examples/" class="md-tabs__link">
+        <a href="../examples/" class="md-tabs__link">
           
   
   
@@ -300,7 +298,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../configuration/" class="md-tabs__link">
+        <a href="../configuration/" class="md-tabs__link">
           
   
   
@@ -318,11 +316,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../../contributing/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../contributing/" class="md-tabs__link">
           
   
   
@@ -342,7 +342,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../changelog/" class="md-tabs__link">
+      <a href="../changelog/" class="md-tabs__link">
         
   
   
@@ -383,9 +383,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../../../assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -447,7 +447,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../.." class="md-nav__link ">
+            <a href=".." class="md-nav__link ">
               
   
   
@@ -491,7 +491,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -519,7 +519,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../concepts/" class="md-nav__link">
+      <a href="../concepts/" class="md-nav__link">
         
   
   
@@ -547,7 +547,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -575,7 +575,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../serving/" class="md-nav__link">
+      <a href="../serving/" class="md-nav__link">
         
   
   
@@ -603,7 +603,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../agent-prompt/" class="md-nav__link">
+      <a href="../agent-prompt/" class="md-nav__link">
         
   
   
@@ -631,7 +631,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../qa/" class="md-nav__link">
+      <a href="../qa/" class="md-nav__link">
         
   
   
@@ -663,8 +663,6 @@
       
   
   
-    
-  
   
   
     
@@ -686,23 +684,20 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
+            <a href="../integrations/" class="md-nav__link ">
               
   
   
@@ -720,13 +715,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -746,7 +741,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../" class="md-nav__link">
+      <a href="../integrations/" class="md-nav__link">
         
   
   
@@ -771,10 +766,8 @@
                 
   
   
-    
   
   
-  
     
     
       
@@ -797,21 +790,18 @@
     
       
       
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
         
           
-          
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
             
   
   
@@ -829,7 +819,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -847,7 +837,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../markdown/" class="md-nav__link">
+      <a href="../integrations/catalogs/markdown/" class="md-nav__link">
         
   
   
@@ -875,7 +865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../datahub/" class="md-nav__link">
+      <a href="../integrations/catalogs/datahub/" class="md-nav__link">
         
   
   
@@ -903,7 +893,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../okf/" class="md-nav__link">
+      <a href="../integrations/catalogs/okf/" class="md-nav__link">
         
   
   
@@ -931,7 +921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../datacontract/" class="md-nav__link">
+      <a href="../integrations/catalogs/datacontract/" class="md-nav__link">
         
   
   
@@ -956,37 +946,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    OpenMetadata
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../integrations/catalogs/openmetadata/" class="md-nav__link">
         
   
   
@@ -1002,81 +965,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#when-to-use-it" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        When to use it
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Settings
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-the-model-maps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How the model maps
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#identity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1089,7 +977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rdbms/" class="md-nav__link">
+      <a href="../integrations/catalogs/rdbms/" class="md-nav__link">
         
   
   
@@ -1117,7 +1005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../wren/" class="md-nav__link">
+      <a href="../integrations/catalogs/wren/" class="md-nav__link">
         
   
   
@@ -1173,20 +1061,17 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
         
           
-          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
             
   
   
@@ -1222,7 +1107,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data-systems/datafusion/" class="md-nav__link">
+      <a href="../integrations/data-systems/datafusion/" class="md-nav__link">
         
   
   
@@ -1250,7 +1135,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data-systems/duckdb/" class="md-nav__link">
+      <a href="../integrations/data-systems/duckdb/" class="md-nav__link">
         
   
   
@@ -1278,7 +1163,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data-systems/bigquery/" class="md-nav__link">
+      <a href="../integrations/data-systems/bigquery/" class="md-nav__link">
         
   
   
@@ -1306,7 +1191,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data-systems/postgres/" class="md-nav__link">
+      <a href="../integrations/data-systems/postgres/" class="md-nav__link">
         
   
   
@@ -1334,7 +1219,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data-systems/clickhouse/" class="md-nav__link">
+      <a href="../integrations/data-systems/clickhouse/" class="md-nav__link">
         
   
   
@@ -1362,7 +1247,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data-systems/oracle/" class="md-nav__link">
+      <a href="../integrations/data-systems/oracle/" class="md-nav__link">
         
   
   
@@ -1408,20 +1293,17 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_5" >
         
           
-          <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="0">
             
   
   
@@ -1457,7 +1339,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../identity/" class="md-nav__link">
+      <a href="../integrations/identity/" class="md-nav__link">
         
   
   
@@ -1529,7 +1411,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../examples/" class="md-nav__link ">
+            <a href="../examples/" class="md-nav__link ">
               
   
   
@@ -1573,7 +1455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/single-player/" class="md-nav__link">
+      <a href="../examples/single-player/" class="md-nav__link">
         
   
   
@@ -1601,7 +1483,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/multi-player/" class="md-nav__link">
+      <a href="../examples/multi-player/" class="md-nav__link">
         
   
   
@@ -1629,7 +1511,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../demo/" class="md-nav__link">
+      <a href="../demo/" class="md-nav__link">
         
   
   
@@ -1726,7 +1608,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -1754,7 +1636,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../verifying-a-release/" class="md-nav__link">
+      <a href="../verifying-a-release/" class="md-nav__link">
         
   
   
@@ -1782,7 +1664,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../publishing/" class="md-nav__link">
+      <a href="../publishing/" class="md-nav__link">
         
   
   
@@ -1889,7 +1771,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../api/" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -1933,7 +1815,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-domain/" class="md-nav__link">
+      <a href="../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1961,7 +1843,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1989,7 +1871,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-datahub/" class="md-nav__link">
+      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
         
   
   
@@ -2017,7 +1899,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-okf/" class="md-nav__link">
+      <a href="../api/sutura-catalog-okf/" class="md-nav__link">
         
   
   
@@ -2045,7 +1927,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-datacontract/" class="md-nav__link">
+      <a href="../api/sutura-catalog-datacontract/" class="md-nav__link">
         
   
   
@@ -2073,7 +1955,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-openmetadata/" class="md-nav__link">
+      <a href="../api/sutura-catalog-openmetadata/" class="md-nav__link">
         
   
   
@@ -2101,7 +1983,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-rdbms/" class="md-nav__link">
+      <a href="../api/sutura-catalog-rdbms/" class="md-nav__link">
         
   
   
@@ -2129,7 +2011,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-catalog-wren/" class="md-nav__link">
+      <a href="../api/sutura-catalog-wren/" class="md-nav__link">
         
   
   
@@ -2157,7 +2039,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-semantic/" class="md-nav__link">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -2185,7 +2067,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-sql/" class="md-nav__link">
+      <a href="../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -2213,7 +2095,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -2241,7 +2123,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -2269,7 +2151,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -2297,7 +2179,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-exec-postgres/" class="md-nav__link">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -2325,7 +2207,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-exec-clickhouse/" class="md-nav__link">
+      <a href="../api/sutura-exec-clickhouse/" class="md-nav__link">
         
   
   
@@ -2353,7 +2235,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-exec-oracle/" class="md-nav__link">
+      <a href="../api/sutura-exec-oracle/" class="md-nav__link">
         
   
   
@@ -2381,7 +2263,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-adbc/" class="md-nav__link">
+      <a href="../api/sutura-adbc/" class="md-nav__link">
         
   
   
@@ -2409,7 +2291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-adbc-postgres/" class="md-nav__link">
+      <a href="../api/sutura-adbc-postgres/" class="md-nav__link">
         
   
   
@@ -2437,7 +2319,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-tls/" class="md-nav__link">
+      <a href="../api/sutura-tls/" class="md-nav__link">
         
   
   
@@ -2465,7 +2347,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-http-client/" class="md-nav__link">
+      <a href="../api/sutura-http-client/" class="md-nav__link">
         
   
   
@@ -2493,7 +2375,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-bounded-read/" class="md-nav__link">
+      <a href="../api/sutura-bounded-read/" class="md-nav__link">
         
   
   
@@ -2521,7 +2403,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-app/" class="md-nav__link">
+      <a href="../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -2549,7 +2431,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-config/" class="md-nav__link">
+      <a href="../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -2577,7 +2459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-runtime/" class="md-nav__link">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -2605,7 +2487,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-http/" class="md-nav__link">
+      <a href="../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -2633,7 +2515,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-mcp/" class="md-nav__link">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
         
   
   
@@ -2661,7 +2543,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-conformance/" class="md-nav__link">
+      <a href="../api/sutura-conformance/" class="md-nav__link">
         
   
   
@@ -2689,7 +2571,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api/sutura-dev/" class="md-nav__link">
+      <a href="../api/sutura-dev/" class="md-nav__link">
         
   
   
@@ -2729,8 +2611,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -2746,19 +2630,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -2776,7 +2663,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2794,7 +2681,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributing/" class="md-nav__link">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -2822,7 +2709,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../enterprise-mirrors/" class="md-nav__link">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -2850,7 +2737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../open-an-issue/" class="md-nav__link">
+      <a href="../open-an-issue/" class="md-nav__link">
         
   
   
@@ -2875,10 +2762,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../report-a-security-issue/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Report a security issue
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2894,6 +2808,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-a-vulnerability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting a vulnerability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-in-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is in scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-we-already-treat-as-a-defect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What we already treat as a defect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-yet-guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not yet guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported versions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2913,7 +2902,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -2960,10 +2949,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#when-to-use-it" class="md-nav__link">
+  <a href="#reporting-a-vulnerability" class="md-nav__link">
     <span class="md-ellipsis">
       
-        When to use it
+        Reporting a vulnerability
       
     </span>
   </a>
@@ -2971,10 +2960,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
+  <a href="#what-is-in-scope" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Settings
+        What is in scope
       
     </span>
   </a>
@@ -2982,10 +2971,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#what-we-already-treat-as-a-defect" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example
+        What we already treat as a defect
       
     </span>
   </a>
@@ -2993,10 +2982,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-the-model-maps" class="md-nav__link">
+  <a href="#not-yet-guarantees" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How the model maps
+        Not yet guarantees
       
     </span>
   </a>
@@ -3004,10 +2993,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#identity" class="md-nav__link">
+  <a href="#supported-versions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Identity
+        Supported versions
       
     </span>
   </a>
@@ -3034,106 +3023,164 @@
   
 
 
-<h1 id="openmetadata">OpenMetadata<a class="headerlink" href="#openmetadata" title="Permanent link">&para;</a></h1>
-<p>The OpenMetadata catalog reads tables and metrics from an OpenMetadata deployment over its REST
-API. The crate is <code>sutura-catalog-openmetadata</code>, and the catalog kind is <code>openmetadata</code>. It
-supplies models, column types, descriptions and joins.</p>
-<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<!--
+This page is `SECURITY.md` from the repository root, pulled in by pymdownx.snippets rather than
+copied, so GitHub's security tab and this site read one file. The include is configured in
+`mkdocs.yml`, with `check_paths: true`. A relative link inside SECURITY.md would resolve against
+`docs/` here and against the root on GitHub, so SECURITY.md links with absolute URLs.
+-->
+
+<h1 id="security-policy">Security policy<a class="headerlink" href="#security-policy" title="Permanent link">&para;</a></h1>
+<h2 id="reporting-a-vulnerability">Reporting a vulnerability<a class="headerlink" href="#reporting-a-vulnerability" title="Permanent link">&para;</a></h2>
+<p>Use GitHub's private vulnerability reporting on this repository: <strong>Security -&gt; Report a
+vulnerability</strong>. That opens a private channel with the maintainers.</p>
+<p>Please do not open a public issue for a suspected vulnerability. A public issue is the one
+disclosure route we cannot take back.</p>
+<p>Include what you have: the affected version or commit, what an attacker can do, and a
+reproduction if you have one. A partial report is worth sending.</p>
+<p>We aim to acknowledge within five working days and to agree a disclosure timeline with you.</p>
+<h2 id="what-is-in-scope">What is in scope<a class="headerlink" href="#what-is-in-scope" title="Permanent link">&para;</a></h2>
+<p>This project is early, and the scope has changed twice: once when the HTTP surface landed, and again
+when the identity path did. <strong>There is a network perimeter and there is now a caller identity, and
+both are in scope.</strong> What is built is a governed semantic compiler and executor over local files,
+served over HTTP behind a rate limiter and either a shared deployment token, a verified caller token,
+or both.</p>
+<p><strong>Read this paragraph before deciding a report is out of scope, because an earlier version of this
+file said the opposite and would have talked a valid report out of being sent.</strong> There are now two
+credentials and they are not the same thing:</p>
 <ul>
-<li>Use it for multi-player governance. Many owners keep their definitions in one shared OpenMetadata,
-  and one reviewed catalog is the source of truth. The <a href="../../../examples/multi-player/">multi player</a> example shows this
-  model with DataHub.</li>
-<li>Your organisation keeps its tables and their descriptions in OpenMetadata.</li>
+<li>The <strong>shared bearer token</strong> authenticates the <em>deployment</em>. Without <code>security.inbound</code>, everyone
+  holding it is treated as the same caller.</li>
+<li>Where a deployment declares <code>security.inbound</code>, sutura verifies the <strong>caller's own</strong> token - a
+  signature against a pinned asymmetric algorithm, an issuer, an audience that is this deployment's
+  own resource identifier, an expiry, and a required token class. That establishes <em>who is asking</em>,
+  and it gates <em>which operations</em> they may invoke through OAuth scopes.</li>
 </ul>
-<h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
-<p>This catalog reads the <a href="../../#catalog-settings">settings that every catalog has</a>
-and these keys. It requires <code>dir</code> and <code>data_dir</code>, but does not read them.</p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>endpoint</code></td>
-<td>string</td>
-<td>required</td>
-<td><code>scheme://host[:port]</code>. <code>https</code> for any host, <code>http</code> only for a loopback IP address. No path and no <code>user@</code>.</td>
-</tr>
-<tr>
-<td><code>token_file</code></td>
-<td>path</td>
-<td>required</td>
-<td>A file that holds an OpenMetadata bearer token. sutura reads it once at startup.</td>
-</tr>
-<tr>
-<td><code>deadline_seconds</code></td>
-<td>integer</td>
-<td><code>30</code></td>
-<td>One time limit for both requests of one catalog read. <code>0</code> is refused.</td>
-</tr>
-<tr>
-<td><code>max_response_bytes</code></td>
-<td>integer</td>
-<td><code>8388608</code></td>
-<td>The size limit for one response. <code>0</code> is refused.</td>
-</tr>
-</tbody>
-</table>
-<p>For TLS, the reader uses <code>security.outbound</code>: <code>transport_anchors</code> and an optional
-<code>client_certificate</code> and <code>client_key</code>.</p>
-<h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">catalogs</span><span class="p">:</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">"metrics"</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"openmetadata"</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/unused-for-openmetadata"</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/unused-for-openmetadata"</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">"v1"</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://openmetadata.example.com"</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">token_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/sutura/openmetadata-token"</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"files"</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/srv/sutura/data"</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
-</span></code></pre></div>
-<h2 id="how-the-model-maps">How the model maps<a class="headerlink" href="#how-the-model-maps" title="Permanent link">&para;</a></h2>
-<p>sutura reads <code>/api/v1/tables</code> with their columns and constraints, and <code>/api/v1/metrics</code>.</p>
-<table>
-<thead>
-<tr>
-<th>OpenMetadata</th>
-<th>In sutura</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>A table of the service <code>warehouse</code></td>
-<td>A model. A description is required</td>
-</tr>
-<tr>
-<td>Its columns</td>
-<td>The columns, with type and description</td>
-</tr>
-<tr>
-<td>A table constraint: one-to-one, many-to-one, one-to-many</td>
-<td>A join</td>
-</tr>
-<tr>
-<td>A metric</td>
-<td>Read and not used as a certified metric</td>
-</tr>
-</tbody>
-</table>
-<p>The tables must belong to the service named <code>warehouse</code>. sutura binds them to the source whose
-alias is the catalog <code>name</code>.</p>
-<h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
-<p>The reader sends the token from <code>token_file</code> on every request. It is one token for every caller,
-because sutura loads a catalog without a caller's identity.</p>
+<p><strong>Caller authentication alone does not decide which rows an answer contains.</strong> Every question goes
+through a credential broker for its source. The shipped BigQuery adapter can carry the caller's own
+verified assertion through the source's declared per-subject account map; an undeclared subject is
+refused rather than run as the deployment. Its real source-acceptance venue is wired but has no
+observed run, so end-to-end execution as that subject remains unproven. Other sources execute under
+their declared shared identity. A deployment can therefore know who is asking and still read rows
+under a shared identity for those sources.</p>
+<p>That makes the scope precise rather than absent:</p>
+<ul>
+<li>A report that a caller can invoke an <strong>operation</strong> they were not granted - past the scope check,
+  past the bearer gate, past the token validator - <strong>is a finding, and a high-severity one.</strong></li>
+<li>A report that one caller can read another caller's <strong>rows</strong> through a BigQuery source is a finding:
+  the declared subject-to-account mapping must be honored. For a source declared to run under a
+  shared identity, row access follows that identity's grants. <strong>A false claim of impersonation</strong> in
+  a log line, audit record, provenance or documentation is also a finding.</li>
+<li>A report that the <strong>identity itself</strong> can be forged or confused - a token accepted with the wrong
+  class, the wrong audience or an unexpected algorithm; a caller stating its own identity in a header
+  or a body; a revoked key that keeps verifying past its bound; an assertion replayed outside the
+  window this deployment configured - <strong>is a finding.</strong></li>
+</ul>
+<p>In scope on the perimeter:</p>
+<ul>
+<li>a way past the bearer gate, or a path that reaches data without it</li>
+<li>a way to make the rate limiter ineffective - including bucket keying that a caller can choose,
+  and unbounded growth of the limiter's own state</li>
+<li>a way to bypass the request-size or time bounds, or to make the service hold work after the
+  caller has been answered</li>
+<li>transport-encryption failures: cleartext where TLS was declared, a certificate reload that opens
+  a window, or a configuration that starts permissively where it should refuse</li>
+<li>a startup configuration that is accepted and should not be - the refusals are a control, and one
+  that can be talked out of is a bug</li>
+</ul>
+<p>And, as before, the things that affect anyone who builds or runs it:</p>
+<ul>
+<li>a way to get unreviewed content into a published artifact or image</li>
+<li>a credential leak, or a path that logs or serialises one</li>
+<li>a build that can be induced to fetch from a source the maintainers did not choose</li>
+<li>a gate that reports success without checking what it claims to check</li>
+<li>a way to get SQL, a table name or a predicate onto the tool surface, or a caller value into a
+  statement as text rather than as a bind parameter</li>
+</ul>
+<p>And on the identity path, now that one exists:</p>
+<ul>
+<li>a token accepted where it should be refused - the wrong signing algorithm, a symmetric key, an
+  audience that is not this deployment's, an absent or wrong token class, a missing or forward-dated
+  <code>iat</code>, or a lifetime past the ceiling the deployment configured</li>
+<li>a caller-supplied identity that is believed: a header, a request field or a body key that reaches
+  the principal chain</li>
+<li>a key removed from the key set that keeps verifying past the bound, or a forged key id that turns
+  requests into outbound fetches</li>
+<li>a deployment that declares an inbound identity and serves without one</li>
+<li><code>/mcp</code> served with no inbound identity where the startup refusals should stop it: a <code>multi-user</code>
+  or undeclared mode, an off-host deployment without both the deployment token and the limiter
+  (for <code>/mcp</code>, a declared proxy, TLS terminator or non-loopback host name counts as off-host), or a source
+  that runs as the asking subject</li>
+<li>an operation invoked without the scope that governs it, on either transport</li>
+<li>an outcome returned without a record having been written first</li>
+<li>a <strong>claim</strong> about identity that the build does not deliver: a record, provenance value, log line or
+  document saying a leg ran as the asking subject when its source used a shared identity</li>
+</ul>
+<p>Per-<strong>row</strong> access as the calling subject is built for BigQuery and remains unproven at the real
+source: no observed served run has shown the source applying the grants of the mapped account. See
+<code>docs/where-identity-is-proven.md</code> for the venue and its limit.</p>
+<h2 id="what-we-already-treat-as-a-defect">What we already treat as a defect<a class="headerlink" href="#what-we-already-treat-as-a-defect" title="Permanent link">&para;</a></h2>
+<p>Each of these is held by a type, a lint or a gate today, and
+<code>.agents/skills/sutura/invariants</code> names the mechanism beside it, with the limit it does not reach. If you can break one, that is a security bug, not a feature request:</p>
+<ul>
+<li>SQL, a table name, or a predicate reaching the tool surface</li>
+<li>a value from a question reaching a generated statement as text rather than as a bind parameter</li>
+<li>an identifier reaching a generated statement unquoted</li>
+<li>a metric's definitional filter absent from, or nameable on, a question about that metric</li>
+<li>a plan silently spanning two data systems</li>
+<li>a bundle serving answers when a declared anchor was not checked, or did not reproduce its number</li>
+<li>a credential appearing in a log, an error, or a serialised value</li>
+<li>a result cache keyed by anything other than the subject first</li>
+<li>a second call site for <code>Warehouse::verify_anchor</code> or <code>Warehouse::declared_key</code>, the two port methods that reach a data system
+  with no credential. They belong to the boot path; <code>clippy.toml</code> bans both, so every other call site - a
+  delegating wrapper, a test cell - carries an <code>#[expect]</code> a reviewer sees. <strong>Their input types are self-checks and not barriers</strong> - see <em>Not yet
+  guarantees</em> below</li>
+</ul>
+<h2 id="not-yet-guarantees">Not yet guarantees<a class="headerlink" href="#not-yet-guarantees" title="Permanent link">&para;</a></h2>
+<p>These are the design and are <strong>not</strong> enforced, so breaking one is not a vulnerability report - it
+is the state of the repository, recorded in <code>.agents/skills/sutura/invariants</code> and in
+<a href="https://telekom.github.io/sutura/latest/architecture/#what-exists-today">what exists today</a>:</p>
+<ul>
+<li><strong>a query proven to execute as the calling subject at a real source.</strong> BigQuery's per-subject
+  path is built, but its served identity venue has no observed run. Other sources deliberately use
+  their declared shared identity. A mismatch between a BigQuery subject and the account used to
+  execute its question is a finding; a claim that this live behavior has already been proven is also
+  a finding</li>
+<li><strong><code>AnchorPlan</code> is not a barrier, and citing it as one is the mistake this line exists to stop.</strong>
+  It parses a plan as one the pinned bundle itself agrees is a declared anchor's own, so it catches a
+  boot path that compiled the wrong question - but every value its constructor reads is publicly
+  constructible and Rust has no cross-crate friend visibility, so in-process code that wants to
+  construct one can. What keeps the credential-free method to the boot path is the <code>clippy.toml</code> ban
+  on it, which is a lint rather than a type: it reaches this workspace and an <code>#[allow]</code> walks past
+  it. A report that the <em>type</em> can be constructed outside the boot path is the state of the
+  repository, recorded here and on the type</li>
+<li><strong>a declared cardinality holding continuously, or on every data system.</strong> A relationship whose
+  join type says its target column identifies at most one row is counted against its distinct values
+  once, at startup, and a bundle the data contradicts does not validate - so both plan shapes refuse
+  rather than answering two different numbers for one question. Three things that does not reach: a
+  duplicate introduced <em>after</em> startup - which reaches every caller from then on as a number, for the
+  whole life of the process, because there is no reload and the answer path is unchanged - a data
+  system whose adapter cannot count at all (it answers <em>not asked</em> and nothing prints that; a probe
+  that FAILS does refuse the boot and names the data system's own complaint), and the origin half of a
+  <code>one_to_one</code>, which nothing asks about. A report that a row inserted after boot changes an answer is
+  the state of the repository</li>
+<li><strong><code>single-user</code> as a fact.</strong> <code>security.identity: single-user</code> is a mode and a reason the operator
+  writes; nothing counts who calls. On such a deployment with no inbound identity, <code>/mcp</code> answers
+  every caller as the deployment with every capability, as <code>/v1</code> does there. A report that a second
+  person reached it is the state of the repository</li>
+<li>a <strong>row</strong>-level entitlement between callers. Scopes narrow which operations a caller may invoke and
+  decide nothing about which rows an answer contains</li>
+<li><strong>binding a gateway identity assertion to a request.</strong> The replay window is bounded by this
+  deployment's own ceiling and nothing binds an assertion to what it was sent with, so inside that
+  window an intercepted assertion replays. A regression test asserts the replay rather than pretending
+  otherwise</li>
+<li><strong>which host a delegation exchange sends a caller's token to.</strong> sutura does not tie a delegation's
+  <code>token_endpoint</code> to the inbound issuer: the operator chooses the host, and each caller's token is
+  sent to it</li>
+<li>a result leaving without provenance in an Arrow schema. There is no Arrow envelope</li>
+</ul>
+<h2 id="supported-versions">Supported versions<a class="headerlink" href="#supported-versions" title="Permanent link">&para;</a></h2>
+<p>Pre-1.0. Only the latest tag is supported, and there are no backports.</p>
 
 
 
@@ -3208,10 +3255,10 @@ because sutura loads a catalog without a caller's identity.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
