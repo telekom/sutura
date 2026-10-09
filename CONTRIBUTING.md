@@ -75,53 +75,28 @@ whether yours are live, `just setup` again and read what it prints.
 
 ## Working in parallel worktrees
 
-Stacked branches mean several worktrees at once, so the development service tier is built to run
-**one independent instance per worktree** rather than one shared set you have to take turns on.
+Each worktree runs its own development services. Two worktrees share no container, network, volume or port.
 
 ```bash
-just worktree feat/thing   # an isolated worktree for a stacked change
-just worktrees             # every worktree and its scope
-just ports                 # this worktree's compose project and service ports
-just dev-up                # this worktree's services, provisioned and health-gated
-just dev-endpoints         # where they are listening - the readable table
-just dev-endpoint clickhouse   # one host:port on stdout, for shell substitution
-just dev-down              # remove this worktree's services, network and volumes. Nothing else
-just dev-down-dry          # what that would remove, and what it would spare
+just worktree feat/thing       # a new worktree for a stacked change
+just dev-up                    # start this worktree's services
+just dev-endpoint clickhouse   # print one host:port
+just dev-down                  # remove this worktree's services
 ```
 
-**No host port is written anywhere, and that is the load-bearing part.** `compose.services.yaml`
-names only container ports, so the host port is ephemeral and chosen by docker and the OS;
-`dev-up` reads back what they chose and writes it into a discovery file the harness reads, which is
-why `just dev-endpoint` is the only way to learn a port and there is no constant to hardcode. A hash
-into a port range cannot promise disjoint blocks, and "check whether the port is free, then bind" is
-a race whose window belongs to whatever else is on the host.
+Docker chooses each host port. Read a port with `just dev-endpoint`, and never write one into a file.
 
-Isolation comes from the compose **project name**, derived from the worktree's canonical path, so
-containers, network and named volumes are all per-worktree and two worktrees running the same file
-share nothing. Nobody has to remember to change a value. Every service declares a healthcheck,
-because provisioning gates on health rather than sleeping.
+The services are ClickHouse, and Keycloak with `just dev-up-identity`. `just test` provisions PostgreSQL
+from Nix. Without docker, the services skip locally and fail in CI. To add a service, add a row to
+`sutura_dev::scope::SERVICES` and a block to `compose.services.yaml`.
 
-The tier provisions ClickHouse today, plus Keycloak behind an `identity` profile that is off by
-default (`just dev-up-identity`). Postgres is not here: `just test` provisions it from nix instead.
-A missing docker **skips** locally and **fails** in CI, both from one flag. Adding a service is a
-registration - a row in `sutura_dev::scope::SERVICES` and a block in `compose.services.yaml` - and
-the file itself records which services are deferred and why. Orchestration lives in `xtask` and the
-worktree and port commands in `sutura-dev`, deliberately: docker orchestration inside a release
-artifact would be test scaffolding shipped to users, and neither of those crates is packaged.
+**Other routes.** The dev container runs the same shell in Docker:
+`docker compose -f compose.dev.yaml run --rm dev`. Use it on Windows without WSL2. Bare `rustup` compiles
+and tests, but the hooks and gates come from Nix, so you see their failures only on the pull request.
+With no direct internet egress, read
+[Building without direct internet egress](https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md).
 
-**Two other routes, if that one is closed to you.** The dev container is the same shell in Docker -
-`docker compose -f compose.dev.yaml run --rm dev` - and is the answer on Windows without WSL2. Bare
-`rustup` compiles and tests (`rust-toolchain.toml` is the pin and rustup honours it), but `just`,
-the hooks, the secret scan and the supply-chain gate all come from Nix and pixi, so on that route
-you find out on the pull request instead of before it. On a network with no direct egress, read
-[Building without direct internet egress](https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md)
-first: nothing that fetches is hardcoded, and every location is read from the environment.
-
-**The dev shell's bare `cargo` is the nightly toolchain**, the same one every gate and CI use now
-
-- the stable/nightly split is gone, so a bare `cargo clippy` reports the lints CI sees. Run
-  `just lint` anyway, because it also adds `-D warnings`. The trap and its siblings are in
-  [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
+Run `just lint`, not a bare `cargo clippy`: the task adds `-D warnings`.
 
 ## Using AI-generated code
 
