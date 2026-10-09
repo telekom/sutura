@@ -11,8 +11,10 @@ supplies models, column types, descriptions and joins.
 
 ## When to use it
 
+- Use it for multi-player governance. Many owners keep their definitions in one shared OpenMetadata,
+  and one reviewed catalog is the source of truth. The [multi player](../../examples/multi-player.md) example shows this
+  model with DataHub.
 - Your organisation keeps its tables and their descriptions in OpenMetadata.
-- You want sutura to use the table constraints that OpenMetadata records as joins.
 
 ## Settings
 
@@ -65,8 +67,3 @@ alias is the catalog `name`.
 
 The reader sends the token from `token_file` on every request. It is one token for every caller,
 because sutura loads a catalog without a caller's identity.
-
-## Sizing
-
-The reader reads one page of at most 1000 tables and 1000 metrics. A response that reports more is
-refused.

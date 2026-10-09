@@ -11,8 +11,10 @@ supplies tables, columns, types, descriptions and joins. It supplies no metrics.
 
 ## When to use it
 
-- Your teams publish data contracts in ODCS v3.
-- You want sutura to know the tables and the joins between them that the contracts declare.
+- Use it for single-player governance. One owner keeps the contracts as files in the repository, and
+  sutura reads that directory. The [single player](../../examples/single-player.md) example shows this model with the markdown
+  catalog.
+- Your data contracts are ODCS v3 documents.
 
 ## Settings
 

@@ -53,6 +53,8 @@ tools:
 
 ## Identity
 
+This data system supports `shared-service-user` only: DuckDB runs inside the sutura process, so no per-caller identity reaches the source.
+
 The process opens the file with its own operating-system identity. The source must use
 `posture: shared-service-user`. sutura opens the file with external access off and the DuckDB
 configuration locked, so a statement cannot read other files.

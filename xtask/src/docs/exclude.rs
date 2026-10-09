@@ -10,8 +10,10 @@
 //! `check-docs` green and `mkdocs build --strict` at exit 0 with two INFO lines.
 //!
 //! Only the subset the gate accepts is implemented, and the rest is REFUSED rather than
-//! approximated: a glob, a directory pattern or a `!` negation is a finding, because a pattern
-//! this cannot resolve is an exclusion nothing checks.
+//! approximated: a glob, a `!` negation or a directory pattern without a leading `/` is a
+//! finding, because a pattern this cannot resolve is an exclusion nothing checks. The one
+//! directory form it resolves is `/dir/`, anchored at the docs directory, which keeps every page
+//! under `dir/` off the site - so a page added there needs no line of its own.
 //!
 //! **The collision is live rather than hypothetical.** `docs/index.md` and `docs/api/index.md`
 //! share a basename, so an exclusion naming `index.md` drops both - and the old matcher resolved
@@ -34,12 +36,20 @@ pub(super) struct Resolved {
     pub(super) problems: Vec<String>,
 }
 
+/// Whether `pattern` is the one directory form this gate resolves: `/dir/`.
+fn directory(pattern: &str) -> Option<&str> {
+    pattern.strip_prefix('/').filter(|rest| rest.ends_with('/') && rest.len() > 1)
+}
+
 /// Every page `pattern` matches, under the gitignore semantics mkdocs applies.
 ///
-/// Two cases and no more, because the shapes that need the rest are refused before this is
-/// reached: a pattern containing a `/` is anchored at the docs directory, and one containing none
-/// matches a BASENAME at any depth.
+/// Three cases and no more, because the shapes that need the rest are refused before this is
+/// reached: `/dir/` is every page under `dir/`, a pattern containing another `/` is anchored at
+/// the docs directory, and one containing none matches a BASENAME at any depth.
 fn matching<'a>(pattern: &str, present: &'a BTreeSet<String>) -> Vec<&'a String> {
+    if let Some(dir) = directory(pattern) {
+        return present.iter().filter(|page| page.starts_with(dir)).collect();
+    }
     if pattern.contains('/') {
         let anchored = pattern.trim_start_matches('/');
         return present.iter().filter(|page| page.as_str() == anchored).collect();
@@ -59,9 +69,10 @@ pub(super) fn resolve(patterns: &[String], present: &BTreeSet<String>, nav: &BTr
         problems: Vec::new(),
     };
     for pattern in patterns {
-        if pattern.starts_with('!') || pattern.ends_with('/') || pattern.contains(PATTERN_CHARS) {
+        let whole_directory = directory(pattern).is_some();
+        if pattern.starts_with('!') || (pattern.ends_with('/') && !whole_directory) || pattern.contains(PATTERN_CHARS) {
             out.problems.push(format!(
-                "{CONFIG} excludes `{pattern}`, which is a pattern rather than a page - this gate does not implement ignore-file syntax, so it cannot say which files that keeps off the site. Name each page literally"
+                "{CONFIG} excludes `{pattern}`, which is a pattern rather than a page - this gate does not implement ignore-file syntax, so it cannot say which files that keeps off the site. Name each page literally, or one directory as `/dir/`"
             ));
             continue;
         }
@@ -71,7 +82,7 @@ pub(super) fn resolve(patterns: &[String], present: &BTreeSet<String>, nav: &BTr
                 "{CONFIG} excludes `{pattern}`, but there is no `{docs_dir}/{pattern}` - an exclusion over nothing reads as a page being kept off the site while none is, so delete it"
             ));
         }
-        if matched.len() > 1 {
+        if matched.len() > 1 && !whole_directory {
             let named: Vec<&str> = matched.iter().map(|page| page.as_str()).collect();
             out.problems.push(format!(
                 "{CONFIG} excludes `{pattern}`, which names no directory - mkdocs matches such a pattern at EVERY depth, so it keeps {} pages off the site: {}. Write the path from the docs directory instead, so this list and the built site name the same pages",
@@ -188,6 +199,29 @@ mod tests {
             found.problems.iter().any(|p| p.contains("Choose one")),
             "{:?}",
             found.problems
+        );
+    }
+
+    #[test]
+    fn a_directory_anchored_at_the_docs_directory_keeps_every_page_under_it_off_the_site() {
+        let present = set(&["index.md", "adr/0001-a.md", "adr/20260101000000-b.md", "notes/adr/c.md"]);
+        let nav = set(&["index.md"]);
+        let found = resolve(&patterns(&["/adr/"]), &present, &nav, "docs");
+        assert!(found.problems.is_empty(), "{:?}", found.problems);
+        assert_eq!(found.pages, set(&["adr/0001-a.md", "adr/20260101000000-b.md"]));
+        // A page the nav also names is still a finding, directory or not.
+        let navigated = resolve(&patterns(&["/adr/"]), &present, &set(&["adr/0001-a.md"]), "docs");
+        assert!(
+            navigated.problems.iter().any(|p| p.contains("Choose one")),
+            "{:?}",
+            navigated.problems
+        );
+        // And a directory with no page under it is the stale exclusion it always was.
+        let gone = resolve(&patterns(&["/drafts/"]), &present, &nav, "docs");
+        assert!(
+            gone.problems.iter().any(|p| p.contains("an exclusion over nothing")),
+            "{:?}",
+            gone.problems
         );
     }
 

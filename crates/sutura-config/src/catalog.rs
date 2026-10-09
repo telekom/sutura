@@ -27,7 +27,7 @@ pub use crate::catalog::rdbms::{
 /// operator could write to say *read the model from somewhere else* - so a second catalog kind
 /// could merge complete and silently remain unreachable from any binary.
 ///
-/// Five variants. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
+/// Six variants. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
 /// data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 /// that exists in a record rather than in a linked crate is still a word an operator might write.
 /// `#970` added the three declaring adapters that had a crate and no composition root.

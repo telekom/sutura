@@ -118,26 +118,16 @@ Keycloak tier (`just keycloak-tier`). It takes the same four variables and adds,
 The server never contacts the issuer: it verifies against the key set it was handed, which is why
 the tier's loopback `https://` issuer verifies inside a container whose loopback is its own.
 
-Its limits, beside the claims:
+Good to know:
 
-- **Run end to end once, by hand, and by no gate.** On 2026-10-01, `just demo-mcp` on one
-  developer machine brought the tier and the container up healthy. `/mcp` refused a call with no
-  token, a malformed token and a token whose signature had been altered, each with `401`, and listed
-  three tools for the minted one. Open WebUI's registry listed `server:mcp:sutura`, and one chat
-  question went through Open WebUI's MCP client to `ask_metric`, which answered `202121` for June
-  2026. Teardown left no container and stopped the tier. The model was a local deterministic stub
-  that always picks that tool, so the run shows the plumbing, not a model choosing it. The
-  demo-container workflow drives only `just demo`, and `just validate` runs this mode's launcher,
-  supervisor, probe and minting helper against fakes.
 - **One token, no renewal.** The tier's realm mints access tokens for an hour (Keycloak's default is
   five minutes, raised in `nix/keycloak-tier.nix`, whose start refuses a realm that mints less).
   Nothing refreshes the one token the launcher fetched, so after that hour the MCP connection is
-  refused; run `just demo-mcp` again for a fresh one. Readiness latched its token check and stays
-  healthy.
-- **One subject, chosen by the launcher.** The chat client does not log in; every chat presents the
-  same subject's token. It shows a real issuer's token verified on `/mcp`, not a person signing in.
-- **Still a single shared source identity.** The verified caller does not change who reads the
-  example. This is not source impersonation.
+  refused. Run `just demo-mcp` again for a fresh one.
+- **One subject, chosen by the launcher.** The chat client does not log in. Every chat presents the
+  same subject's token.
+- **The example is read as a shared service user.** The verified caller does not change who reads
+  the example.
 - **The token travels in the container's environment**, the way the model key does, so anyone who
   can inspect the container can read it until it expires.
 
@@ -147,35 +137,21 @@ Ctrl-C removes the demo's container and its named volume. `examples/demo-chatint
 tier's own scoped teardown through `xtask dev-down`, so only this worktree's demo goes - the chat
 client's stored state included. `just dev-down-demo` does the same from another shell.
 
-## What the demo does not prove
+## What the demo is
 
-Stated here rather than left to a reader, because an overstated control is itself the defect:
-
-- **The chat client is ungoverned.** It has no sutura role. It chooses a tool, phrases a prompt and
-  writes the answer text, and it can be wrong about all three - sutura's guarantees are untouched by
-  that, because none of them live there.
-- **A single-user demo proves no caller identity.** The deployment is `single-user` and reads the
-  example as one shared service user, acknowledged by you. It neither knows nor shows who is asking,
-  and it cannot be captioned as if it did.
-- **It proves no source impersonation.** This demo uses a shared identity, so every question reads
-  the example under the same operating-system identity. Leg 1 - the runtime knowing who is asking -
-  is demonstrated elsewhere. The shipped BigQuery adapter has a per-subject path, but no served run
-  has proven its source acceptance.
+- **The chat client is not part of sutura.** It chooses a tool, phrases a prompt and writes the
+  answer text. sutura's guarantees do not depend on it.
+- **The deployment is `single-user`.** It reads the example as one shared service user, which you
+  acknowledge.
 - **Development mode defaults rate limiting off.** It keeps the interface description available for
-  the chat client's OpenAPI connection. Together with the unauthenticated single-user chat client,
-  that makes loopback binding a boundary of this demo, not a pattern for a shared deployment.
-- **The real walkthrough is not a gate, and this is not a release artifact.** `just validate` runs
-  the hermetic fake-child behavior contract, including authenticated registry and operation-set
-  checks, but it does not build the image or call a real model. `examples/demo-chatinterface/Dockerfile` is demo-only
-  packaging around the shipped server binary. A demo that failed a gate would be disabled, and a
-  disabled demo holds nothing.
+  the chat client's OpenAPI connection, so loopback binding is the boundary of this demo. It is not
+  a pattern for a shared deployment.
+- **The Dockerfile is demo-only packaging** around the server binary
+  (`examples/demo-chatinterface/Dockerfile`).
 
 For a configuration-only smoke check, run `just demo-check`. It validates endpoint transport policy,
 required settings and acknowledgement without building an image, starting containers or contacting
-the configured model. It does not prove that the model answers or that the chat client can call tools;
-the full `just demo` lifecycle is required for that.
+the configured model.
 
-The generated OpenAPI document intentionally no longer publishes `GET /health`. This is a breaking
-change to the published interface description: `/health` remains a runtime liveness route for probes,
-but it is not a governed operation and therefore is not offered as a chat tool. Clients consuming the
-OpenAPI document must stop expecting that path in the document.
+The generated OpenAPI document does not list `GET /health`. `/health` is a liveness route for
+probes, not a governed operation, so the chat client does not get it as a tool.

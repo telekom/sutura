@@ -296,7 +296,7 @@ nix sandbox, and whether it covers what a `Warehouse` adapter needs - bind param
 clause, the token-authentication path ADR 0008 defers. The driver question is open again, not closed
 either way.
 
-Which is why [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) already has the answer and this record adopts it:
+Which is why [Connectors: Arrow Flight, not a driver per data system](../architecture.md) already has the answer and this record adopts it:
 **Arrow Flight SQL, uniformly, rather than a linked native driver each.** Under that transport a
 leg's adapter is one crate parameterised by an endpoint and a `Dialect` rather than one crate per data
 system; the proprietary client lives in a gateway process outside our artifact; and the type mapping
@@ -554,7 +554,7 @@ section put up have been re-measured and only one still stands, which is why the
 kept rather than deleted: they are the reason the port change is safe to make now and were not when
 this was written.
 
-Why not move the port to Arrow first, which is the direction [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) records:
+Why not move the port to Arrow first, which is the direction [Connectors: Arrow Flight, not a driver per data system](../architecture.md) records:
 `arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
 and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
 engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,

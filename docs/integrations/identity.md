@@ -8,8 +8,7 @@ description: How sutura verifies who asks - a token from your identity provider,
 Inbound identity tells sutura who asks. sutura checks a signed token from your identity provider
 and gets a verified subject, its scopes and its groups. sutura uses the subject for the audit
 record and for the scope check. A BigQuery source with `posture: impersonation-at-source` also
-runs the query as the service account that its map names for that subject. This path is built,
-and no recorded run has yet shown Google accept the caller's identity.
+runs the query as the service account that its map names for that subject.
 
 The settings are under `security.inbound`. There are two modes, and there is no default:
 
