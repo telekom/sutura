@@ -993,3 +993,7 @@ mod allowed_hosts;
 /// twins. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod agent_surface;
+
+/// The `catalogs[].refresh_seconds` default. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod catalog_refresh;

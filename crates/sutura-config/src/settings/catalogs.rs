@@ -89,7 +89,7 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         // a `datahub` entry's own refusal (an unusable endpoint, say) is reported first; a zero
         // interval is refused either way.
         let settings = settings
-            .with_refresh_seconds(raw_catalog.refresh_seconds)
+            .with_refresh_seconds(Some(raw_catalog.refresh_seconds))
             .map_err(|cause| SettingsError::Catalog { cause })?;
         entries.push(settings);
     }
