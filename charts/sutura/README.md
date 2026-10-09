@@ -100,16 +100,10 @@ pushed reference with `cosign` the way every image reference already is -
 helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version>
 ```
 
-**Artifact Hub indexes it for discovery; it does not host it.** Three things only a human with
-console access can do, and CI cannot fake either:
+**Artifact Hub indexes it for discovery; it does not host it.** The repository is listed there as
+`sutura`, and `charts/sutura/artifacthub-repo.yml` holds its `repositoryID` (that key only - no
+`owners` block). `release.yml` pushes that file under the registry's `artifacthub.io` tag on every
+release.
 
-1. Register `oci://ghcr.io/telekom/charts/sutura` as a repository in the Artifact Hub console,
-   signed in as the owning account. That alone makes verified-publisher status available -
-   nothing here needs to *claim* a repository nobody else has added.
-2. Commit the `repositoryID` Artifact Hub then issues into `charts/sutura/artifacthub-repo.yml`
-   (that key only - no `owners` block: `AGENTS.md` refuses a name or email in this public repo,
-   and a console-registered repository has nothing to claim). Once that file exists,
-   `release.yml` pushes it under the registry's `artifacthub.io` tag on every subsequent
-   release; until it exists, that step logs why it did nothing and does not fail the release.
-3. Make the `ghcr.io/telekom/charts` package publicly readable - private by default even for a
-   public repository, and the most likely reason a first attempt looks broken.
+The `ghcr.io/telekom/charts` package must be publicly readable - private by default even for a
+public repository, and the most likely reason a first attempt looks broken.
