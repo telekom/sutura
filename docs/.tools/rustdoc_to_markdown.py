@@ -321,9 +321,33 @@ def drop_unfollowable(match: re.Match[str]) -> str:
     return match.group(1) if unfollowable(match.group(2)) else match.group(0)
 
 
+# A citation of a design-decision record. The doc comments keep it for the people who read the
+# source; the published pages carry no record path, so the span becomes a noun phrase and the
+# `decision 7` / `part 4` / `step 2` that followed it - a pointer into a record the page does not
+# have - goes with it. A record cited by number (`ADR 0011`, `ADR-0015 Decision 5`) is the same
+# citation and goes the same way, with the `the` that led it. `check-docs` refuses any
+# `docs/adr/` text or `ADR NNNN` that still reaches a page.
+ADR_CITATION = re.compile(
+    r"`docs/adr/[^`\n]*`(?:\s+(?:[Dd]ecision|part|step)\s+\d+)?"
+    r"|(?:\b[Tt]he\s+)?\b(?i:ADR)[\s-]*\d{4}\b(?:\s+(?:[Dd]ecision|rule|part|step)\s+\d+)?"
+)
+
+
+def cite_decision(match: re.Match[str]) -> str:
+    """The noun phrase for one citation, capitalised where it opens a sentence."""
+    before = match.string[: match.start()]
+    opens = (
+        before.rstrip(" *_>").endswith((".", "!", "?"))
+        or before.strip(" *_>-") == ""
+        or before.endswith("\n\n")
+    )
+    return "The architecture decision" if opens else "the architecture decision"
+
+
 def clean_docs(text: str | None) -> str:
     if not text:
         return ""
+    text = ADR_CITATION.sub(cite_decision, text)
     text = INLINE_LINK.sub(drop_unfollowable, text)
     return INTRA_DOC_LINK.sub(r"\1", text).strip()
 
@@ -609,7 +633,13 @@ def selftest_fixture() -> dict:
                 "id": variant_id,
                 "name": "Refused",
                 "visibility": "public",
-                "docs": "THE VARIANT SUMMARY.\n\nTHE VARIANT RATIONALE, which is a second paragraph.",
+                "docs": (
+                    "THE VARIANT SUMMARY.\n\n"
+                    "THE VARIANT RATIONALE, which is a second paragraph. "
+                    "`docs/adr/0001-x.md` decision 3 says why, as `docs/adr/0002` does. "
+                    "ADR 0011's reasons hold, as ADR-0015 Decision 5 does, "
+                    "and the ADR\n   0016 refusal fires."
+                ),
                 "inner": {"variant": {"kind": "plain", "discriminant": None}},
             },
         },
@@ -632,6 +662,16 @@ def selftest() -> None:
     # long as the bullet was built from a one-line slice, so both halves are asserted.
     assert "THE VARIANT SUMMARY." in text, text
     assert "THE VARIANT RATIONALE, which is a second paragraph." in text, text
+    # A record citation reaches no page: the path and its `decision 3` pointer are gone.
+    assert "docs/adr" not in text, text
+    assert re.search(r"(?i)\bADR[\s-]*\d{4}\b", text) is None, text
+    assert (
+        "The architecture decision says why, as the architecture decision does." in text
+    ), text
+    assert (
+        "The architecture decision's reasons hold, as the architecture decision does,"
+        " and the architecture decision refusal fires." in text
+    ), text
 
 
 def main(argv: list[str]) -> int:

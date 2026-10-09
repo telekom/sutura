@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/catalog.rs b/crates/sutura-cli/src/catalog.rs
+index bee031245..fc3b72ec1 100644
+--- a/crates/sutura-cli/src/catalog.rs
++++ b/crates/sutura-cli/src/catalog.rs
+@@ -374,7 +374,7 @@ fn open_one_rdbms_catalog(
+     if rdbms.dictionary_source() == sutura_config::DictionarySource::NativeDictionary {
+         return Err(format!(
+             "`catalogs.{}` declares `dictionary_source: native_dictionary`, but the native dictionary reader is not yet wired - \
+-             not supported by this build",
++             unsupported",
+             settings.name()
+         ));
+     }

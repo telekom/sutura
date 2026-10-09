@@ -149,6 +149,10 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to, and the scope the exchanged credential is minted for.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
+    /// A `clickhouse` source's subject -> `ClickHouse` user map: required when it is
+    /// `impersonation-at-source`, refused otherwise - see `crate::sources::clickhouse`.
+    #[serde(default)]
+    pub(crate) impersonate: Option<std::collections::BTreeMap<String, String>>,
     /// The host a `postgres` source dials over TCP. Mutual with `unix_socket`.
     #[serde(default)]
     pub(crate) host: Option<String>,

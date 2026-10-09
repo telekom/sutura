@@ -1,6 +1,8 @@
 //! The `causality` and `postgres-linked-driver` arms of the real `ci-aggregate` shell (#1280), run
 //! through `aggregate_shell`'s harness. Both were steps of `ci`, so the required context that gated
-//! them before is the aggregate now: a skip or a failure where `ci` selected them must be red.
+//! them before is the aggregate now: a skip or a failure where `ci` selected them must be red. The
+//! `cross` arm is here too: its legs report a context no ruleset lists, so a red one reaches a merge
+//! only through this shell.
 
 use super::aggregate_shell::run_aggregator;
 
@@ -45,5 +47,19 @@ fn a_failed_unrequired_moved_job_is_red() {
             text.contains(&format!("{name} reported")),
             "the failed leg must be named: {text}"
         );
+    }
+}
+
+#[test]
+fn a_cross_leg_that_ran_and_is_not_green_is_red_and_a_skipped_one_is_not() {
+    for result in ["failure", "cancelled"] {
+        let (ok, text) = with("CROSS_RESULT", result, "CAUS_REQUIRED", "false");
+        assert!(!ok, "a `cross` that reported {result} cannot pass: {text}");
+        assert!(text.contains("cross reported"), "the leg must be named: {text}");
+    }
+    // The merge queue never runs `cross`, and the classification may skip it.
+    for result in ["success", "skipped"] {
+        let (ok, text) = with("CROSS_RESULT", result, "CAUS_REQUIRED", "false");
+        assert!(ok, "a `cross` that reported {result} must aggregate green: {text}");
     }
 }

@@ -1,73 +1,62 @@
 # Verifying a release
 
 The tagged-release workflow signs artefacts and records SLSA provenance as described below.
-Signature and provenance bundles carry the evidence; they do not recursively attest themselves.
-This page explains the checks and, just as importantly, what they do **not** say.
+Signature and provenance bundles carry the evidence; they do not attest themselves.
+This page explains the checks and what they do **not** say.
 
 ## Read this part first
 
 **A signature answers "did this pipeline produce these bytes". It does not answer "are these bytes
 good".** Provenance is an *identity* claim, and the whole of what it establishes is that the file in
-your hand is byte-for-byte what `github.com/telekom/sutura`'s release workflow emitted at a tag,
-rather than something a mirror, a proxy or a compromised download page substituted. It says nothing
-about whether the code is correct, whether a dependency has an advisory against it, or whether the
-release is fit for what you want to do with it. The gates say the first, `cargo-deny` says the
-second, and nothing says the third.
+your hand is byte-for-byte what the release workflow of `github.com/telekom/sutura` emitted at a
+tag, and not something a mirror, a proxy or a compromised download page substituted. It says
+nothing about whether the code is correct, whether a dependency has an advisory, or whether the
+release is fit for your use. The gates say the first, `cargo-deny` says the second, and nothing
+says the third.
 
-**The SBOM does inventory the crate graph, and it is read out of the binary rather than out of a
-lock file.** Why that distinction is worth the sentence is under
-[What the SBOM covers](#what-the-sbom-covers).
+**The SBOM inventories the crate graph. It is read out of the binary, not out of a lock file.**
+The reason is under [What the SBOM covers](#what-the-sbom-covers).
 
 ## What a release publishes
 
-**One binary, `sutura`, at four target triples.** It answers certified questions over HTTP too, as
-`sutura serve` - `github.com/telekom/sutura#111` shipped that surface as a second binary,
-`sutura-serve`, and `github.com/telekom/sutura#685` step 2 folded it back into this one:
+**One binary, `sutura`, at four target triples.** It also answers certified questions over HTTP, as
+`sutura serve`:
 
 | Binary   | What it is                                                                                                                                                           | Asset                    | Image tag                                                  |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
 | `sutura` | the command-line tool (`doctor`, `catalog`, `describe`, `prompt`, `compile`, `query`) and, as `sutura serve`, the service that answers certified questions over HTTP | `sutura-<triple>.tar.gz` | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl` |
 
-**One registry repository**, `ghcr.io/telekom/sutura`. The unsuffixed tags have always resolved to
-this binary and still do - there is nothing else for them to resolve to now. Which libc you get is
-still something you have to type: `:latest-musl` for the static pair, `:latest` for glibc.
+**One registry repository**, `ghcr.io/telekom/sutura`. The unsuffixed tags resolve to this binary.
+You choose the libc with the tag: `:latest-musl` for the static pair, `:latest` for glibc.
 
-**Built with the optional features `nix/shipped.nix` lists on**, since
-`github.com/telekom/sutura#685` step 5 - the published binary carries the HTTP surface, the
-caller-token verification, the rate limiter and the generated interface description, which are not
-optional features and are always linked, plus every entry of that file's `features` list. Configuring
-a deployment to use an adapter is a settings-tree entry, not a build: which adapters a deployment
-uses is configuration, and a binary with fewer of them is a source build a contributor chooses, not
-what a release ships. A feature absent from that list is a source build only. `nix/shipped.nix` is
-where that decision is written, and `nix build .#checks.x86_64-linux.shipped-features` is what
-asserts it, out of the shipped binary's own embedded dependency list rather than out of a manifest -
-including that `ring` and `ureq`, the crates the earlier default-off decision existed to keep out,
-are now genuinely present.
+**Built with the optional features that `nix/shipped.nix` lists.** The published binary always
+links the HTTP surface, the caller-token verification, the rate limiter and the generated interface
+description. It also carries every entry of the `features` list in that file. A deployment uses an
+adapter through a settings-tree entry, not through a build. A binary with fewer adapters is a source
+build, and a feature that is not in that list is available in a source build only.
+`nix build .#checks.x86_64-linux.shipped-features` asserts the list against the dependency list
+that is embedded in the shipped binary, not against a manifest.
 
-**The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver they link -
-libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls'. That libpq
-signs in with Kerberos through a static MIT krb5, carried the same way, and has no OAuth flow.
-Kerberos sign-in for x86_64 is shown by a CI test build against a KDC tier, not by the release
-artefact; aarch64 links the same set and is not executed. `sutura doctor` prints a `pg driver` line
-saying whether the binary links that driver and whether it initialises; every `kind: postgres`
-source is answered through it.
+**The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver that it
+links. libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls. That
+libpq signs in with Kerberos through a static MIT krb5, and has no OAuth flow. `sutura doctor`
+prints a `pg driver` line that says whether the binary links that driver and whether it
+initialises. Every `kind: postgres` source is answered through it.
 
 **The optimised build is a separate prerelease, `v<version>-performance`**, never `latest`,
 published only when a maintainer dispatches `release-performance.yml` on a release tag whose tree
-contains that workflow's publishing steps; a dispatch runs the workflow as the tag holds it, so no
-tag cut before them can produce one. The first is v0.6.2; there is no v0.6.1 backfill. The same commit at the `release-performance`
-profile: assets `sutura-<triple>-performance.tar.gz`, leaf images
-`:<version>-performance-<triple>`, lists `:<version>-performance` and `:<version>-performance-musl`.
-The same signing, SBOM and provenance sequence runs over it, so the regexp-based `cosign` commands
-below apply unchanged. The bundle-mode `gh attestation verify` below does not: for an optimised
-asset its identity is
+contains the publishing steps of that workflow. A dispatch runs the workflow as the tag holds it.
+It builds the same commit at the `release-performance` profile: assets
+`sutura-<triple>-performance.tar.gz`, leaf images `:<version>-performance-<triple>`, lists
+`:<version>-performance` and `:<version>-performance-musl`. The same signing, SBOM and provenance
+sequence runs over it, so the regexp-based `cosign` commands below apply unchanged. The bundle-mode
+`gh attestation verify` below does not. For an optimised asset its identity is
 `https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG`, and
-`$TAG` is the dispatched `v<version>`, not `v<version>-performance` - derived from how the
-certificate records the workflow and ref, not yet run against an optimised release. Its change
-list, licence statement and chart are the ones on `v<version>`.
+`$TAG` is the dispatched `v<version>`, not `v<version>-performance`. Its change list, licence
+statement and chart are the ones on `v<version>`.
 
-**A release also carries a licence statement, and it is a different list on purpose.** What each of
-the two documents answers is under [The licence statement](#the-licence-statement).
+**A release also carries a licence statement. It is a different list on purpose.** The section
+[The licence statement](#the-licence-statement) says what each of the two documents answers.
 
 ## What is signed
 
@@ -86,33 +75,28 @@ the two documents answers is under [The licence statement](#the-licence-statemen
 | `sutura-provenance.intoto.jsonl` | three existing signed attestation bundles        | not recursively attested | n/a                              |
 
 Every count in that table is one binary times four triples, or its consequence. A leaf and the SBOM
-beside it are named by the same key - `<triple>` for `sutura` - which is also how `image-digests.txt`
-records them, so an entry there and an asset on the release page are matched by reading rather than
-by working anything out. A second shipped binary would be prefixed instead, the same rule
-`keyFor` in `nix/shipped.nix` uses, and every count in this section would double again.
+beside it have the same key, `<triple>` for `sutura`. `image-digests.txt` records them under that
+key, so you match an entry there to an asset on the release page by reading.
 
-Three asymmetries in that table are deliberate rather than gaps, and each has a reason worth
-knowing before you conclude something is missing.
+Three asymmetries in that table are deliberate. Each has a reason.
 
 **The `.sha256` sidecars are not signed.** A Sigstore bundle over `sutura-<target>.tar.gz` already
-commits to that file's digest, so signing a file whose entire content *is* that digest proves
+commits to that file's digest, so signing a file whose whole content *is* that digest proves
 nothing new and costs a certificate and a transparency-log entry. They are still published, because
-a consumer's script may already read them, and they still get provenance, because provenance is one
-call covering every subject and therefore free. **If you are choosing between the two, take the
-bundle:** a `.sha256` file tells you a download was not corrupted, and a bundle tells you who
-produced it.
+a script of yours may read them. They get provenance, because one provenance call covers every
+subject. **If you must choose, take the bundle:** a `.sha256` file tells you a download was not
+corrupted, and a bundle tells you who produced it.
 
-**Provenance covers the manifest lists and not the leaves.** A list is what an unqualified
+**Provenance covers the manifest lists, not the leaves.** A list is what an unqualified
 `docker pull` resolves and what the release notes tell you to pin. The leaves are what a list points
-at, they are signed by `cosign` individually, and pinning one means asking for a single architecture
-on purpose. There are two lists, one per libc, because there is one binary; a second shipped binary
-would add two more rather than changing this one. Provenance does not cover the chart either: the
-chart is signed by digest with `cosign sign`, and the table shows nothing more.
+at. `cosign` signs each leaf individually, and to pin one you ask for a single architecture. There
+are two lists, one per libc. Provenance does not cover the chart: `cosign sign` signs the chart by
+digest, and the table shows nothing more.
 
 **The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`
-fetches provenance from GitHub. With `--bundle`, it reads the exported JSONL instead; retain that
-asset alongside mirrored files. Verification still needs an independently trusted Sigstore root
-and an explicit signer/source policy, not merely a bundle supplied by the same mirror.
+fetches provenance from GitHub. With `--bundle`, it reads the exported JSONL instead. Keep that
+asset with mirrored files. Verification needs an independently trusted Sigstore root and an explicit
+signer and source policy, not only a bundle that the same mirror supplied.
 
 ## There is no key
 
@@ -122,17 +106,17 @@ which workflow file and which git ref is asking; Sigstore's certificate authorit
 certificate valid for minutes that records that identity; the signature is logged in the public
 transparency log (Rekor).
 
-So what you check is not *"somebody held the key"* - which is unfalsifiable once a key leaks, and
-stays true for as long as nobody notices - but *"this workflow, at this ref, in this repository"*.
-There is nothing here for an attacker to steal, and **that is why every command below passes
-`--certificate-identity-regexp` and `--certificate-oidc-issuer`: those two flags are the check.**
-Omitting them verifies that *somebody* signed the file, which is not a claim worth making.
+So you do not check *"somebody held the key"*. That claim stays true after a key leaks, until
+somebody notices. You check *"this workflow, at this ref, in this repository"*. An attacker has
+nothing to steal here. **Every command below passes `--certificate-identity-regexp` and
+`--certificate-oidc-issuer`, because those two flags are the check.** Without them, the command only
+verifies that *somebody* signed the file.
 
 ## Verifying a release asset
 
-Two ways, and they are not redundant - they differ in what you need to have.
+There are two ways. They differ in what you need.
 
-Offline-ish, from the bytes and the bundle:
+From the bytes and the bundle:
 
 ```bash
 cosign verify-blob \
@@ -148,22 +132,22 @@ Against this forge, which needs no bundle at all:
 gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz --repo telekom/sutura
 ```
 
-The second prints the workflow, the ref and the commit the artefact was built from. Read them: an
-attestation from a *different* ref of this repository verifies perfectly well and is still not the
-release you meant to download.
+The second prints the workflow, the ref and the commit that built the artefact. Read them. An
+attestation from a *different* ref of this repository verifies, and it is not the release you meant
+to download.
 
 ### Provenance from mirrored bytes
 
 For releases made by the exporting workflow, retain `sutura-provenance.intoto.jsonl` with the
 original assets. It contains five Sigstore bundles: one multi-subject asset attestation and four
-manifest-list attestations. It is not a new signing policy. The collector checks required
-JSON/DSSE/SLSA fields and exact unique name/digest pairs against `subjects.sha256` and
-`image-digests.txt`, then writes the asset only after all inputs pass. It does **not** verify
-signatures, certificates or transparency proofs. A missing export blocks draft publication.
+manifest-list attestations. It is not a new signing policy. The collector checks the required
+JSON, DSSE and SLSA fields and the exact, unique name and digest pairs against `subjects.sha256` and
+`image-digests.txt`. It writes the asset only after all inputs pass. It does **not** verify
+signatures, certificates or transparency proofs. A missing export blocks the draft publication.
 
-Choose the expected tag and full source commit independently of the downloaded bundle. Supply a
-trusted-root file obtained through your trusted distribution channel; do not trust one merely
-because a mirror placed it beside the artefact. For example, with those values already set:
+Choose the expected tag and the full source commit independently of the downloaded bundle. Supply a
+trusted-root file from your trusted distribution channel. Do not trust a file only because a mirror
+put it beside the artefact. This example assumes that you already set those values:
 
 ```bash
 gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz \
@@ -176,30 +160,15 @@ gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz \
   --predicate-type https://slsa.dev/provenance/v1
 ```
 
-`--cert-identity` and `--signer-workflow` are **mutually exclusive** - `gh` puts
-`cert-identity`, `cert-identity-regex`, `signer-repo` and `signer-workflow` in one flag group and
-refuses more than one of them before it verifies anything. This command used to print both and
-therefore could not run; `--cert-identity` is the one kept, because it pins the workflow *and* the
-tag in a single value. Measured against `gh` 2.98.0, and no gate in this tree holds it: the
-`documented` suite spawns the `sutura` binary over the pages' own commands, so a `gh` invocation on
-a published release is checked by running it and by nothing else.
+`--cert-identity` and `--signer-workflow` are **mutually exclusive**. `gh` puts `cert-identity`,
+`cert-identity-regex`, `signer-repo` and `signer-workflow` in one flag group, and refuses more than
+one of them before it verifies anything. The command uses `--cert-identity`, because it pins the
+workflow *and* the tag in one value.
 
 The [verifier's bundle mode](https://cli.github.com/manual/gh_attestation_verify) accepts JSONL
-without fetching attestations from the forge. Test the command with network access disabled to
-establish the fully mirrored-byte claim for your verifier and trust-root distribution. An OCI
-reference can still require registry access; this file example does not prove offline image
-retrieval or verification.
-
-**Venue limit:** PR CI can exercise fake bundle output and refusal paths, not the tagged job's
-OIDC signing, real bundle export or release upload. Those were unproven until a tag ran, and
-`v0.5.1` is that tag: the release carries `sutura-provenance.intoto.jsonl` as a five-record asset,
-and over bytes downloaded from the release page the command above exits 0 against the tag's own
-source commit, exits non-zero on a byte appended to the tarball (`verifying with issuer
-"sigstore.dev"`), and exits non-zero against a wrong source ref (`expected SourceRepositoryRef to
-be refs/tags/v0.4.1, got refs/tags/v0.5.1`). **What is still unproven is the OFFLINE half** - that
-run had network reach, so it establishes verification from mirrored bytes and a locally supplied
-trusted root, not that the verifier fetches nothing. Older releases need not contain the export. No
-tag or release is created merely to make a PR check green.
+without fetching attestations from the forge. To check mirrored-byte verification in your own setup,
+run the command with network access disabled. An OCI reference can still need registry access.
+Older releases can lack the export.
 
 ## Verifying an image
 
@@ -237,19 +206,14 @@ cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-Run against the `v0.6.1` chart (`sha256:d71cda143c71c64a4675b8bb3943df83ee1632e92f31728de0818b48ab2ced14`)
-with the `cosign` the flake pins (`nix run .#cosign`), this exited 0 and reported the claims
-validated, the transparency-log entry verified offline and the certificate verified against the
-trusted authorities. The regexp pins the repository and not the tag. Against the same chart,
-`--certificate-identity` in place of the regexp flag, with
-`https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/v0.6.1`, also
-exits 0, and the same flag naming `@refs/tags/v0.4.1` is refused (`expected SAN value ... got
-...@refs/tags/v0.6.1`), so prefer the exact identity once you know the tag.
+The regexp pins the repository, not the tag. When you know the tag, use `--certificate-identity`
+in place of the regexp flag, with
+`https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/<tag>`, to pin the exact
+identity. You can run `cosign` from the flake pin with `nix run .#cosign`.
 
-**Limits.** The chart carries a signature and nothing else: no SBOM attestation, no SLSA provenance
-and no Sigstore bundle asset. No Helm `.prov` file is produced, so `helm install --verify` does not
-apply. Whether the registry package is readable without a login is a registry setting this page does
-not establish. `docs/adr/0021`'s third amendment records the decision.
+The chart carries a signature and nothing else: no SBOM attestation, no SLSA provenance and no
+Sigstore bundle asset. No Helm `.prov` file exists, so `helm install --verify` does not apply.
+Whether the registry package is readable without a login is a registry setting.
 
 ## What the SBOM covers
 
@@ -269,35 +233,27 @@ It covers two things, and they come from two places.
 no package manager in there, so that list is short and complete.
 
 **The crates the binary was compiled from**, read out of a `cargo auditable` section inside the
-executable. That is worth a sentence, because the obvious way to produce this list is the wrong one:
+executable. The obvious way to produce this list is the wrong one:
 
-- A document generated from `Cargo.lock` beside the binary is a *checked* claim about it. The two
-  can drift - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
-  document says so.
-- It would also be the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the
-  linker *kept*: `sutura-exec-oracle` sits behind a default-off feature that no release enables,
-  so the Oracle adapter is in the resolve graph and never in the binary. A
-  workspace-wide document names it anyway and is wrong in the direction that matters, which is
-  overstating what ships.
+- A document generated from `Cargo.lock` beside the binary is a claim that you must check against
+  the binary. The two can drift (a rebuild, a re-tag, a file swapped in a mirror), and neither the
+  binary nor the document says so.
+- It is also the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the linker
+  *kept*. `sutura-exec-oracle` sits behind a default-off feature that no release enables, so the
+  Oracle adapter is in the resolve graph and never in the binary. A workspace-wide document names it
+  anyway, and so overstates what ships.
+- There is one SBOM per image, not one per release.
 
-- **There is one SBOM per image rather than one per release, and that stays true regardless of how
-  many binaries a release ships.** `github.com/telekom/sutura#111` published a second binary,
-  `sutura-serve`, alongside this one - measured then, out of the artefacts themselves: 263 crates
-  in `sutura` and 326 in `sutura-serve`, the difference being the transport, and `ring`, `ureq` and
-  `rustls` in neither. `github.com/telekom/sutura#685` step 2 folded that binary back into this
-  one, so today there is exactly one crate list to read - but the reason it lives per-image rather
-  than per-release never depended on the count being two.
-
-So the list is put **inside the artefact at build time** and read back out of the bytes being
-scanned. It cannot drift from the binary, because it is the binary. The release job checks that the
-section is actually there rather than trusting it: if it ever stops being produced, the scan still
-succeeds and still writes valid CycloneDX naming three files, and nothing downstream could tell that
+So the list is put **inside the artefact at build time** and read back out of the bytes that the
+scan reads. It cannot drift from the binary, because it is the binary. The release job checks that
+the section is there. Without that check, a build that stops producing the section still passes the
+scan and still writes valid CycloneDX that names three files, and nothing downstream can tell that
 apart from a correct run.
 
-**What the list is not is a statement about those crates.** It says which versions were compiled in.
-Whether any of them has an advisory against it is `cargo-deny` against the RustSec database, which
-runs in CI on every dependency change and weekly regardless - a run, not a property of the artefact.
-`cargo audit --bin` will read this section and answer that question against the file you have.
+**The list is not a statement about those crates.** It says which versions were compiled in.
+`cargo-deny` checks them against the RustSec database in CI on every dependency change and weekly.
+That is a run, not a property of the artefact. `cargo audit --bin` reads this section and answers
+the question against the file you have.
 
 ## The licence statement
 
@@ -317,65 +273,51 @@ cosign verify-blob \
   sutura-attribution.md
 ```
 
-**The attribution document is deliberately WIDER than the SBOM, and that is not a contradiction.**
-The SBOM says what is *in* one binary, so overstating it would be a false statement about the file
-in your hand - which is why that list lives inside the executable. The attribution document
-discharges a licence obligation, and there the errors are not symmetric: naming a crate that did not
-ship costs you one line to read, while omitting one that did ship is the failure the document exists
-to prevent. So it names every crate the workspace resolves at all features, which is more than
-`sutura-cli` links.
+**The attribution document is deliberately WIDER than the SBOM.** The SBOM says what is *in* one
+binary, so an overstated SBOM is a false statement about the file in your hand. That is why the list
+lives inside the executable. The attribution document discharges a licence obligation, and there the
+two errors differ. A crate that did not ship costs you one line to read. A crate that shipped and is
+missing is the failure that the document exists to prevent. So it names every crate that the
+workspace resolves at all features, which is more than `sutura-cli` links.
 
-**Why it is generated at release time rather than committed.** It was committed once, with two
-gates over it, and the arrangement had a cost that was not theoretical: a derived file falls behind
-`Cargo.lock` the moment a dependency moves, Dependabot runs with a read-only token and cannot
-regenerate it, so **every bot dependency bump was red on arrival** and none could go green without
-a human pushing to the bot's branch. The artefact was never the problem; its committed form was.
+**The release generates the document, and nobody commits it.** A committed derived file falls behind
+`Cargo.lock` as soon as a dependency moves, and Dependabot runs with a read-only token and cannot
+regenerate it. The release generates the document from the `Cargo.lock` of the tag that it
+publishes. Three mechanisms hold it:
 
-So the generator is the only owner, and the chain is shorter than it was: the release generates the
-document from the `Cargo.lock` of the tag it is publishing, rather than copying a file from `main`
-that a gate had to keep honest. Three mechanisms hold it:
+| Mechanism                             | What it holds                                                                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo xtask check-attribution`       | a generation names every third-party package in `Cargo.lock` and carries a **declared licence for each one** - a crate that declares none is a refusal                          |
+| `cargo xtask check-attribution-owner` | no committed `ATTRIBUTION.md` comes back, and `release.yml` still generates the asset rather than copying one                                                                   |
+| the release's own count floor         | the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing |
 
-| Mechanism                             | What it holds                                                                                                                                                                                               |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cargo xtask check-attribution`       | a generation names every third-party package in `Cargo.lock` and carries a **declared licence for each one** - a crate declaring none is a refusal, where the old generator wrote `NOT DECLARED` and passed |
-| `cargo xtask check-attribution-owner` | no committed `ATTRIBUTION.md` comes back, and `release.yml` still generates the asset rather than copying one                                                                                               |
-| the release's own count floor         | the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing                             |
+A new dependency's declared licence does not show up in a pull-request diff. `cargo deny check`
+refuses a licence that is not on the allowlist, and the first gate above refuses a missing one.
 
-**What this arrangement lost, stated plainly.** A new dependency's declared licence no longer shows
-up in a pull-request diff. Nothing here restores that. `cargo deny check` still *refuses* a licence
-that is not on the allowlist, and the first gate above refuses one that is absent entirely, so the
-policy floor did not move - but a human reading a diff is no longer among the things that would
-notice a licence *changing* from one permitted value to another.
+**It names vendored code too.** The two crates under `vendor/mimalloc_rust` are path dependencies,
+not registry crates, and `sutura-cli` links the allocator on Linux. They are rows like any other
+third-party code. A row depends on the crate not being a workspace member, never on where the code
+came from.
 
-**It names vendored code too.** The two crates under `vendor/mimalloc_rust` are declared as path
-dependencies rather than pulled from a registry, and `sutura-cli` links the allocator on Linux - so
-they are rows like anything else somebody else wrote. What selects a row is not being a workspace
-member, never where the code came from.
-
-**What neither document carries is the notice text of each dependency.** An Apache-2.0 crate's own
-`NOTICE` file lives in its source tree rather than in its metadata, so nothing that reads metadata
-can render one. That is the largest remaining gap in the obligation, and closing it needs a
-source-code licence scan of the whole closure, which is deliberately not run.
+**Neither document carries the notice text of each dependency.** The `NOTICE` file of an Apache-2.0
+crate lives in its source tree, not in its metadata, so nothing that reads metadata can render it.
 
 ## What none of this establishes
 
-Stated plainly, because a page full of green checkmarks invites the larger reading:
+A verified release does not mean the following.
 
-- **Not that the build is reproducible from source by you.** The provenance records which workflow
-  ran, not a bit-for-bit rebuild recipe you can execute. The build *is* Nix-pinned, which is why
-  that is worth attempting - but nothing here is a proof that you did.
-- **Not that dependencies are free of known advisories.** That is `cargo-deny` against the RustSec
-  database, run in CI on every dependency change and weekly regardless, and its verdict is a CI run
-  rather than an artefact you can check offline.
-- **Not that the licence obligations of the dependency set are fully discharged.** There is an
-  attribution document now, and it is signed - see above. What is still missing is the notice text
-  each Apache-2.0 dependency's own `NOTICE` file carries, which is in its source and not in its
-  metadata. `deny.toml`'s allowlist remains a policy check either way.
-- **Not that the crate list covers everything in the binary.** It is what `cargo` compiled in. C
-  that a build script compiled - the allocator, for one - is linked into the executable and is not
-  a crate, so it appears in the image inventory as a file and not in the crate list as a package.
-- **Not that a transparency-log entry proves the log was honest.** Rekor's guarantees are Rekor's,
-  and `cosign` checks an inclusion proof against it rather than auditing it.
-- **Not that a verified image is one you should run.** It is the image this pipeline built. Whether
-  that pipeline should be trusted is a question about this repository, and the answer to it is
-  everything else in these docs.
+- **The build is not reproducible by you.** The provenance records which workflow ran. It is not a
+  rebuild recipe that you can run. The build is pinned with Nix.
+- **The dependencies can still have known advisories.** `cargo-deny` checks them against the
+  RustSec database in CI on every dependency change and weekly. Its verdict is a CI run, not an
+  artefact that you can check offline.
+- **The licence obligations are not fully discharged.** The attribution document is signed. The
+  notice text of each Apache-2.0 dependency is in its source, not in its metadata, and the document
+  does not carry it. The allowlist in `deny.toml` is a policy check.
+- **The crate list does not cover everything in the binary.** It is what `cargo` compiled in. C that
+  a build script compiled, such as the allocator, is linked into the executable and is not a crate.
+  It appears in the image inventory as a file and not in the crate list as a package.
+- **A transparency-log entry does not prove that the log was honest.** `cosign` checks an inclusion
+  proof against Rekor and does not audit Rekor.
+- **A verified image is not an image that you should run.** It is the image that this pipeline
+  built. Whether to trust that pipeline is a question about this repository.

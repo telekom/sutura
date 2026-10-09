@@ -14,7 +14,8 @@
 # 22184737) is `disabled` and declares no rule at all. The ruleset's other rules are `deletion`,
 # `non_fast_forward`, `required_linear_history`, `merge_queue` and `pull_request`.
 #
-# READ ON A DATE, AND ONLY THAT DATE. A red link leg DOES NOT BLOCK A MERGE as read on 2026-09-24.
+# READ ON A DATE, AND ONLY THAT DATE. A red link leg blocked nothing as read on 2026-09-24, and now blocks
+# a merge through `ci-aggregate`'s `needs: [cross]`, not through a context of its own.
 # Whether one ever did is not in any response above: a ruleset's history is not in its
 # representation, and the legs reported different context strings before they were renamed, so
 # whether some earlier ruleset required one of those earlier names is exactly what this record
@@ -112,15 +113,16 @@ pr-title
 # context it can check like any other.
 
 # The cross link matrix. It calls `cross-link.yml`, so its legs report `cross / link (<triple>)`
-# and the required set contains none of them. The risk the job exists for - the allocator's C,
-# which for ordinary CI is now isolated on `x86_64-unknown-linux-musl` alone - is therefore covered
-# advisorily: a pull request that breaks the cross link for a published triple can merge with the
-# leg red. Which cells run is `cross-link.yml`'s matrix and `cargo xtask check-workflows` holds it;
-# the full four survive only in `release.yml`.
+# and the required set contains none of them - a context nobody can require, because `cargo xtask
+# check-workflows` cannot spell a matrix-expanded one. GATED INSTEAD through `ci-aggregate`, which
+# `needs: [cross]` and fails when a leg that ran is not green (skipped stays fine: the merge queue
+# never runs it). A pull request that breaks the cross link for a published triple therefore cannot
+# merge. Which cells run is `cross-link.yml`'s matrix and `cargo xtask check-workflows` holds it; the
+# full four survive only in `release.yml`.
 ci.yml:cross
 
-# The called workflow's own job - the one that reports those legs. ADVISORY DELIBERATELY, and
-# this is the entry where that decision is written down rather than left to the reader:
+# The called workflow's own job - the one that reports those legs. NOT A REQUIRED CONTEXT
+# DELIBERATELY, and this is the entry where that decision is written down rather than left to the reader:
 #
 #   * REQUIRING THE LEGS DIRECTLY was weighed and refused. One context string per cell,
 #     maintained by hand, each carrying a matrix value and the caller's job name, and `cargo xtask
@@ -136,21 +138,14 @@ ci.yml:cross
 #     exists so a tree that fails clippy does not spend four runners proving it also links.
 #   * MAKING `ci` DEPEND ON THE LEGS is not available: `cross` has `needs: [ci]`, so that edge
 #     cannot be inverted without a cycle.
-#   * AN AGGREGATING JOB IS AVAILABLE, AND WAS NOT TAKEN. This is the option the previous wording
-#     folded into the line above and so declared closed - which was wrong twice over, because it is
-#     also the remedy `cargo xtask check-workflows` PRINTS when a `[required]` entry names a
-#     context it cannot derive: *require an aggregating job instead, its context resolves like any
-#     other*. A job with `needs: [cross]` reporting one plain context, plus one ruleset edit, would
-#     make this coverage required AND checkable by the rule above - a rename of the legs behind it
-#     would then fail that rule instead of the merge box. It costs one hand-maintained name and one
-#     edit nobody here can verify, and it was not taken; that is a decision, not an impossibility,
-#     and the reader is entitled to know which. What *the ruleset is unreachable from the sandbox*
-#     is, is a limit on VERIFICATION rather than a reason: `ci` is required by exactly the same
-#     unverifiable edit.
+#   * AN AGGREGATING JOB WAS THE REMEDY, AND `ci-aggregate` IS IT: it `needs: [cross]` and reports one
+#     plain context the ruleset already requires, so a red leg fails it and a rename of the legs
+#     behind it fails `aggregate_inputs`' needs rule instead of the merge box. That rule refuses a
+#     `ci.yml` job that is neither in the aggregate's `needs` nor on its reasoned exemption list.
 #
-# So the coverage stays advisory, and what is mechanised instead is that the classification is
-# complete: this entry is what `cargo xtask check-workflows` needs in order to fail when a job is
-# added to the called workflow, which is the drift that was invisible before.
+# So the legs stay uncontextualised and the coverage is gated through the aggregate. What
+# `cargo xtask check-workflows` still needs from this entry is that the classification is complete:
+# it is what fails when a job is added to the called workflow.
 cross-link.yml:link
 
 # Posts the CRAP delta as a pull-request comment. Advisory by design: it reports, and `check-crap`
@@ -235,6 +230,13 @@ ci.yml:oracle-tier
 # required context that does not report is a permanently pending merge.
 # `ci-aggregate` holds run-or-fail for it.
 ci.yml:ci-datahub-tier
+
+# The OpenMetadata docker tier, advisory for `ci-datahub-tier`'s reason above: category-gated on
+# `catalog_openmetadata` (derived from `crates/sutura-catalog-openmetadata`; a docker-tier
+# `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on a
+# diff confined to other adapters, and a required context that does not report is a permanently
+# pending merge. `ci-aggregate` holds run-or-fail for it.
+ci.yml:ci-openmetadata-tier
 
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it

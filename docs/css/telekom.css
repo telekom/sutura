@@ -44,3 +44,20 @@
 .md-header__button.md-logo img {
   filter: brightness(0) invert(1);
 }
+
+/* A label on an Integrations card: the category, the identity mode and "Recommended". The text
+ * colour is the link colour of each scheme, so it keeps the contrast ratios listed above. */
+.sutura-badge {
+  display: inline-block;
+  margin: 0 0.25em 0.25em 0;
+  padding: 0 0.6em;
+  border: 0.05rem solid var(--md-default-fg-color--lighter);
+  border-radius: 0.8rem;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+.sutura-badge--recommended {
+  border-color: var(--md-typeset-a-color);
+  color: var(--md-typeset-a-color);
+  font-weight: 700;
+}

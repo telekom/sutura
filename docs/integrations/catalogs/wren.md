@@ -11,8 +11,9 @@ sutura reads a WrenAI MDL manifest with the `sutura import wren` command. The co
 
 ## When to use it
 
-- You have a semantic model in WrenAI, and you want to move it to sutura.
-- You want to review each converted model, join and metric before sutura serves it.
+- Use it for single-player governance. One owner reviews the converted files and commits them to the
+  repository. The [single player](../../examples/single-player.md) example shows this model with the markdown catalog.
+- Your semantic model is in WrenAI.
 
 ## Usage
 

@@ -21,7 +21,7 @@ engine library defines `duckdb_adbc_init` - so the driver is the archive this ar
 arrives as Arrow batches and is handed on as the driver typed it: which types answer is decided
 once, by the domain's reader (`ResultBatches::to_rows`), for every Arrow adapter alike.
 
-**A raw statement runs only on a database `DuckDbWarehouse::open` opened** (`docs/adr/0013`).
+**A raw statement runs only on a database `DuckDbWarehouse::open` opened** (the architecture decision).
 `DuckDbWarehouse::execute` takes an `Executable` and renders the statement itself; the one door
 a caller's text reaches is `Warehouse::execute_raw`, and it answers `None` on a database
 `DuckDbWarehouse::in_memory` opened. The text is screened first - every statement a `SELECT`
@@ -37,7 +37,7 @@ place the habit started.
 
 ## Limits
 
-- **The deadline is a watchdog per call** (`docs/adr/0029`, sixth amendment): on
+- **The deadline is a watchdog per call** (the architecture decision, sixth amendment): on
   `DuckDbWarehouse::execute` and on the raw path, a thread calls the driver's `ConnectionCancel`
   when the budget is spent, the engine answers `Interrupt`, and that is read as the deadline. It
   starts before the driver prepares, so a raw string's statements before its last are under it
@@ -102,7 +102,7 @@ Why this data system could not answer.
 
   **An `Err` and never a refusal.** Nothing about the question was wrong: it is a wiring defect
   between the broker and the source declaration, and a refusal would invite a client to retry a
-  deployment bug. `docs/adr/0008` part 4 is the decision, and the same variant exists on the
+  deployment bug. The architecture decision is the decision, and the same variant exists on the
   engine adapter for the same reason - two implementors of one port, each answering for what it
   was handed, because neither may reach into the other for a shared check.
 

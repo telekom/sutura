@@ -23,6 +23,15 @@
 //! and is the property that makes a wrong source job dangerous: the replacement publishes the same
 //! name, so the expression resolves and only this table notices the change.
 //!
+//! **The second rule: every `ci.yml` job is in the aggregate's `needs` or on [`UNAGGREGATED`].**
+//! `cross` ran red on a pull request while `ci-aggregate` stayed green, because it was in no
+//! `needs` and nothing compared the job list with that list. A job outside `needs` can fail
+//! without failing a required context, so being outside it is a decision with a reason written
+//! down, not an omission. What it does NOT reach: a job in a called workflow (it reads `ci.yml`'s
+//! own keys, so `cross` counts and `cross-link.yml`'s `link` does not - the caller's result carries
+//! it), and whether the `run:` shell reads a needed job's result at all - a `needs:` entry with no
+//! `*_RESULT` env is only half a gate, and the env table above is what holds the other half.
+//!
 //! Its own module rather than a row in `obligations`, which holds STEP `if:` conditions by step
 //! name: this holds ENV INPUT source jobs by env var name, over a different block of the same file.
 //!
@@ -54,12 +63,15 @@ const REQUIRED: &[(&str, &str)] = &[
     ("ORACLE_SELECTED", "ci"),
     ("DH_RESULT", "ci-datahub-tier"),
     ("DH_SELECTED", "ci"),
+    ("OM_RESULT", "ci-openmetadata-tier"),
+    ("OM_SELECTED", "ci"),
     ("BQC_RESULT", "bigquery-conformance"),
     ("BQC_REQUIRED", "ci"),
     ("CAUS_RESULT", "causality"),
     ("CAUS_REQUIRED", "ci"),
     ("PGD_RESULT", "postgres-linked-driver"),
     ("PGD_REQUIRED", "ci"),
+    ("CROSS_RESULT", "cross"),
 ];
 
 /// Env inputs whose whole condition is pinned, not only the job it reads: the selection the two
@@ -72,6 +84,32 @@ const EXPRESSIONS: &[(&str, &str)] = &[
     (
         "PGD_REQUIRED",
         "(needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push'",
+    ),
+];
+
+/// The `ci.yml` jobs `ci-aggregate` deliberately does NOT `need`, each with why. A job in neither
+/// this list nor `needs` is refused: its result reaches no required context, so a red run of it
+/// blocks nothing - the state `cross` was in, and nothing noticed.
+const UNAGGREGATED: &[(&str, &str)] = &[
+    (
+        "pr-cache",
+        "warms the next push; a fork cannot see its environment, so a required result would never arrive",
+    ),
+    (
+        "crap-comment",
+        "posts the CRAP delta as a comment; `check-crap` inside `ci` gates the policy",
+    ),
+    (
+        "identity-classify",
+        "a classifier: its consumers are in `needs`, and the aggregate reads their selection from `ci`",
+    ),
+    (
+        "demo-container",
+        "a red demo must never block unrelated work; it is required at the release boundary instead",
+    ),
+    (
+        "kind-smoke",
+        "needs a container runtime; advisory on `demo-container`'s reasoning until its flake rate is known",
     ),
 ];
 
@@ -112,10 +150,104 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             "ci-aggregate env-input rule: could not read .github/workflows/ci.yml",
         )];
     };
-    check(&text)
+    let mut out = check(&text);
+    out.extend(unaggregated(&text));
+    out
 }
 
-/// The rule itself, over the text, so a test can put a tree in front of it.
+/// Every `ci.yml` job is in `ci-aggregate`'s `needs` or on [`UNAGGREGATED`].
+///
+/// Fails closed when it finds no jobs or no `needs`: a scan that read nothing is broken, not clean.
+fn unaggregated(text: &str) -> Vec<String> {
+    let jobs = job_ids(text);
+    let needs = aggregate_needs(text);
+    if jobs.is_empty() || needs.is_empty() {
+        return vec![format!(
+            "ci-aggregate needs rule: found {} job(s) and {} `needs` entr(ies) - the scan is broken, \
+             not the workflows",
+            jobs.len(),
+            needs.len()
+        )];
+    }
+    let mut out = Vec::new();
+    for (line, id) in &jobs {
+        if id == AGGREGATE || needs.contains(id) || UNAGGREGATED.iter().any(|(name, _)| name == id) {
+            continue;
+        }
+        out.push(format!(
+            "ci.yml:{line}  job `{id}` is not in {AGGREGATE}'s `needs` and is not on UNAGGREGATED, so a \
+             red `{id}` blocks no merge - add it to `needs` and read its result, or record in \
+             xtask/src/workflows/aggregate_inputs.rs why it is exempt"
+        ));
+    }
+    for (name, _) in UNAGGREGATED {
+        if needs.iter().any(|id| id == name) {
+            out.push(format!(
+                "{AGGREGATE} needs rule: `{name}` is on UNAGGREGATED and in `needs` - drop the exemption"
+            ));
+        } else if !jobs.iter().any(|(_, id)| id == name) {
+            out.push(format!(
+                "{AGGREGATE} needs rule: UNAGGREGATED names `{name}` and no such job exists - the entry is stale"
+            ));
+        }
+    }
+    out
+}
+
+/// Every job key under `jobs:`, with its 1-based line.
+fn job_ids(text: &str) -> Vec<(usize, String)> {
+    let mut in_jobs = false;
+    let mut out = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len().saturating_sub(trimmed.len());
+        if indent == 0 {
+            in_jobs = trimmed == "jobs:";
+        } else if in_jobs
+            && indent == 2
+            && let Some(id) = trimmed.strip_suffix(':')
+        {
+            out.push((index.saturating_add(1), String::from(id)));
+        }
+    }
+    out
+}
+
+/// The names in the aggregate's `needs:`, flow list (possibly over several lines) or block list.
+fn aggregate_needs(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(job_at) = lines.iter().position(|line| *line == format!("  {AGGREGATE}:")) else {
+        return Vec::new();
+    };
+    let indent = |line: &str| line.len().saturating_sub(line.trim_start().len());
+    let body = lines
+        .iter()
+        .skip(job_at.saturating_add(1))
+        .take_while(|line| line.trim().is_empty() || line.trim_start().starts_with('#') || indent(line) > 2);
+    let mut raw = String::new();
+    let mut open = false;
+    for line in body {
+        let code = line.split('#').next().unwrap_or_default().trim();
+        if let Some(rest) = code.strip_prefix("needs:") {
+            open = true;
+            raw.push_str(rest);
+        } else if open && (indent(line) > 4 || (raw.contains('[') && !raw.contains(']'))) {
+            raw.push(' ');
+            raw.push_str(code.strip_prefix("- ").unwrap_or(code));
+        } else if open {
+            break;
+        }
+    }
+    raw.split(|c: char| matches!(c, ',' | '[' | ']') || c.is_whitespace())
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// The env-input rule itself, over the text, so a test can put a tree in front of it.
 fn check(text: &str) -> Vec<String> {
     let inputs = env_inputs(text);
     if inputs.is_empty() {
@@ -340,12 +472,15 @@ mod tests {
             "          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}",
             "          DH_RESULT: ${{ needs.ci-datahub-tier.result }}",
             "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
+            "          OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}",
+            "          OM_SELECTED: ${{ needs.ci.outputs.catalog_openmetadata }}",
             "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
             "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
             "          CAUS_RESULT: ${{ needs.causality.result }}",
             "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
             "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
             "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
+            "          CROSS_RESULT: ${{ needs.cross.result }}",
         ]
         .join("\n")
     }
@@ -496,6 +631,67 @@ mod tests {
                 .any(|p| p.contains("CAUS_REQUIRED") && p.contains("the committed table pins")),
             "{problems:?}"
         );
+    }
+
+    /// A `ci.yml` of the exempt jobs, `ci`, `extra` and the aggregate, whose `needs:` is `needs`.
+    fn jobs_fixture(extra: &[&str], needs: &str) -> String {
+        let mut out = String::from("on:\n  push:\n    branches: [main]\njobs:\n");
+        for job in UNAGGREGATED
+            .iter()
+            .map(|(name, _)| *name)
+            .chain(["ci"])
+            .chain(extra.iter().copied())
+        {
+            writeln!(out, "  {job}:\n    runs-on: ubuntu-latest").expect("writing into a String cannot fail");
+        }
+        writeln!(out, "  {AGGREGATE}:\n    needs: {needs}\n    if: ${{{{ !cancelled() }}}}")
+            .expect("writing into a String cannot fail");
+        out
+    }
+
+    #[test]
+    fn a_job_the_aggregate_does_not_need_and_no_exemption_names_is_refused() {
+        // THE DEFECT: `cross` ran red, `ci-aggregate` stayed green, and nothing read the gap.
+        let problems = unaggregated(&jobs_fixture(&["cross"], "[ci]"));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("job `cross`") && problems[0].contains("blocks no merge"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_needed_job_passes_in_every_list_shape() {
+        for needs in [
+            "[ci, cross]",
+            "[\n      ci,\n      # a note\n      cross, # another\n    ]",
+            "\n      - ci\n      - cross",
+        ] {
+            let problems = unaggregated(&jobs_fixture(&["cross"], needs));
+            assert!(problems.is_empty(), "`{needs}`: {problems:?}");
+        }
+    }
+
+    #[test]
+    fn an_exemption_that_contradicts_or_outlives_its_job_is_refused() {
+        let contradicted = unaggregated(&jobs_fixture(&[], "[ci, kind-smoke]"));
+        assert!(
+            contradicted
+                .iter()
+                .any(|p| p.contains("`kind-smoke`") && p.contains("drop the exemption")),
+            "{contradicted:?}"
+        );
+        let gone = jobs_fixture(&[], "[ci]").replace("  kind-smoke:\n", "  smoke-renamed:\n");
+        let stale = unaggregated(&gone);
+        assert!(
+            stale.iter().any(|p| p.contains("`kind-smoke`") && p.contains("stale")),
+            "{stale:?}"
+        );
+    }
+
+    #[test]
+    fn a_scan_that_reads_nothing_is_not_clean() {
+        assert!(unaggregated("jobs:\n").iter().any(|p| p.contains("scan is broken")));
     }
 
     #[test]

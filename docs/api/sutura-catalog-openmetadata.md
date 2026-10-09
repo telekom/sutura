@@ -15,7 +15,7 @@ sources, and still a **declaring** one.
 than `DataHub` or `Frictionless Table Schema` - but keeps **two half-a-definition slots**: a measure's
 aggregation-to-column binding lives in `measures[].expression` / `metricExpression.code` as free
 text in a dialect set (`SQL`/`Java`/`JavaScript`/`Python`/`External`) that does not intersect this
-repository's typed `Term`, and the required filter is a raw SQL `where`. ADR 0016's refusal fires
+repository's typed `Term`, and the required filter is a raw SQL `where`. The architecture decision's refusal fires
 on both: a measure carried as a raw expression string is half a definition, and taking it would
 certify a foreign dialect's free text.
 
@@ -36,8 +36,8 @@ extracts. It is tested against a fake reader that serves recorded documents - th
 not mocked HTTP. `SnapshotReader` is the seam a real reader over `OpenMetadata`'s `REST` API
 (`/api/v1/tables`, `/api/v1/metrics`, …) implements, with a bearer credential; that HTTP reader is
 deliberately NOT in the default build, so the crate stays green (a service has no network in the
-nix sandbox). That reader is `src/http.rs`, behind the default-off `http` feature; the live
-provisioned leg is the recorded follow-up.
+nix sandbox). That reader is `src/http.rs`, behind the default-off `http` feature; its live
+provisioned leg is `tests/provisioned.rs`, run in `ci-openmetadata-tier` (evidence only of a run of it).
 
 # The declaration, and what it means for the bundle
 
@@ -55,7 +55,7 @@ carries any is the deployment's decision (it defined a metric whose binding reso
 not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
 `metricType` + `granularity` are read, but no metric is minted: its bound column cannot be read
 out of a foreign dialect's expression string without certifying that text, so those kinds
-arrive empty and the expression strings stay reported-not-defined, exactly as the ADR 0016
+arrive empty and the expression strings stay reported-not-defined, exactly as the architecture decision
 refusal demands.
 
 `RequiredFilters`, `AllowedValues` and `Anchors` are not declared at all: the filter is a raw SQL
@@ -473,21 +473,19 @@ build that does not ask for this reader links no outbound TLS stack.
 
 # What is measured, and what is NOT
 
-**The `Table` and `Metric` wire shapes are read against the published JSON Schema**
-(`open-metadata/OpenMetadata`'s `openmetadata-spec`, `table.json`/`metric.json` on `main`) and
-the `TableResource`/`MetricResource` Java sources for which fields the list endpoint returns
-unconditionally versus only behind `?fields=` - not against a provisioned instance (the nix
-sandbox has no network; this is a schema read, not a live one). `docs/what-openmetadata-can-carry.md`
-was corrected against the same schema read (its `foreignKeys`/`referencedTable` shape was a
-first-draft invention no real deployment serves; `harvest_relationship` below reads
-`tableConstraints` instead). So the mapping functions here are a **first claim** this crate has
-made about `OpenMetadata`'s served envelope, the same way `sutura-catalog-datahub`'s `dataset`
-mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
-a typed `HttpReaderError::UnexpectedShape` naming the entity and the field, rather than
-reading past a missing or mistyped key with a default - a guess that happened to be wrong would
-otherwise certify a bundle silently missing a model, a join or a metric. **Do not cite this
-reader as proof the `OpenMetadata` half works against a real instance until an acceptance leg
-measures it - the schema read is not that leg.**
+**The `Table` and `Metric` wire shapes were first read against the published JSON Schema**
+(`open-metadata/OpenMetadata`'s `openmetadata-spec`, `table.json`/`metric.json` on `main`) and the
+`TableResource`/`MetricResource` Java sources for which fields the list endpoint returns
+unconditionally versus only behind `?fields=`. `docs/what-openmetadata-can-carry.md` was corrected
+against the same schema read (its `foreignKeys`/`referencedTable` shape was a first-draft
+invention no real deployment serves; `harvest_relationship` below reads `tableConstraints`
+instead). Both entities are read through this reader against a provisioned instance by
+`tests/provisioned.rs`, which reads the golden catalog back in `ci-openmetadata-tier`, minus its
+named `NOT_CARRIED` rows (metrics are read, never defined). That is evidence only of a run of it,
+not of another server release or shape. Each mapping refuses an unexpected shape as a typed
+`HttpReaderError::UnexpectedShape` naming the entity and the field, rather than reading past a
+missing or mistyped key with a default - a guess that happened to be wrong would otherwise
+certify a bundle silently missing a model, a join or a metric.
 
 # What every read is bounded by
 
@@ -495,16 +493,14 @@ measures it - the schema read is not that leg.**
 not constants** - `DEFAULT_TIMEOUT_SECONDS` and `DEFAULT_MAX_RESPONSE_BYTES` are the values a
 composition root's settings default to, following `sutura-config`'s own convention of a default
 function per optional key, not a value baked into this type. `read`
-makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
-once, and what is left after the first is what the second gets - the same shape
-`sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader hold.
-**The aggregate byte cost of one `read()` is bounded by construction, not by a third check**:
-two requests at `cap` each is at most `2×cap` read into memory before either response is
-checked, and `fetch`'s own `ureq` backstop (`limit(2×cap)` per request, ahead of the precise
-`len > cap` refusal) makes the true per-request ceiling `2×cap` rather than `cap` - so a single
-`read()` never holds more than `4×cap` at once across both in-flight bodies. Stated here rather
-than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
-raise this number and this sentence would have to move with it.
+follows each entity kind's pages (tables, then metrics) and shares ONE deadline across every
+request - opened once, and what is left after one request is what the next gets - the same
+shape `sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader
+hold. **The response-size cap is per page**: `fetch`'s own `ureq` backstop (`limit(2×cap)`, ahead
+of the precise `len > cap` refusal) makes the true per-page ceiling `2×cap`, and one page is read
+at a time, so a `read()` holds at most `2×cap` of raw response at once. **Stated limit: nothing
+bounds the bytes across pages.** What a read keeps is bounded by `PageLimits`' entity bound,
+and the bytes it transfers by the deadline.
 
 # Auth
 
@@ -514,12 +510,15 @@ at boot (`token_file`), never inline in a settings document.
 
 # Paging
 
-One page per entity kind, at a generous count. A page that SIGNALS more results exist - an
-`after` cursor, or a returned count below a reported `paging.total` - is refused
-(`HttpReaderError::MorePages`) rather than silently read as complete: the same "one page or a
-refusal" shape `sutura-catalog-datahub`'s reader and `sutura-exec-bigquery`'s wire hold for
-`jobs.query`, because a caller must not certify a bundle built from a `Snapshot` that silently
-dropped a model or a metric.
+Each entity kind is read page by page at `PageLimits`' page size (`limit`, 1000 by default),
+following `paging.after` until a page carries none. The list is whole or the read is refused
+(`HttpReaderError::Paging`): a cursor the service repeats, a page with no entity that still
+reports more, more than the entity bound (`PageLimits::DEFAULT`'s 100,000) for one entity kind,
+and a last page that leaves the list short of `paging.total` are each refused, never read as
+complete. The cursor is the service's own text, so it is percent-encoded into the query.
+**Stated limits: the bound is a constant that `HttpSnapshotReader::with_page_limits` changes in
+code and no settings key does, and a list that ends early on a service that reports no `total`
+is not caught.**
 
 # TLS and the endpoint
 
@@ -565,7 +564,7 @@ shape `.agents/skills/sutura/secure-by-design/SKILL.md` argues for at a boundary
   `field` is a dotted path (e.g. `"columns[].name"`) so a refusal names exactly where the
   document stopped matching this reader's expectation.
 - `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
-- `MorePages` - The page stated or implied more results exist than the one page this reader will read.
+- `Paging` - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.
 
 #### Implements
 
@@ -619,13 +618,23 @@ compiled-in roots, presenting no identity, and no poll handle.
 
 The declared bundle or client identity cannot be loaded at boot.
 
+```rust
+pub const fn with_page_limits(self, limits: PageLimits) -> Self
+```
+
+Replaces the page size and the entity bound, which default to `PageLimits::DEFAULT`.
+
 #### Implements
 
 `Clone`, `Debug`, `SnapshotReader`
 
 ### `use Budget`
 
+### `use DEFAULT_MAX_ENTITIES`
+
 ### `use DEFAULT_MAX_RESPONSE_BYTES`
+
+### `use DEFAULT_PAGE_SIZE`
 
 ### `use DEFAULT_TIMEOUT_SECONDS`
 
@@ -635,9 +644,19 @@ The declared bundle or client identity cannot be loaded at boot.
 
 ### `use InvalidEndpoint`
 
+### `use InvalidPageLimits`
+
 ### `use InvalidReadBounds`
 
 ### `use OutboundAgent`
+
+### `use PageLimits`
+
+### `use PageReport`
+
+### `use Pager`
+
+### `use PagingRefusal`
 
 ### `use ReadBounds`
 

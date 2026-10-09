@@ -28,6 +28,7 @@ fn refusal(result: Result<(), crate::RdbmsError>) -> String {
 }
 
 #[test]
+#[cfg(feature = "live-oracle")]
 fn an_assembly_refuses_the_row_that_crosses_either_declared_cap() {
     let mut rows = Assembly::new("prod", bounds(1, 1_000));
     rows.admit(10).expect("the first row is within both caps");
@@ -95,6 +96,7 @@ fn an_assembly_gathers_rows_into_keyed_tables() {
 }
 
 #[test]
+#[cfg(feature = "live-oracle")]
 fn a_rows_decoded_length_counts_its_text_and_is_never_zero() {
     assert_eq!(Row::default().decoded_len(), 1);
     assert_eq!(

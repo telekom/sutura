@@ -9,7 +9,7 @@ The public API of `sutura-catalog-datahub`, rendered from rustdoc JSON.
 
 A `SemanticCatalog` over `DataHub`'s entity aspects: the canonical **declaring** source.
 
-`docs/adr/0016-what-datahub-can-carry.md` is the measurement that decides what this adapter is.
+The architecture decision is the measurement that decides what this adapter is.
 `DataHub` 1.7.0 holds a measure as a raw expression string in a dialect set that does not intersect
 this repository's, and its physical relationships default cardinality to many-to-many - so it
 supplies the physical model, the descriptions and the join columns, and supplies no measure this
@@ -31,7 +31,7 @@ the flat-to-nested assembly `document::SuturaProperty::assemble` implements and 
 fixture is kept in. Where that shape is present, this adapter reads it into a certified
 `Metric`, turning `provides no
 metrics` into `provides metrics for a metric that carries the custom shape`. Where it is absent,
-the metric stays the promotion candidate `docs/adr/0016` describes. The shape is closed - the
+the metric stays the promotion candidate the architecture decision describes. The shape is closed - the
 measure and filter vocabularies are `sutura_domain`'s own, and `deny_unknown_fields` refuses a
 property this adapter does not recognise rather than guessing.
 
@@ -63,7 +63,7 @@ at load (`DataHubError::UnknownPlatform`). The *Built and not wired* register in
 `.agents/skills/sutura/query-surface/SKILL.md` keeps those limits; it no longer records "no
 composition root".
 
-**What that register no longer says is that the cost is unmeasured.** `docs/adr/0016`'s
+**What that register no longer says is that the cost is unmeasured.** The architecture decision's
 *Revision, 2026-09-04* has the numbers, off a provisioned instance: a bundle's metric half is ONE
 paged request carrying `structuredProperties` and `metricInfo` inline, not a request per metric -
 **and that surface is search-backed, so it is not read-your-writes.** A reader written against it
@@ -145,11 +145,11 @@ reader back to all of them.
 - `UnknownPlatform` - A model named a platform this deployment declared no `sources.<alias>` for.
 
   A `sources.<alias>` entry per platform is what lets a model's data system be opened at all -
-  `docs/adr/0016` decision 7 - and the mapping is the deployment's, not this adapter's. A model
+  the architecture decision - and the mapping is the deployment's, not this adapter's. A model
   on an unmapped platform is refused rather than guessed.
 - `CardinalityUnrepresentable` - A relationship carries no cardinality, or one this adapter cannot represent.
 
-  `docs/adr/0016` decision 5: a relationship reaches a dimension only where cardinality is
+  The architecture decision: a relationship reaches a dimension only where cardinality is
   declared and representable, and absent or many-to-many is refused naming the relationship
   rather than defaulted in either direction - `ManyToOne` as a default assumes the fan-out away,
   and `OneToMany` refuses every dimension.
@@ -218,12 +218,12 @@ serves aspects inside an `OpenAPI` v3 envelope with more fields than any one con
 and a document that claims to be that envelope while refusing every field it does not name would
 be a false promise the moment a real response arrived. So the shapes here are the adapter's own
 canonical statement of the aspect CONTENT a reader must extract and decode - the decision side of
-`docs/adr/0016`'s transport note - and `deny_unknown_fields` holds over THIS shape and over the
+the architecture decision's transport note - and `deny_unknown_fields` holds over THIS shape and over the
 recorded fixtures a reader decodes, rather than over `DataHub`'s envelope. A real HTTP reader maps
 the service's document into one of these, exactly as `sutura-exec-bigquery`'s transport decodes
 into that crate's own `wire::document` shapes.
 
-The fields track the aspects `docs/adr/0016` measured: a `dataset`'s `schemaMetadata` and its
+The fields track the aspects the architecture decision measured: a `dataset`'s `schemaMetadata` and its
 description aspects, a `semanticModel`'s relationships with their cardinality, and a `metric`'s
 expression. Everything an adapter DECIDES below this shape is tested against a fake reader that
 serves recorded documents, which is the port's own rule.
@@ -484,7 +484,7 @@ renders.
 
 One consumer today, outside the read path: `crate::test_support`'s `metric_page` builder
 reads it (and `Self::dialect`) to make its fake serve the recorded fixture's OWN content,
-so the wire page cannot drift from the corpus it certifies against. `docs/adr/0016` still
+so the wire page cannot drift from the corpus it certifies against. The architecture decision still
 says the read path never converts it: the aspect is decoded and a metric without the
 `sutura` property is set aside. These accessors are the readable shape a future reporter
 would use.
@@ -511,7 +511,7 @@ pub fn with_sutura(name: String, dialect: String, expression: String, sutura: Su
 
 A certified metric aspect: the expression string beside a deployment-defined content.
 
-The two are both carried because `docs/adr/0016`'s *reconcile, never assume* rule still
+The two are both carried because the architecture decision's *reconcile, never assume* rule still
 applies - the raw expression is a promotion candidate's other half and remains readable even
 where the structured property is what this adapter certifies. The content is serialized into
 the scalar form `SuturaProperty` stores, which is the shape the wire and the recorded
@@ -539,7 +539,7 @@ sentence.
 
 **The property's NAME is the deployment's and does not appear here.** `sutura` is the field
 `MetricAspect` carries this under on the adapter's own canonical shape; which structured
-property a reader maps onto it is `docs/adr/0016` decision 7's *not ours to say*, and
+property a reader maps onto it is the architecture decision's *not ours to say*, and
 `tests/provisioned.rs` registers one whose name shares nothing with this field precisely so the
 independence is measured.
 
@@ -615,7 +615,7 @@ turns an unparseable name into a typed `DataHubError::Identifier` naming the met
 The original issue #202 scope carried the measure, the time column and the grains, and this
 container of the rest of a metric is the closure of that scope: definitional filters, dimensions
 with their allowlists, an anchor and prose all arrive the same way a markdown document carries
-them, because `docs/adr/0011` closes the route by which any OTHER source could add them to a
+them, because the architecture decision closes the route by which any OTHER source could add them to a
 metric this adapter defines. The one absence that stays is `cardinality`, which `DataHub`
 carries but this adapter refuses to represent (see the crate header).
 
@@ -852,7 +852,7 @@ relationship under `semanticModelInfo` and reading it back. So
 `HttpAspectReader::read_relationships` maps the aspect it fetches to the array
 `harvest_relationship` walks, and the fake `happy_path_answers` page serves the same nested
 shape - one content over two transports. The `dataset` entity's field
-list is still from `docs/adr/0016`'s "Field by field" table, read from the platform's own `.pdl`
+list is still from the architecture decision's "Field by field" table, read from the platform's own `.pdl`
 schema rather than from a served response. The two facts have different consequences: a wrong
 guess about `metric`'s envelope would be a regression against a proven round trip, and a wrong
 guess about `dataset` would be a FIRST claim this crate has made about it. Both mapping functions
@@ -870,11 +870,14 @@ only of a run of it.
 `ReadBounds` carries a request timeout and a response-size cap, both **settings with defaults,
 not constants** - `DEFAULT_TIMEOUT_SECONDS` and `DEFAULT_MAX_RESPONSE_BYTES` are the values a
 composition root's settings default to, following `sutura-config`'s own convention of a default
-function per optional key, not a value baked into this type. `read` makes
-up to three requests and shares ONE deadline across them - opened once, and what is left after
-the first two requests is what the third gets - the same shape `sutura_domain::warehouse::deadline::Deadline`
-holds for a job's execution, and for the same reason: a budget opened per request lets three
-independent timeouts sum to three times what a deployment declared.
+function per optional key, not a value baked into this type. `read` follows
+each entity type's pages (datasets, relationships, then metrics) and shares ONE deadline across
+every request - opened once, and what is left after one request is what the next gets - the same
+shape `sutura_domain::warehouse::deadline::Deadline` holds for a job's execution, and for the
+same reason: a budget opened per request lets independent timeouts sum to several times what a
+deployment declared. **The response-size cap is per page**, and one page is read at a time.
+**Stated limit: nothing bounds the bytes across pages.** What a read keeps is bounded by
+`PageLimits`' entity bound, and the bytes it transfers by the deadline.
 
 # Auth
 
@@ -885,16 +888,18 @@ already hold), never inline in a settings document.
 
 # Paging
 
-One page per entity type, at a generous count. A page that SIGNALS more results exist - a
-`scrollId`, or a returned count below a reported `total` - is refused
-(`HttpReaderError::MorePages`) rather than silently read as complete: the same "one page or a
-refusal" shape `sutura-exec-bigquery`'s wire holds for `jobs.query`, because a caller must not
-certify a bundle built from a `Snapshot` that silently dropped a model, a relationship or a
-metric. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own.** If it
-does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
-`tests/provisioned.rs`) has to measure this before PR2 wires the composition - the `scrollId` arm
-is a defensible guess against the platform's own "there is more" convention, not something this
-crate has watched a real GMS answer.
+Each entity type is read page by page at `PageLimits`' page size (`count`, 1000 by default),
+following `scrollId` until a page carries none. The list is whole or the read is refused
+(`HttpReaderError::Paging`): a scroll id the service repeats, a page with no entity that still
+reports more, more than the entity bound (`PageLimits::DEFAULT`'s 100,000) for one entity type,
+and a last page that leaves the list short of a reported `total` are each refused, never read as
+complete. The scroll id is the service's own text, so it is percent-encoded into the query.
+**Stated limits: the bound is a constant that `HttpAspectReader::with_page_limits` changes in
+code and no settings key does, and a list that ends early on a service that reports no `total`
+is not caught. Unmeasured: whether a real v3 last page carries a `scrollId` of its own** - the
+provisioned tier measured a corpus below `count` and found none. A last page that does is followed
+by one more request, and the read completes only if that answers an empty page with none; a
+service that keeps handing back a `scrollId` on an empty page is refused as no progress.
 
 # TLS and the endpoint
 
@@ -966,7 +971,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
   this applies to. `field` is a dotted path (`"schemaMetadata.value.fields[].fieldPath"`) so a
   refusal names exactly where the document stopped matching this reader's expectation.
 - `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
-- `MorePages` - The page stated or implied more results exist than the one page this reader will read.
+- `Paging` - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.
 
 #### Implements
 
@@ -1008,7 +1013,7 @@ The rotation-lane constructor: holds the rotating agent handle a composition roo
 `Self::rotating_agent`) and drove to re-read on `sutura_tls::POLL_INTERVAL`. The reader is
 per-request, so the agent `current()` resolves to on the next `read` is the latest that loaded -
 a replaced bundle (`security.outbound.transport_anchors`, `github.com/telekom/sutura#125`) is
-adopted by the next read, no drain (per `docs/adr/0010`).
+adopted by the next read, no drain (per the architecture decision).
 
 ```rust
 pub fn rotating_agent(bounds: ReadBounds, declared: Option<sutura_tls::Declared>) -> Result<OutboundAgent, sutura_tls::LoadError>
@@ -1026,13 +1031,23 @@ union, never a second external read.
 
 The declared bundle or client identity cannot be loaded at boot.
 
+```rust
+pub const fn with_page_limits(self, limits: PageLimits) -> Self
+```
+
+Replaces the page size and the entity bound, which default to `PageLimits::DEFAULT`.
+
 #### Implements
 
 `AspectReader`, `Clone`, `Debug`
 
 ### `use Budget`
 
+### `use DEFAULT_MAX_ENTITIES`
+
 ### `use DEFAULT_MAX_RESPONSE_BYTES`
+
+### `use DEFAULT_PAGE_SIZE`
 
 ### `use DEFAULT_TIMEOUT_SECONDS`
 
@@ -1042,9 +1057,19 @@ The declared bundle or client identity cannot be loaded at boot.
 
 ### `use InvalidEndpoint`
 
+### `use InvalidPageLimits`
+
 ### `use InvalidReadBounds`
 
 ### `use OutboundAgent`
+
+### `use PageLimits`
+
+### `use PageReport`
+
+### `use Pager`
+
+### `use PagingRefusal`
 
 ### `use ReadBounds`
 

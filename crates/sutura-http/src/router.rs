@@ -948,23 +948,31 @@ mod tests {
             let key = crate::client_address::ClientAddress::from_settings(state.settings().rate_limit());
             super::agent_subtree(&state, None, &key, None, &mut Vec::new()).map(|mount| mount.is_some())
         };
-        // No mode declared, and the switch never set, so `Settings::load` had nothing to refuse.
-        let refused = mounted("").expect_err("a mount on a deployment with no declared mode assembles nothing");
-        assert!(
-            refused
-                .to_string()
-                .contains(&sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity.to_string()),
-            "the operator reads which refusal stopped the mount: {refused}"
-        );
-        let RouterNotBuilt::AgentSurfaceNotFitToServe { refusals } = refused else {
-            panic!("expected the agent-surface refusal, got {refused:?}");
-        };
-        assert_eq!(
-            refusals,
-            vec![sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity]
-        );
-        let assembled = mounted("security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n")
-            .expect("a single-user loopback deployment serves /mcp without leg 1");
+        let single_user = "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n";
+        // The switch never set, so `Settings::load` had nothing to refuse: no mode declared, then a
+        // single-user loopback bind that declares a proxy hop or a host name, which counts as off-host.
+        for overlay in [
+            String::new(),
+            format!("{single_user}rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies: [\"127.0.0.1\"]\n"),
+            format!("{single_user}server:\n  allowed_hosts: [\"sutura.example.com\"]\n"),
+        ] {
+            let refused = mounted(&overlay).expect_err("this mount assembles nothing");
+            assert!(
+                refused
+                    .to_string()
+                    .contains(&sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity.to_string()),
+                "the operator reads which refusal stopped the mount: {refused}"
+            );
+            let RouterNotBuilt::AgentSurfaceNotFitToServe { refusals } = refused else {
+                panic!("expected the agent-surface refusal, got {refused:?}");
+            };
+            assert_eq!(
+                refusals,
+                vec![sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity],
+                "{overlay}"
+            );
+        }
+        let assembled = mounted(single_user).expect("a single-user loopback deployment serves /mcp without leg 1");
         assert!(assembled, "the mount is handed back for merging");
     }
 

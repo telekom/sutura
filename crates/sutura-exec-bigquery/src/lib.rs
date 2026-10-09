@@ -145,13 +145,10 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
+// The HTTP implementor of `sutura_domain::identity::DelegationExchange`, behind the default-off
+// `wire`, so a lean build links no exchange at all.
+#[cfg(feature = "wire")]
 pub mod delegation;
-/// The broker a served impersonating `BigQuery` source is answered through, and now the only one
-/// this crate carries: the exchanging `WorkloadIdentityBroker` was deleted with its HTTP hops
-/// (`docs/adr/0018`, eighth amendment), since the ADBC path federates the asker's own assertion at
-/// Google's token service instead of exchanging it here.
-mod principal;
-pub use principal::{DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable, NoDeclaredPrincipals};
 
 use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
@@ -220,7 +217,7 @@ where
     /// security-critical setting must not be accepted and then ignored - and *silently widened* is
     /// the same defect from the other side.
     ///
-    /// Reachable only from a broker that is not [`DeclaredPrincipalBroker`]: that one mints the
+    /// Reachable only from a broker that is not `sutura_config::DeclaredPrincipalBroker`: that one mints the
     /// account off the map it parsed, so a served deployment refuses the declaration at boot
     /// instead. [`Presented`] is a public port, so the refusal is typed rather than an
     /// `unreachable!`.

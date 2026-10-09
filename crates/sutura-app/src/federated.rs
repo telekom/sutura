@@ -28,7 +28,7 @@
 //! declaring `PerSubjectCredential`, so `sutura serve --features bigquery` over two `bigquery`
 //! sources reaches this path with two IMPERSONATING legs rather than two shared ones - and a
 //! `bigquery` leg beside a leg-executing shared-posture adapter is a CROSS-POSTURE answer,
-//! disclosed per leg rather than refused (`docs/adr/0040`). `BigQuery` being the only impersonating adapter is why that had to
+//! disclosed per leg rather than refused (`docs/adr/0040`). `BigQuery` then being the only impersonating adapter is why that had to
 //! be: every `BigQuery` federation with a shared-posture adapter is cross-posture by construction.
 //! The single mint below does not collapse them: that adapter's
 //! `DeclaredPrincipalBroker::mint` walks the `SourceSet` and resolves each source's OWN declared
@@ -168,7 +168,7 @@ where
     }
     let executed_as = executed_as_of::<_, B, C>(plan, fact_warehouse, lookup_warehouse, second_fact)?;
     // **No verdict over the two postures, and `docs/adr/0040` is why the one that stood here is
-    // gone.** It refused an answer whose legs decided identity differently - and BigQuery is the
+    // gone.** It refused an answer whose legs decided identity differently - and BigQuery was then the
     // only impersonating adapter, so that prevented BigQuery from federating with any
     // shared-posture adapter. The reasoning it carried stays TRUE: rows a shared identity was
     // permitted to see, added to rows the asking subject was permitted to see,

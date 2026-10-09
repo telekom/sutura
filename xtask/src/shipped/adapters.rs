@@ -198,8 +198,8 @@ mod tests {
 
     #[test]
     fn a_required_list_that_matches_the_shipped_adapters_refuses_nothing() {
-        // `rdbms` is not shipped and pulls `sutura-exec-postgres` too: a crate some shipped
-        // feature pulls is held, whatever else also pulls it.
+        // `rdbms` is outside this fixture's shipped list and pulls `sutura-exec-postgres` too: a
+        // crate some shipped feature pulls is held, whatever else also pulls it.
         let found = unrequired(
             &shipping(&["tls", "bigquery", "postgres"]),
             &nix(r#""axum" "sutura-exec-bigquery" "sutura-exec-postgres""#),

@@ -25,7 +25,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use sutura_catalog_datahub::document::{Snapshot, SuturaAnchor, SuturaContent, SuturaDimension};
-use sutura_catalog_datahub::http::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, ReadBounds};
+use sutura_catalog_datahub::http::{
+    DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, PageLimits, ReadBounds,
+};
 use sutura_catalog_datahub::{AspectReader, DataHubCatalog, DataHubError};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::catalog::{
@@ -45,6 +47,11 @@ const PROPERTY: &str = "golden_metric_document";
 
 const SOURCE: &str = "local";
 const VERSION: &str = "golden-fixture-1";
+
+/// The page size the live read asks for. The golden has more than this of every entity type it
+/// provisions, so the read spans several pages of each and the whole-corpus comparison below is a
+/// comparison over pages followed to the end.
+const PAGE_SIZE: usize = 2;
 
 /// The golden catalog this cell provisions and reads back.
 fn golden_root() -> PathBuf {
@@ -426,13 +433,18 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
     let written = writable(golden.definitions());
     provision(&agent(false), &endpoint, &written);
 
+    assert!(
+        written.models().len() > PAGE_SIZE && written.relationships().len() > PAGE_SIZE && written.metrics().len() > PAGE_SIZE,
+        "the golden must hold more than {PAGE_SIZE} of each entity type, or this read follows no page"
+    );
     let reader = HttpAspectReader::new(
         Endpoint::parse(&format!("http://{endpoint}")).expect("the loopback endpoint parses"),
         String::from(PROPERTY),
         Secret::new(pat()),
         ReadBounds::parse(DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES).expect("the default bounds are valid"),
         None,
-    );
+    )
+    .with_page_limits(PageLimits::parse(PAGE_SIZE, DEFAULT_MAX_ENTITIES).expect("a page size of two is usable"));
     let mut sources = BTreeMap::new();
     drop(sources.insert(
         String::from(PLATFORM),

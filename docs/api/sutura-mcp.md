@@ -134,7 +134,7 @@ unconditional `principal::established()` call used to before this type existed.
 
 A field would be set once, when the surface is constructed, and read on every call after - which
 is exactly right for `TheProcessOwner` and exactly wrong the moment a caller identity can vary
-per request. `docs/adr/0023` names this trap by its mechanism: the pinned MCP SDK builds a
+per request. The architecture decision names this trap by its mechanism: the pinned MCP SDK builds a
 session's handler ONCE (`service_factory`), so an identity cached anywhere on `self` is
 per-session by construction and looks correct in every single-caller test. `PerRequest` instead
 names a MODE, and the value itself is read fresh out of the request's own
@@ -197,9 +197,9 @@ Serves the agent surface over standard input and output, until the client discon
 The transport an agent client launches a server over: it spawns the process and speaks the
 protocol on its pipes. There is no socket, no port and no listener, which is also why there is no
 authentication here - the process boundary is the boundary, and a deployment that needs a
-network-reachable agent surface needs the identity leg `docs/adr/0014` designs first, unless it
+network-reachable agent surface needs the identity leg the architecture decision designs first, unless it
 is a declared `single-user` deployment
-(`docs/adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md`).
+(the architecture decision).
 
 Takes `std::sync::Arc<S>` rather than an owned `S`, for the one edge the engine's own drop
 cannot cover. The service's engine shuts its nested runtime down through `shutdown_background`, so
@@ -263,12 +263,12 @@ port has to outlive the future that started the call.
 
 The streamable-HTTP transport, default-off behind this crate's own `http` feature.
 
-`telekom/sutura#378` PR3, `docs/adr/0023`. See its own module documentation for what it does
+`telekom/sutura#378` PR3, the architecture decision. See its own module documentation for what it does
 and, as importantly, what it does not. `sutura serve` nests it at `/mcp` behind `sutura-cli`'s
 `agent` feature.
 The streamable-HTTP transport, as a plain `tower_service::Service` a composition root mounts.
 
-**`#[cfg(feature = "http")]` only** - `telekom/sutura#378` PR3, `docs/adr/0023`. Nothing served
+**`#[cfg(feature = "http")]` only** - `telekom/sutura#378` PR3, the architecture decision. Nothing served
 links this today: `crate::http::service` builds a value a composition root's own router can
 `axum::Router::nest_service` behind its existing layers, so `sutura-cli`'s leg 1
 (`sutura_http::inbound`) and `sutura_http::capability::establish_asked` run in front of it
@@ -285,7 +285,7 @@ transport-only."
 (`server.rs`). Traced against the pinned SDK's own streamable-HTTP server, that `Parts` value is
 exactly the request's own `http::request::Parts` - the SAME value
 `sutura_http::capability::establish_asked` inserts an `Asked` into on the HTTP surface's other
-routes, before that request ever reaches the nested tower service (`docs/adr/0023`, quoting
+routes, before that request ever reaches the nested tower service (the architecture decision, quoting
 `streamable_http_server/tower.rs`). `crate::http::service` is what makes a REAL one of those reachable at
 all; until PR4 mounts it behind the real `establish_asked` layer, this module's own tests stand
 in for that layer with a fake one, inserting a chosen `Asked` the same way.
@@ -475,7 +475,7 @@ inventing a key of this transport's own is a decision with two arguments:**
   and the two transports would then be able to disagree about it while sharing one execution
   bound.
 * The number is already load-bearing on this composition. `sutura`'s `mcp` command opens the
-  port's own `Deadline` from it (`docs/adr/0029`), and the in-process engine gives up against
+  port's own `Deadline` from it (the architecture decision), and the in-process engine gives up against
   that deadline at a cooperative yield - so the engine on this transport already answers to this
   key; before this change the *peer* was the only party in that arithmetic with no deadline at
   all. This bullet used to say a `bigquery` job derived `timeoutMs`/`jobTimeoutMs` from it
@@ -560,7 +560,7 @@ identity," and that reading is exactly what this shape exists to make unrepresen
 **And the honest limit, which is not small:** nothing that ships narrows the set here.
 `crate::serve_stdio` always builds `Asking::TheProcessOwner { permitted: Permitted::every_capability() }`,
 because this transport speaks over standard input and output and there is no header a token could
-arrive in - `docs/adr/0014`'s closing section says as much, and says that deciding how this
+arrive in - the architecture decision's closing section says as much, and says that deciding how this
 surface is reached at all is an architecture decision rather than a refactor.
 `Asking::PerRequest` exists on the type and is exercised by this module's own tests, with hand-
 built `RequestContext` values reusing a `Peer` a real handshake produced - `rmcp::service::Peer::new`
@@ -912,7 +912,7 @@ What a question produced, as the tool's structured content.
 
 **One shape, and the rows are IN it.** A handle-plus-fetch result was considered and withdrawn:
 the rule it came from is that a federated join is done by the engine rather than by the model,
-which `docs/adr/0007` already decides above this port, and read as a context-window rule it would
+which the architecture decision already decides above this port, and read as a context-window rule it would
 have cost an agent the ability to answer a question about a number without a second call.
 
 The `outcome` discriminator is what a client branches on, and it is the same tag and the same
@@ -1020,7 +1020,7 @@ knowledge text is not a second copy: both transports call
 instructions and, where the operator enabled them, the physical models, which the HTTP
 `/v1/catalog` surface does not.
 
-**What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
+**What narrows this listing is the CALLER's identity - the architecture decision - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 audiences (which `describe` reads and this constructor takes as a `ScopedView`) decide which
@@ -1061,7 +1061,7 @@ a raw answer unable to be rendered as certified rather than merely undecorated a
 over the type's own already-`Raw`-prefixed name) - only their SERIALIZED tags do, pinned by an
 explicit `#[serde(rename)]` on each rather than derived from the Rust identifier: `Rows` would
 otherwise serialize `outcome: "rows"` and `Refusal` would serialize exactly the certified path's
-own `outcome: "refusal"` - the one collision `docs/adr/0013` forbids.
+own `outcome: "refusal"` - the one collision the architecture decision forbids.
 
 ### `use RunSqlArgs`
 
@@ -1121,7 +1121,7 @@ knowledge text is not a second copy: both transports call
 instructions and, where the operator enabled them, the physical models, which the HTTP
 `/v1/catalog` surface does not.
 
-**What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
+**What narrows this listing is the CALLER's identity - the architecture decision - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 audiences (which `describe` reads and this constructor takes as a `ScopedView`) decide which
@@ -1143,7 +1143,7 @@ reachable without the setting fails OPEN - it ships the prose of a deployment th
 none, which is the defect this function exists to close, and it is how that defect arrived
 here. A second argument cannot be left out.
 
-**The view is the second reason a `From` would be wrong, and it is the one `docs/adr/0028`
+**The view is the second reason a `From` would be wrong, and it is the one the architecture decision
 exists to close.** A caller may see only the metrics its granted audiences name; rendering
 from a bare `&PinnedDefinitions` would hand every caller the whole bundle again, which is
 the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
@@ -1213,7 +1213,7 @@ Its own module for the reason `wire/catalog.rs` has one - one whole tool, sharin
 
 # The discriminant, and why it cannot be mistaken for a certified answer's
 
-`docs/adr/0013` requires that a raw result's wire shape share no discriminant VALUE and no
+The architecture decision requires that a raw result's wire shape share no discriminant VALUE and no
 provenance-shaped key with `crate::wire::OutcomeContent::Answer`'s - a WEAKER claim than "no
 field name in common", and the one this module's own test asserts. `columns` and `rows` ARE
 shared field names (both walk the same rows, so both need the same two labels for them); what
@@ -1272,7 +1272,7 @@ a raw answer unable to be rendered as certified rather than merely undecorated a
 over the type's own already-`Raw`-prefixed name) - only their SERIALIZED tags do, pinned by an
 explicit `#[serde(rename)]` on each rather than derived from the Rust identifier: `Rows` would
 otherwise serialize `outcome: "rows"` and `Refusal` would serialize exactly the certified path's
-own `outcome: "refusal"` - the one collision `docs/adr/0013` forbids.
+own `outcome: "refusal"` - the one collision the architecture decision forbids.
 
 ##### Variants
 

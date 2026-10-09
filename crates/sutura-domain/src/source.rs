@@ -2,7 +2,7 @@
 //! each leg of an answer actually executed as.
 //!
 //! **Three facts by three different declarers, and conflating any two of them is how a mode acquires
-//! two owners.** [Pluggable by declaration](https://github.com/telekom/sutura/blob/main/docs/adr/0011-pluggable-by-declaration.md)
+//! two owners.** The pluggable-by-declaration decision
 //! is explicit about the split and this module is that split expressed as types:
 //!
 //! | Fact | Who declares it | The type here |
@@ -34,7 +34,7 @@
 //!
 //! An answer whose legs decide identity differently is **answered**, and [`ExecutedAs`] is what says
 //! so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
-//! came from which. `docs/adr/0040` is the record, and `BigQuery` being the only impersonating adapter
+//! came from which. `docs/adr/0040` is the record, and `BigQuery` then being the only impersonating adapter
 //! is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
 //! by construction, so refusing the mix prevented that pairing.
 //!

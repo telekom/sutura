@@ -10,7 +10,7 @@ The public API of `sutura-catalog-rdbms`, rendered from rustdoc JSON.
 A `SemanticCatalog` over an RDBMS dictionary - the narrowest declaration, and the one that
 needs no service.
 
-`docs/adr/0011-pluggable-by-declaration.md` defines the role this conversion implements. A
+The architecture decision defines the role this conversion implements. A
 database dictionary is mainly DDL and comments: the tables, the columns, their constraints, and
 table prose. It is not a
 semantic layer and does not pretend to be one - which is the whole point of a **declaring**
@@ -23,7 +23,7 @@ coupling the application to this adapter.
 
 # What a real dictionary yields
 
-ADR 0016's method, applied here: read a real dictionary before writing the adapter. A throwaway
+The architecture decision's method, applied here: read a real dictionary before writing the adapter. A throwaway
 reader, measured once against a two-table Postgres 18 schema (two tables, a primary key each, one
 foreign key, and table comments), reported the following:
 
@@ -41,14 +41,13 @@ Three findings, and two of them are the declaration's content:
    `Structure` half; table comments are
    the `Descriptions`
    half. A dictionary carries **no measure, no grain, no definitional filter, no value allowlist
-   and no anchor** - those are declared by a human in a semantic layer, which is what ADR 0011's
+   and no anchor** - those are declared by a human in a semantic layer, which is what the architecture decision's
    table says ("certified metrics, measures, grains, allowed values: **no** - a human declares
    those elsewhere").
 2. **A foreign key carries no metric cardinality.** It names the source and target columns, so
    this adapter declares the `Cardinality` *capability* absent: a dictionary carries no metric to
    reach a dimension `via` a relationship.
-3. **A single-column primary or unique key is evidence, and only the safe direction.** ADR
-   0011's "part worth having this connector for" is the one-direction uniqueness argument: a
+3. **A single-column primary or unique key is evidence, and only the safe direction.** The architecture decision's "part worth having this connector for" is the one-direction uniqueness argument: a
    reader must supply a `SingleColumnTargetUniqueness` before the foreign key maps to
    `JoinType::ManyToOne`. Membership in a composite constraint is not evidence that one column
    is unique. Without the single-column evidence, loading refuses rather than asserting the
@@ -89,8 +88,9 @@ This crate contains the conversion `RdbmsCatalog` applies to dictionary records,
 tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
 live implementors over a Postgres (`postgres_reader`) and an Oracle (`oracle_reader`)
-documentation schema, behind a default-off `live` feature so the library closure stays
-domain + thiserror and no build links either driver's stack without asking for it.
+documentation schema, behind default-off `live` and `live-oracle` features so the library
+closure stays domain + thiserror and no build links either driver's stack without asking for
+it.
 
 **The fake dominates the suite; the live reader is the production half, feature-gated.**
 `DictionaryReader` is the seam they implement (`fixture::FixtureReader` the recorded corpus,
@@ -110,7 +110,7 @@ either without a trait object.
 ### Variants
 
 - `Postgres` - The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
-- `Oracle` - The Oracle documentation-schema reader.
+- `Oracle` - The Oracle documentation-schema reader, behind the `live-oracle` feature.
 
 ### Methods
 
@@ -588,7 +588,7 @@ integration suite is a separate crate and cannot reach a `#[cfg(test)]` item.
 
 ## Module `oracle_reader`
 
-The live Oracle documentation-schema reader, behind the default-off `live` feature.
+The live Oracle documentation-schema reader, behind the default-off `live-oracle` feature.
 
 `crate::postgres_reader`'s twin over an Oracle connection: the same documented `columns` view
 (that module's header carries the column table), the same constructor checks, inline caps and

@@ -164,7 +164,7 @@ mutation among them. `wire::IamCredentialsOverHttp`, the one real implementor, h
 the `wire` transport, so from that point the hop was reachable only from a test fake.
 
 **What replaces the mechanism, and it is narrower.** A source declared `impersonation-at-source`
-resolves a caller through `DeclaredPrincipalBroker` (`crates/sutura-exec-bigquery/src/principal.rs`),
+resolves a caller through `DeclaredPrincipalBroker` (`crates/sutura-config/src/credentials/declared.rs`),
 whose declared per-source map keys on the same full [`SubjectKey`] this record argued for - so the
 first amendment's resolution of option (2) survives the deletion: a real IdP subject is still the key
 the map keys on, and a caller absent from it is still refused before any network call rather than

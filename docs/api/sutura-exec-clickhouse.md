@@ -9,8 +9,10 @@ The public API of `sutura-exec-clickhouse`, rendered from rustdoc JSON.
 
 A `Warehouse` adapter over `ClickHouse`, over its HTTP interface.
 
-One connection under the deployment's declared identity (`SharedServiceUser`) - the static
-half, like `sutura_exec_postgres`: no OAuth, no impersonation.
+The deployment's declared service user authenticates every request. A `shared-service-user`
+source runs every statement as that user; an `impersonation-at-source` source runs each one as
+the `ClickHouse` user its declared map names for the asking subject, through `EXECUTE AS` - see
+`execute_as`. No OAuth: the subject never authenticates to `ClickHouse` itself.
 
 # Why `ureq` and not an async driver
 
@@ -101,7 +103,10 @@ lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to i
 - `Endpoint` - The endpoint (or the canned pack) did not answer.
 - `Render`
 - `LegWithoutCombiner` - A leg without a combiner - `Warehouse::EXECUTES_LEGS` stays at its default; see the crate header.
-- `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
+- `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential, which it has nowhere to put: it authenticates as the deployment and switches to a declared user per statement.
+- `NotAClickHouseUser` - The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
+- `ExecuteAsRefused` - The boot probe's `EXECUTE AS` did not run - refused (no setting, no grant) or unreachable.
+- `ExecuteAsNotHonoured` - The boot probe ran, and not as the declared user, or as the service user itself.
 - `PresentedDisagreesWithPosture`
 - `UnsupportedType` - A column came back as a `ClickHouse` type this adapter does not map.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
@@ -165,9 +170,112 @@ pub const fn of(source: SourceName, posture: SourcePosture, transport: T, result
 Opens an adapter over an already-constructed transport - `T = transport::Http` for a real
 connection, and a fake for the conformance pack.
 
+```rust
+pub fn refuse_unless_each_executes_as(&self, declared: &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>) -> core::result::Result<(), ClickHouseError<<T as >::Error>>
+```
+
+`Self::refuse_unless_executes_as` for every user the source declares, so no subject the
+broker serves is run as a user the boot probe skipped. The declared map itself rather than
+an iterator, so a caller cannot hand over a subset of it.
+
+# Errors
+
+The first refusal, naming its user, as `Self::refuse_unless_executes_as` gives it.
+
+```rust
+pub fn refuse_unless_executes_as(&self, user: &ClickHouseUser) -> core::result::Result<(), ClickHouseError<<T as >::Error>>
+```
+
+Refuses unless the server runs a statement as `user` for this source's service user.
+
+The boot pre-flight for an `impersonation-at-source` source, run once per declared user, so
+a missing server setting or grant stops the process rather than its first question. It also
+refuses a declared user that IS the service user, which would serve that subject as the
+deployment. The limit: it proves the grant at boot; a grant revoked later surfaces as a
+refused question (`Code: 497`), never as an answer as the service user.
+
+# Errors
+
+`ClickHouseError::ExecuteAsRefused` if the server refuses the statement, and
+`ClickHouseError::ExecuteAsNotHonoured` if it runs as anyone but `user`, or as the
+service user.
+
 ### Implements
 
 `Debug`, `Warehouse`
+
+## Module `execute_as`
+
+Per-caller execution: each statement is sent as `EXECUTE AS "<user>" <statement>`.
+
+**The per-statement form only.** `ClickHouse` also has `EXECUTE AS <user>` with no statement,
+which switches the user for the rest of a session. This adapter never renders it:
+`ClickHouseUser::execute_as` is the one place the keyword is written, and it always carries the
+statement. Each request is also stateless - `transport::Http` sends no `session_id` - so no
+switch can outlive the request that asked for it, and two callers on one pooled connection
+cannot inherit each other's user.
+
+**The user is never caller text.** It comes from the source's declared subject-to-user map, is
+parsed here to a closed character set, and is quoted with the dialect's identifier quote. The
+character set has no quote, backslash or whitespace, so the quoted span cannot be closed early.
+
+The server half is two operator settings this adapter cannot set: the server setting
+`access_control_improvements.allow_impersonate_user = 1`, and `GRANT IMPERSONATE ON <user>` to
+the service user. `ClickHouseWarehouse::refuse_unless_executes_as` checks both at boot. Not
+available on `ClickHouse` Cloud.
+
+### `struct ClickHouseUser`
+
+```rust
+pub struct ClickHouseUser
+```
+
+A `ClickHouse` user a declared subject executes as.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn execute_as(&self, statement: &str) -> String
+```
+
+`statement`, run as this user for that one statement.
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, NotAClickHouseUser>
+```
+
+Parses a declared user name.
+
+# Errors
+
+An empty name, one longer than 128 characters, or one with a character outside letters,
+digits and `_ . - @`.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+### `enum NotAClickHouseUser`
+
+```rust
+pub enum NotAClickHouseUser
+```
+
+Why a declared value is not a `ClickHouse` user this adapter can name in `EXECUTE AS`.
+
+#### Variants
+
+- `Empty`
+- `TooLong`
+- `Character` - Outside letters, digits and `_ . - @`, so it could close the quoted identifier.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ## Module `fixture`
 
@@ -277,7 +385,7 @@ This is the TLS half of `sutura_config::sources::transport`, turned into a verif
 configuration owns the three-state DECLARATION (`plaintext` /
 `verified` / `mutual`), and this module owns turning a declared `verified` or `mutual` channel
 into the thing the client connects with. **The declared-trust-store rule extends rather than
-forks** (`docs/adr/0010`): a PEM bundle or the host's system store, read once by `config` and
+forks** (the architecture decision): a PEM bundle or the host's system store, read once by `config` and
 never a fallback, exactly as the Postgres source channel reads it.
 
 The read itself lives in `sutura-tls`, shared with the Postgres source channel and the

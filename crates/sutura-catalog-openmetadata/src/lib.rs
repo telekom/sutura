@@ -28,8 +28,8 @@
 //! not mocked HTTP. [`SnapshotReader`] is the seam a real reader over `OpenMetadata`'s `REST` API
 //! (`/api/v1/tables`, `/api/v1/metrics`, …) implements, with a bearer credential; that HTTP reader is
 //! deliberately NOT in the default build, so the crate stays green (a service has no network in the
-//! nix sandbox). That reader is `src/http.rs`, behind the default-off `http` feature; the live
-//! provisioned leg is the recorded follow-up.
+//! nix sandbox). That reader is `src/http.rs`, behind the default-off `http` feature; its live
+//! provisioned leg is `tests/provisioned.rs`, run in `ci-openmetadata-tier` (evidence only of a run of it).
 //!
 //! # The declaration, and what it means for the bundle
 //!

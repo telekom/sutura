@@ -86,6 +86,13 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
+  # The icon shortcodes of the Integrations cards, `:simple-duckdb:` and `:material-database:`.
+  # Material bundles the icon sets and `to_svg` inlines each one, so no icon is fetched at read
+  # time. Write only `:simple-*:`, `:material-*:`, `:octicons-*:` and `:fontawesome-*:` in a page:
+  # an emoji shortcode such as `:book:` renders as an image from a CDN.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
@@ -140,8 +147,8 @@ markdown_extensions:
 # this list and holds five things: every pattern here reaches exactly one page that exists, no
 # excluded page is also in `nav`, no published page LINKS to one, every published page was
 # actually read in order to say so, and a page in neither state is the orphan it always was. Each
-# line must name a page literally - a glob or a negation is refused, because a pattern that gate
-# cannot resolve is an exclusion nothing checks.
+# line must name a page literally, or one whole directory as `/dir/` - a glob or a negation is
+# refused, because a pattern that gate cannot resolve is an exclusion nothing checks.
 #
 # A LINE WITH NO `/` IN IT MATCHES A BASENAME AT EVERY DEPTH, because `exclude_docs` is gitignore
 # syntax and mkdocs matches it with `pathspec`. The gate matches it the same way now and says so
@@ -157,59 +164,16 @@ markdown_extensions:
 # behind a green docs job. Cite one of these pages as a backticked path, which is what the seven
 # ADRs that used to link them now do.
 #
-# The ADRs joined this list 2026-09-19 (owner-decided on #325): they argue why a decision went the
-# way it did, for whoever is changing that decision, and that is not what a first-time reader of
-# this site came for either. They stay under `docs/adr/` rather than moving, for the same reason
-# the implementation plans do - every citation in the repository keeps naming the file it names
-# today. Cite one as a backticked path; every published page that linked into `docs/adr/` now
-# does.
+# `/adr/` keeps the whole decision-record directory off the site, owner-decided. The records stay
+# under `docs/adr/`, so every citation in the repository keeps naming the file it names today, and
+# a new record needs no line here. `check-docs` refuses a published page that LINKS one, and any
+# published page that names a path under `docs/adr/`, in prose or in code, or cites a record by
+# number.
 exclude_docs: |
+  /adr/
   implementation-plan.md
   implementation-plan-bigquery.md
   implementation-plan-identity-and-services.md
-  adr/0001-first-party-semantic-models.md
-  adr/0002-a-closed-vocabulary-for-measures.md
-  adr/0003-datafusion-for-local-execution.md
-  adr/0004-a-named-escape-hatch-for-authored-sql.md
-  adr/0005-a-refusal-carries-a-status.md
-  adr/0006-several-databases-behind-one-data-system.md
-  adr/0007-federating-across-different-data-systems.md
-  adr/0008-a-credential-per-leg-for-the-calling-subject.md
-  adr/0009-the-plan-from-one-source-to-many.md
-  adr/0010-transport-security-for-a-source.md
-  adr/0011-pluggable-by-declaration.md
-  adr/0012-conformance-packs-for-inputs-and-adapters.md
-  adr/0013-a-raw-sql-tool-off-by-default.md
-  adr/0014-how-a-caller-proves-who-it-is.md
-  adr/0015-an-authenticated-metrics-endpoint.md
-  adr/0016-what-datahub-can-carry.md
-  adr/0017-what-a-bigquery-test-runs-against.md
-  adr/0018-what-the-bigquery-wire-is-built-from.md
-  adr/0019-a-table-outside-the-connections-dataset.md
-  adr/0020-a-credential-the-compiler-refuses-to-print.md
-  adr/0021-how-a-published-artefact-proves-where-it-came-from.md
-  adr/0022-untrusted-content-marking.md
-  adr/0023-how-the-agent-surface-learns-who-is-asking.md
-  adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
-  adr/0025-what-a-scorecard-zero-says-about-this-repository.md
-  adr/0026-no-third-party-binary-cache.md
-  adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
-  adr/0028-who-may-see-a-metric.md
-  adr/0029-where-a-deadline-lives.md
-  adr/0030-where-a-budget-lives.md
-  adr/0031-caching-an-exchanged-credential.md
-  adr/0032-the-iamcredentials-impersonation-hop.md
-  adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
-  adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
-  adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
-  adr/0036-a-knowledge-only-source-speaks-through-a-metric.md
-  adr/0038-an-rdf-source-declines-rather-than-maps-a-part.md
-  adr/0039-arrow-and-datafusion-override-the-hand-written-combiner.md
-  adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md
-  adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md
-  adr/20260926112245-opt-in-physical-schema-listing.md
-  adr/20261001045714-cube-documents.md
-  adr/20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md
   crap.md
   how-a-join-key-is-compared.md
   what-a-bpmn-file-actually-carries.md
@@ -225,14 +189,16 @@ exclude_docs: |
 #
 # Each top-level entry is a tab (`navigation.tabs`). The User Guide is for a person who asks
 # questions or runs a deployment. Integrations has one page for each adapter. Reference is for a
-# person who builds, verifies or changes sutura.
+# person who verifies a release or publishes the docs. Contributing is for a person who opens an
+# issue, reports a vulnerability, builds behind a proxy or changes sutura. Each tab title starts
+# with one emoji, written as a literal character that the browser font draws.
 #
 # Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
 hooks:
   - docs/.tools/version.py
 
 nav:
-  - User Guide:
+  - 📖 User Guide:
       - Introduction: index.md
       - Getting started: getting-started.md
       - Concepts: concepts.md
@@ -240,8 +206,9 @@ nav:
       - Serving over HTTP: serving.md
       - The agent prompt: agent-prompt.md
       - Questions and answers: qa.md
-  - Integrations:
-      - integrations.md
+  - 🧩 Integrations:
+      - integrations/index.md
+      - Kinds and settings: integrations.md
       - Catalogs:
           - Markdown catalog: integrations/catalogs/markdown.md
           - DataHub: integrations/catalogs/datahub.md
@@ -259,16 +226,14 @@ nav:
           - Oracle: integrations/data-systems/oracle.md
       - Identity:
           - Inbound identity: integrations/identity.md
-  - Examples:
+  - 💻 Examples:
       - examples/index.md
       - Single player: examples/single-player.md
       - Multi player: examples/multi-player.md
       - The local chat demo: demo.md
-  - Reference:
+  - 📚 Reference:
       - Configuration: configuration.md
       - Verifying a release: verifying-a-release.md
-      - Building without direct egress: enterprise-mirrors.md
-      - Contributing: contributing.md
       - Publishing the docs: publishing.md
       - API:
           - api/index.md
@@ -307,7 +272,13 @@ nav:
           - sutura-conformance: api/sutura-conformance.md
           - sutura-dev: api/sutura-dev.md
 
-  - Changelog: changelog.md
+  - 🤝 Contributing:
+      - Contributing: contributing.md
+      - Building without direct egress: enterprise-mirrors.md
+      - Open an issue: open-an-issue.md
+      - Report a security issue: report-a-security-issue.md
+
+  - 📝 Changelog: changelog.md
 
 extra:
   version:
