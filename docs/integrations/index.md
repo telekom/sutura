@@ -25,7 +25,7 @@ The catalog reads from a metadata platform over its API.
 
 <div class="grid cards" markdown>
 
--   :material-database-search:{ .lg .middle } __DataHub__
+-   :brand-datahub:{ .lg .middle .sutura-logo } __DataHub__
 
     ---
 
@@ -36,7 +36,7 @@ The catalog reads from a metadata platform over its API.
 
     [:octicons-arrow-right-24: DataHub](catalogs/datahub.md)
 
--   :material-book-open-page-variant:{ .lg .middle } __OpenMetadata__
+-   :brand-openmetadata:{ .lg .middle .sutura-logo } __OpenMetadata__
 
     ---
 
@@ -90,7 +90,7 @@ The catalog reads from files that you keep in git.
 
     [:octicons-arrow-right-24: Markdown catalog](catalogs/markdown.md)
 
--   :material-table-large:{ .lg .middle } __OKF__
+-   :brand-frictionless:{ .lg .middle .sutura-logo } __OKF__
 
     ---
 
@@ -100,7 +100,7 @@ The catalog reads from files that you keep in git.
 
     [:octicons-arrow-right-24: OKF](catalogs/okf.md)
 
--   :material-file-sign:{ .lg .middle } __Data Contract__
+-   :brand-bitol:{ .lg .middle .sutura-logo } __Data Contract__
 
     ---
 
@@ -209,7 +209,7 @@ The data system reads files.
 
 <div class="grid cards" markdown>
 
--   :material-file-table-outline:{ .lg .middle } __DataFusion (files)__
+-   :brand-datafusion:{ .lg .middle .sutura-logo } __DataFusion (files)__
 
     ---
 

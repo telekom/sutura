@@ -86,13 +86,17 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
-  # The icon shortcodes of the Integrations cards, `:simple-duckdb:` and `:material-database:`.
+  # The icon shortcodes of the Integrations cards, `:simple-duckdb:` and `:brand-datahub:`. The
+  # `brand` set is in `overrides/.icons/brand`, and `check-docs` reads every file there.
   # Material bundles the icon sets and `to_svg` inlines each one, so no icon is fetched at read
   # time. Write only `:simple-*:`, `:material-*:`, `:octicons-*:` and `:fontawesome-*:` in a page:
   # an emoji shortcode such as `:book:` renders as an image from a CDN.
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      options:
+        custom_icons:
+          - overrides/.icons
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
