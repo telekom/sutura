@@ -65,11 +65,10 @@ fn a_null_refresh_seconds_is_refused_naming_the_key_and_the_file() {
     .expect("a scratch file is writable");
     let loaded = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()));
     drop(std::fs::remove_dir_all(&dir));
-    let rendered = loaded.expect_err("a null interval is not an interval").to_string();
-    assert!(
-        rendered.contains("refresh_seconds"),
-        "the error should name the key: {rendered}"
-    );
+    let error = loaded.expect_err("a null interval is not an interval");
+    let cause = format!("{:?}", core::error::Error::source(&error));
+    assert!(cause.contains("refresh_seconds"), "the error should name the key: {cause}");
+    let rendered = error.to_string();
     assert!(
         rendered.contains(&base.display().to_string()),
         "the error should name the file: {rendered}"
