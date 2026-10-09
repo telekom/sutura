@@ -21,18 +21,13 @@ JavaScript; the script only highlights the connections of the crate you point at
 
 ## Identity
 
-sutura separates two claims about identity:
+sutura separates two parts of identity:
 
-- **Leg 1: sutura knows who asks.** This is built. With `security.inbound`, sutura verifies the
-  caller's token before it answers. [Inbound identity](integrations/identity.md) has the settings.
-- **Leg 2: a data system runs the query as the caller.** This is built for BigQuery
-  (secure-impersonation). The BigQuery adapter sends the caller's verified assertion through the
-  account that the source maps for that caller. sutura refuses a caller that the map does not
-  declare.
+- **Leg 1: sutura knows who asks.** sutura verifies the caller's token before it answers, on HTTP and on MCP
+  (`security.inbound`). [Inbound identity](integrations/identity.md) has the settings.
+- **Leg 2: the data system runs the query as the caller.** BigQuery and ClickHouse do this (secure-impersonation). sutura
+  refuses a caller that the source does not declare. Every other data system runs each query as one identity that the
+  operator declares for that source (`shared-service-user`).
 
-Every other data system runs as one identity that the deployment declares for that source. An
-operator acknowledges that shared identity in the configuration, and the answer reports it.
-
-sutura keeps no copy of who may see which rows. Grants, row policies and masking stay in the data
-system. For this reason there is no result cache: under row-level security, a cache keyed on the
+Grants, row policies and masking stay in the data system. sutura keeps no result cache, because a cache keyed on the
 question would leak rows between callers.
