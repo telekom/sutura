@@ -9,12 +9,6 @@ This example runs sutura for several users. Keycloak is the identity provider. D
 catalog, read with one token for every caller. BigQuery is the data system, and sutura asks it as
 the service account that it maps to each caller.
 
-!!! warning "Built, not proven against Google"
-
-    The per-caller BigQuery path is built. No test has yet observed it run against Google, so this
-    example is the first place where you can see it work. See
-    [BigQuery](../integrations/data-systems/bigquery.md#identity).
-
 The example is in
 [`examples/multi-player`](https://github.com/telekom/sutura/tree/main/examples/multi-player):
 
@@ -36,9 +30,6 @@ All data is synthetic.
 - A Pulumi credential for the test project. It must enable APIs. It must create and remove a
   bucket, a dataset, tables, a workload identity pool, a provider, service accounts, IAM grants
   and row access policies. Use this credential for setup and teardown only.
-- A sutura image that reads `workload_identity.delegation`. An older release refuses that key. In
-  that case, build the image from this tree with `nix build .#oci && ./result | docker load`, and
-  tag `sutura:latest` as `ghcr.io/telekom/sutura:<version>`.
 
 In an enterprise deployment, operators create the accounts, the identity provider, the pool, the
 data and the grants in advance. sutura then needs no administrator or provisioning role. The

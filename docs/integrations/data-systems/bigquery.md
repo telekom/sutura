@@ -16,8 +16,7 @@ See [Identity](#identity).
 
 - Your data is in BigQuery, and BigQuery grants and row access policies control who sees what.
 - You want each caller's query to run as that caller's own service account.
-  `posture: impersonation-at-source` does this. It is built, and no recorded run has yet shown
-  Google accept the caller's identity.
+  `posture: impersonation-at-source` does this (secure-impersonation).
 - Or you want all queries to run as one service account. `posture: shared-service-user` does
   this.
 
@@ -92,8 +91,7 @@ process.
 With `impersonation-at-source`, sutura gives the driver the caller's verified assertion. Google
 checks it against the pool in `audience`, and the query runs as the service account that
 `impersonate` maps to the caller. sutura refuses an anonymous caller and a caller who is not in
-the map. It never runs their query as the deployment. This path is built, and no recorded run has
-yet shown Google accept the caller's identity.
+the map. It never runs their query as the deployment.
 
 ## Sizing
 

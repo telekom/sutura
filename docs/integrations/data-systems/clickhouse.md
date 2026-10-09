@@ -57,7 +57,7 @@ sources:
 
 ## Identity
 
-This data system supports `shared-service-user` only today, and [#1263](https://github.com/telekom/sutura/issues/1263) tracks secure-impersonation, which waits for the ADBC migration in [#1250](https://github.com/telekom/sutura/issues/1250).
+This data system supports `shared-service-user` only.
 
 sutura signs in as the one user in `user`. Every caller's query runs as that user. The source must
 use `posture: shared-service-user`.

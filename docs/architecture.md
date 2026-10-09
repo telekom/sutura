@@ -98,10 +98,10 @@ sutura separates two claims about identity:
 
 - **Leg 1: sutura knows who asks.** This is built. With `security.inbound`, sutura verifies the
   caller's token before it answers. [Inbound identity](integrations/identity.md) has the settings.
-- **Leg 2: a data system runs the query as the caller.** This is built for BigQuery and not
-  proven. The BigQuery adapter can send the caller's verified assertion through the account that
-  the source maps for that caller. sutura refuses a caller that the map does not declare. No test
-  has yet observed a served binary that runs a query as a caller.
+- **Leg 2: a data system runs the query as the caller.** This is built for BigQuery
+  (secure-impersonation). The BigQuery adapter sends the caller's verified assertion through the
+  account that the source maps for that caller. sutura refuses a caller that the map does not
+  declare.
 
 Every other data system runs as one identity that the deployment declares for that source. An
 operator acknowledges that shared identity in the configuration, and the answer reports it.

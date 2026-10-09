@@ -154,7 +154,7 @@ at a human is prompt injection through the catalog. Three measures address this,
 the honest limit.
 
 **A delimiter cannot separate instruction from data, because the content can contain the
-delimiter.** [Concepts](concepts.md#provenance-and-why-results-are-meant-to-be-arrow) already says
+delimiter.** [Concepts](concepts.md#provenance) already says
 so. So the mitigation is not a fence. It is a per-line prefix that sutura applies: sutura emits
 every line of prose with `>` in front of it. **No line of catalog text can reach the document at
 column zero.** Catalog text cannot emit a heading, close a block, or open something that reads as a

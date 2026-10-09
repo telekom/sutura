@@ -47,7 +47,7 @@ sources:
 
 ## Identity
 
-This data system supports `shared-service-user` only, and [#923](https://github.com/telekom/sutura/issues/923) and [#1217](https://github.com/telekom/sutura/issues/1217) track secure-impersonation.
+This data system supports `shared-service-user` only.
 
 sutura connects as the one user in `user`. Every caller's query runs as that user. The source must
 use `posture: shared-service-user`.

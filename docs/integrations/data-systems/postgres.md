@@ -71,7 +71,7 @@ sources:
 
 ## Identity
 
-This data system supports `shared-service-user` only, and [#126](https://github.com/telekom/sutura/issues/126) tracks secure-impersonation.
+This data system supports `shared-service-user` only.
 
 sutura signs in as the one role in `user`, with the password or, for `mutual`, with the client
 certificate. Every caller's query runs as that role. The source must use

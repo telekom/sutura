@@ -181,14 +181,14 @@ query runs as that caller's own identity at the source.
 
 ### Identity mode of each data system
 
-| Data system                                      | Identity mode                                  | Per-caller work                                                                                                      |
-| ------------------------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                     | None: the engine runs inside the sutura process                                                                      |
-| [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                     | None: the engine runs inside the sutura process                                                                      |
-| [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation | None: a service account per caller                                                                                   |
-| [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                     | [#126](https://github.com/telekom/sutura/issues/126)                                                                 |
-| [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` only                     | [#1263](https://github.com/telekom/sutura/issues/1263), after [#1250](https://github.com/telekom/sutura/issues/1250) |
-| [Oracle](data-systems/oracle.md)                 | `shared-service-user` only                     | [#923](https://github.com/telekom/sutura/issues/923) and [#1217](https://github.com/telekom/sutura/issues/1217)      |
+| Data system                                      | Identity mode                                  |
+| ------------------------------------------------ | ---------------------------------------------- |
+| [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                     |
+| [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                     |
+| [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation |
+| [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                     |
+| [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` only                     |
+| [Oracle](data-systems/oracle.md)                 | `shared-service-user` only                     |
 
 ## Identity
 

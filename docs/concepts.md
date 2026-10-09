@@ -5,28 +5,11 @@ description: The words on the tool surface, and what each one commits to.
 
 # Concepts
 
-The words on the tool surface, and what each one commits to. The design is settled and the code is
-not. So this page is vocabulary, not an API you can call.
+The words on the tool surface, and what each one commits to.
 [Architecture](architecture.md) says how the pieces fit.
 
-!!! warning "Two kinds of claim on this page, marked at each one"
-
-    **Enforced today** means a type, a lint, a gate or a test holds the property in the code that
-    is here, and the mechanism is named beside the claim. **Design target** means it is written
-    down and not built: no port, no adapter, no test, and nothing that would notice if the property
-    were false.
-
-    **The identity claims are the ones to read carefully. Not all of them are design targets.**
-    A deployment can establish who is asking, from a signature. No question can execute without a
-    credential that a broker minted for the source it reads. A published adapter can carry a
-    per-subject credential - `sutura-exec-bigquery`, behind its default-off `bigquery` feature - but
-    no served binary has executed a leg as the calling subject yet
-    (`docs/where-identity-is-proven.md`). Every OTHER adapter a published binary links declares that
-    it has nowhere for a per-subject credential to arrive, so a question against one of those
-    adapters still reads as one identity. A deployment behind only the bearer token has no
-    per-caller identity at all, because that token authenticates the **deployment**. So the
-    perimeter is real, the subject is known where leg 1 is configured, and per-caller ACCESS is not
-    proven end to end yet. No sentence is a control you can rely on unless it says *enforced today*.
+A claim marked **Enforced today** is held by a type, a lint, a gate or a test. The mechanism is
+named beside the claim.
 
 ## A question, and what it is made of
 
@@ -87,12 +70,6 @@ Nothing published parses it, checks it against the model's columns or renders it
 this workspace ships refuses to start on a bundle that carries one, naming the metric. A caller
 still has no field for SQL, and the agent prompt still never sees any.
 
-**Design target, not built.** A definition may instead arrive as **statement** text authored
-upstream. The text is spliced into a generated wrapper byte for byte, because re-emitting it would
-substitute our reading for the author's, and the number would change quietly. Nothing implements
-that splice: `Metric` has no statement field today.
-[What exists today](architecture.md#what-exists-today) records the gap.
-
 An **anchor** is a known result for a metric. **Enforced today:** `sutura_app::verify_and_validate`
 re-executes every metric that declares one. It returns the bundle as `Validated` only if every
 anchor it declares was checked and matched. A bundle whose anchors were never checked cannot reach
@@ -133,7 +110,7 @@ than an `Err`, and the golden suite provokes every variant a question can reach.
 is never echoed back. `DimensionValueNotAllowed` names the dimension and stops there, so caller
 text cannot be reflected into a log, a UI or an agent's context.
 
-**Built, and the limit is the deployment's rather than ours.** Every outcome - a refusal as much
+**The limit is the deployment's rather than ours.** Every outcome - a refusal as much
 as an answer - is written to an `AuditSink` before it is returned, and the record carries the
 principal chain. `sutura-runtime` ships the structured writer that a deployment gets when it
 attaches nothing else. Two things are not the same as attribution. First, sutura **retains
@@ -142,49 +119,35 @@ that chain is only as strong as what established it. A deployment behind the sha
 alone records the *deployment*, because that is who asked as far as anything can tell. A
 deployment that declares `security.inbound` records the caller, from a signature.
 
-**Still a design target.** A refusal recorded against a subject whose *access* decided the answer.
-The record can say who asked and which identity each leg ran under. It cannot say the two were the
-same, because no served binary has executed a leg as the calling subject yet, even though
-`sutura-exec-bigquery` can carry a per-subject credential (`docs/where-identity-is-proven.md`).
+The record names who asked and which identity each leg ran under.
 
 ## Principal, subject, and running as the caller
 
-The **principal** is who is asking. When an agent asks on somebody's behalf, there is a chain of
-principals. The **subject** is the identity the data system must see: the person, not the service.
+The **principal** is who is asking. When an agent asks for a person, the principals form a chain.
+The **subject** is the identity that the data system sees: the person, not the service.
 
-**Half built, and the halves are worth telling apart.** The target is that every query runs as the
-subject. A credential is minted per request. A leg that cannot run as the subject is refused
-rather than falling back to the service's own identity, because that fallback would turn "you may
-not see these rows" into "here are the rows".
+A leg runs in one of two ways:
 
-*Built:* answering takes a request context and a credential broker. The broker mints once for
-every source the plan reads. The execution port takes what the broker produced, with **no
-signature that omits it**. A subject with no credential at a source is refused as
-`credential_unavailable`. Each adapter refuses credential material it has nowhere to put, rather
-than quietly ignoring it. So the fallback is not forbidden by a rule. It is absent from every
-signature.
+- **secure-impersonation** (BigQuery). The leg runs as the subject. sutura mints a credential for
+  each request.
+- **shared-service-user** (files, Postgres). The leg runs as the deployment's own identity for
+  that source. An operator declares this in the configuration.
 
-*Built, behind a feature - not proven at a served binary.* `sutura-exec-bigquery`'s default-off
-`bigquery` feature IS an adapter that can carry a per-subject credential, federated against a
-declared pool (`docs/where-identity-is-proven.md`). No served binary has executed a leg as the
-calling subject yet. Every OTHER adapter a published binary links - `sutura-exec-datafusion` for
-`files`, `sutura-exec-postgres` - declares that it has nowhere for one to arrive. The broker that
-ships mints from configuration and performs no token exchange for those. So today a `files` or
-`postgres` credential says *the deployment's own identity for this source, acknowledged by an
-operator*. That is honest, and it is not impersonation.
+Where the deployment declares `security.inbound`, who is asking comes from the caller's own token.
+A deployment behind only the bearer token has no per-caller identity, because that token
+authenticates the deployment.
 
-**Enforced today, and narrower than it sounds.** Nothing in the query path can *choose* an
-identity. `SemanticCatalog::load` takes no request context, so a catalogue cannot return one
-definition to one caller and another to the next. A plan resolves to exactly one named data
-system. `Secret` implements no `PartialEq` and has a hand-written `Debug`, so credential material
-cannot be compared or printed by accident. In single-player that is the whole of it: the data is
-a file, a file has no login, and there is only ever one subject. It is a true statement about a
-laptop, not about a warehouse.
+sutura never falls back to the service identity on its own. A fallback would turn "you may not see
+these rows" into "here are the rows". Answering takes a request context and a credential broker.
+The broker mints once for every source the plan reads. The execution port takes what the broker
+produced, and no signature omits it. A subject with no credential at a source is refused as
+`credential_unavailable`. An adapter refuses credential material that it has nowhere to put.
 
-**There is no downgrade path because there is no second identity to downgrade to** - not because
-something forbids one. `RefusalReason::SourceUnavailable` does exist, but `sutura-app` raises it
-when a plan names a data system this process did not open. That is a source-name mismatch, not an
-identity failure. Nothing here would catch a future adapter that fell back to a service account.
+Nothing in the query path chooses an identity. `SemanticCatalog::load` takes no request context, so
+a catalogue cannot return one definition to one caller and another to the next. A plan resolves to
+exactly one named data system. `Secret` implements no `PartialEq` and has a hand-written `Debug`,
+so nobody can compare or print credential material by accident. `RefusalReason::SourceUnavailable`
+means that the plan names a data system this process did not open. It is not an identity failure.
 
 **sutura holds no copy of who may see what.** Grants, row-level policies and masking live in the
 data system. The people who own the data administer and audit them. A second copy here could
@@ -252,60 +215,28 @@ build whose only linked adapter cannot run a leg - which is any build without th
 engine - refuses a two-source question as `FederationNotExecutable` rather than answering half of
 it.
 
-## Provenance, and why results are meant to be Arrow
+## Provenance
 
 Rows, column descriptions and glossary text are authored by somebody else, and any of it can
 contain something shaped like an instruction. A delimiter cannot separate instruction from data,
 because the content can contain the delimiter.
 
-**Design target, not built.** Results leave as Arrow with **provenance** in the schema metadata:
-a typed field a caller reads deliberately, never a string concatenated into the channel that
-carries instructions. Both wire envelopes share one encoder, so neither can grow a text-blob
-shortcut on its own. None of that is here. There is no Arrow IPC or Flight envelope, no encoder,
-and no transport to carry one. The engine does execute over Arrow *inside* the process, which is a
-different claim: nothing leaves as Arrow.
-
-**Enforced today.** The `Warehouse` port returns a `RowSet`: typed columns and typed `Value` cells
+The `Warehouse` port returns a `RowSet`: typed columns and typed `Value` cells
 with an enforced row width, not a text blob. An answer carries `Provenance` beside it as its own
 field, not as text mixed into the rows. The definition version and digest travel there, so a
-result is still not separable from what defined it. The envelope is a row type, not an Arrow
-schema, and `RowSet` is honest about being one.
+result is still not separable from what defined it.
 
 ## What you cannot ask for
 
 Absences by design. The last column says what holds each one, because an absence written down and
 an absence enforced are not the same thing:
 
-| Not available                                   | Why                                                                                                           | What holds it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQL, a table name, a filter expression, row ids | The tool surface has no field for any of them. An uncertified question is unrepresentable, not merely refused | **Enforced.** `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| A cached result                                 | Under row-level security a query-keyed cache is a cross-user leak. There is no cache to key                   | **Enforced by absence.** No mechanism can prove one: adding any cache of rows is an architecture decision, keyed on subject first or not at all                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| An edit to a definition                         | Editing one forks the definition from the number it certifies. Definitions are authored upstream              | **Enforced.** Nothing on the query path writes to the catalogue. The bundle is hashed, so an edit moves the digest that travels with the answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| A query as the service identity                 | A leg that cannot run as the subject should be refused rather than downgraded                                 | **Enforced, and narrower than it reads.** `Warehouse::execute` takes a credential a broker minted for that source and has no signature that omits one, so there is no fallback to downgrade THROUGH. A subject with no credential is refused as `credential_unavailable`. An adapter handed material it cannot use returns an error rather than answering. What is NOT enforced end to end is the sentence people hear in it: `sutura-exec-bigquery` can carry a per-subject credential, but no served binary has executed a leg as the calling subject yet. So a `files` or `postgres` leg still runs as this process - by declaration, and with the answer recording that it did |
-| An unbounded time range                         | A range has to be bounded to resolve at all                                                                   | **Enforced.** `TimeRange` has no unbounded form, so an absent bound fails to deserialize and the refusal is unprovokable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| A range too long to be worth answering          | A bounded range still permits a full scan: two real dates can be ten thousand years apart                     | **Enforced, on the caller's path only.** Resolution refuses a span over ten years as `TimeRangeTooLong`, carrying two derived integers and nothing of the caller's text. It is checked there rather than in the type, because the same type carries a metric's anchor range, which an author writes and no caller can reach. **What it does not bound:** the work inside a permitted span, or a caller asking three permitted questions in a row. A per-caller budget needs a clock and a subject, which is the same absent port as the identity row above                                                                                                                         |
-| A definitional filter removed or renamed        | A metric's required filters are part of what it means                                                         | **Enforced.** They are compiled into every plan for the metric and marked as definitional. A caller has no field that could name, select or remove one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-
-## Status
-
-**A governed single-player semantic compiler and executor over local files.** That is what is
-here. `sutura compile` renders the statement for a question, and `sutura query` answers it. Both
-work over a catalogue of documents in git and the Parquet, CSV or NDJSON files in a directory you
-name (each text format plain or compressed). Every certified number is re-executed before the
-bundle may be served.
-
-Everything marked *design target* above is unbuilt. The identity path is not one of them, and it
-is not finished either. There IS a request context, a credential broker port with a
-static-credential implementor, an audit sink and an MCP surface. A deployment that declares
-`security.inbound` verifies a caller's own token. A published build links an adapter that can
-carry a per-subject credential - `sutura-exec-bigquery`, behind its default-off `bigquery`
-feature - but no served binary has executed a leg as the calling subject yet
-(`docs/where-identity-is-proven.md`). So per-caller ACCESS is still absent in practice. And a
-deployment behind only the bearer token has no per-caller identity at all, because that token
-authenticates the deployment. No Arrow envelope.
-[What exists today](architecture.md#what-exists-today) is the inventory. `AGENTS.md` in the
-repository lists each invariant beside the type, lint or gate that holds it - including the rows
-that say outright that nothing holds them yet.
-
-The mechanisms came first on purpose. Every claim on this page is meant to be held up by a type,
-a lint, a hook or a gate. Those are cheaper to build before there is code to retrofit them onto.
+| Not available                                   | Why                                                                                                           | What holds it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQL, a table name, a filter expression, row ids | The tool surface has no field for any of them. An uncertified question is unrepresentable, not merely refused | **Enforced.** `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| A cached result                                 | Under row-level security a query-keyed cache is a cross-user leak. There is no cache to key                   | **Enforced by absence.** No mechanism can prove one: adding any cache of rows is an architecture decision, keyed on subject first or not at all                                                                                                                                                                                                                                                                                                                                                                                                            |
+| An edit to a definition                         | Editing one forks the definition from the number it certifies. Definitions are authored upstream              | **Enforced.** Nothing on the query path writes to the catalogue. The bundle is hashed, so an edit moves the digest that travels with the answer                                                                                                                                                                                                                                                                                                                                                                                                            |
+| A query as the service identity                 | A leg that cannot run as the subject should be refused rather than downgraded                                 | **Enforced.** `Warehouse::execute` takes a credential a broker minted for that source and has no signature that omits one, so there is no fallback to downgrade through. A subject with no credential is refused as `credential_unavailable`. An adapter handed material it cannot use returns an error rather than answering. A `files` or `postgres` leg runs as this process (shared-service-user), by declaration, and the answer records that it did                                                                                                  |
+| An unbounded time range                         | A range has to be bounded to resolve at all                                                                   | **Enforced.** `TimeRange` has no unbounded form, so an absent bound fails to deserialize and the refusal is unprovokable                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| A range too long to be worth answering          | A bounded range still permits a full scan: two real dates can be ten thousand years apart                     | **Enforced, on the caller's path only.** Resolution refuses a span over ten years as `TimeRangeTooLong`, carrying two derived integers and nothing of the caller's text. It is checked there rather than in the type, because the same type carries a metric's anchor range, which an author writes and no caller can reach. **What it does not bound:** the work inside a permitted span, or a caller asking three permitted questions in a row. A per-caller budget needs a clock and a subject, which is the same absent port as the identity row above |
+| A definitional filter removed or renamed        | A metric's required filters are part of what it means                                                         | **Enforced.** They are compiled into every plan for the metric and marked as definitional. A caller has no field that could name, select or remove one                                                                                                                                                                                                                                                                                                                                                                                                     |
