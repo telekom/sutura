@@ -1445,14 +1445,15 @@ declared relationship - or through a chain of them, in the order the author wrot
 order is load-bearing: hop N's origin must be hop N-1's target, so a chain is a single path and
 not a set of relationships, and the planner renders the joins in that order rather than choosing
 one. **Every hop is refused if it could duplicate rows, and a chain crosses a data system
-boundary at most once, only at its first hop**: hop 1 may cross - a single remote dimension is
-the federated case the plan layer serves, by splitting the question into one link and one lookup
-table - and a later hop is refused unless BOTH its ends sit on the metric's own source. So an
-accepted chain is either wholly local or exactly one crossing hop, which are the two shapes the
-plan layer can render, and no accepted hop changes what a measure sees. **The limit next to the
-claim:** that is `Definitions::assemble`'s check, so it holds for a bundle that was assembled
-here; `sutura_semantic`'s plan stage asks the same question again over the resolved chain,
-because a load check alone is one edit away from being bypassed.
+boundary at most once, at any hop**: the hops before the crossing join on the metric's own
+source, the crossing hop is the one link the federated plan carries, and the hops after it join
+inside the lookup leg's statement on the system the chain crossed to. A later hop that lands
+anywhere else - back on the metric's own source or on a third - is refused. So an accepted chain
+is wholly local or crosses once and stays, which are the shapes the plan layer can render, and no
+accepted hop changes what a measure sees. **The limit next to the claim:** that is
+`Definitions::assemble`'s check, so it holds for a bundle that was assembled here;
+`sutura_semantic`'s plan stage asks the same question again over the resolved chain, because a
+load check alone is one edit away from being bypassed.
 
 `allowed_values` is what makes a dimension filterable. `None` means it can be grouped by and not
 filtered: a filter needs an allowlist, because the alternative is comparing against a value the

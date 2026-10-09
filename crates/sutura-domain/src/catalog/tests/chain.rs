@@ -147,16 +147,31 @@ fn a_chain_whose_hop_does_not_start_at_the_previous_target_is_refused() {
     );
 }
 
-#[test]
-fn a_chain_hop_onto_another_data_system_is_refused() {
-    // `regions` sits on `elsewhere`, and hop 2 crossing there would put the chained join on another
-    // data system's statement. Hop 1 is allowed to cross - that is the federated case - so the same
-    // models with a single-hop dimension on `orders_customer` still assemble below.
+/// The chain, assembled, and the source it was placed on for each of its three models.
+fn chain_placed(orders: &str, customers: &str, regions: &str) -> Result<Definitions, InconsistentDefinitions> {
     let (mut models, relationships) = three_models();
-    models[2] = model("regions", "elsewhere", &["code", "label"]);
-    let m = chain_metric();
+    models[0] = model("orders", orders, &["amount_cents", "order_date", "customer_id"]);
+    models[1] = model("customers", customers, &["id", "region_code"]);
+    models[2] = model("regions", regions, &["code", "label"]);
+    Definitions::assemble(models, relationships, vec![chain_metric()])
+}
+
+#[test]
+fn a_chain_may_cross_at_a_later_hop() {
+    // `regions` sits on `elsewhere`: hop 1 joins on `local`, hop 2 is the one crossing.
+    drop(chain_placed("local", "local", "elsewhere").expect("a chain that crosses once, at its second hop, assembles"));
+}
+
+#[test]
+fn a_chain_may_stay_on_the_system_it_crossed_to() {
+    // `customers` and `regions` both on `elsewhere`: hop 1 crosses and hop 2 joins inside the lookup.
+    drop(chain_placed("local", "elsewhere", "elsewhere").expect("a chain that crosses and stays assembles"));
+}
+
+#[test]
+fn a_chain_that_crosses_to_a_data_system_and_on_to_a_third_is_refused() {
     assert_eq!(
-        Definitions::assemble(models.clone(), relationships.clone(), vec![m]).unwrap_err(),
+        chain_placed("local", "elsewhere", "third").unwrap_err(),
         InconsistentDefinitions::HopCrossesSource {
             metric: metric_name("revenue"),
             dimension: dimension_name("region"),
@@ -164,12 +179,6 @@ fn a_chain_hop_onto_another_data_system_is_refused() {
             own: SourceName::parse("local").expect("a test source is a source"),
             target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
         }
-    );
-
-    let single = metric("revenue", vec![dimension("region", "id", Some(&["orders_customer"]), None)]);
-    drop(
-        Definitions::assemble(models, relationships, vec![single])
-            .expect("hop 1 crossing is the federated case and still assembles"),
     );
 }
 
