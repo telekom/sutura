@@ -74,14 +74,15 @@ pub(crate) fn open_bigquery(
 /// Builds one `BigQuery` adapter, after checking this build can deliver the source's posture.
 ///
 /// **Every value it needs is declared on the source entry.** The billing project, the dataset and -
-/// where the source impersonates - the scope an impersonated credential is minted for. The request
-/// timeout no longer reaches this function: the `wire` half's `QueryDeadline` and bytes-billed
-/// ceiling went away with the transport, and the ADBC driver bounds a job under its own settings.
+/// where the source impersonates - the audience of the pool the caller's assertion is exchanged
+/// against. The request timeout no longer reaches this function: the `wire` half's `QueryDeadline`
+/// and bytes-billed ceiling went away with the transport, and the ADBC driver bounds a job under
+/// its own settings.
 ///
-/// The scope is parsed HERE as well as in `sutura-config`, and that is the single-owner rule rather
-/// than laziness: the crate that puts a value into a request is the one whose parse decides whether
-/// it can be sent, and the driver's comma-split option parsing is a risk only this side knows about.
-/// What the settings tree owns is that the key was written.
+/// The audience is parsed HERE as well as in `sutura-config`, and that is the single-owner rule
+/// rather than laziness: the crate that puts a value into a request is the one whose parse decides
+/// whether it can be sent. What the settings tree owns is that the key was written. There is no
+/// `scope` setting.
 #[cfg(feature = "bigquery")]
 fn build_bigquery(
     source: &sutura_domain::model::SourceName,
