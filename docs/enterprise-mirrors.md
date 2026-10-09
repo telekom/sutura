@@ -51,9 +51,9 @@ machine <host>
 A missing netrc shows up as `HTTP error 401` on a `.narinfo` while `nix-cache-info` succeeds,
 because cache-info is often anonymous. Use a scoped token, mode 0600.
 
-Flake inputs come from their forge. Once locked, their unpacked source is a store path that a
-mirror usually serves, so a locked build often needs no forge access. `flake.lock` pins by hash, so
-a mirror cannot substitute different content undetected.
+Flake inputs come from their forge. Once locked, the unpacked source of an input is a store path.
+A mirror usually serves that path, so a locked build often needs no forge access. `flake.lock` pins
+by hash, so a mirror cannot substitute different content undetected.
 
 ## Rust
 
@@ -144,8 +144,8 @@ and `extra-index-urls` from the global config into a manifest. Pixi does not int
 otherwise, because the manifest is meant to be complete on its own. Only `keyring-provider` and
 `allow-insecure-host` apply globally.
 
-What does redirect uv is `[mirrors]`, and it needs **two** entries, because the index and the files
-are served from different hosts:
+`[mirrors]` redirects uv. It needs **two** entries, because the index and the files come from
+different hosts:
 
 ```toml
 # ~/.pixi/config.toml
@@ -158,8 +158,8 @@ are served from different hosts:
 
 !!! warning "The failure that looks like a hang"
 
-    With the first entry and not the second, the resolve succeeds against the mirror and every
-    download then goes to the public host.
+    With only the first entry, the resolve succeeds against the mirror. Then every download goes to
+    the public host.
 
 If you run plain `pip` or `conda` on the same machine for other work, they read their own files.
 This repository uses neither:
@@ -237,7 +237,7 @@ to the netrc step.
 
 They configure a **network**, not a project. A contributor on a different network needs different
 ones. Both would be wrong for the public CI runner, which needs none at all. This repository is
-also public, so committing them would publish the shape of an internal estate to everybody who
+also public. Committing them would publish the shape of an internal estate to everybody who
 clones it.
 
 Hence the split: public defaults in the manifests, file locations here, values on your machine.

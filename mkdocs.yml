@@ -189,8 +189,8 @@ exclude_docs: |
 # Each top-level entry is a tab (`navigation.tabs`). The User Guide is for a person who asks
 # questions or runs a deployment. Integrations has one page for each adapter. Reference is for a
 # person who verifies a release or publishes the docs. Contributing is for a person who opens an
-# issue, reports a vulnerability or changes sutura. Each tab title starts with one emoji, written as
-# a literal character that the browser font draws.
+# issue, reports a vulnerability, builds behind a proxy or changes sutura. Each tab title starts
+# with one emoji, written as a literal character that the browser font draws.
 #
 # Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
 hooks:
@@ -233,7 +233,6 @@ nav:
   - 📚 Reference:
       - Configuration: configuration.md
       - Verifying a release: verifying-a-release.md
-      - Building without direct egress: enterprise-mirrors.md
       - Publishing the docs: publishing.md
       - API:
           - api/index.md
@@ -274,6 +273,7 @@ nav:
 
   - 🤝 Contributing:
       - Contributing: contributing.md
+      - Building without direct egress: enterprise-mirrors.md
       - Open an issue: open-an-issue.md
       - Report a security issue: report-a-security-issue.md
 
