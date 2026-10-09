@@ -140,8 +140,9 @@ pub(crate) fn check_shape(subject: &str) -> SubjectVerdict {
     if text.ends_with('.') {
         return SubjectVerdict::TrailingPeriod;
     }
-    // `cliff.toml` skips every commit that names a record, and a change a user reads must not be one.
-    if (breaking || matches!(type_part, "feat" | "fix")) && crate::docs::names_a_decision_record(text) {
+    // `cliff.toml` skips a record-naming commit unless it is a feat, a fix or breaking, which it keeps
+    // with the record stripped; the guard refuses the whole subject, scope included, so no line depends on the strip.
+    if (breaking || matches!(type_part, "feat" | "fix")) && crate::docs::names_a_decision_record(subject) {
         return SubjectVerdict::NamesARecord;
     }
     SubjectVerdict::Ok

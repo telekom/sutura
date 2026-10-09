@@ -49,6 +49,9 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::markdown::{self, Unlexable};
 
@@ -68,18 +71,18 @@ pub(crate) fn names_a_decision_record(text: &str) -> bool {
     text.contains(ADR_DIRECTORY) || names_a_decision_number(text).is_some()
 }
 
-/// The first citation of a decision record by number in `text`: `ADR`, one space, newline or
-/// hyphen, then four digits (`ADR 0011`, `ADR-0015`). The records are off the site, so the number
-/// points at a page the reader cannot open. A word that merely ends in `ADR` is not a citation.
+/// The ONE pattern for a decision record cited by number: `ADR`, any run of whitespace and hyphens,
+/// four digits, in any case (`ADR 0011`, `ADR-0015`, `adr0011`). `cliff.toml` carries the same string in
+/// every rule that names a record, and `xtask/tests/changelog_records.rs` holds the two equal. The
+/// records are off the site, so the number points at a page the reader cannot open. A word that
+/// merely ends in `ADR` is not a citation. A pattern that fails to compile matches nothing, and that
+/// cell is what turns it red.
+const DECISION_NUMBER: &str = r"(?i)\bADR[\s-]*\d{4}\b";
+
+/// The first citation of a decision record by number in `text`.
 fn names_a_decision_number(text: &str) -> Option<&str> {
-    text.match_indices("ADR").find_map(|(at, _)| {
-        let (head, tail) = text.split_at(at);
-        let cited = tail.get(..8)?;
-        let separated = matches!(cited.get(3..4)?, " " | "\n" | "-");
-        let numbered = cited.get(4..)?.bytes().all(|b| b.is_ascii_digit());
-        let word_start = !head.chars().next_back().is_some_and(char::is_alphanumeric);
-        (separated && numbered && word_start).then_some(cited)
-    })
+    static PATTERN: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISION_NUMBER).ok());
+    PATTERN.as_ref()?.find(text).map(|found| found.as_str())
 }
 
 /// How many distinct files one page may pull in before this refuses to keep following.

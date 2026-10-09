@@ -74,6 +74,26 @@ split_commits = false
 topo_order = false
 sort_commits = "newest"
 
+# A `feat`, a `fix` or a breaking subject that names a decision record stays in the changelog, with
+# the record removed: a scope that names one is dropped (`feat(ADR-0011): x` becomes `feat: x`), and
+# the other rules strip one reference from the text. Every rule opens with the type, so a `docs` or
+# `test` subject is left whole for the skip rule below. The first rule that fits wins its turn and the
+# next rules see the stripped text. A reference no rule fits ends as "the decision record", and
+# `cargo xtask check-docs` refuses the release commit if a spelling escapes all of them.
+#
+# Every rule, and the skip rule, carries the ONE pattern `(?i)\bADR[\s-]*\d{4}\b`. `DECISION_NUMBER` in
+# `xtask/src/docs/links.rs` is the same string, and `xtask/tests/changelog_records.rs` holds the two
+# equal and runs one corpus of subjects against both.
+commit_preprocessors = [
+  { pattern = '^(feat|fix)\([^)\n]*(?i)\bADR[\s-]*\d{4}\b[^)\n]*\)', replace = "${1}" },
+  { pattern = '^([a-z]+)\([^)\n]*(?i)\bADR[\s-]*\d{4}\b[^)\n]*\)!:', replace = "${1}!:" },
+  { pattern = '^((?:(?:feat|fix)(?:\([^)\n]*\))?!?|[a-z]+(?:\([^)\n]*\))?!): [^\n]*?)\s*\((?:see |per )?(?:docs/adr/\d{4}[a-z0-9-]*(?:\.md)?|(?i)\bADR[\s-]*\d{4}\b)\)', replace = "${1}" },
+  { pattern = '^((?:(?:feat|fix)(?:\([^)\n]*\))?!?|[a-z]+(?:\([^)\n]*\))?!): [^\n]*?),? (?:and|in|of|per|as|from|see|amend|amends) (?:docs/adr/\d{4}[a-z0-9-]*(?:\.md)?|(?i)\bADR[\s-]*\d{4}\b)(?: decides)?', replace = "${1}" },
+  { pattern = '^((?:(?:feat|fix)(?:\([^)\n]*\))?!?|[a-z]+(?:\([^)\n]*\))?!): [^\n]*?)(?i)\bADR[\s-]*\d{4}\b\x27s ', replace = "${1}" },
+  { pattern = '^((?:(?:feat|fix)(?:\([^)\n]*\))?!?|[a-z]+(?:\([^)\n]*\))?!): [^\n]*?\bthe )(?i)\bADR[\s-]*\d{4}\b ', replace = "${1}" },
+  { pattern = '^((?:(?:feat|fix)(?:\([^)\n]*\))?!?|[a-z]+(?:\([^)\n]*\))?!): [^\n]*?)(?:docs/adr/\d{4}[a-z0-9-]*(?:\.md)?|(?i)\bADR[\s-]*\d{4}\b)', replace = "${1}the decision record" },
+]
+
 # `filter_commits` is deliberately left off. A conventional type that matches no parser below
 # keeps its own type as the group name, so it renders in a section named after itself instead
 # of disappearing - verified against `28f3415`, whose `review:` type predates the gate and
@@ -96,16 +116,16 @@ sort_commits = "newest"
 commit_parsers = [
   { message = "^.*!:", group = "<!-- 00 -->Breaking changes" },
   { body = ".*BREAKING CHANGE", group = "<!-- 00 -->Breaking changes" },
-  # A subject that cites a decision record, by path or by number, edits that record. It is not a
-  # change a user reads. The changelog is a published page, and `cargo xtask check-docs` refuses a
-  # page that names the record directory or cites a record by number, so git-cliff skips the commit.
-  # The match is the subject line only: a body may name a record. The rule sits AFTER the two
-  # breaking rules, so a breaking commit that names a record is filed as a breaking change and is
-  # never skipped; `check-version-bump` holds that order. `xtask commit-msg` and `check-pr-title`
-  # refuse a `feat`, `fix` or breaking subject that names a record, so no such change is skipped.
-  { message = '\A[^\n]*(?:docs/adr/|ADR[ -]\d{4})', skip = true },
   { message = "^feat", group = "<!-- 01 -->Features" },
   { message = "^fix", group = "<!-- 02 -->Fixes" },
+  # A subject that names a decision record, by path or by number, and is not a breaking change, a
+  # `feat` or a `fix`: the commit edits or tests a record, which a user does not read. The changelog
+  # is a published page and `cargo xtask check-docs` refuses a page that names a record, so
+  # git-cliff skips the commit. The rule sits AFTER the breaking, `feat` and `fix` rules, and
+  # first match wins, so those three are never skipped; `commit_preprocessors` above strips the
+  # record from their subjects instead. The match is the subject line only. `check-version-bump`
+  # holds the order.
+  { message = '\A[^\n]*(?:docs/adr/|(?i)\bADR[\s-]*\d{4}\b)', skip = true },
   # A hand-written `revert: ...` is a conventional commit and was reaching none of these, so
   # it rendered in a section named after its own type. git's own `Revert "..."` subject is
   # not conventional and is dropped by `filter_unconventional` above, which is right: the

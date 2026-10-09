@@ -329,7 +329,7 @@ def drop_unfollowable(match: re.Match[str]) -> str:
 # `docs/adr/` text or `ADR NNNN` that still reaches a page.
 ADR_CITATION = re.compile(
     r"`docs/adr/[^`\n]*`(?:\s+(?:[Dd]ecision|part|step)\s+\d+)?"
-    r"|(?:\b[Tt]he\s+)?\bADR[\s-]\d{4}(?:\s+(?:[Dd]ecision|rule|part|step)\s+\d+)?"
+    r"|(?:\b[Tt]he\s+)?\b(?i:ADR)[\s-]*\d{4}\b(?:\s+(?:[Dd]ecision|rule|part|step)\s+\d+)?"
 )
 
 
@@ -638,7 +638,7 @@ def selftest_fixture() -> dict:
                     "THE VARIANT RATIONALE, which is a second paragraph. "
                     "`docs/adr/0001-x.md` decision 3 says why, as `docs/adr/0002` does. "
                     "ADR 0011's reasons hold, as ADR-0015 Decision 5 does, "
-                    "and the ADR 0016 refusal fires."
+                    "and the ADR\n   0016 refusal fires."
                 ),
                 "inner": {"variant": {"kind": "plain", "discriminant": None}},
             },
@@ -664,7 +664,7 @@ def selftest() -> None:
     assert "THE VARIANT RATIONALE, which is a second paragraph." in text, text
     # A record citation reaches no page: the path and its `decision 3` pointer are gone.
     assert "docs/adr" not in text, text
-    assert re.search(r"ADR[\s-]\d{4}", text) is None, text
+    assert re.search(r"(?i)\bADR[\s-]*\d{4}\b", text) is None, text
     assert (
         "The architecture decision says why, as the architecture decision does." in text
     ), text

@@ -47,8 +47,7 @@ Three findings, and two of them are the declaration's content:
 2. **A foreign key carries no metric cardinality.** It names the source and target columns, so
    this adapter declares the `Cardinality` *capability* absent: a dictionary carries no metric to
    reach a dimension `via` a relationship.
-3. **A single-column primary or unique key is evidence, and only the safe direction.** ADR
-   0011's "part worth having this connector for" is the one-direction uniqueness argument: a
+3. **A single-column primary or unique key is evidence, and only the safe direction.** The architecture decision's "part worth having this connector for" is the one-direction uniqueness argument: a
    reader must supply a `SingleColumnTargetUniqueness` before the foreign key maps to
    `JoinType::ManyToOne`. Membership in a composite constraint is not evidence that one column
    is unique. Without the single-column evidence, loading refuses rather than asserting the
