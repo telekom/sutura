@@ -938,9 +938,8 @@ reaches the data system for Postgres and the in-process engine, and BigQuery as 
 stops a job that outlives it on a best-effort basis, and until it does the job is billed for a result
 nobody is waiting for.
 
-**`credential_file` and `max_bytes_billed` are both required for a `bigquery` source; one of them
-reaches nothing and the other is now the bound on what a question may cost.** The driver
-authenticates itself, so the credential path is checked to be absolute and then passed nowhere.
+**`max_bytes_billed` is required for a `bigquery` source, and it is the bound on what a question may cost.**
+The driver authenticates itself, so a `bigquery` source sets no credential path.
 `max_bytes_billed` is parsed at boot and sent on every statement the ADBC transport submits, as that
 driver's `bigquery.query.max_bytes_billed` option - which is BigQuery's own `maximumBytesBilled` job
 configuration. So the bound is enforced **by BigQuery and not by a check here**: a job that would

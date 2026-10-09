@@ -16,7 +16,6 @@ data:
       warehouse:
         acknowledged_because: a single analytics project this deployment owns
         billing_project: sutura-analytics
-        credential_file: /etc/sutura/sources/warehouse/credential.json
         dataset: metrics
         kind: bigquery
         posture: shared-service-user

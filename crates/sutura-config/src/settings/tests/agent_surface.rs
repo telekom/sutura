@@ -49,8 +49,7 @@ fn loopback(server: &str, security: &str, rest: &str) -> String {
 fn two_sources() -> &'static str {
     "sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n    \
      posture: \"impersonation-at-source\"\n    workload_identity:\n      \
-     audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-     scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n  shared:\n    kind: \"files\"\n    \
+     audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n  shared:\n    kind: \"files\"\n    \
      data_dir: \"/srv/sutura/shared\"\n    posture: \"shared-service-user\"\n"
 }
 
@@ -137,15 +136,18 @@ fn a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host() {
 
 #[test]
 fn a_loopback_agent_surface_answering_a_host_name_counts_as_off_host() {
-    // Every entry is read: a loopback address does not excuse a name before it or after it.
+    // Every entry is read: a loopback address does not excuse a name before it, after it or between two.
     for hosts in [
         r#""sutura.example.com""#,
         r#""localhost""#,
         r#""10.0.0.5""#,
         r#""127.0.0.1", "sutura.example.com""#,
         r#""sutura.example.com", "127.0.0.1""#,
+        r#""127.0.0.1", "sutura.example.com", "::1""#,
     ] {
         let named = format!("  allowed_hosts: [{hosts}]\n");
+        let loaded = Settings::load(&Sources::defaults(Environment::Development).with_overlay(loopback(&named, "", "")));
+        assert!(loaded.is_err(), "{hosts}");
         let refusals = refused(&loopback(&named, "", ""));
         assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity], "{hosts}");
         let rendered = refusals.first().expect("one refusal").to_string();

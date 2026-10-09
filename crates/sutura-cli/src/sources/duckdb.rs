@@ -93,8 +93,7 @@ mod tests {
     #[cfg(feature = "duckdb")]
     fn a_declared_duckdb_source_configured_to_impersonate_refuses_at_boot() {
         let wif = "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
-                   workloadIdentityPools/p/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/\
-                   bigquery.readonly\"\n";
+                   workloadIdentityPools/p/providers/sso\"\n";
         let error = opened(&declaring_duckdb("impersonation-at-source", wif));
         assert!(error.contains("per-subject credential"), "{error}");
         assert!(

@@ -681,8 +681,8 @@ fn open_datahub_catalogs(
 }
 
 /// Reads a `catalog.kind: datahub`/`openmetadata` entry's declared token file into a `Secret`, at
-/// boot rather than on the first question - the same argument `BigQuery`'s `credential_file` is
-/// read for. Trimmed, so a file ending in the newline a text editor or `echo` ordinarily writes
+/// boot rather than on the first question - the same argument a source's `password_file` is
+/// read at boot for. Trimmed, so a file ending in the newline a text editor or `echo` ordinarily writes
 /// still reads as one token.
 #[cfg(any(feature = "datahub", feature = "openmetadata"))]
 fn read_token(settings: &sutura_config::CatalogSettings, kind: &'static str) -> Result<sutura_domain::identity::Secret, String> {

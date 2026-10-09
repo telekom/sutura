@@ -37,7 +37,7 @@ fn no_written_ceiling_is_no_budget_at_all() {
 /// One `bigquery` source, single-user so the shared posture needs no acknowledgement of its own.
 const BIGQUERY_SOURCE: &str = "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  \
     warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
-    credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    max_bytes_billed: 1073741824\n    \
+    max_bytes_billed: 1073741824\n    \
     posture: \"shared-service-user\"\n";
 
 const A_CEILING: &str = "governance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 60\n";
