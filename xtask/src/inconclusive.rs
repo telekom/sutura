@@ -57,11 +57,17 @@ use crate::workflows::sources::{Source, ci_sources};
 /// are spelled; the flake app is the form CI reads, and it is a different string because `nix run`
 /// is the boundary the exit code crosses there. `check-claim-mutation-kills` is the same task-name
 /// shape as `test-causality` - `causality::rot::run` reuses `claim::run` wholesale and inherits its
-/// `Inconclusive` arm with it, so its own justfile line needs the same needle. `just causality` is
-/// deliberately NOT a needle: the recipe body is one of these, and matching the recipe name as
-/// well would make an `echo` that names it for a reader look like an invocation - `ci.yml` prints
-/// exactly that sentence.
-const NEEDLES: &[&str] = &["test-causality", "nix run .#causality", "check-claim-mutation-kills"];
+/// `Inconclusive` arm with it, so its own justfile line needs the same needle. The bare recipe name
+/// `just causality` is deliberately NOT a needle: the recipe body is one of these, and matching the
+/// name as well would make an `echo` that names it for a reader look like an invocation - `ci.yml`
+/// prints exactly that sentence. `just causality "` is: a call that passes the base ref is a
+/// venue running the recipe, and `devenv.nix`'s `ship-check` is that venue.
+const NEEDLES: &[&str] = &[
+    "test-causality",
+    "nix run .#causality",
+    "check-claim-mutation-kills",
+    "just causality \"",
+];
 
 /// What a venue does with exit 3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -486,6 +492,24 @@ mod tests {
         );
         assert_eq!(found[0].label, "flake.nix");
         assert_eq!(found[0].number, 2);
+    }
+
+    #[test]
+    fn a_recipe_call_with_a_base_ref_is_an_invocation_site() {
+        // `ship-check` runs the gate THROUGH the recipe so one copy owns the tier setup. Without the
+        // `just causality "` needle that venue invokes nothing this scan can see, and its capture
+        // of exit 3 would be held by nobody.
+        let call = "just causality \"$merge_base\" || causality_status=$?";
+        let sources = vec![
+            source("devenv.nix", &format!("      {call}\n")),
+            source("ci.yml", "          echo \"scoped per commit - see \\`just causality\\`\"\n"),
+        ];
+        let found = invocations(&sources);
+        assert_eq!(
+            found.iter().map(|f| (f.label, f.line)).collect::<Vec<_>>(),
+            vec![("devenv.nix", call)],
+            "the call is a site, the prose naming the recipe is not"
+        );
     }
 
     #[test]
