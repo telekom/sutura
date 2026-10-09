@@ -5,8 +5,10 @@
 //! max-lines` enforces. The number is spelled out, so a drift in `defaults.yaml` or in
 //! `CatalogSettings::DEFAULT_REFRESH_SECONDS` shows here.
 
-use crate::catalog::CatalogSettings;
-use crate::settings::{Environment, Settings, Sources};
+use sutura_domain::model::SourceName;
+
+use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
+use crate::settings::{Environment, Settings, SettingsError, Sources};
 
 #[test]
 fn a_catalog_without_refresh_seconds_refreshes_every_default_interval() {
@@ -33,8 +35,43 @@ fn a_set_refresh_seconds_overrides_the_default_and_leaves_its_neighbour_on_it() 
 }
 
 #[test]
-fn the_embedded_default_catalog_refreshes_on_the_interval_the_type_declares() {
+fn the_embedded_default_catalog_refreshes_every_900_seconds() {
     let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
     let catalog = settings.catalogs().each().next().expect("the default catalog is present");
     assert_eq!(catalog.refresh_seconds(), Some(900));
+}
+
+#[test]
+fn a_refresh_seconds_of_zero_in_a_settings_file_is_refused_naming_the_catalog() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "catalogs:\n  - name: catalog\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n    refresh_seconds: 0\n",
+    );
+    let error = Settings::load(&sources).expect_err("a zero interval is not an interval");
+    let SettingsError::Catalog { ref cause } = *error.reason() else {
+        panic!("expected a catalog refusal, got {error:?}");
+    };
+    let name = SourceName::parse("catalog").expect("a test source is a source");
+    assert_eq!(*cause, InvalidCatalogSettings::ZeroRefresh { name });
+}
+
+#[test]
+fn a_null_refresh_seconds_is_refused_naming_the_key_and_the_file() {
+    let dir = super::scratch("refresh-null");
+    let base = dir.join("base.yaml");
+    std::fs::write(
+        &base,
+        "catalogs:\n  - name: catalog\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n    refresh_seconds: null\n",
+    )
+    .expect("a scratch file is writable");
+    let loaded = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()));
+    drop(std::fs::remove_dir_all(&dir));
+    let rendered = loaded.expect_err("a null interval is not an interval").to_string();
+    assert!(
+        rendered.contains("refresh_seconds"),
+        "the error should name the key: {rendered}"
+    );
+    assert!(
+        rendered.contains(&base.display().to_string()),
+        "the error should name the file: {rendered}"
+    );
 }

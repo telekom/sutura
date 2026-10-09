@@ -253,7 +253,8 @@ impl CatalogSettings {
     }
 
     /// The interval a catalog declared without `refresh_seconds` is re-read at - fifteen minutes.
-    /// `defaults.yaml`'s default entry spells the same number and a test asserts the two agree.
+    /// `defaults.yaml`'s default entry spells the same number, and cells hold each against the
+    /// literal 900.
     pub const DEFAULT_REFRESH_SECONDS: u64 = 900;
 
     /// Declares how often this catalog is re-read and re-pinned - `#975`. `None` (what
@@ -727,8 +728,9 @@ mod tests {
         );
     }
 
-    /// `#975`: absent means never, a positive value round-trips, and every kind takes it - not
-    /// only `datahub`, unlike the three fields above.
+    /// `#975`: `CatalogSettings::parse` leaves the interval at never (a settings file fills in
+    /// the default), a positive value round-trips, and every kind takes it - not only `datahub`,
+    /// unlike the three fields above.
     #[test]
     fn a_refresh_interval_defaults_to_never_and_round_trips_on_every_kind() {
         for kind in [CatalogKind::Markdown, CatalogKind::Datahub, CatalogKind::Okf] {
