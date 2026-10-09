@@ -233,10 +233,16 @@ pub(crate) fn run() -> Result<(), String> {
     // added the last: `kind::AnyWarehouse` IS the closed enum `sutura_app::warehouses` names as the
     // remedy for a heterogeneous set, and it is `W` for the `Mixed` arm alone.
     let (service, attached) = match opened {
-        OpenedSources::Files(files) => (
-            shared_identity_service(&catalogs, files.engines, &settings)?,
-            Some(files.attached),
-        ),
+        OpenedSources::Files(files) => {
+            // The table set the boot check below compares against. The gate checks no table yet, so
+            // this clone is dropped when `adoption_gate` returns; the next change adds the `files`
+            // table check that keeps it.
+            let gate = adoption_gate(Some(files.attached.clone()), false);
+            (
+                shared_identity_service(&catalogs, files.engines, gate, &settings)?,
+                Some(files.attached),
+            )
+        }
         #[cfg(feature = "bigquery")]
         OpenedSources::BigQuery(engines) => {
             // **The pre-flight, and this line is where its ORDER is decided.** It runs after
@@ -277,7 +283,10 @@ pub(crate) fn run() -> Result<(), String> {
             // `crate::serve::broker` carries what that does not cover, and refuses at boot every
             // declaration this build cannot honour.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
-            (started(&catalogs, engines, broker, &settings)?, None)
+            (
+                started(&catalogs, engines, broker, adoption_gate(None, true), &settings)?,
+                None,
+            )
         }
         #[cfg(feature = "postgres")]
         OpenedSources::Postgres(engines) => {
@@ -286,7 +295,7 @@ pub(crate) fn run() -> Result<(), String> {
             // as a WARN rather than a refusal, so the call would add a misleading permission
             // sentence and nothing else. A mistyped `table:` is caught on the first question against
             // it, as the port itself documents.
-            (shared_identity_service(&catalogs, engines, &settings)?, None)
+            (shared_identity_service(&catalogs, engines, None, &settings)?, None)
         }
         #[cfg(feature = "clickhouse")]
         OpenedSources::ClickHouse(engines) => {
@@ -294,19 +303,19 @@ pub(crate) fn run() -> Result<(), String> {
             // the port's default `preflight`, so there is nothing for the table check to read. The
             // declared-map broker, because an `impersonation-at-source` source switches per subject.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
-            (started(&catalogs, engines, broker, &settings)?, None)
+            (started(&catalogs, engines, broker, None, &settings)?, None)
         }
         #[cfg(feature = "oracle")]
         OpenedSources::Oracle(engines) => {
             // No pre-flight, for the `Postgres` arm's reason exactly: `OracleWarehouse` takes the
             // port's default `preflight`, so there is nothing for the table check to read.
-            (shared_identity_service(&catalogs, engines, &settings)?, None)
+            (shared_identity_service(&catalogs, engines, None, &settings)?, None)
         }
         #[cfg(feature = "duckdb")]
         OpenedSources::Duckdb(engines) => {
             // No pre-flight, for the `Postgres` arm's reason: `DuckDbWarehouse` takes the port's
             // default `preflight`. The file's tables are checked by the first anchor or question.
-            (shared_identity_service(&catalogs, engines, &settings)?, None)
+            (shared_identity_service(&catalogs, engines, None, &settings)?, None)
         }
         OpenedSources::Mixed(mixed) => {
             // One registry, so one pre-flight - generic in the adapter, so it runs the same way
@@ -320,11 +329,13 @@ pub(crate) fn run() -> Result<(), String> {
             // this mix need the principal broker" is exactly "does this build link the adapter that
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
+            let gate = adoption_gate(mixed.attached.clone(), true);
             #[cfg(any(feature = "bigquery", feature = "clickhouse"))]
             let served = started(
                 &catalogs,
                 mixed.engines,
                 broker::build_broker(settings.sources(), outbound.as_ref())?,
+                gate,
                 &settings,
             )?;
             // Neither impersonating adapter linked, so no adapter in this build declares
@@ -332,7 +343,7 @@ pub(crate) fn run() -> Result<(), String> {
             // posture cross-check. The static broker is then the whole truth: every declared shared
             // source served as itself, and nothing else mintable.
             #[cfg(not(any(feature = "bigquery", feature = "clickhouse")))]
-            let served = shared_identity_service(&catalogs, mixed.engines, &settings)?;
+            let served = shared_identity_service(&catalogs, mixed.engines, gate, &settings)?;
             (served, mixed.attached)
         }
     };
@@ -358,7 +369,7 @@ pub(crate) fn run() -> Result<(), String> {
     // between this root's two loads is caught below on `files` and is not caught at all on
     // `bigquery`.
     if let Some(attached) = attached {
-        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(&service.definitions()), &attached)
             .map_err(|changed| changed.to_string())?;
     }
     tracing::info!(
@@ -389,7 +400,11 @@ pub(crate) fn run() -> Result<(), String> {
     // than about a request, and this is the last place the settings are looked at before they move.
     let admission = Admission::from_settings(settings.runtime());
     // Built first: the state owns this replica's spend gauge (#892), and the agent surface is handed a handle to it, so both surfaces drive one spend series.
+    // The poll and the transports are two owners of one service: this is the Arc that earns its
+    // place, not a clone to satisfy the borrow checker.
+    let refreshing = Arc::clone(&service);
     let mut state = ServiceState::new(service, Arc::new(settings), admission);
+    let coverage = state.catalog_coverage();
     #[cfg(feature = "agent")]
     let agent_mount = agent_mount(&state)?;
     // Kept beside the state so the key-set watch, reached over the same `Arc`, can be armed once the runtime exists.
@@ -420,7 +435,8 @@ pub(crate) fn run() -> Result<(), String> {
         watching,
         stopping.clone(),
         catalogs,
-        pinned,
+        refreshing,
+        coverage,
         refresh_every,
     ));
     stop(runtime, &stopping);
@@ -527,7 +543,7 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 
 /// Spawns the signal listener and serves until it fires.
 ///
-/// `catalogs`/`pinned`/`refresh_every` are here rather than read from `serve.rs`'s own boot
+/// `catalogs`/`refreshing`/`coverage`/`refresh_every` are here rather than read from `serve.rs`'s own boot
 /// section for `#975`'s reason: `refresh::drive` starts a `tokio::spawn` poll, which needs the
 /// runtime `run` has not yet built at that point in the sync boot code - this function is the
 /// first place one is running.
@@ -538,10 +554,11 @@ async fn serve_until_stopped(
     inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
     catalogs: crate::catalog::OpenedCatalogs,
-    pinned: PinnedDefinitions,
+    refreshing: Serving,
+    coverage: sutura_runtime::Gauge,
     refresh_every: Option<std::time::Duration>,
 ) -> Result<(), String> {
-    refresh::drive(catalogs, pinned, refresh_every);
+    refresh::drive(catalogs, refreshing, coverage, refresh_every);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.
@@ -714,6 +731,7 @@ fn started<W, B>(
     catalogs: &crate::catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     broker: B,
+    gate: Option<sutura_app::surface::AdoptionGate<W>>,
     settings: &Settings,
 ) -> Result<Serving, String>
 where
@@ -722,7 +740,10 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    crate::catalog::start_composed(catalogs, engines, broker, settings).map(|service| Arc::new(service) as Serving)
+    crate::catalog::start_composed(catalogs, engines, broker, settings).map(|service| match gate {
+        Some(gate) => Arc::new(service.with_adoption_gate(gate)) as Serving,
+        None => Arc::new(service) as Serving,
+    })
 }
 
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
@@ -745,6 +766,7 @@ where
 fn shared_identity_service<W>(
     catalogs: &crate::catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
+    gate: Option<sutura_app::surface::AdoptionGate<W>>,
     settings: &Settings,
 ) -> Result<Serving, String>
 where
@@ -755,8 +777,38 @@ where
         catalogs,
         engines,
         StaticCredentialBroker::from_registry(settings.sources()),
+        gate,
         settings,
     )
+}
+
+/// The pre-flight a refreshed bundle is to pass before it is served: the checks boot ran over the
+/// first one, with the same functions and the same refusal text. The service holds it and does not
+/// run it yet - its `adopt` keeps the bundle it booted with.
+///
+/// Which checks apply is what boot decided per arm: `asks_data_systems` is the table listing a
+/// `bigquery` registry or a mix is asked ([`boot::refuse_absent_tables`]). A `files` arm (`attached`)
+/// gets a gate that checks no table yet. `None` for an arm boot ran neither for.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the `files` arm's table check is what consumes `attached`, and this arm checks no table yet"
+)]
+fn adoption_gate<W>(
+    attached: Option<std::collections::BTreeSet<sutura_domain::model::TableName>>,
+    asks_data_systems: bool,
+) -> Option<sutura_app::surface::AdoptionGate<W>>
+where
+    W: sutura_domain::warehouse::Warehouse + 'static,
+{
+    if attached.is_none() && !asks_data_systems {
+        return None;
+    }
+    Some(Box::new(move |next, engines| {
+        if asks_data_systems {
+            boot::refuse_absent_tables(next, engines)?;
+        }
+        Ok(())
+    }))
 }
 
 /// Starts the engine and registers one file per model, returning what it attached.

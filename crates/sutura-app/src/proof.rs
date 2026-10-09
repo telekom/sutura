@@ -7,6 +7,8 @@
 //! `Warehouse`, is what a reviewer has to notice - and it is a one-item diff in one place
 //! rather than a property of every call site.
 
+use std::sync::Arc;
+
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
 use sutura_domain::warehouse::Warehouse;
 
@@ -23,18 +25,26 @@ use crate::warehouses::Warehouses;
 /// whatever mints this has to be able to enumerate them and to execute them. A blanket
 /// constructor for any `T` would be a wrapper that proves nothing, which is worse than no
 /// wrapper because it reads like proof.
+///
+/// **Held in an `Arc`, and the `Arc` is the sharing the served service needs rather than a way
+/// round the borrow checker.** A question takes one snapshot of the served bundle when it starts and
+/// keeps it until it ends, while a refresh may store a newer bundle meanwhile; both run on different
+/// threads, so a snapshot is a value several owners hold at once. `Clone` is therefore a counter
+/// bump, never a copy of the bundle, and a clone is the same proof - it cannot be made from
+/// anything else.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Validated<T>(T);
+pub struct Validated<T>(Arc<T>);
 
 impl<T> Validated<T> {
     #[inline]
-    pub const fn get(&self) -> &T {
+    pub fn get(&self) -> &T {
         &self.0
     }
 
+    /// The validated value, shared with this one, for a caller that holds it past the borrow.
     #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
+    pub fn share(&self) -> Arc<T> {
+        Arc::clone(&self.0)
     }
 }
 
@@ -156,5 +166,5 @@ where
     super::declared_keys::hold(&pinned, warehouses)?;
     let report = super::verify_anchors(&pinned, warehouses);
     report.verdict(&pinned)?;
-    Ok(Validated(pinned))
+    Ok(Validated(Arc::new(pinned)))
 }

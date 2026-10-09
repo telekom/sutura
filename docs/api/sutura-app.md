@@ -376,6 +376,13 @@ whatever mints this has to be able to enumerate them and to execute them. A blan
 constructor for any `T` would be a wrapper that proves nothing, which is worse than no
 wrapper because it reads like proof.
 
+**Held in an `Arc`, and the `Arc` is the sharing the served service needs rather than a way
+round the borrow checker.** A question takes one snapshot of the served bundle when it starts and
+keeps it until it ends, while a refresh may store a newer bundle meanwhile; both run on different
+threads, so a snapshot is a value several owners hold at once. `Clone` is therefore a counter
+bump, never a copy of the bundle, and a clone is the same proof - it cannot be made from
+anything else.
+
 ## `use verify_and_validate`
 
 Holds every cardinality declaration and re-runs every anchor, and returns the bundle only if
@@ -749,6 +756,40 @@ means rather than a field added to one.
 
 `Debug`, `Display`, `Error`
 
+### `enum Adopted`
+
+```rust
+pub enum Adopted
+```
+
+What a refresh did to the served bundle.
+
+#### Variants
+
+- `Unchanged` - The bundle served is the one served before this call.
+- `Rotated` - A different bundle passed every check and is what the next question reads.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum NotAdopted`
+
+```rust
+pub enum NotAdopted
+```
+
+Why a refreshed bundle was not stored. The bundle already served is still the one served.
+
+#### Variants
+
+- `Preflight` - The deployment's own pre-flight refused it: a model names a table this process does not hold.
+- `NotValidated` - A declared key or an anchor did not hold, or could not be run.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `enum ServiceNotStarted`
 
 ```rust
@@ -839,6 +880,13 @@ same letter, and the combiner is a property of the SERVICE while a catalog is a 
 one call.
 
 ```rust
+pub fn with_adoption_gate(self, gate: AdoptionGate<W>) -> Self
+```
+
+Sets the pre-flight a refreshed bundle is to pass - the one the composition root ran over the
+bundle it booted with. Held, not run: this service's `Surface::adopt` keeps the boot bundle.
+
+```rust
 pub const fn with_row_ceiling(self, row_ceiling: RowCeiling) -> Self
 ```
 
@@ -884,6 +932,14 @@ A typed error, owned, with its type erased and its `#[source]` chain intact.
 
 `Send + Sync` because a transport may answer on a blocking pool, so a failure crosses a thread
 boundary on the way back.
+
+### `type_alias AdoptionGate`
+
+The deployment's pre-flight over a refreshed bundle: what boot ran over the first one, run again
+over the next, with the same refusal.
+
+Held by the service because it is handed the data systems the check asks, and a composition
+root has already given those up by the time a refresh runs.
 
 ## Module `prompt`
 
