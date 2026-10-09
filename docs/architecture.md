@@ -70,7 +70,7 @@ a question appears as text in the statement that sutura generates for it.
 
 So an agent that is manipulated can only ask a different certified question over the same
 definitions. It cannot make sutura run arbitrary SQL. The raw SQL tool is an exception that is
-off by default; [Serving over HTTP](serving.md#the-raw-sql-tool-over-a-duckdb-source) describes
+off by default; [Serving over HTTP](serving.md#the-raw-sql-tool) describes
 it.
 
 The tool schemas come from the Rust types. A snapshot test fails when a field is added or changed,

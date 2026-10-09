@@ -2,7 +2,7 @@
 
 [ADR 0013](../../docs/adr/0013-a-raw-sql-tool-off-by-default.md)'s off-by-default `run_sql` tool,
 turned on over the served Postgres source
-[`docs/serving.md`](../../docs/serving.md#a-postgres-source-least-authority-and-its-channel) already
+[`docs/integrations/data-systems/postgres.md`](../../docs/integrations/data-systems/postgres.md) already
 documents - a settings change on top of an ordinary deployment, not a different one.
 
 **This is a settings snippet and one worked question, not a directory of markdown.** `run_sql`

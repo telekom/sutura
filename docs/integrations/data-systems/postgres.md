@@ -12,7 +12,7 @@ as PostgreSQL SQL and runs it through the ADBC PostgreSQL driver, which uses lib
 ## When to use it
 
 - Your data is in PostgreSQL, and one database role may read it for all callers.
-- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool-over-the-postgres-source-above)
+- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool)
   over a database. Each raw statement runs in a read-only transaction that sutura rolls back.
 
 ## Settings

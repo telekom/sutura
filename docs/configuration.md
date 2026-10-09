@@ -22,16 +22,16 @@ or incomplete configuration, and the error names the key.
 
 | Group               | What it sets                                                   | Described in                                                                                          |
 | ------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `server`            | The bind address, the request timeout, the agent surface       | [Serving over HTTP](serving.md#configuration)                                                         |
-| `security`          | Tokens, TLS termination, the deployment identity               | [Serving over HTTP](serving.md#configuration)                                                         |
+| `server`            | The bind address, the request timeout, the agent surface       | [Serving over HTTP](serving.md#run-it)                                                                |
+| `security`          | Tokens, TLS termination, the deployment identity               | [Serving over HTTP](serving.md#who-is-asking)                                                         |
 | `security.inbound`  | How sutura verifies a caller                                   | [Inbound identity](integrations/identity.md)                                                          |
 | `security.outbound` | The TLS trust material of the DataHub and OpenMetadata readers | [DataHub](integrations/catalogs/datahub.md#settings)                                                  |
 | `catalogs`          | The catalogs that supply the definitions                       | [Catalog settings](integrations.md#catalog-settings)                                                  |
 | `sources`           | The data systems that run the questions                        | [Data system settings](integrations.md#data-system-settings)                                          |
-| `rate_limit`        | Request rates per client                                       | [Serving over HTTP](serving.md#configuration)                                                         |
+| `rate_limit`        | Request rates per client                                       | [Serving over HTTP](serving.md#capacity)                                                              |
 | `runtime`           | Concurrent queries, the engine memory and threads, shutdown    | [Serving over HTTP](serving.md#capacity)                                                              |
 | `prompt`            | What the agent prompt includes                                 | [The agent prompt](agent-prompt.md)                                                                   |
-| `tools`             | The raw SQL tool                                               | [Serving over HTTP](serving.md#the-raw-sql-tool-over-a-duckdb-source)                                 |
+| `tools`             | The raw SQL tool                                               | [Serving over HTTP](serving.md#the-raw-sql-tool)                                                      |
 | `telemetry`         | The log filter and format                                      | [Serving over HTTP](serving.md#the-log)                                                               |
 | `governance`        | Optional limits on spend and on the rows of a `top` question   | [`defaults.yaml`](https://github.com/telekom/sutura/blob/main/crates/sutura-config/src/defaults.yaml) |
 
