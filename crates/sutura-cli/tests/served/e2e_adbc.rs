@@ -34,7 +34,6 @@ mod tests {
     struct BigQueryFixture {
         project: String,
         dataset: String,
-        credential_file: PathBuf,
         driver_location: String,
         warehouse: BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>,
     }
@@ -70,7 +69,6 @@ mod tests {
             Self {
                 project,
                 dataset,
-                credential_file,
                 driver_location,
                 warehouse,
             }
@@ -184,7 +182,7 @@ mod tests {
              token_file: \"{token_file}\"\n    metric_property: \"{DEPLOYMENT_PROPERTY}\"\n\
              sources:\n  {CATALOG}:\n    kind: \"bigquery\"\n    \
              billing_project: \"{project}\"\n    dataset: \"{dataset}\"\n    \
-             credential_file: \"{credential_file}\"\n    max_bytes_billed: {max_bytes_billed}\n    \
+             max_bytes_billed: {max_bytes_billed}\n    \
              posture: \"shared-service-user\"\n",
             resource = issuer.resource,
             issuer_url = issuer.issuer,
@@ -192,7 +190,6 @@ mod tests {
             token_file = token_file.display(),
             project = bq.project,
             dataset = bq.dataset,
-            credential_file = bq.credential_file.display(),
         )
     }
 

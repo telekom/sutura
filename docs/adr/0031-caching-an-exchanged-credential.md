@@ -233,3 +233,7 @@ that never existed.
 
 **What stays.** The key argument in the second amendment's last paragraph: a cache, if one is ever
 built, keys on the whole `PrincipalChain` and never a bare `Subject`.
+
+## Fifth amendment, 2026-10-09: `workload_identity.scope` is gone
+
+A source declares no `scope`: `github.com/telekom/sutura#1328` refuses `workload_identity.scope` by name, so "a source's audience and scope are declared once at startup" holds for the audience alone; the `(audience, scope)` pair is the deleted exchange's input, not a setting.

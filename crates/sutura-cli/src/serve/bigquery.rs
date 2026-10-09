@@ -16,8 +16,7 @@
 /// **Nothing is attached and nothing is registered, which is the difference from `open_files` that
 /// matters:** the tables live in the dataset. What this function does instead is everything that can
 /// fail before a listener is bound - the posture cross-check, the driver path, and PARSING the
-/// declared impersonation scope, each of which would otherwise fail on a question rather than at
-/// boot.
+/// declared pool audience, each of which would otherwise fail on a question rather than at boot.
 #[cfg(feature = "bigquery")]
 pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
@@ -74,14 +73,15 @@ pub(crate) fn open_bigquery(
 /// Builds one `BigQuery` adapter, after checking this build can deliver the source's posture.
 ///
 /// **Every value it needs is declared on the source entry.** The billing project, the dataset and -
-/// where the source impersonates - the scope an impersonated credential is minted for. The request
-/// timeout no longer reaches this function: the `wire` half's `QueryDeadline` and bytes-billed
-/// ceiling went away with the transport, and the ADBC driver bounds a job under its own settings.
+/// where the source impersonates - the audience of the pool the caller's assertion is exchanged
+/// against. The request timeout no longer reaches this function: the `wire` half's `QueryDeadline`
+/// and bytes-billed ceiling went away with the transport, and the ADBC driver bounds a job under
+/// its own settings.
 ///
-/// The scope is parsed HERE as well as in `sutura-config`, and that is the single-owner rule rather
-/// than laziness: the crate that puts a value into a request is the one whose parse decides whether
-/// it can be sent, and the driver's comma-split option parsing is a risk only this side knows about.
-/// What the settings tree owns is that the key was written.
+/// The audience is parsed HERE as well as in `sutura-config`, and that is the single-owner rule
+/// rather than laziness: the crate that puts a value into a request is the one whose parse decides
+/// whether it can be sent. What the settings tree owns is that the key was written. There is no
+/// `scope` setting.
 #[cfg(feature = "bigquery")]
 fn build_bigquery(
     source: &sutura_domain::model::SourceName,
@@ -94,7 +94,6 @@ fn build_bigquery(
         ref billing_project,
         ref dataset,
         max_bytes_billed,
-        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -121,7 +120,7 @@ fn build_bigquery(
             source,
         )
         .map_err(super::flatten)?;
-    // **The ADBC driver authenticates itself, so there is no credential file to read and no token
+    // **The ADBC driver authenticates itself, so there is no credential to read and no token
     // rotation to drive - the removed `wire` half.** The driver is opened at BOOT rather than on the
     // first question, which is the same argument the inbound key set is read before the listener
     // opens: a driver this process cannot open has to stop it, not become a deployment that answers
@@ -175,11 +174,10 @@ fn build_bigquery(
     // unusable declaration fails here, before a listener is bound, rather than on the first
     // impersonated question.
     //
-    // **`scope` is NOT, and it is the only declared value on this path that reaches nothing.** The
-    // pinned driver has nowhere to put it - `WorkloadPool` carries the measurement - so it is not
-    // handed over, not screened twice, and named as unread where the operator declares it
-    // (`sutura_config`'s `WifScope`). A value carried here and dropped later would be the shape this
-    // whole change exists to remove.
+    // **There is no `scope`.** The pinned driver has nowhere to put one - `WorkloadPool` carries the
+    // measurement - so `sutura_config` refuses the key by name rather than carry a value that
+    // reaches nothing. A value carried here and dropped later would be the shape this whole change
+    // exists to remove.
     let impersonation = match configured.workload_identity() {
         None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
         Some(workload) => sutura_exec_bigquery::adbc::Impersonation::ThroughPool(

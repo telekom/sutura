@@ -75,14 +75,11 @@ pub(super) fn open(
 
     // Matched rather than read off accessors every kind would have to have, for the reason the files
     // arm gives at the same shape: the dispatcher has already decided which arm this is, and a second
-    // openable kind should arrive as a compile error at this line too. `credential_file` is the one
-    // key here the ADBC transport does not read - the driver authenticates itself - and the field
-    // stays for `sutura-catalog-datahub`.
+    // openable kind should arrive as a compile error at this line too.
     let sutura_config::SourcePlacement::BigQuery {
         ref billing_project,
         ref dataset,
         max_bytes_billed,
-        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -397,14 +394,11 @@ mod tests {
 
     #[test]
     #[cfg(feature = "bigquery")]
-    fn a_declared_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
+    fn a_declared_bigquery_source_refuses_for_a_missing_driver() {
         // **What this proves, and it is the whole seam this command can reach with no driver:** the
         // kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that
         // adapter's OWN `IMPERSONATION`, both bounds parsed, and the composition then demanded the
         // on-disk ADBC driver - refused here because no `SUTURA_BIGQUERY_ADBC_DRIVER` points at one.
-        // The driver authenticates ambiently, so the `credential_file` a `declaring_bigquery` entry
-        // declares is deliberately NOT read: matching the driver refusal is exactly how this proves
-        // the file never is.
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),
@@ -420,10 +414,6 @@ mod tests {
             "the refusal must name the driver variable an operator has to set: {error}"
         );
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-        assert!(
-            !error.contains("credential_file"),
-            "the driver authenticates ambiently - a credential file must not be read: {error}"
-        );
         assert!(
             !error.contains("--features bigquery"),
             "this build DID link the adapter: {error}"
@@ -486,7 +476,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "bigquery")]
-    fn a_bigquery_source_configured_to_impersonate_refuses_before_the_credential_is_read() {
+    fn a_bigquery_source_configured_to_impersonate_refuses_before_the_driver_is_demanded() {
         // The same cross-check the file engine gets, against a DIFFERENT adapter's constant - which is
         // the whole point of `deliverable_by` being called per adapter rather than per deployment.
         // `sutura-exec-bigquery` declares `PerSubjectCredential`, so the capability half PASSES for an
@@ -495,9 +485,9 @@ mod tests {
         // every row as this process while the declaration promised a subject's authorization was
         // evaluated. `sutura serve` attaches one; this root is the other binary.
         //
-        // **Refused BEFORE the credential file is read**, and the last assertion is what pins that
-        // order: a posture the composition cannot honour is not worth a filesystem read, and an
-        // operator told about a missing file would fix the wrong thing.
+        // **Refused BEFORE the driver is demanded**, and the last assertion is what pins that
+        // order: a posture the composition cannot honour is not worth demanding a driver for, and an
+        // operator told about a missing driver would fix the wrong thing.
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery(
@@ -521,8 +511,8 @@ mod tests {
             "the refusal must say there is no fallback: {error}"
         );
         assert!(
-            !error.contains("credential_file"),
-            "the posture is refused before the credential file is read: {error}"
+            !error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+            "the posture is refused before the driver is demanded: {error}"
         );
     }
 

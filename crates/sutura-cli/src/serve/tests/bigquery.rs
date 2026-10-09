@@ -25,20 +25,20 @@ fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
     // separately; what this asserts is that the refusal survives `Settings::load` with its key
     // attached, which is the only part a composition root depends on.
     //
-    // `credential_file` and not `billing_project`, because it is the key this step added and the one
-    // whose absence used to be answerable from the environment - see its own note in `sutura-config`.
+    // `max_bytes_billed` and not `billing_project`, because it is the key with no default and the one
+    // that bounds what a question may cost - see its own note in `sutura-config`.
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n{}",
         "  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
-         \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
+         \"warehouse\"\n    posture: \"shared-service-user\"\n"
     );
     let error = sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
     )
-    .expect_err("a bigquery source with no credential file is not a source this deployment can open");
+    .expect_err("a bigquery source with no byte ceiling is not a source this deployment can open");
     let rendered = super::super::flatten(error);
     assert!(
-        rendered.contains("credential_file"),
+        rendered.contains("max_bytes_billed"),
         "the refusal must name the key: {rendered}"
     );
     assert!(rendered.contains("warehouse"), "the refusal must name the entry: {rendered}");
@@ -73,13 +73,12 @@ fn a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
+fn a_bigquery_source_refuses_for_a_missing_driver() {
     // **What this proves, and it is the whole seam a test with no driver can reach:** the kind
     // DISPATCHED to the BigQuery adapter, the shared posture was accepted against that adapter's
     // OWN `IMPERSONATION`, both bounds parsed, and the composition then demanded the on-disk ADBC
     // driver - refused here because no `SUTURA_BIGQUERY_ADBC_DRIVER` points at one. The driver
-    // authenticates ambiently, so the `credential_file` a `bigquery_entry` declares is deliberately
-    // NOT read: matching the driver refusal is exactly how this proves the file never is.
+    // authenticates ambiently.
     let error = refusal(
         opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
         "the ADBC driver is not configured, so this deployment does not start",
@@ -89,10 +88,6 @@ fn a_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
         "the refusal must name the driver variable an operator has to set: {error}"
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-    assert!(
-        !error.contains("credential_file"),
-        "the driver authenticates ambiently - a credential file must not be read: {error}"
-    );
     assert!(
         !error.contains("--features bigquery"),
         "this build DID link the adapter: {error}"
@@ -196,7 +191,7 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
     // And a SHARED `bigquery` source's anchor is a complete claim, so this is not a check that fires
     // on every anchored bundle: the verification identity IS the shared identity, one service account
     // reaching the dataset for everybody, so the number the anchor certifies is the number every
-    // caller gets. It still does not START - the credential file is not there on this machine, and on
+    // caller gets. It still does not START - the ADBC driver is not there on this machine, and on
     // a build with no adapter the feature is missing - but whatever stops it is not this check.
     let later = refusal(
         open_engine(
@@ -216,7 +211,7 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
 
 /// The `workload_identity` block an impersonating source needs, with whatever the case adds after it.
 ///
-/// `wif()` plus a tail rather than a second literal, so the audience and scope every case shares are
+/// `wif()` plus a tail rather than a second literal, so the audience every case shares is
 /// written once and only the part under test differs.
 #[cfg(feature = "bigquery")]
 fn wif_with(extra: &str) -> String {

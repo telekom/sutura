@@ -631,10 +631,8 @@ fn timeout() -> sutura_config::RequestTimeout {
 
 /// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.
 ///
-/// The credential file points at a path that is not there ON PURPOSE, and each test that uses it says
-/// what it is proving with that: a refusal naming that key is proof the composition reached the
-/// credential layer, which is the furthest a test with no project can get. The shape is
-/// `crate::serve`'s own `bigquery_entry`, because the composition under test is the same one.
+/// The shape is `crate::serve`'s own `bigquery_entry`, because the composition under test is the same
+/// one.
 ///
 /// Module level, so `bigquery.rs`'s suite and the dataset-argument case in [`tests`] - which belongs
 /// here, beside the arm that refuses it - share ONE entry builder.
@@ -644,8 +642,7 @@ fn declaring_bigquery(posture: &str, extra: &str) -> sutura_config::SourceRegist
         "warehouse",
         &format!(
             "    kind: bigquery\n    billing_project: \"acme-analytics\"\n    dataset: \"marts\"\n    \
-             credential_file: \"/nonexistent/sutura-cli-test-bigquery.json\"\n    max_bytes_billed: \
-             1073741824\n{extra}"
+             max_bytes_billed: 1073741824\n{extra}"
         ),
         posture,
     )
@@ -657,8 +654,7 @@ fn declaring_bigquery(posture: &str, extra: &str) -> sutura_config::SourceRegist
 fn wif() -> String {
     String::from(
         "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
-         workloadIdentityPools/p/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/\
-         bigquery.readonly\"\n",
+         workloadIdentityPools/p/providers/sso\"\n",
     )
 }
 

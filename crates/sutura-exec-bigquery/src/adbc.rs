@@ -375,8 +375,9 @@ const JOB_TIMEOUT_OPTION: &str = "bigquery.query.job_timeout";
 /// its own.
 pub struct AdbcBigQuery {
     driver: DriverLocation,
-    /// Whether this source impersonates, and at what scope - decided at composition from what the
-    /// source declared, never per request. See [`Impersonation`] for why it is not an `Option`.
+    /// Whether this source impersonates, and through which pool - decided at composition from
+    /// what the source declared, never per request. See [`Impersonation`] for why it is not an
+    /// `Option`.
     impersonation: Impersonation,
     /// The money bound every statement this transport submits carries.
     ///

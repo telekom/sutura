@@ -19,8 +19,8 @@
 //!   in the workspace - except one written inside an existing `disallowed_methods` expectation's
 //!   scope, which that expectation covers too (the ban's own entry states it).
 //! - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
-//!   opens when autocommit is switched off, clamped to the deployment's ceiling
-//!   (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`), and always rolled back. A statement the server cancelled for it
+//!   opens when autocommit is switched off, clamped to the ceiling
+//!   (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, else 15 s), and always rolled back. A statement the server cancelled for it
 //!   (`57014`), or a stream that failed once that timeout had run out, is the deadline to
 //!   `Warehouse::deadline_exceeded`.
 //! - **The channel is the declared one.** [`Conninfo`](crate::adbc::Conninfo) builds the libpq
@@ -87,8 +87,8 @@ pub struct AdbcPostgres {
 impl AdbcPostgres {
     /// Takes the source, the driver and the connection string it connects with.
     ///
-    /// Reads the deployment's statement-timeout ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`), which a
-    /// request's own budget may only narrow.
+    /// Reads the statement-timeout ceiling a request's own budget may only narrow:
+    /// `SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, a fixed 15 s in every other.
     ///
     /// # Errors
     ///
