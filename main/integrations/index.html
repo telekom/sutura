@@ -3038,7 +3038,7 @@ kind make one catalog.</p>
 <tr>
 <td><a href="data-systems/clickhouse/">ClickHouse</a></td>
 <td><code>clickhouse</code></td>
-<td>One declared user</td>
+<td>One declared user, or a declared user per caller</td>
 </tr>
 <tr>
 <td><a href="data-systems/oracle/">Oracle</a></td>
@@ -3072,7 +3072,7 @@ Every entry has these keys:</p>
 <td><code>posture</code></td>
 <td>string</td>
 <td>required</td>
-<td><code>shared-service-user</code>: one identity for every caller. <code>impersonation-at-source</code>: the caller's own identity (BigQuery only; built, not proven)</td>
+<td><code>shared-service-user</code>: one identity for every caller. <code>impersonation-at-source</code>: the caller's own identity (BigQuery and ClickHouse)</td>
 </tr>
 <tr>
 <td><code>acknowledged_because</code></td>
