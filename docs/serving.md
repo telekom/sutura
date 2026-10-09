@@ -150,8 +150,22 @@ caller or a source.
 
 ### A refusal carries a status
 
-`POST /v1/query` answers `200` only when the question was answered. A refusal has `"outcome": "refusal"` and a
-status, a stable `code` and a sentence:
+`POST /v1/query` answers `200` only when the question was answered. An answer has `"outcome": "answer"` and the
+definition version and digest that it came from:
+
+```json
+{
+  "outcome": "answer",
+  "provenance": {
+    "definition_version": "local-1",
+    "definition_digest": "bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"
+  },
+  "columns": ["period", "recurring_revenue"],
+  "rows": [["2026-06-01", "202121"]]
+}
+```
+
+A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentence:
 
 ```json
 {
