@@ -2,10 +2,10 @@
 //! `commit-msg` and `check-pr-title` refuse a `feat`, `fix` or breaking subject that names a
 //! decision record, through the real binary.
 //!
-//! `cliff.toml` skips every commit whose subject names a record, so a change a user reads must
-//! not be one. A dedicated `tests/` target, so `just causality` can run it against the base tree:
-//! the base gates exit 0 over each refused subject below, and these cells are red there by
-//! assertion.
+//! A published page may not name a record, and `cliff.toml` strips one from a `feat`, `fix` or breaking
+//! subject only for the changelog; the guard refuses the subject at commit time. A dedicated `tests/`
+//! target, so `just causality` can run it against the base tree: the base gates exit 0 over each
+//! refused subject below, and these cells are red there by assertion.
 
 #![cfg(test)]
 

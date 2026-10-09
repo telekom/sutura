@@ -86,7 +86,7 @@ impl Cliff {
 }
 
 /// Subjects that have each been a changelog entry, a feature among them: raw, then the group and the line.
-const KEPT: [Kept; 16] = [
+const KEPT: [Kept; 17] = [
     (
         "feat(identity): per-metric visibility, steps 2-4 of docs/adr/0028 (#825)",
         FEATURES,
@@ -129,6 +129,7 @@ const KEPT: [Kept; 16] = [
         "check-shared-client refuses the clients the decision record forbids",
     ),
     ("refactor!: rename the port of ADR-0015", BREAKING, "rename the port"),
+    ("refactor(ADR-0011)!: rename the port", BREAKING, "rename the port"),
     (
         "fix(docs,#760): ADR 0035 leads with WIF, not agent identity",
         FIXES,
@@ -178,6 +179,11 @@ fn a_feat_a_fix_and_a_breaking_subject_keep_their_line_without_the_record_and_th
         assert_eq!(got, Some((group.to_owned(), line.to_owned())), "{raw}");
         let record = Regex::new(&format!("docs/adr/|{RECORD}")).expect("the record pattern");
         assert!(!record.is_match(line), "the rendered line still names a record: {line}");
+        let stripped = cliff.strip(raw);
+        assert!(
+            !record.is_match(&stripped),
+            "the stripped subject still names a record: {stripped}"
+        );
     }
     for raw in DROPPED {
         assert_eq!(cliff.render(raw), None, "{raw}");

@@ -56,8 +56,9 @@ fn said(output: &Output) -> String {
     )
 }
 
-/// `cliff` with the record skip rule moved above the first breaking-change rule.
-fn skip_first(cliff: &str) -> String {
+/// `cliff` with the record skip rule moved above the first breaking-change rule, or, with `between`, between
+/// that rule and the last one.
+fn skip_moved(cliff: &str, between: bool) -> String {
     let skip = cliff
         .lines()
         .find(|line| line.contains("skip = true") && line.contains("docs/adr/"))
@@ -65,9 +66,14 @@ fn skip_first(cliff: &str) -> String {
     let rest = cliff.replace(&format!("{skip}\n"), "");
     let first = rest
         .lines()
-        .find(|line| line.contains("Breaking changes"))
+        .find(|line| line.contains("group = ") && line.contains("Breaking changes"))
         .expect("a breaking-change rule");
-    rest.replacen(first, &format!("{skip}\n{first}"), 1)
+    let moved = if between {
+        format!("{first}\n{skip}")
+    } else {
+        format!("{skip}\n{first}")
+    };
+    rest.replacen(first, &moved, 1)
 }
 
 #[test]
@@ -76,11 +82,13 @@ fn a_record_skip_rule_above_the_breaking_rules_is_refused_and_the_real_config_is
     let clean = check_version_bump(&tree("real", &real));
     assert!(clean.status.success(), "{}", said(&clean));
 
-    let moved = skip_first(&real);
-    assert_ne!(moved, real, "the fixture must differ from the real config");
-    let output = check_version_bump(&tree("skip-first", &moved));
-    let text = said(&output);
-    assert_eq!(output.status.code(), Some(1), "{text}");
-    assert!(text.contains("cliff.toml"), "{text}");
-    assert!(text.contains("Breaking changes"), "{text}");
+    for (case, between) in [("skip-first", false), ("skip-between", true)] {
+        let moved = skip_moved(&real, between);
+        assert_ne!(moved, real, "the fixture must differ from the real config");
+        let output = check_version_bump(&tree(case, &moved));
+        let text = said(&output);
+        assert_eq!(output.status.code(), Some(1), "{case}: {text}");
+        assert!(text.contains("cliff.toml"), "{case}: {text}");
+        assert!(text.contains("Breaking changes"), "{case}: {text}");
+    }
 }

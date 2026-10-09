@@ -57,8 +57,8 @@ impl SubjectVerdict {
             Self::TooLong(n) => format!("subject is {n} chars, limit is {MAX_SUBJECT}"),
             Self::NamesARecord => String::from(
                 "a `feat`, `fix` or breaking subject names a decision record (`docs/adr/` or `ADR NNNN`) - \
-                 the changelog skips such a commit, so a change would vanish from the release notes. \
-                 Say what changed, or type the commit `docs` when it only edits a record",
+                 a published page may not name a record, so say what changed without one, \
+                 or type the commit `docs` when it only edits a record",
             ),
         }
     }
