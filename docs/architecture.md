@@ -30,7 +30,7 @@ set of the identity provider lets sutura verify the caller's token.
   src="../assets/deployment-direct.html"
   title="sutura with an agent that calls it directly"
   loading="lazy"
-  style="width: 100%; height: 700px; border: 0;"
+  style="width: 100%; height: 520px; border: 0;"
 ></iframe>
 
 [Open the diagram on its own page](assets/deployment-direct.html). The agent calls sutura over MCP
@@ -42,7 +42,7 @@ with the caller's token.
   src="../assets/deployment-gateway.html"
   title="sutura behind an AI gateway"
   loading="lazy"
-  style="width: 100%; height: 700px; border: 0;"
+  style="width: 100%; height: 520px; border: 0;"
 ></iframe>
 
 [Open the diagram on its own page](assets/deployment-gateway.html). The gateway routes the model
