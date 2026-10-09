@@ -22,23 +22,24 @@ sutura-adbc-postgres = { workspace = true, optional = true }
 sutura-adbc = { workspace = true, optional = true }
 adbc_core = { version = "0.24", optional = true }
 arrow-array = { workspace = true, optional = true }
-# The LIVE Oracle dictionary reader (`src/oracle_reader.rs`), behind the same `live` feature. Oracle's
-# own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among them - the
-# hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
+# The LIVE Oracle dictionary reader (`src/oracle_reader.rs`), behind its own `live-oracle` feature.
+# Oracle's own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among
+# them - the hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
 oracledb = { workspace = true, optional = true }
 
 [features]
-# The live Postgres and Oracle dictionary readers. Default-off: a build that does not ask for it
-# links no ADBC/`oracledb`/`rustls` stack, which is what keeps the musl cross builds and every
-# published artefact free of it. `sutura-cli`'s `rdbms` feature turns this on and composes the
-# readers.
+# The live Postgres dictionary reader. Default-off: a build that does not ask for it links no
+# ADBC/`rustls` stack. `sutura-cli`'s `rdbms` feature turns this on and composes the reader, and
+# `nix/shipped.nix` ships that feature.
 live = [
   "dep:sutura-adbc-postgres",
   "dep:sutura-adbc",
   "dep:adbc_core",
   "dep:arrow-array",
-  "dep:oracledb",
 ]
+# The live Oracle dictionary reader, on top of `live`. `sutura-cli`'s `oracle` feature turns this
+# on, which is the only way `oracledb` enters a build that links this crate.
+live-oracle = ["live", "dep:oracledb"]
 
 [dev-dependencies]
 # The compiler: the acceptance suite proves a dictionary bundle answers no certified question
@@ -56,7 +57,7 @@ required-features = ["live"]
 
 [[test]]
 name = "oracle_provisioned"
-required-features = ["live"]
+required-features = ["live-oracle"]
 
 [lints]
 workspace = true

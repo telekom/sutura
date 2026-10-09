@@ -62,7 +62,9 @@ postgres = ["dep:sutura-exec-postgres"]
 # `every_request_asks_the_server_for_standard_outer_join_nulls`.
 clickhouse = ["dep:sutura-exec-clickhouse"]
 
-# The Oracle adapter, over Oracle's own pure-Rust driver.
+# The Oracle adapter, over Oracle's own pure-Rust driver, and with `rdbms` the Oracle dictionary
+# reader (`sutura-catalog-rdbms/live-oracle`): a build without this feature refuses an Oracle
+# dictionary connection by name.
 #
 # **Default-off for the ARTEFACT reason `bigquery` above states**: `optional` keeps the driver and
 # its own `rustls` stack ABSENT from a build that did not ask for it.
@@ -76,7 +78,7 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 # executed against an Oracle server by any committed cell, so no whole-plan answer from an Oracle
 # source is proven. Reachable by `--features oracle` and `--all-features`, which is what every gate
 # passes, and by no release.
-oracle = ["dep:sutura-exec-oracle"]
+oracle = ["dep:sutura-exec-oracle", "sutura-catalog-rdbms?/live-oracle"]
 
 # A local DuckDB database file, opened read-only - the zero-infrastructure source, raw SQL included.
 #
@@ -115,12 +117,12 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # The live RDBMS metadata adapter (`catalog.kind: rdbms`), issue #972: a reader over a real
 # Postgres documentation schema, and with it the outbound TLS stack that reader needs.
 #
-# **Default-off for the same ARTEFACT reason `postgres` above is.** `sutura-catalog-rdbms/live`
-# pulls the ADBC connector and the Oracle driver's `rustls` into the build, so a release that never
-# declared `catalog.kind: rdbms` links none of it. `nix/shipped.nix` builds cargo's default set, so no
-# published artefact contains the reader; `--features rdbms` is how an operator building `sutura`
-# turns it on, and `deny.toml`'s `all-features = true` keeps it compiled, linted and tested on
-# every gate run.
+# Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features`, so every release carries
+# the reader. `sutura-catalog-rdbms/live` pulls the ADBC connector into the build, which `optional`
+# keeps out of a build that did not ask for it; `--features rdbms` is how an operator building
+# `sutura` turns it on, and `deny.toml`'s `all-features = true` keeps it compiled, linted and
+# tested on every gate run. It composes the Postgres dictionary reader; the Oracle one needs
+# `oracle` as well.
 #
 # `sutura-catalog-rdbms/live` rather than a bare feature name, mirroring `datahub`/`openmetadata`
 # above: the adapter crate's own `live` feature gates its reader module, and this crate's feature
