@@ -521,7 +521,7 @@ pub(crate) struct RawCatalog {
     #[serde(default)]
     pub(crate) endpoint: Option<String>,
     /// `catalog.kind: datahub`/`openmetadata`'s personal access token FILE - never the token itself.
-    /// The naming convention `sources.<alias>.credential_file`/`password_file` already hold.
+    /// The naming convention `sources.<alias>.password_file` already holds.
     #[serde(default)]
     pub(crate) token_file: Option<String>,
     /// `catalog.kind: datahub`'s deployment-chosen structured property name - `docs/adr/0016`

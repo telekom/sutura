@@ -174,11 +174,10 @@ fn build_bigquery(
     // unusable declaration fails here, before a listener is bound, rather than on the first
     // impersonated question.
     //
-    // **`scope` is NOT, and it is the only declared value on this path that reaches nothing.** The
-    // pinned driver has nowhere to put it - `WorkloadPool` carries the measurement - so it is not
-    // handed over, not screened twice, and named as unread where the operator declares it
-    // (`sutura_config`'s `WifScope`). A value carried here and dropped later would be the shape this
-    // whole change exists to remove.
+    // **There is no `scope`.** The pinned driver has nowhere to put one - `WorkloadPool` carries the
+    // measurement - so `sutura_config` refuses the key by name rather than carry a value that
+    // reaches nothing. A value carried here and dropped later would be the shape this whole change
+    // exists to remove.
     let impersonation = match configured.workload_identity() {
         None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
         Some(workload) => sutura_exec_bigquery::adbc::Impersonation::ThroughPool(

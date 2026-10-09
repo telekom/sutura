@@ -405,8 +405,7 @@ fn the_document_names_the_declared_account_as_the_second_hop() {
     assert_eq!(document["token_url"], "https://sts.googleapis.com/v1/token");
     assert_eq!(document["credential_source"]["format"]["type"], "text");
     // The caller's scopes go to the impersonation call and `cloud-platform` to the STS leg, both
-    // decided by the library - so this document still carries no `scopes` member and
-    // `workload_identity.scope` still reaches nothing here.
+    // decided by the library - so this document carries no `scopes` member.
     assert!(document["scopes"].is_null(), "{document}");
 }
 
