@@ -3088,7 +3088,7 @@ the channel, the deadline and the single-statement guarantee, and what does not.
 - <code>FixtureRead</code>
 - <code>InvalidColumnName</code> - A CSV header named a column that is not a valid identifier. Refused, not interpolated.
 - <code>FixtureSchema</code> - The shared conformance fixture schema could not be inferred.
-- <code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</p>
+- <code>InvalidStatementTimeout</code> - The <code>fixtures</code> build's <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</p>
 <p>The value becomes a <code>SET LOCAL statement_timeout = N</code> ceiling, so it is parsed at the
   boundary and refused if it is not a number or exceeds the <code>u32</code> ceiling - a value that
   cannot be a timeout must not reach the statement as uninterpreted text. The cause survives
@@ -3119,8 +3119,8 @@ links (both musl triples) or the one <code>SUTURA_POSTGRES_ADBC_DRIVER</code> na
   in the workspace - except one written inside an existing <code>disallowed_methods</code> expectation's
   scope, which that expectation covers too (the ban's own entry states it).</li>
 <li><strong>The per-request deadline is <code>SET LOCAL statement_timeout</code></strong> in the transaction the driver
-  opens when autocommit is switched off, clamped to the deployment's ceiling
-  (<code>SUTURA_DEV_STATEMENT_TIMEOUT_MS</code>), and always rolled back. A statement the server cancelled for it
+  opens when autocommit is switched off, clamped to the ceiling
+  (<code>SUTURA_DEV_STATEMENT_TIMEOUT_MS</code> in a <code>fixtures</code> build, else 15 s), and always rolled back. A statement the server cancelled for it
   (<code>57014</code>), or a stream that failed once that timeout had run out, is the deadline to
   <code>Warehouse::deadline_exceeded</code>.</li>
 <li><strong>The channel is the declared one.</strong> <code>Conninfo</code> builds the libpq
@@ -3178,8 +3178,8 @@ re-inferred from the committed file on every run, so it cannot drift from it.</p
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">driver</span><span class="p">:</span><span class="w"> </span><span class="nc">PostgresDriver</span><span class="p">,</span><span class="w"> </span><span class="n">conninfo</span><span class="p">:</span><span class="w"> </span><span class="nc">Conninfo</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Takes the source, the driver and the connection string it connects with.</p>
-<p>Reads the deployment's statement-timeout ceiling (<code>SUTURA_DEV_STATEMENT_TIMEOUT_MS</code>), which a
-request's own budget may only narrow.</p>
+<p>Reads the statement-timeout ceiling a request's own budget may only narrow:
+<code>SUTURA_DEV_STATEMENT_TIMEOUT_MS</code> in a <code>fixtures</code> build, a fixed 15 s in every other.</p>
 <h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p><code>PostgresError::InvalidStatementTimeout</code> where that tuning value is not a millisecond count.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>

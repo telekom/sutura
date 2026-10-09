@@ -3465,8 +3465,8 @@ deployment declared. <strong>The response-size cap is per page</strong>, and one
 <h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
 <p>A personal access token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code> on every
 request. The token is a constructor argument here; a composition root reads it from a settings-
-declared file at boot (<code>token_file</code>, the naming convention <code>credential_file</code>/<code>password_file</code>
-already hold), never inline in a settings document.</p>
+declared file at boot (<code>token_file</code>, the naming convention <code>password_file</code> already holds),
+never inline in a settings document.</p>
 <h1 id="paging">Paging<a class="headerlink" href="#paging" title="Permanent link">&para;</a></h1>
 <p>Each entity type is read page by page at <code>PageLimits</code>' page size (<code>count</code>, 1000 by default),
 following <code>scrollId</code> until a page carries none. The list is whole or the read is refused
