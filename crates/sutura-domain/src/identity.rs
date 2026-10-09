@@ -38,12 +38,16 @@ use secrecy::{ExposeSecret as _, SecretString};
 /// this crate can reach the full value at all.
 mod compute_context;
 mod credential;
+mod delegation;
 mod principal;
 
 pub use crate::identity::compute_context::ComputeContext;
 pub use crate::identity::credential::{
     Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
+};
+pub use crate::identity::delegation::{
+    Delegated, Delegation, DelegationExchange, DelegationFailed, RequestedAudience, UnusableAudience,
 };
 pub use crate::identity::principal::{
     Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId,

@@ -268,6 +268,49 @@ as one `Option`, so no state with half of it set is representable.
 
 The configured word did not name a kind of catalog this build has.
 
+## `use DeclaredPrincipalBroker`
+
+Presents the asking subject's own credential at a source that declares it, beside the account
+declared for that subject - and the operator's witness for a shared one.
+
+**The credential is the verified assertion itself**, or, for a source declared through
+`Self::impersonating_delegated`, the token its `Delegation` returned for that assertion.
+
+**The assertion AND the account, because either alone loses the property.** The assertion (or
+its exchanged token) is what the caller possesses and what the pool verifies; the account is what a deployment declared
+this caller's questions should run as, and a broker that presented only the assertion ran every
+declared caller as one pool principal whatever the map said.
+
+**Both maps, because one plan may read one of each and a broker is per answer rather than per
+source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
+
+## `use DeclaredPrincipals`
+
+The subjects one source may be asked as, and the account each of them resolves to.
+
+**A parsed type and not a bare map, because the empty map is the interesting value.** An
+impersonating source with no declared subject can serve nobody: every request would be refused,
+while the boot log said the source opened. That is the exact defect this whole change exists to
+remove, so the emptiness is refused at the boundary that can turn it into a startup failure
+rather than documented at the one that cannot.
+
+## `use DeclaredPrincipalsUnusable`
+
+A defect in this broker itself, which no configuration reaches.
+
+Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
+thing minting can fail on is a credential set that does not cover the sources it was asked
+about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
+here would be process death under `panic = "abort"` for a case a type already describes.
+
+## `use NoDeclaredPrincipals`
+
+Why a declared impersonation map is not one a source can be served under.
+
+Two variants, and the second one is the reason the enum was one from the start: an empty
+declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
+the same class of defect one level down.
+
 ## `use StaticCredentialBroker`
 
 Mints from what an operator declared, and nothing else.
@@ -2427,6 +2470,276 @@ composition root refuses a posture the linked adapter cannot deliver.
 #### Implements
 
 `Clone`, `CredentialBroker`, `Debug`
+
+### Module `declared`
+
+The broker a served deployment with an impersonating source answers through: a verified subject
+in, that subject's own declared principal out.
+
+**Both halves of the declared map are read, which is what `telekom/sutura#929` F3 changed.** Its
+KEYS decide WHETHER a caller may be served here; its VALUES name the account that caller's
+question is to execute as, carried on `Presented::SubjectToken` and interpolated by the
+`BigQuery` adapter into the credential document's `service_account_impersonation_url` (see
+`DeclaredPrincipals::target`). The chain is *this subject's own assertion federates to the
+pool's principal, and that principal then impersonates the declared account* - so the pool
+principal is the one holding the binding and the caller is never the deployment.
+
+**Here, beside `crate::StaticCredentialBroker`, and in no adapter crate**: it reads only the
+domain's identity port, so every adapter that can deliver `impersonation-at-source` is served
+through it without linking another adapter.
+
+**Why this is the only declared-map broker.** It used to sit beside an EXCHANGING one -
+`sts::WorkloadIdentityBroker`, which handed the caller's own assertion to a token service and
+presented what came back as the leg's bearer. Its two HTTP hops went away with the `wire`
+transport, leaving a 2,571-line tree no composition root could reach and whose every exchange
+was a test fake, so `docs/adr/0018`'s eighth amendment deleted it. What the ADBC transport needs
+is narrower and different in kind: not a token to exchange, but the asking subject's OWN
+assertion for the driver to federate against the pool this source declares. No socket and no
+cache - Google's token service performs the exchange - but an EXPIRY, because what this presents
+is credential material and credential material ages out.
+
+One broker with one answer to *what does this leg present* is the shape `docs/adr/0008` part 4
+already assumes: a composition root picks one.
+
+**A switching source is the second thing it presents** (`DeclaredPrincipalBroker::switching`):
+the same map and the same refusals, but the leg carries the declared principal alone, as
+`Presented::SubjectPrincipal`, for a source that authenticates the deployment and switches per
+statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
+is the key, and an anonymous or undeclared caller is refused exactly as below.
+
+# What it refuses, which is the half that matters
+
+- **A source it holds neither half for** - refused as `credential_unavailable`, so a forgotten
+  attachment cannot read every row as the deployment.
+- **A caller the source's declaration does not name** - refused, never widened to a bare
+  deployment identity. `docs/adr/0032` states the same rule for the exchanging broker's own
+  second hop: absent from the map is refused, not defaulted.
+- **An anonymous caller at an impersonating source** - a request with no verified subject has no
+  key to look up, and there is nothing to fall back to.
+
+And one refusal it deliberately does NOT make at request time: an impersonating source with an
+empty declaration. `DeclaredPrincipals::parse` refuses that, so it is a startup failure - the
+whole point being that a deployment which cannot execute as anybody must not boot clean and then
+refuse every question.
+
+# The limit, beside the claim
+
+This broker decides WHETHER this caller may be served at a source, presents the caller's own
+verified assertion for it, and names the account the question is to run as. What it CANNOT check
+is that the named account is **reachable**: no type, lint, hook or gate in this repository sees a
+live IAM policy, and there is no boot-time probe to add - the driver's token fetch is lazy,
+`AdbcBigQuery::probe` opens no connection and reads no credential, and a boot-time mint would
+need a caller's assertion, which boot does not have. A declared account the pool principal may
+not impersonate therefore surfaces as `AdbcError::Adbc` on the FIRST QUESTION BY THAT SUBJECT and
+never at boot. What is refused here is the account's SHAPE (`DeclaredPrincipals::parse`), which
+is a different claim.
+
+And nothing here proves Google accepted the assertion or the second hop: that is leg 2, it needs
+a hosted run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
+
+#### `enum NoDeclaredPrincipals`
+
+```rust
+pub enum NoDeclaredPrincipals
+```
+
+Why a declared impersonation map is not one a source can be served under.
+
+Two variants, and the second one is the reason the enum was one from the start: an empty
+declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
+the same class of defect one level down.
+
+##### Variants
+
+- `Empty` - The declaration named no subject at all.
+- `NotAServiceAccount` - A declared target is not a shape this transport can name in an impersonation URL.
+
+  **A parse refusal and not a warning, because the value selects an ACCOUNT.** It is
+  interpolated into one path segment of `service_account_impersonation_url`, so a value
+  carrying `/` re-points that segment at a different account - and
+  `PrincipalName::parse` accepts `/`, since it is the parser every principal identifier in
+  the domain shares and a role name is not an email. Refused here so a bad declaration is a
+  startup failure; the adapter that sends the value refuses it again.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct DeclaredPrincipals`
+
+```rust
+pub struct DeclaredPrincipals
+```
+
+The subjects one source may be asked as, and the account each of them resolves to.
+
+**A parsed type and not a bare map, because the empty map is the interesting value.** An
+impersonating source with no declared subject can serve nobody: every request would be refused,
+while the boot log said the source opened. That is the exact defect this whole change exists to
+remove, so the emptiness is refused at the boundary that can turn it into a startup failure
+rather than documented at the one that cannot.
+
+##### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many subjects this source declares. Never zero.
+
+```rust
+pub fn parse(declared: BTreeMap<SubjectKey, PrincipalName>) -> Result<Self, NoDeclaredPrincipals>
+```
+
+Parses one source's declared subject-to-principal map.
+
+**Keyed on the FULL verified subject and never on the masked
+`SubjectId`**, for the reason `sutura_config`'s own
+declaration gives: whether a caller may be served at this source at all is an authorization
+decision, and a masked key admits every undeclared caller that shares a declared subject's
+mask - which, since the pool resolves whoever is admitted to a principal of its own, is an
+undeclared caller reading rows as somebody.
+
+**And the VALUES are narrowed here**, which is what makes this a parsed type rather than a
+non-empty map: what a value of this type now means is *a non-empty map whose accounts this
+transport can name in an impersonation URL*. Refused at the boundary that can turn it into a
+startup failure, through `sutura_cli`'s `build_broker`.
+
+# Errors
+
+`NoDeclaredPrincipals::Empty` for a declaration naming nobody, and
+`NoDeclaredPrincipals::NotAServiceAccount` for a declared account this adapter cannot put
+in a request.
+
+```rust
+pub fn switched(declared: BTreeMap<SubjectKey, PrincipalName>) -> Result<Self, NoDeclaredPrincipals>
+```
+
+Parses a declaration for a source that SWITCHES to the declared principal on the
+deployment's own connection - `DeclaredPrincipalBroker::switching`. The values are not
+service accounts, so only emptiness is refused here: the crate that sends a value narrows it
+(`sutura_exec_clickhouse::execute_as::ClickHouseUser` for `EXECUTE AS`).
+
+# Errors
+
+`NoDeclaredPrincipals::Empty` for a declaration naming nobody.
+
+```rust
+pub fn target(&self, subject: &SubjectKey) -> Option<&PrincipalName>
+```
+
+The account this source is to execute this subject's questions as, if it declares the
+subject at all.
+
+`None` is not a fallback - it is the answer for every caller a deployment did not name, and
+`DeclaredPrincipalBroker::mint` turns it into a refusal.
+
+**Both halves of the entry are read, and the VALUE is what this returns.** The key decides
+authorization and the account beside it decides which principal the question runs as: it
+rides on `Presented::SubjectToken` and becomes the credential document's
+`service_account_impersonation_url`, so changing a declared account changes which account a
+caller's question executes as. A round of this adapter read the key and dropped the value,
+which accepted a security-critical setting and then ignored it.
+
+Returning the account rather than a `bool` is what makes that mechanical: there is no
+arrangement of this signature in which the value is unread and the caller still compiles.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum DeclaredPrincipalsUnusable`
+
+```rust
+pub enum DeclaredPrincipalsUnusable
+```
+
+A defect in this broker itself, which no configuration reaches.
+
+Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
+thing minting can fail on is a credential set that does not cover the sources it was asked
+about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
+here would be process death under `panic = "abort"` for a case a type already describes.
+
+##### Variants
+
+- `Coverage` - The credentials built here did not cover the sources they were asked about.
+- `Delegation` - The delegation exchange a `direct` source needs produced no usable token - the identity provider is a hard runtime dependency, so this is `503 identity_unavailable` and never an answer as anybody.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `struct DeclaredPrincipalBroker`
+
+```rust
+pub struct DeclaredPrincipalBroker
+```
+
+Presents the asking subject's own credential at a source that declares it, beside the account
+declared for that subject - and the operator's witness for a shared one.
+
+**The credential is the verified assertion itself**, or, for a source declared through
+`Self::impersonating_delegated`, the token its `Delegation` returned for that assertion.
+
+**The assertion AND the account, because either alone loses the property.** The assertion (or
+its exchanged token) is what the caller possesses and what the pool verifies; the account is what a deployment declared
+this caller's questions should run as, and a broker that presented only the assertion ran every
+declared caller as one pool principal whatever the map said.
+
+**Both maps, because one plan may read one of each and a broker is per answer rather than per
+source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
+
+##### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many sources this broker can mint for at all.
+
+Read by this crate's own suite, where the assertion that matters is that a source declared
+impersonating with no entry is ABSENT rather than mapped to something.
+
+```rust
+pub fn empty() -> Self
+```
+
+A broker that can serve nothing yet.
+
+Every source is added explicitly, so a source nobody declared is one this broker refuses -
+there is no arm that widens an unknown source into the deployment's own identity.
+
+```rust
+pub fn impersonating(self, at: SourceName, declared: DeclaredPrincipals) -> Self
+```
+
+Declares one impersonating source and the subjects it may be asked as.
+
+```rust
+pub fn impersonating_delegated(self, at: SourceName, declared: DeclaredPrincipals, delegation: Delegation) -> Self
+```
+
+Declares one impersonating source whose callers arrive in `direct` mode: their inbound token
+serves leg 1 only, and what this source presents is the token `delegation` exchanges it for.
+
+```rust
+pub fn shared(self, at: SourceName, declared: SharedIdentityDeclared) -> Self
+```
+
+Declares one shared source and the operator's acknowledgement for it.
+
+```rust
+pub fn switching(self, at: SourceName, declared: DeclaredPrincipals) -> Self
+```
+
+Declares one impersonating source that switches to each declared subject's principal on the
+deployment's own connection - `ClickHouse`'s `EXECUTE AS`. The same map and the same refusal
+as `Self::impersonating`; only what is presented differs.
+
+##### Implements
+
+`Clone`, `CredentialBroker`, `Debug`, `Default`
 
 ## Module `environment`
 
@@ -5512,7 +5825,8 @@ convenience, and nothing needs to clone a startup refusal.
   the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
   `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
   each caller's questions execute as, and `scope` alone is read by nothing - see
-  `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
+  `crate::DeclaredPrincipals::target` for the values.
+- `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -6002,6 +6316,31 @@ then on the variant is the answer.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `enum InvalidImpersonate`
+
+```rust
+pub enum InvalidImpersonate
+```
+
+Why a `clickhouse` source's `impersonate` map is not one it can be served under.
+
+##### Variants
+
+- `Missing` - An impersonating source declared no subject, so no caller could ever be served there.
+- `NotImpersonating` - A map on a source that is not impersonating, which nothing would read.
+- `Subject`
+- `DuplicateSubject` - Two keys that parse to one subject - the parse trims, so they differ only in whitespace.
+- `EmptyUser`
+- `ServiceUser` - A declared user that is the source's own `user`.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `type_alias DeclaredUsers`
+
+A `clickhouse` source's declared subject -> `ClickHouse` user map.
+
 ### Module `transport`
 
 How the channel to a source is secured, per source and never globally.
@@ -6359,7 +6698,7 @@ The Workload Identity Federation setup a `impersonation-at-source` source needs.
 
 **`impersonate` decides WHO MAY BE SERVED, and nothing else.** A subject present as a key is the
 only caller a source may be asked as; a caller absent from it is refused by
-`sutura_exec_bigquery::DeclaredPrincipalBroker` before any network call rather than answered as
+`crate::DeclaredPrincipalBroker` before any network call rather than answered as
 the process. **And the declared account beside each key decides WHO that caller becomes**: it
 is sent as the credential document's `service_account_impersonation_url`, so the pool resolves
 the subject to its own principal and that principal then impersonates this account
@@ -6526,8 +6865,9 @@ The service account an operator declares beside a subject in `impersonate`.
 **Parsed here and parsed AGAIN by the crate that sends it.** It is interpolated into one path
 segment of the credential document's `service_account_impersonation_url`, which decides which
 account the question runs as, so the check belongs where the risk is as well as where the value
-is declared - `sutura_exec_bigquery::principal::names_a_service_account` applies the same rule at
-parse and at send. That is deliberate duplication, not drift: the domain's
+is declared - `sutura_exec_bigquery`'s `adbc::identity` applies the same rule before it sends,
+and `crate::DeclaredPrincipals::parse` reuses this one at boot. That is deliberate
+duplication across the two crates, not drift: the domain's
 `PrincipalName::parse` between them accepts `/`, `:` and `?`, because it is the parser every
 principal identifier shares.
 

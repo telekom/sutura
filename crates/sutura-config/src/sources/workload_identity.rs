@@ -41,7 +41,7 @@ pub struct WifScope(String);
 ///
 /// **`impersonate` decides WHO MAY BE SERVED, and nothing else.** A subject present as a key is the
 /// only caller a source may be asked as; a caller absent from it is refused by
-/// `sutura_exec_bigquery::DeclaredPrincipalBroker` before any network call rather than answered as
+/// [`crate::DeclaredPrincipalBroker`] before any network call rather than answered as
 /// the process. **And the declared account beside each key decides WHO that caller becomes**: it
 /// is sent as the credential document's `service_account_impersonation_url`, so the pool resolves
 /// the subject to its own principal and that principal then impersonates this account
@@ -283,8 +283,9 @@ impl WorkloadIdentityConfig {
 /// **Parsed here and parsed AGAIN by the crate that sends it.** It is interpolated into one path
 /// segment of the credential document's `service_account_impersonation_url`, which decides which
 /// account the question runs as, so the check belongs where the risk is as well as where the value
-/// is declared - `sutura_exec_bigquery::principal::names_a_service_account` applies the same rule at
-/// parse and at send. That is deliberate duplication, not drift: the domain's
+/// is declared - `sutura_exec_bigquery`'s `adbc::identity` applies the same rule before it sends,
+/// and [`crate::DeclaredPrincipals::parse`] reuses this one at boot. That is deliberate
+/// duplication across the two crates, not drift: the domain's
 /// `PrincipalName::parse` between them accepts `/`, `:` and `?`, because it is the parser every
 /// principal identifier shares.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

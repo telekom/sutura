@@ -1,15 +1,19 @@
-//! The broker a served `BigQuery` deployment impersonates through: a verified subject in, that
-//! subject's own verified assertion out.
+//! The broker a served deployment with an impersonating source answers through: a verified subject
+//! in, that subject's own declared principal out.
 //!
 //! **Both halves of the declared map are read, which is what `telekom/sutura#929` F3 changed.** Its
 //! KEYS decide WHETHER a caller may be served here; its VALUES name the account that caller's
-//! question is to execute as, carried on [`Presented::SubjectToken`] and interpolated by
-//! [`crate::adbc`] into the credential document's `service_account_impersonation_url` (see
+//! question is to execute as, carried on [`Presented::SubjectToken`] and interpolated by the
+//! `BigQuery` adapter into the credential document's `service_account_impersonation_url` (see
 //! [`DeclaredPrincipals::target`]). The chain is *this subject's own assertion federates to the
 //! pool's principal, and that principal then impersonates the declared account* - so the pool
 //! principal is the one holding the binding and the caller is never the deployment.
 //!
-//! **Why this is the only broker this crate carries.** It used to sit beside an EXCHANGING one -
+//! **Here, beside [`crate::StaticCredentialBroker`], and in no adapter crate**: it reads only the
+//! domain's identity port, so every adapter that can deliver `impersonation-at-source` is served
+//! through it without linking another adapter.
+//!
+//! **Why this is the only declared-map broker.** It used to sit beside an EXCHANGING one -
 //! `sts::WorkloadIdentityBroker`, which handed the caller's own assertion to a token service and
 //! presented what came back as the leg's bearer. Its two HTTP hops went away with the `wire`
 //! transport, leaving a 2,571-line tree no composition root could reach and whose every exchange
@@ -21,6 +25,12 @@
 //!
 //! One broker with one answer to *what does this leg present* is the shape `docs/adr/0008` part 4
 //! already assumes: a composition root picks one.
+//!
+//! **A switching source is the second thing it presents** ([`DeclaredPrincipalBroker::switching`]):
+//! the same map and the same refusals, but the leg carries the declared principal alone, as
+//! [`Presented::SubjectPrincipal`], for a source that authenticates the deployment and switches per
+//! statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
+//! is the key, and an anonymous or undeclared caller is refused exactly as below.
 //!
 //! # What it refuses, which is the half that matters
 //!
@@ -55,13 +65,13 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::identity::{
-    CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, PrincipalName, RequestContext,
-    SourceSet, SubjectKey,
+    CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted, Presented,
+    PrincipalName, RequestContext, SourceSet, SubjectKey,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
 
-use crate::delegation::{Delegation, DelegationFailed};
+use crate::sources::workload_identity::WorkloadIdentitySa;
 
 /// Why a declared impersonation map is not one a source can be served under.
 ///
@@ -83,8 +93,8 @@ pub enum NoDeclaredPrincipals {
     /// interpolated into one path segment of `service_account_impersonation_url`, so a value
     /// carrying `/` re-points that segment at a different account - and
     /// `PrincipalName::parse` accepts `/`, since it is the parser every principal identifier in
-    /// the domain shares and a role name is not an email. The narrowing belongs to the crate that
-    /// SENDS the value, which is this one.
+    /// the domain shares and a role name is not an email. Refused here so a bad declaration is a
+    /// startup failure; the adapter that sends the value refuses it again.
     #[error(
         "`{target}` is declared as an impersonation target and is not a service-account address \
          this adapter can name in a request - at most 254 characters of letters, digits and \
@@ -98,29 +108,14 @@ pub enum NoDeclaredPrincipals {
     },
 }
 
-/// Is this a service-account address this transport can name in an impersonation URL?
+/// Is this a service-account address the `BigQuery` adapter can name in an impersonation URL?
 ///
-/// **The send-side half of a value configuration already parsed**, for the reason
-/// [`crate::transport::ProjectId`] and [`crate::adbc::WorkloadPool`] are both parsed twice: a check
-/// belongs where the risk is, and the risk here is one path segment of a URL that decides which
-/// account a question runs as. The accepted set is the printable ASCII a service-account address is
-/// built from, so nothing that could close a JSON string, add a URL segment or carry a query can
-/// exist in a value that reaches the document.
-///
-/// Called from [`DeclaredPrincipals::parse`], where a bad declaration is a STARTUP failure, and
-/// again from `crate::adbc::identity` before the interpolation, because [`Presented`] is a public
-/// port and this broker is not the only thing that can construct one.
-pub(crate) fn names_a_service_account(target: &PrincipalName) -> bool {
-    /// RFC 5321's mailbox length, which is what `sutura_config` bounds the same value by.
-    const MOST: usize = 254;
-
-    let raw = target.as_str();
-    !raw.is_empty()
-        && raw.chars().count() <= MOST
-        && raw.matches('@').count() == 1
-        && raw
-            .chars()
-            .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' | '@'))
+/// [`WorkloadIdentitySa::parse`]'s rule, and the value unchanged by it: a padded spelling it would
+/// trim is refused here, because the value that reaches the URL is this one. The adapter applies
+/// the same rule again before the interpolation, because [`Presented`] is a public port and this
+/// broker is not the only thing that can construct one.
+fn names_a_service_account(target: &PrincipalName) -> bool {
+    WorkloadIdentitySa::parse(target.as_str()).is_ok_and(|parsed| parsed.as_str() == target.as_str())
 }
 
 /// The subjects one source may be asked as, and the account each of them resolves to.
@@ -159,6 +154,21 @@ impl DeclaredPrincipals {
         }
         if let Some(target) = declared.values().find(|target| !names_a_service_account(target)) {
             return Err(NoDeclaredPrincipals::NotAServiceAccount { target: target.clone() });
+        }
+        Ok(Self(declared))
+    }
+
+    /// Parses a declaration for a source that SWITCHES to the declared principal on the
+    /// deployment's own connection - [`DeclaredPrincipalBroker::switching`]. The values are not
+    /// service accounts, so only emptiness is refused here: the crate that sends a value narrows it
+    /// (`sutura_exec_clickhouse::execute_as::ClickHouseUser` for `EXECUTE AS`).
+    ///
+    /// # Errors
+    ///
+    /// [`NoDeclaredPrincipals::Empty`] for a declaration naming nobody.
+    pub fn switched(declared: BTreeMap<SubjectKey, PrincipalName>) -> Result<Self, NoDeclaredPrincipals> {
+        if declared.is_empty() {
+            return Err(NoDeclaredPrincipals::Empty);
         }
         Ok(Self(declared))
     }
@@ -217,9 +227,19 @@ pub enum DeclaredPrincipalsUnusable {
     },
 }
 
-/// One impersonating source's declared subjects, and the exchange its callers' tokens go through
-/// in `direct` mode - `None` presents the inbound assertion itself.
-type Impersonating = (DeclaredPrincipals, Option<Delegation>);
+/// What an impersonating source is presented for a declared subject.
+#[derive(Debug, Clone)]
+enum Presenting {
+    /// The subject's own assertion beside the declared account - or, with a [`Delegation`], the
+    /// token that assertion is exchanged for in `direct` mode.
+    Assertion(Option<Delegation>),
+    /// The declared principal alone, as [`Presented::SubjectPrincipal`]: the source authenticates
+    /// the deployment and switches to it per statement, so no subject material leaves this process.
+    Principal,
+}
+
+/// One impersonating source's declared subjects, and what each of them is presented as.
+type Impersonating = (DeclaredPrincipals, Presenting);
 
 /// Presents the asking subject's own credential at a source that declares it, beside the account
 /// declared for that subject - and the operator's witness for a shared one.
@@ -260,7 +280,16 @@ impl DeclaredPrincipalBroker {
     /// Declares one impersonating source and the subjects it may be asked as.
     #[must_use]
     pub fn impersonating(mut self, at: SourceName, declared: DeclaredPrincipals) -> Self {
-        drop(self.impersonating.insert(at, (declared, None)));
+        drop(self.impersonating.insert(at, (declared, Presenting::Assertion(None))));
+        self
+    }
+
+    /// Declares one impersonating source that switches to each declared subject's principal on the
+    /// deployment's own connection - `ClickHouse`'s `EXECUTE AS`. The same map and the same refusal
+    /// as [`Self::impersonating`]; only what is presented differs.
+    #[must_use]
+    pub fn switching(mut self, at: SourceName, declared: DeclaredPrincipals) -> Self {
+        drop(self.impersonating.insert(at, (declared, Presenting::Principal)));
         self
     }
 
@@ -268,7 +297,10 @@ impl DeclaredPrincipalBroker {
     /// serves leg 1 only, and what this source presents is the token `delegation` exchanges it for.
     #[must_use]
     pub fn impersonating_delegated(mut self, at: SourceName, declared: DeclaredPrincipals, delegation: Delegation) -> Self {
-        drop(self.impersonating.insert(at, (declared, Some(delegation))));
+        drop(
+            self.impersonating
+                .insert(at, (declared, Presenting::Assertion(Some(delegation)))),
+        );
         self
     }
 
@@ -329,7 +361,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             }
             // Unreachable: the pass above established that every source has one of the two halves.
             // Answered rather than unwrapped, because `unwrap_used` is denied.
-            let Some((principals, delegation)) = self.impersonating.get(source) else {
+            let Some((principals, presenting)) = self.impersonating.get(source) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
             // **The authorization decision, and both ways out of it are refusals.** A caller with no
@@ -356,6 +388,15 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // name the asker.
             let Some(target) = key.and_then(|key| principals.target(key)) else {
                 return Ok(Minted::Refused { source: source.clone() });
+            };
+            let delegation = match *presenting {
+                Presenting::Assertion(ref delegation) => delegation,
+                // A name does not age, so the bound is the caller's own assertion where leg 1 had one.
+                Presenting::Principal => {
+                    drop(presented.insert(source.clone(), Presented::SubjectPrincipal { name: target.clone() }));
+                    deadlines.push(assertion_expires.unwrap_or(Expiry::NothingExpires));
+                    continue;
+                }
             };
             // **The asking subject's OWN assertion (or, for a delegated source, the token exchanged
             // for it below), plus the account declared beside that subject.** The transport puts it

@@ -154,4 +154,92 @@ mod tests {
         );
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
+
+    /// An impersonating entry whose password file IS there, on a loopback port nothing listens on,
+    /// so the composition gets as far as the boot probe and no further.
+    #[cfg(feature = "clickhouse")]
+    fn impersonating_entry(password_file: &std::path::Path) -> String {
+        format!(
+            "  warehouse:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 1\n    user: \"sutura\"\n    \
+             password_file: \"{}\"\n    transport_mode: \"plaintext\"\n    \
+             posture: \"impersonation-at-source\"\n    impersonate:\n      analyst-a@example.com: analyst_a\n",
+            password_file.display()
+        )
+    }
+
+    #[cfg(feature = "clickhouse")]
+    fn password_file() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("sutura-cli-ch-execute-as-{}", std::process::id()));
+        std::fs::write(&path, "unused").expect("a scratch password file writes");
+        path
+    }
+
+    /// **The boot pre-flight is run, and its refusal stops the process.** Nothing answers the
+    /// probe here, so the server half (setting, grant) is held by the tier cells in
+    /// `sutura-exec-clickhouse`'s `tests/execute_as.rs`; this cell holds that `build` asks.
+    #[test]
+    #[cfg(feature = "clickhouse")]
+    fn an_impersonating_clickhouse_source_is_probed_before_it_is_served() {
+        let file = password_file();
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&impersonating_entry(&file)),
+                one_worker(),
+                default_timeout(),
+                None,
+            ),
+            "a declared user the server never ran a statement as must not be served",
+        );
+        let _ignored = std::fs::remove_file(&file);
+        assert!(error.contains("warehouse.impersonate"), "{error}");
+        assert!(error.contains("EXECUTE AS analyst_a"), "{error}");
+        assert!(
+            error.contains("allow_impersonate_user"),
+            "the refusal names the server setting: {error}"
+        );
+    }
+
+    /// The broker serves the impersonating source through the declared map: the declared subject is
+    /// presented its declared user, and anyone else is refused rather than run as the service user.
+    #[test]
+    #[cfg(feature = "clickhouse")]
+    fn the_broker_switches_a_declared_subject_and_refuses_an_undeclared_one() {
+        use sutura_domain::identity::{
+            CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject,
+        };
+
+        let file = password_file();
+        let registry = registry(&impersonating_entry(&file));
+        let _ignored = std::fs::remove_file(&file);
+        let broker = crate::serve::broker::build_broker(&registry, None).expect("the declared map builds a broker");
+        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let asked = SourceSet::of(at.clone());
+        let ask = |subject: &str| {
+            broker
+                .mint(
+                    &RequestContext::of(PrincipalChain::of(Subject::verified(subject).expect("a test subject"))),
+                    &asked,
+                )
+                .expect("a mint answers")
+        };
+        let Minted::Granted { credentials } = ask("analyst-a@example.com") else {
+            panic!("the declared subject is served");
+        };
+        let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject");
+        let sutura_domain::identity::Agreed::Granted { credentials } = Minted::Granted { credentials }
+            .agreeing_with(&asked_by, &asked, 0)
+            .expect("the grant agrees")
+        else {
+            panic!("expected a granted agreement");
+        };
+        assert!(
+            matches!(credentials.presented_for(&at), Ok(Presented::SubjectPrincipal { name }) if name.as_str() == "analyst_a"),
+            "the declared user is presented"
+        );
+        assert!(
+            matches!(ask("someone-else@example.com"), Minted::Refused { ref source } if *source == at),
+            "an undeclared subject is refused"
+        );
+    }
 }

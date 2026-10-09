@@ -198,7 +198,7 @@ broker's deletion; this one records that the bound it said was absent is now hel
 required `u64` and wraps it as `Expiry::At` - a caller cannot pass the
 `NothingExpires` variant, because `exp` is in the transport's own required
 claims. `DeclaredPrincipalBroker::mint`
-(`crates/sutura-exec-bigquery/src/principal.rs`) reads
+(`crates/sutura-config/src/credentials/declared.rs`) reads
 `context.assertion_expires()` and folds it into `Expiry::earliest` alongside the
 minted credential's own deadline, so an impersonating leg is bounded by the
 sooner of the two. `BoundToTheRequest::still_usable_at`
@@ -208,7 +208,7 @@ the pre-flight round trip (`src/lib.rs`) and before each leg's execution
 (`src/federated/leg.rs`).
 
 **Pinned.** `the_minted_expiry_is_the_asking_assertions_own`
-(`crates/sutura-exec-bigquery/src/principal/tests.rs`) mints with a caller
+(`crates/sutura-config/src/credentials/declared/tests.rs`) mints with a caller
 expiring at a known instant and proves `agreeing_with` refuses one second after
 and grants one second before, with the refusal naming the assertion's own
 deadline.
