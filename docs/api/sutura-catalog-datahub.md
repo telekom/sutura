@@ -870,11 +870,14 @@ only of a run of it.
 `ReadBounds` carries a request timeout and a response-size cap, both **settings with defaults,
 not constants** - `DEFAULT_TIMEOUT_SECONDS` and `DEFAULT_MAX_RESPONSE_BYTES` are the values a
 composition root's settings default to, following `sutura-config`'s own convention of a default
-function per optional key, not a value baked into this type. `read` makes
-up to three requests and shares ONE deadline across them - opened once, and what is left after
-the first two requests is what the third gets - the same shape `sutura_domain::warehouse::deadline::Deadline`
-holds for a job's execution, and for the same reason: a budget opened per request lets three
-independent timeouts sum to three times what a deployment declared.
+function per optional key, not a value baked into this type. `read` follows
+each entity type's pages (datasets, relationships, then metrics) and shares ONE deadline across
+every request - opened once, and what is left after one request is what the next gets - the same
+shape `sutura_domain::warehouse::deadline::Deadline` holds for a job's execution, and for the
+same reason: a budget opened per request lets independent timeouts sum to several times what a
+deployment declared. **The response-size cap is per page**, and one page is read at a time.
+**Stated limit: nothing bounds the bytes across pages.** What a read keeps is bounded by
+`PageLimits`' entity bound, and the bytes it transfers by the deadline.
 
 # Auth
 
@@ -885,16 +888,18 @@ already hold), never inline in a settings document.
 
 # Paging
 
-One page per entity type, at a generous count. A page that SIGNALS more results exist - a
-`scrollId`, or a returned count below a reported `total` - is refused
-(`HttpReaderError::MorePages`) rather than silently read as complete: the same "one page or a
-refusal" shape `sutura-exec-bigquery`'s wire holds for `jobs.query`, because a caller must not
-certify a bundle built from a `Snapshot` that silently dropped a model, a relationship or a
-metric. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own.** If it
-does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
-`tests/provisioned.rs`) has to measure this before PR2 wires the composition - the `scrollId` arm
-is a defensible guess against the platform's own "there is more" convention, not something this
-crate has watched a real GMS answer.
+Each entity type is read page by page at `PageLimits`' page size (`count`, 1000 by default),
+following `scrollId` until a page carries none. The list is whole or the read is refused
+(`HttpReaderError::Paging`): a scroll id the service repeats, a page with no entity that still
+reports more, more than the entity bound (`PageLimits::DEFAULT`'s 100,000) for one entity type,
+and a last page that leaves the list short of a reported `total` are each refused, never read as
+complete. The scroll id is the service's own text, so it is percent-encoded into the query.
+**Stated limits: the bound is a constant that `HttpAspectReader::with_page_limits` changes in
+code and no settings key does, and a list that ends early on a service that reports no `total`
+is not caught. Unmeasured: whether a real v3 last page carries a `scrollId` of its own** - the
+provisioned tier measured a corpus below `count` and found none. A last page that does is followed
+by one more request, and the read completes only if that answers an empty page with none; a
+service that keeps handing back a `scrollId` on an empty page is refused as no progress.
 
 # TLS and the endpoint
 
@@ -966,7 +971,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
   this applies to. `field` is a dotted path (`"schemaMetadata.value.fields[].fieldPath"`) so a
   refusal names exactly where the document stopped matching this reader's expectation.
 - `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
-- `MorePages` - The page stated or implied more results exist than the one page this reader will read.
+- `Paging` - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.
 
 #### Implements
 
@@ -1026,13 +1031,23 @@ union, never a second external read.
 
 The declared bundle or client identity cannot be loaded at boot.
 
+```rust
+pub const fn with_page_limits(self, limits: PageLimits) -> Self
+```
+
+Replaces the page size and the entity bound, which default to `PageLimits::DEFAULT`.
+
 #### Implements
 
 `AspectReader`, `Clone`, `Debug`
 
 ### `use Budget`
 
+### `use DEFAULT_MAX_ENTITIES`
+
 ### `use DEFAULT_MAX_RESPONSE_BYTES`
+
+### `use DEFAULT_PAGE_SIZE`
 
 ### `use DEFAULT_TIMEOUT_SECONDS`
 
@@ -1042,9 +1057,19 @@ The declared bundle or client identity cannot be loaded at boot.
 
 ### `use InvalidEndpoint`
 
+### `use InvalidPageLimits`
+
 ### `use InvalidReadBounds`
 
 ### `use OutboundAgent`
+
+### `use PageLimits`
+
+### `use PageReport`
+
+### `use Pager`
+
+### `use PagingRefusal`
 
 ### `use ReadBounds`
 

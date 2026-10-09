@@ -27,10 +27,11 @@ already lets both depend on `sutura-tls`.
 
 Everything here is protocol-agnostic ureq/TLS plumbing: it never names an entity kind, a wire
 field, or a mapping. `Endpoint::parse`'s grammar, `ReadBounds`'s two settings, the shared
-`Budget` a reader's own `read()` opens once, `rotating_agent`/`fixed`'s TLS wiring and the
-anchor fold in `tls` are the same read for `DataHub`'s `OpenAPI` v3 surface and `OpenMetadata`'s
-REST API alike. What stays in each reader crate: the entity-shaped `HttpReaderError` variants
-(their `Display` text names the platform), the paged `fetch`/`entities` helpers built over
+`Budget` a reader's own `read()` opens once, the cursor accounting in `Pager`,
+`rotating_agent`/`fixed`'s TLS wiring and the anchor fold in `tls` are the same read for
+`DataHub`'s `OpenAPI` v3 surface and `OpenMetadata`'s REST API alike. What stays in each reader
+crate: the entity-shaped `HttpReaderError` variants (their `Display` text names the platform),
+the paged `fetch`/`entities` helpers built over
 `Budget`, and every `harvest_*` mapping function - `docs/what-openmetadata-can-carry.md` and
 `sutura-catalog-datahub`'s own module header are explicit that those mappings are a first-party
 claim about each platform's wire shape, which this crate must never blur by generalizing over.
@@ -188,6 +189,41 @@ The endpoint's own message on a refusal.
 Bounded, filtered, and reachable only through `Self::as_str` - never through `Debug`, which
 is the rendering a cause-chain walk uses, so a `Display`-flattened error chain never carries
 endpoint-owned text.
+
+## `use DEFAULT_MAX_ENTITIES`
+
+The bound on the entities one entity kind may return across all its pages.
+
+A catalog of 100,000 tables is the size a deployment is built for; this is that, so a read above
+it is refused (`PagingRefusal::TooManyEntities`) rather than held in memory.
+
+## `use DEFAULT_PAGE_SIZE`
+
+The recommended page size: how many entities one request asks for.
+
+## `use InvalidPageLimits`
+
+Why a declared limit is not usable.
+
+## `use PageLimits`
+
+What one entity kind's paged read may ask for and may collect.
+
+Constants by default, a code-level parameter and never a settings key: a deployment's request
+timeout and byte cap are settings, the size of what a catalog may hold is not.
+
+## `use PageReport`
+
+What one page said about the rest of its list.
+
+## `use Pager`
+
+One entity kind's read in progress: the cursor to ask for, the cursors already followed and how
+many entities have arrived.
+
+## `use PagingRefusal`
+
+Why a paged read was refused. Never carries a cursor: it is endpoint-owned text.
 
 ## Module `test_support`
 
