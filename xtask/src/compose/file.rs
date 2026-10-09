@@ -443,3 +443,17 @@ fn every_nix_check_is_named_by_the_task_that_runs_them() {
         );
     }
 }
+
+#[test]
+fn the_openmetadata_platform_starts_only_when_it_is_asked_for() {
+    let default_set = super::expected_services(&[]);
+    assert!(
+        !default_set.contains(&"openmetadata"),
+        "the default set must not include the metadata platform: {default_set:?}"
+    );
+
+    let with_openmetadata = super::expected_services(&["openmetadata"]);
+    assert!(with_openmetadata.contains(&"openmetadata"), "{with_openmetadata:?}");
+    // The two metadata platforms are independent costs: asking for one must not start the other.
+    assert!(!with_openmetadata.contains(&"datahub"), "{with_openmetadata:?}");
+}

@@ -3878,6 +3878,7 @@ version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sutura-catalog-local",
  "sutura-dev",
  "sutura-domain",
  "sutura-http-client",

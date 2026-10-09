@@ -83,9 +83,15 @@ success-output = "immediate"
 # `checks.nextest` runs put the slowest at 118s, 70s and 174.6s (next 61.5s, on a heavier host), so
 # the measured margin to the 300s ceiling is 1.7x, not a guarantee. A queued cell has not started
 # and the ceiling counts from start (checked on a scratch crate), so the ceiling is unchanged.
-# Limits: the sandbox's per-cell slowdown is not explained, only kept from compounding; this bounds
-# the fixtures against each other, not against a loaded host; and in the dev shell it is pure cost -
-# 73s for the family against 23s unconstrained.
+# Limits: the sandbox's per-cell slowdown is measured, not explained, and only kept from
+# compounding. `github.com/telekom/sutura#1179`, paired runs on one aarch64-darwin host: one gas cell
+# took 1.2-4.4x longer in the nix build than in the dev shell, median 1.5x; a no-op exec took
+# 6.5-6.8x longer at host load of about 29 and above and 1.25-1.6x at 14-23, flat in the dev
+# shell. The darwin sandbox, the inherited crane environment, the cc-wrapper and the
+# work-directory volume are ruled out; build-user priority and a host security agent are
+# candidates, not shown. Linux CI and a full-suite run in both venues were not measured. This
+# bounds the fixtures against each other, not against a loaded host; and in the dev shell it is
+# pure cost - 73s for the family against 23s unconstrained.
 [test-groups]
 real-cargo = { max-threads = 2 }
 entry-cap = { max-threads = 1 }

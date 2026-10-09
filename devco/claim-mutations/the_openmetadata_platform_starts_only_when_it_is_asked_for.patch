@@ -1,0 +1,9 @@
+diff --git a/dev/src/scope.rs b/dev/src/scope.rs
+index 29183611d..9352a4649 100644
+--- a/dev/src/scope.rs
++++ b/dev/src/scope.rs
+@@ -218,3 +218,3 @@ pub const SERVICES: &[Service] = &[
+         container_port: 8585,
+-        profile: Some("openmetadata"),
++        profile: Some("openmetadatax"),
+     },

@@ -1,4 +1,4 @@
-//! The live Oracle documentation-schema reader, behind the default-off `live` feature.
+//! The live Oracle documentation-schema reader, behind the default-off `live-oracle` feature.
 //!
 //! [`crate::postgres_reader`]'s twin over an Oracle connection: the same documented `columns` view
 //! (that module's header carries the column table), the same constructor checks, inline caps and

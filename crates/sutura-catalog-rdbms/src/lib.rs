@@ -81,8 +81,9 @@
 //! tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 //! not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
 //! live implementors over a Postgres ([`postgres_reader`]) and an Oracle ([`oracle_reader`])
-//! documentation schema, behind a default-off `live` feature so the library closure stays
-//! domain + thiserror and no build links either driver's stack without asking for it.
+//! documentation schema, behind default-off `live` and `live-oracle` features so the library
+//! closure stays domain + thiserror and no build links either driver's stack without asking for
+//! it.
 //!
 //! **The fake dominates the suite; the live reader is the production half, feature-gated.**
 //! [`DictionaryReader`] is the seam they implement ([`fixture::FixtureReader`] the recorded corpus,
@@ -93,7 +94,7 @@
 #[cfg(feature = "live")]
 mod documentation;
 pub mod fixture;
-#[cfg(feature = "live")]
+#[cfg(feature = "live-oracle")]
 pub mod oracle_reader;
 #[cfg(feature = "live")]
 pub mod postgres_reader;
@@ -105,7 +106,8 @@ pub mod postgres_reader;
 pub enum AnyDictionaryReader {
     /// The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
     Postgres(Box<crate::postgres_reader::PostgresReader>),
-    /// The Oracle documentation-schema reader.
+    /// The Oracle documentation-schema reader, behind the `live-oracle` feature.
+    #[cfg(feature = "live-oracle")]
     Oracle(crate::oracle_reader::OracleReader),
 }
 
@@ -115,6 +117,7 @@ impl AnyDictionaryReader {
     pub const fn bounds(&self) -> DictionaryBounds {
         match self {
             Self::Postgres(reader) => reader.bounds(),
+            #[cfg(feature = "live-oracle")]
             Self::Oracle(reader) => reader.bounds(),
         }
     }
@@ -125,6 +128,7 @@ impl DictionaryReader for AnyDictionaryReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
         match self {
             Self::Postgres(reader) => reader.read_dictionary(),
+            #[cfg(feature = "live-oracle")]
             Self::Oracle(reader) => reader.read_dictionary(),
         }
     }
