@@ -86,7 +86,7 @@ impl Cliff {
 }
 
 /// Subjects that have each been a changelog entry, a feature among them: raw, then the group and the line.
-const KEPT: [Kept; 14] = [
+const KEPT: [Kept; 16] = [
     (
         "feat(identity): per-metric visibility, steps 2-4 of docs/adr/0028 (#825)",
         FEATURES,
@@ -138,6 +138,16 @@ const KEPT: [Kept; 14] = [
         "feat(governance): a headroom gauge for the per-replica spend ledger (#884)",
         FEATURES,
         "a headroom gauge for the per-replica spend ledger (#884)",
+    ),
+    (
+        "feat: ADR 0011 vs ADR 0012 compared",
+        FEATURES,
+        "the decision record vs the decision record compared",
+    ),
+    (
+        "fix(x): ADR 0011 vs docs/adr/0012-y.md vs ADR-0013 compared",
+        FIXES,
+        "the decision record vs the decision record vs the decision record compared",
     ),
     (
         "feat: an ADRESS column and an ADR 11 note",
@@ -245,7 +255,7 @@ fn every_rule_that_names_a_record_and_the_guard_carry_the_same_pattern_string() 
         .filter(|pattern| pattern.contains("docs/adr/"))
         .collect::<Vec<_>>();
     let rules = [patterns("commit_preprocessors", "pattern"), skip].concat();
-    assert_eq!(rules.len(), 8, "seven preprocessors and the skip rule");
+    assert_eq!(rules.len(), 10, "nine preprocessors and the skip rule");
     for rule in &rules {
         assert!(rule.contains(RECORD), "a rule without the one pattern: {rule}");
         assert!(
