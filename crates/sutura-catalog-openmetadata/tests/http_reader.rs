@@ -264,7 +264,7 @@ mod tests {
         );
     }
 
-    /// **One shared deadline across the (up to) two requests, not one per request.**
+    /// **One shared deadline across every request of a read, not one per request.**
     ///
     /// A one-second budget and a first response delayed past it: the second request (`metrics`)
     /// must never be attempted at all, because nothing is left of the shared budget - it is refused
@@ -406,6 +406,66 @@ mod tests {
             .expect_err("a page with no progress is refused");
         drop(server.finish());
         assert_eq!(paging_cause(&error), ("tables", PagingRefusal::NoProgress));
+    }
+
+    /// **The shared deadline holds on a page after the first, not only between entity kinds.**
+    ///
+    /// A one-second budget and a first `tables` page that carries a cursor and is delayed past it:
+    /// the second `tables` page is never requested - it is refused as `DeadlineSpent` naming `tables`.
+    ///
+    /// RED/GREEN mutation: in `HttpSnapshotReader::fetch`, give a request that carries a cursor
+    /// `Some(self.bounds.timeout())` instead of `budget.remaining()` - the later page is dialled with a
+    /// fresh timeout and refused some other way, and this assertion goes red.
+    #[test]
+    fn the_shared_deadline_is_honoured_on_a_later_page() {
+        let server = FakeServer::start(vec![Scripted::delayed(
+            &tables_of(&["t1", "t2"], Some("c-1"), 4),
+            Duration::from_millis(1200),
+        )]);
+        let error = reader(&server, 1, GENEROUS_CAP)
+            .with_page_limits(two_per_page())
+            .read()
+            .expect_err("the shared budget is spent before the second page");
+        assert!(
+            matches!(http_cause(&error), HttpReaderError::DeadlineSpent { entity: "tables", .. }),
+            "expected DeadlineSpent naming tables, got: {}",
+            http_cause(&error)
+        );
+        assert_eq!(server.finish().len(), 1, "the second page was never requested");
+    }
+
+    /// **A page after the first is held to the byte cap as the first is.**
+    ///
+    /// The first page fits the declared cap; the second is one byte over it and is not JSON, deliberately:
+    /// the length check runs before the decode, so the refusal fires on size alone.
+    ///
+    /// RED/GREEN mutation: in `HttpSnapshotReader::fetch`, check the length only for a request that carries no
+    /// cursor - the second page would reach the JSON decode and be refused as `NotADocument`, and this
+    /// assertion goes red.
+    #[test]
+    fn a_page_after_the_first_over_the_cap_is_refused() {
+        const CAP: u64 = 512;
+        let second = Scripted::raw(
+            200,
+            vec![b'x'; usize::try_from(CAP + 1).expect("a small test constant fits in usize")],
+        );
+        let server = FakeServer::start(vec![Scripted::ok(&tables_of(&["t1", "t2"], Some("c-1"), 4)), second]);
+        let error = reader(&server, 10, CAP)
+            .with_page_limits(two_per_page())
+            .read()
+            .expect_err("an oversized second page is refused");
+        assert!(
+            matches!(
+                http_cause(&error),
+                HttpReaderError::TooLarge {
+                    entity: "tables",
+                    cap: CAP
+                }
+            ),
+            "expected TooLarge{{entity: \"tables\", cap: {CAP}}}, got: {}",
+            http_cause(&error)
+        );
+        assert_eq!(server.finish().len(), 2, "the first page fit the cap and the second was read");
     }
 
     /// **A list above the entity bound is refused, never cut short.** One more metric than the bound
