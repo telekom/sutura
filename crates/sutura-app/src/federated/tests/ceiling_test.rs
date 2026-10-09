@@ -6,6 +6,7 @@
 use super::top_test::{outcome_over, outcome_with, top_one_plan};
 use super::*;
 use sutura_domain::plan::{FederatedRowCeiling, RowCeiling, RowCeilings};
+use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
 
 fn ceilings(rows: u32) -> RowCeilings {
     RowCeilings::new(
@@ -16,6 +17,33 @@ fn ceilings(rows: u32) -> RowCeilings {
 
 fn under(rows: u32) -> ToolOutcome {
     outcome_with(&federated_plan(), ceilings(rows))
+}
+
+/// The wide leg pair the cells over the single-source cap share: `rows` of both, keyed per row so
+/// the combine keeps every one. **One builder rather than copies, and `check-jscpd` is why.**
+fn wide_legs(rows: usize) -> (RowSet, RowSet) {
+    let fact_rows = RowSet::new(
+        federated_fact_rows().columns().to_vec(),
+        (0..rows)
+            .map(|at| {
+                vec![
+                    Value::Text(format!("p{at}")),
+                    Value::Text(format!("c{at}")),
+                    Value::Text("2026-06".into()),
+                    Value::Integer(100),
+                ]
+            })
+            .collect(),
+    )
+    .expect("a well-formed wide fact result");
+    let lookup_rows = RowSet::new(
+        federated_lookup_rows().columns().to_vec(),
+        (0..rows)
+            .map(|at| vec![Value::Text(format!("c{at}")), Value::Text("north".into())])
+            .collect(),
+    )
+    .expect("a well-formed wide lookup result");
+    (fact_rows, lookup_rows)
 }
 
 #[test]
@@ -58,27 +86,7 @@ fn the_default_ceiling_answers_what_it_always_answered() {
 #[test]
 fn a_ceiling_above_the_single_source_cap_answers_a_wider_combined_set_in_full() {
     let over_the_cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the cap fits a usize") + 2;
-    let fact_rows = RowSet::new(
-        federated_fact_rows().columns().to_vec(),
-        (0..over_the_cap)
-            .map(|at| {
-                vec![
-                    Value::Text(format!("p{at}")),
-                    Value::Text(format!("c{at}")),
-                    Value::Text("2026-06".into()),
-                    Value::Integer(100),
-                ]
-            })
-            .collect(),
-    )
-    .expect("a well-formed wide fact result");
-    let lookup_rows = RowSet::new(
-        federated_lookup_rows().columns().to_vec(),
-        (0..over_the_cap)
-            .map(|at| vec![Value::Text(format!("c{at}")), Value::Text("north".into())])
-            .collect(),
-    )
-    .expect("a well-formed wide lookup result");
+    let (fact_rows, lookup_rows) = wide_legs(over_the_cap);
     let ceilings = RowCeilings::new(
         RowCeiling::DEFAULT,
         FederatedRowCeiling::parse(sutura_domain::plan::MAX_ROWS * 2).expect("a ceiling above the cap"),
@@ -106,6 +114,31 @@ fn a_top_over_a_combined_set_past_the_federated_ceiling_is_refused_naming_it() {
         ),
         "two combined groups over a federated ceiling of one must refuse a top naming one, not {outcome:?}"
     );
+}
+
+/// A `top` over that same wider set is answered whole when both ceilings sit above the single-source
+/// cap: `ranked_answer` honours the configured ceilings, not the compiled `MAX_ROWS` under them.
+#[test]
+fn a_top_ranked_over_a_set_wider_than_the_single_source_cap_is_answered_whole_under_raised_ceilings() {
+    let over_the_cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the cap fits a usize") + 2;
+    let top = Top::new(
+        TopN::parse(u32::try_from(over_the_cap).expect("the widened set fits a u32")).expect("the widened set is a row count"),
+        TopBy::Metric,
+        TopDirection::Desc,
+    );
+    let plan = federated_plan().with_top(top);
+    let raised = RowCeilings::new(
+        RowCeiling::parse(sutura_domain::plan::MAX_ROWS * 2).expect("a row ceiling above the cap"),
+        FederatedRowCeiling::parse(sutura_domain::plan::MAX_ROWS * 2).expect("a federated ceiling above the cap"),
+    );
+    let (fact_rows, lookup_rows) = wide_legs(over_the_cap);
+
+    let outcome = outcome_over(&plan, raised, fact_rows, lookup_rows);
+
+    let ToolOutcome::Answer { rows, .. } = outcome else {
+        panic!("a top {over_the_cap} over {over_the_cap} groups under twice-the-cap ceilings must be answered, not {outcome:?}");
+    };
+    assert_eq!(rows.rows().len(), over_the_cap, "the ranked answer is the whole combined set");
 }
 
 #[test]
