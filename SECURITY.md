@@ -118,8 +118,7 @@ Each of these is held by a type, a lint or a gate today, and
 ## Not yet guarantees
 
 These are the design and are **not** enforced, so breaking one is not a vulnerability report - it
-is the state of the repository, recorded in `.agents/skills/sutura/invariants` and in
-[what exists today](https://telekom.github.io/sutura/latest/architecture/#what-exists-today):
+is the state of the repository, recorded in `.agents/skills/sutura/invariants`:
 
 - **a query proven to execute as the calling subject at a real source.** BigQuery's per-subject
   path is built, but its served identity venue has no observed run. Other sources deliberately use
