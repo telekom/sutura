@@ -52,9 +52,9 @@ use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
-/// The broker a `bigquery` deployment is served under. `cfg`-gated like the adapter: a build that
-/// links none of `sutura-exec-bigquery` has no `DeclaredPrincipalBroker` to attach.
-#[cfg(feature = "bigquery")]
+/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the two
+/// adapters that can impersonate: a build that links neither has no `DeclaredPrincipalBroker`.
+#[cfg(any(feature = "bigquery", feature = "clickhouse"))]
 mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
@@ -218,7 +218,7 @@ pub(crate) fn run() -> Result<(), String> {
     // writes a record per outcome and keeps nothing.
     // The credential broker is the fourth port and the one that decides what a question executes
     // as, and which one this root attaches is decided per ARM below: an impersonating source can
-    // only be served by `sutura_exec_bigquery::DeclaredPrincipalBroker`, which presents the asking
+    // only be served by `sutura_config::DeclaredPrincipalBroker`, which presents the asking
     // subject's own verified assertion for the driver to federate, and only a `bigquery` build links
     // one. **The EXCHANGING broker this line used to name is deleted** (`docs/adr/0018`, eighth
     // amendment): its HTTP hops went with the `wire` transport. Every other shape goes through `shared_identity_service`, whose doc carries the
@@ -291,8 +291,10 @@ pub(crate) fn run() -> Result<(), String> {
         #[cfg(feature = "clickhouse")]
         OpenedSources::ClickHouse(engines) => {
             // No pre-flight, for the `Postgres` arm's reason exactly: `ClickHouseWarehouse` takes
-            // the port's default `preflight`, so there is nothing for the table check to read.
-            (shared_identity_service(&catalogs, engines, &settings)?, None)
+            // the port's default `preflight`, so there is nothing for the table check to read. The
+            // declared-map broker, because an `impersonation-at-source` source switches per subject.
+            let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
+            (started(&catalogs, engines, broker, &settings)?, None)
         }
         #[cfg(feature = "oracle")]
         OpenedSources::Oracle(engines) => {
@@ -318,18 +320,18 @@ pub(crate) fn run() -> Result<(), String> {
             // this mix need the principal broker" is exactly "does this build link the adapter that
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
-            #[cfg(feature = "bigquery")]
+            #[cfg(any(feature = "bigquery", feature = "clickhouse"))]
             let served = started(
                 &catalogs,
                 mixed.engines,
                 broker::build_broker(settings.sources(), outbound.as_ref())?,
                 &settings,
             )?;
-            // No `BigQuery` adapter linked, so no adapter in this build declares
+            // Neither impersonating adapter linked, so no adapter in this build declares
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
             // source served as itself, and nothing else mintable.
-            #[cfg(not(feature = "bigquery"))]
+            #[cfg(not(any(feature = "bigquery", feature = "clickhouse")))]
             let served = shared_identity_service(&catalogs, mixed.engines, &settings)?;
             (served, mixed.attached)
         }

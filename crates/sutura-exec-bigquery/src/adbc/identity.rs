@@ -39,7 +39,6 @@
 use adbc_core::options::{OptionDatabase, OptionValue};
 use sutura_domain::identity::PrincipalName;
 
-use crate::principal::names_a_service_account;
 use crate::transport::JobIdentity;
 
 use super::AdbcError;
@@ -130,8 +129,8 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
             // question runs as, and the Go library POSTs that URL verbatim with no scheme, host or
             // shape check - so a value carrying `/` re-points the segment at a different account.
             // `PrincipalName::parse` accepts `/`, because it is the parser every principal
-            // identifier in the domain shares. `DeclaredPrincipals::parse` refuses this at BOOT
-            // for the broker this crate ships, and `Presented` is a public port any broker can
+            // identifier in the domain shares. `sutura_config::DeclaredPrincipals::parse` refuses this
+            // at BOOT for the broker a served deployment attaches, and `Presented` is a public port any broker can
             // construct, so the check belongs at both ends - the doctrine
             // `crate::transport::ProjectId` and `WorkloadPool::parse` already follow.
             if !names_a_service_account(target) {
@@ -218,6 +217,26 @@ mod no_debug {
     const _: fn() = || {
         let _ = <super::JobAuthentication as AmbiguousIfImpl<_>>::some_item;
     };
+}
+
+/// Is this a service-account address this transport can name in an impersonation URL?
+///
+/// **The send-side half**: `sutura_config::DeclaredPrincipals::parse` applies the same rule at boot,
+/// and a check belongs where the risk is - one path segment of the URL that decides which account a
+/// question runs as. The accepted set is the printable ASCII a service-account address is built
+/// from, so nothing that could close a JSON string, add a URL segment or carry a query can reach
+/// the document.
+fn names_a_service_account(target: &PrincipalName) -> bool {
+    /// RFC 5321's mailbox length, which is what `sutura_config` bounds the same value by.
+    const MOST: usize = 254;
+
+    let raw = target.as_str();
+    !raw.is_empty()
+        && raw.chars().count() <= MOST
+        && raw.matches('@').count() == 1
+        && raw
+            .chars()
+            .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' | '@'))
 }
 
 #[cfg(test)]

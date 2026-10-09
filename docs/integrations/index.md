@@ -159,6 +159,7 @@ query runs as that caller's own identity at the source.
     <span class="sutura-badge sutura-badge--recommended">Recommended</span>
     <span class="sutura-badge">Data system</span>
     <span class="sutura-badge">shared-service-user</span>
+    <span class="sutura-badge">secure-impersonation</span>
 
     Run questions over a ClickHouse server through its HTTP interface.
 
@@ -181,14 +182,14 @@ query runs as that caller's own identity at the source.
 
 ### Identity mode of each data system
 
-| Data system                                      | Identity mode                                  |
-| ------------------------------------------------ | ---------------------------------------------- |
-| [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                     |
-| [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                     |
-| [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation |
-| [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                     |
-| [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` only                     |
-| [Oracle](data-systems/oracle.md)                 | `shared-service-user` only                     |
+| Data system                                      | Identity mode                                               |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                                  |
+| [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                                  |
+| [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation              |
+| [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                                  |
+| [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` and secure-impersonation (EXECUTE AS) |
+| [Oracle](data-systems/oracle.md)                 | `shared-service-user` only                                  |
 
 ## Identity
 

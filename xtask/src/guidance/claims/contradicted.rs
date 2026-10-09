@@ -551,7 +551,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // IS built, and it is no longer the EXCHANGING one that comment named: the wire removal took
         // its two HTTP hops and `docs/adr/0018`'s eighth amendment deleted the broker itself, so
         // what a served `bigquery` deployment attaches is
-        // `crates/sutura-exec-bigquery/src/principal.rs`'s `DeclaredPrincipalBroker`. The limit that
+        // `crates/sutura-config/src/credentials/declared.rs`'s `DeclaredPrincipalBroker`. The limit that
         // stays true is `.agents/skills/sutura/identity/SKILL.md`'s own row: built, though no served
         // binary has executed as a caller yet (`docs/where-identity-is-proven.md`).
         name: "the BigQuery adapter has no place for a subject",

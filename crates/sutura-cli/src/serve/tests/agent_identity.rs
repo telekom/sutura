@@ -31,6 +31,7 @@
 
 use std::sync::Arc;
 
+use sutura_config::{DeclaredPrincipalBroker, DeclaredPrincipals};
 use sutura_config::{Environment, Settings, Sources};
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet};
 use sutura_domain::identity::Presented;
@@ -39,7 +40,6 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
-use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 
 use super::support::{accepted_by, catalog_of, direct_overlay};
 
@@ -380,7 +380,7 @@ fn priced_state(key_set_id: &str) -> PricedState {
     // refusal of a caller this map does not name. Their `ASKING_SUBJECT` IS the map's one declared
     // key, so widening that refusal to serve any caller leaves every cell here green - it is
     // structurally unreachable from them, not merely untested. The cell that holds it is
-    // `sutura_exec_bigquery::principal::tests`'
+    // `sutura_config::credentials::declared::tests`'
     // `a_verified_caller_this_source_does_not_name_is_refused_and_never_widened`, beside the
     // `let … else` it kills.
     let broker = DeclaredPrincipalBroker::empty().impersonating(

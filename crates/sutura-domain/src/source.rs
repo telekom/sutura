@@ -34,7 +34,7 @@
 //!
 //! An answer whose legs decide identity differently is **answered**, and [`ExecutedAs`] is what says
 //! so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
-//! came from which. `docs/adr/0040` is the record, and `BigQuery` being the only impersonating adapter
+//! came from which. `docs/adr/0040` is the record, and `BigQuery` then being the only impersonating adapter
 //! is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
 //! by construction, so refusing the mix prevented that pairing.
 //!
