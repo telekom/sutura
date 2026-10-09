@@ -95,8 +95,11 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_RANGE_DAYS};
+use sutura_domain::plan::RowCeilings;
+
+// The bounds section, its own module for the reason `knowledge` has one: this file is at the limit
+// `cargo xtask max-lines` enforces and cannot be exempted.
+mod bounds;
 
 // The four sections derived from what a catalog says ABOUT what it defines. Their own module because
 // this file is at four fifths of the limit `cargo xtask max-lines` enforces and cannot be exempted,
@@ -252,6 +255,7 @@ pub struct PromptInputs<'a> {
     prose: CatalogProse,
     instructions: Option<&'a str>,
     list_physical_schema: bool,
+    row_ceilings: RowCeilings,
 }
 
 impl<'a> PromptInputs<'a> {
@@ -268,12 +272,21 @@ impl<'a> PromptInputs<'a> {
             prose,
             instructions,
             list_physical_schema: false,
+            row_ceilings: RowCeilings::DEFAULT,
         }
     }
 
     #[must_use]
     pub const fn listing_physical_schema(mut self, enabled: bool) -> Self {
         self.list_physical_schema = enabled;
+        self
+    }
+
+    /// The row ceilings this deployment configured, so the bounds the prompt states are the ones the
+    /// service enforces (`github.com/telekom/sutura#828`). [`RowCeilings::DEFAULT`] unless set.
+    #[must_use]
+    pub const fn row_ceilings(mut self, row_ceilings: RowCeilings) -> Self {
+        self.row_ceilings = row_ceilings;
         self
     }
 
@@ -324,7 +337,7 @@ pub fn render(view: &ScopedView<'_>, inputs: &PromptInputs<'_>) -> String {
         // names were considered and rejected. Empty - and therefore dropped - unless the provider
         // declares that it records such a thing.
         knowledge::not_defined(notes, inputs.prose, audience),
-        bounds(),
+        bounds::bounds(inputs.row_ceilings),
         no_such_field(inputs),
         operations(inputs.tools),
         knowledge::declaration(notes, audience),
@@ -571,49 +584,6 @@ fn workflow(inputs: &PromptInputs<'_>) -> String {
         // list item rather than starting a paragraph of its own under a single-digit marker.
         lines.push(wrap(&format!("{}. ", index.saturating_add(1)), body, "   "));
     }
-    lines.join("\n")
-}
-
-/// The bounds a question is held to, with the numbers read from the domain rather than typed.
-fn bounds() -> String {
-    // `checked_div` rather than `/`, because the restriction category bans a bare integer division
-    // and the divisor is a literal that cannot be zero: the fallback is unreachable and is written
-    // as a fallback rather than as an `expect`, which is denied outside tests.
-    let years = MAX_RANGE_DAYS.checked_div(365).unwrap_or(0);
-    let bullets = [
-        format!("- **At most {MAX_DIMENSIONS} dimensions** in one question."),
-        format!("- **At most {MAX_FILTERS} filters** in one question."),
-        format!(
-            "- **A period of at most {MAX_RANGE_DAYS} days**, which is {years} years at its \
-             longest. Both ends are required. A longer span is refused rather than trimmed to fit, \
-             because an answer about a different period than the one asked about is a wrong number \
-             nothing downstream can detect."
-        ),
-        format!(
-            "- **At most {MAX_ROWS} rows in a result.** A wider result is REFUSED, not truncated: \
-             the remedy is to narrow the question, and the refusal says so. Do not plan on paging \
-             through a large result, because there is no paging and no cursor."
-        ),
-        format!(
-            "- **`top: {{ n, by, direction }}`** bounds a wide group-by instead of asking for every \
-             group: `by` is `metric` or `period`, `direction` is `desc` or `asc`, and `n` may not \
-             exceed {MAX_ROWS} - a larger `n` is the same refusal as an unbounded question this \
-             wide. This is a single-source question's own bound; a question spanning two data \
-             systems refuses `top` rather than applying it above the combiner."
-        ),
-    ];
-    let mut lines = vec![
-        String::from("## The bounds a question is held to\n"),
-        String::from("These are not soft limits and there is no way to raise one from the caller's side.\n"),
-    ];
-    lines.extend(bullets.iter().map(|bullet| wrap("- ", bullet, "  ")));
-    lines.push(String::new());
-    lines.push(wrap(
-        "",
-        "Ask the question you want rather than a wide one you intend to filter afterwards. There is \
-         no post-filtering step here, and a wide question is the one that gets declined.",
-        "",
-    ));
     lines.join("\n")
 }
 

@@ -107,20 +107,6 @@ pub(crate) struct RawSource {
     /// The dataset an unqualified table name resolves in. Required for `kind: bigquery`.
     #[serde(default)]
     pub(crate) dataset: Option<String>,
-    /// The credential file a `bigquery` source is reached with. Required for `kind: bigquery`, and
-    /// absolute.
-    ///
-    /// **A path and not a token, and not an environment variable this service reads at startup.** The
-    /// adapter's credential source reads a file - a service-account key, or the file an
-    /// application-default login writes - so the deployment names that file and nothing else. Absolute
-    /// for the reason `data_dir` is: a service's working directory is whatever its supervisor chose.
-    ///
-    /// Required rather than falling back to the well-known location, which is the direction this
-    /// repository's other startup decisions point: a credential resolved from whichever of three
-    /// variables happened to be exported is an identity nobody declared, and the file a service reaches
-    /// a warehouse with is exactly the value that has to be visible in a settings file a reviewer reads.
-    #[serde(default)]
-    pub(crate) credential_file: Option<String>,
     /// The most one query job on a `bigquery` source may be billed for scanning. Required for
     /// `kind: bigquery`.
     ///
@@ -146,7 +132,7 @@ pub(crate) struct RawSource {
     ///
     /// Required for an impersonating source, refused for any other posture - see
     /// `crate::sources::parse_entry`. It names the Workload Identity Federation provider this
-    /// deployment hands a subject's token to, and the scope the exchanged credential is minted for.
+    /// deployment hands a subject's token to.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
     /// A `clickhouse` source's subject -> `ClickHouse` user map: required when it is
@@ -196,7 +182,7 @@ pub(crate) struct RawSource {
 /// One source's Workload Identity Federation provider, as read.
 ///
 /// `Debug`/`Clone` because `RawSourceEntry` (which carries the unparsed entry a refuse-anything-raw
-/// reader works from) derives both. Neither touches a secret: an audience and a scope are not.
+/// reader works from) derives both. Neither touches a secret: an audience is not.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawWorkloadIdentity {
@@ -204,10 +190,6 @@ pub(crate) struct RawWorkloadIdentity {
     /// transport sends. A workload identity provider resource, such as
     /// `//iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/{pool}/providers/{provider}`.
     pub(crate) audience: String,
-    /// The OAuth scope an operator declares for the federated credential, e.g.
-    /// `https://www.googleapis.com/auth/bigquery.readonly`. Required, parsed, and **sent by
-    /// nothing** - see `crate::sources::workload_identity::WorkloadIdentityConfig::scope`.
-    pub(crate) scope: String,
     /// The declared subject -> service-account map. Its KEYS decide which subjects a source may be
     /// asked as - a subject with no entry here is refused rather than granted a fallback identity -
     /// and its VALUES name the account each of those subjects executes as, sent as the credential
@@ -287,6 +269,14 @@ pub(crate) struct RawGovernance {
     /// (`MAX_ROWS`) when absent, which is every deployment's behaviour before this key existed.
     #[serde(default)]
     pub(crate) top_row_ceiling: Option<u32>,
+    /// How many rows a federated answer may return whole before it is refused -
+    /// `FederatedRowCeiling::DEFAULT` (`MAX_ROWS`) when absent, which is every deployment's
+    /// behaviour before this key existed. Bounded above by `FederatedRowCeiling::MAX`.
+    ///
+    /// The field is not spelled like its key: three `*_ceiling` fields in one struct trip
+    /// `clippy::struct_field_names`, and the key is the operator-facing name.
+    #[serde(default, rename = "federated_row_ceiling")]
+    pub(crate) federated_rows: Option<u32>,
 }
 
 /// The pair of numbers `RawGovernance::per_replica_spend_ceiling` holds together.
@@ -539,7 +529,7 @@ pub(crate) struct RawCatalog {
     #[serde(default)]
     pub(crate) endpoint: Option<String>,
     /// `catalog.kind: datahub`/`openmetadata`'s personal access token FILE - never the token itself.
-    /// The naming convention `sources.<alias>.credential_file`/`password_file` already hold.
+    /// The naming convention `sources.<alias>.password_file` already holds.
     #[serde(default)]
     pub(crate) token_file: Option<String>,
     /// `catalog.kind: datahub`'s deployment-chosen structured property name - `docs/adr/0016`

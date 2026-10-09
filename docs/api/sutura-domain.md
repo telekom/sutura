@@ -14,7 +14,7 @@ Nothing here may depend on a framework: no async runtime, no web server, no quer
 `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
 is worth more as a check than as a sentence in a design document. The allowlist is `serde`,
 `thiserror` and their proc-macro support, the `serde_json` and `sha2` the definition digest
-needs, `secrecy`/`zeroize` for `identity::Secret`, and - since `docs/adr/0039` - Arrow, which
+needs, `secrecy`/`zeroize` for `identity::Secret`, and - since the architecture decision - Arrow, which
 brought the whole of `warehouse::arrow` and 64 further crates in its closure. So *and nothing
 else* is no longer the shape of this list, and the hand-written calendar in `calendar` is now
 held by a narrower argument than it was: `chrono` IS in the closure, reached through
@@ -97,7 +97,7 @@ The record one call is written to, and the port it is written through.
 
 # Why this is sutura's job and cannot be delegated downstream
 
-`docs/adr/0008` walks every identity model a data system offers and finds that only one of them
+The architecture decision walks every identity model a data system offers and finds that only one of them
 can express "an agent acting for a human" in the session itself. The token exchange this design
 uses issues an *impersonation* token rather than a *delegation* one - there is no `act` claim to
 carry - so the source's own audit log says "this person" and cannot say "sutura, for this
@@ -125,7 +125,7 @@ written under the asking subject, carry the part of the obligation that matters.
 
 # The incident question, and which half of it this record can answer
 
-`docs/adr/0008` fixes the full content as the chain, the outcome, **the sources the plan read and
+The architecture decision fixes the full content as the chain, the outcome, **the sources the plan read and
 the posture each leg ran under, and the expiry the credentials carried.**
 
 **The posture is reachable, and it was not named until a review asked the question it exists for.**
@@ -268,7 +268,7 @@ pub const fn of_raw(chain: &'a PrincipalChain, statement: &'a RawStatement, outc
 The raw path's constructor, matching `Self::of`'s shape: the outcome half is derived from
 the outcome, once, here.
 
-`statement` is `docs/adr/0013`'s "audit-only field never returned to the caller" - it rides
+`statement` is the architecture decision's "audit-only field never returned to the caller" - it rides
 on the record and nowhere else. Taken separately from `outcome` rather than read off it,
 because `RawOutcome` itself carries no statement text at all: the
 caller's own text is not something the OUTCOME needed to hold, and giving it a field there
@@ -289,7 +289,7 @@ refusal - there was no caller-supplied statement to carry.
 
 **Audit-only, and this is the one accessor.** Nothing in this crate or in `sutura-app` renders
 this back to the caller; a sink is the only reader, which is what makes the demand signal
-`docs/adr/0013`'s ramp section wants a property of the record rather than of the reply.
+the architecture decision's ramp section wants a property of the record rather than of the reply.
 
 #### Implements
 
@@ -311,7 +311,7 @@ no certified answer, and a channel that records only answers cannot report it.
 
 - `Answered` - The question was answered. The row count sizes it; the provenance says which definitions produced it, so a record can be matched against the bundle that was serving.
 - `Refused` - The question was declined. The variant is what a reader needs - not a sentence - because it is what an aggregate over records can group by.
-- `RawAnswered` - A raw statement executed. `docs/adr/0013`'s ramp section is explicit that this record is what makes an ungoverned answer a written demand signal rather than a hole - so unlike `Self::Answered`, the statement text rides on the record. It is never returned to the caller: `CallRecord::statement` is this module's only accessor for it.
+- `RawAnswered` - A raw statement executed. The architecture decision's ramp section is explicit that this record is what makes an ungoverned answer a written demand signal rather than a hole - so unlike `Self::Answered`, the statement text rides on the record. It is never returned to the caller: `CallRecord::statement` is this module's only accessor for it.
 - `RawRefused` - A raw statement was refused, before or after it reached the data system. The statement rides here too, for the same reason: a refused raw call is exactly the demand signal the ramp section wants recorded, and the SQL that would have answered it is the point.
 
 #### Implements
@@ -575,8 +575,8 @@ says, here, and the content is then just content.
 
 This is `crate::knowledge::KnowledgeCapabilities`'s argument applied to the other half of a
 bundle, and the two halves are declared together in `MetadataCapabilities` because an adapter is
-one thing. `docs/adr/0011-pluggable-by-declaration.md` decided the shape and
-`docs/adr/0016-what-datahub-can-carry.md` is the measurement that scheduled it: the first source
+one thing. The architecture decision decided the shape and
+the architecture decision is the measurement that scheduled it: the first source
 measured against this port provides part of a model rather than all of one.
 
 # What this module does NOT do
@@ -969,8 +969,8 @@ suite asserts exactly that.
 
 Nothing here parses or renders SQL. A `Computation` may hold catalog-authored text as written;
 the compile that would validate it lives in `sutura-sql`, and nothing published calls it - a
-bundle carrying such a metric is refused at boot. See `docs/adr/0001-first-party-semantic-models.md`
-and `docs/adr/0004-a-named-escape-hatch-for-authored-sql.md`.
+bundle carrying such a metric is refused at boot. See the architecture decision
+and the architecture decision.
 
 ### `struct Column`
 
@@ -1588,7 +1588,7 @@ pub const fn anchor(&self) -> Option<&Anchor>
 pub const fn audience(&self) -> &Audience
 ```
 
-Who may see this metric - `docs/adr/0028`.
+Who may see this metric - the architecture decision.
 
 ```rust
 pub const fn computation(&self) -> &Computation
@@ -2220,7 +2220,7 @@ The compile belongs to the first execution adapter that declares
 adapter takes that constant's `false` default and `sutura_app::verify_and_validate` refuses a
 bundle carrying an authored metric at startup, naming the metric. So the consequence, plainly:
 **a `Computation::AuthoredSql` is unvalidated SQL text, and the only thing that makes that safe
-today is that nothing executes it** - the refusal is the mechanism, and `docs/adr/0004` records
+today is that nothing executes it** - the refusal is the mechanism, and the architecture decision records
 why a witness type was not available instead.
 
 **It is a provider CAPABILITY, not a feature every provider has.** A wren-style directory has
@@ -2265,7 +2265,7 @@ Why a fragment is not one.
   **The set is `crate::text::is_invisible` and is not restated here.** It used to be, as a
   private `const fn` two hundred lines below this variant, and the second copy was missing
   three of the seven ranges - which is the whole argument for the module that now owns it.
-- `StatementTerminator` - A `;` anywhere in the text. An authored computation is ONE expression that a generator splices into a statement it composes; a semicolon is the one character that can end that statement and begin another, which turns a metric definition into a script. Refused textually - inside a string literal too - because nothing here parses, and a rule that depended on tokenising would be a parser by another name. A literal that needs one is the derived-column case `docs/adr/0001` sends upstream.
+- `StatementTerminator` - A `;` anywhere in the text. An authored computation is ONE expression that a generator splices into a statement it composes; a semicolon is the one character that can end that statement and begin another, which turns a metric definition into a script. Refused textually - inside a string literal too - because nothing here parses, and a rule that depended on tokenising would be a parser by another name. A literal that needs one is the derived-column case the architecture decision sends upstream.
 
 #### Implements
 
@@ -2339,7 +2339,7 @@ compile step resolves it against the list that build actually renders for and re
 one naming the choices - a `postgresql:` where `postgres:` was meant would then be a load failure
 and not a variant that is silently never chosen.
 
-**That compile step has no production caller today.** `docs/adr/0004`'s amendment records why:
+**That compile step has no production caller today.** The architecture decision's amendment records why:
 nothing published calls `sutura_sql::expression::compile`, so nothing resolves a `DialectTag`
 against anything. A misspelt tag loads, pins under the definition digest exactly as written, and
 is refused at boot with every other authored metric - `NotValidated::AuthoredSqlNotExecutable`,
@@ -2584,7 +2584,7 @@ A bound rather than a judgement about style: the fragment is handed to a recursi
 by whichever adapter compiles it, and an unbounded string out of a file is an unbounded amount of
 work and stack. Counted in characters, not bytes.
 Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
-derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
+derived column that belongs upstream, which is what the architecture decision says about the whole class.
 
 ## Module `federation`
 
@@ -2611,8 +2611,8 @@ depends entirely on the aggregate. `AVG` of `AVG`s is not the average, and two e
 counts added together over-count every key the two legs share. Neither of those raises an error
 anywhere: they are wrong numbers under a certified metric name, which is the failure mode this
 repository exists to prevent.
-`docs/adr/0007-federating-across-different-data-systems.md` is the finding and
-`docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 is the decision.
+the architecture decision is the finding and
+the architecture decision is the decision.
 
 **A measure that does not descend is not a refusal.** Decision 2 is explicit: where an aggregate
 cannot be computed per leg and re-aggregated, the leg carries finer-grained rows and the
@@ -2974,7 +2974,7 @@ credential material and the chain are the two things in this workspace where bei
 parse the value from a request body is the control.
 
 **`Secret` is now a COMPILE ERROR where it used to be a redaction**, and the difference is the
-whole of `docs/adr/0020`. A hand-written `Display` printing `REDACTED` left `format!("{token}")`
+whole of the architecture decision. A hand-written `Display` printing `REDACTED` left `format!("{token}")`
 and `tracing::info!(%token)` compiling: nothing leaked, and every structured-logging call site
 stayed a chance for an author to believe they had logged a value. The type is built on
 `secrecy::SecretString`, which has no `Display` and no `PartialEq`, so those two and `==` do not
@@ -3001,7 +3001,7 @@ the defect: `format!("{token}")` compiled, `tracing::info!(%token)` compiled, an
 line reading `REDACTED` where its author believed a value had been logged. A redaction is a
 CHECK, and this workspace's rule is to prefer unrepresentable to checked, so the value now lives
 in a `secrecy::SecretString`, which has no `Display` and no `PartialEq` - and the four accidents
-below stopped compiling rather than started printing a placeholder. `docs/adr/0020` is the
+below stopped compiling rather than started printing a placeholder. The architecture decision is the
 decision, including what the dependency costs and what keeping the hand-written type would have
 bought instead.
 
@@ -3269,7 +3269,7 @@ When everything one answer holds stops being usable.
 missing one.** A static credential an operator wrote in a file does not expire, and the
 alternatives are both worse: an `Option<Expiry>` makes every reader decide what an absence
 permits, and a sentinel instant makes "never" a number somebody can accidentally compare
-against. `docs/adr/0008` part 7 is where the same argument keeps the expiry off `Secret` - an
+against. The architecture decision is where the same argument keeps the expiry off `Secret` - an
 expiring token is not a secret with a date on it, and a pre-shared bearer token has no date at
 all.
 
@@ -3285,7 +3285,7 @@ read by nobody. A broker could mint a credential that had already expired and th
 answered with it. `sutura_app::answer` reads the clock and `Minted::agreeing_with` makes the
 comparison, before anything reaches an adapter.
 
-`docs/adr/0008` part 6 still puts the FLOOR - is there enough life left for what this query may
+The architecture decision still puts the FLOOR - is there enough life left for what this query may
 take - in the broker adapter, which is the only component holding both a clock and the configured
 query timeout. That is a different question from this one: the floor is a judgement about a query
 that has not run, and `Self::passed_by` is a fact about a credential that is about to be
@@ -3383,12 +3383,12 @@ assert_eq!(credentials.count(), 1);
 What minting produced: credentials, or a refusal.
 
 **The same two-outcome shape a compiled question has**, and for the same reason: a refusal is a
-result. `docs/adr/0008` part 6 splits the cases - "this subject may not reach that source" is a
+result. The architecture decision splits the cases - "this subject may not reach that source" is a
 governance outcome the caller can act on, and an authorization server that answered a `502` is an
 `Err` from the port.
 
 **`Self::Refused` names a source and nothing else, which is narrower than the record it comes
-from.** `docs/adr/0008` gave the variant a whole `RefusalReason`; a broker holding one could
+from.** The architecture decision gave the variant a whole `RefusalReason`; a broker holding one could
 answer that a metric is unknown, which is not a thing a credential broker knows. So the port
 carries the one fact a broker has - which source it could not mint for - and the application
 turns it into `crate::query::RefusalReason::CredentialUnavailable`. One refusal, one place it is
@@ -3408,7 +3408,7 @@ credential material, so an adapter cannot mistake it for one, and a reader of th
 that a third shape exists without reading an adapter.
 
 An adapter matches exhaustively on what it received and returns its own typed error for a shape
-it is not configured for. `docs/adr/0008` part 4 states both directions and says which is the
+it is not configured for. The architecture decision states both directions and says which is the
 dangerous one: an adapter that quietly *accepted* subject material it cannot use would report a
 leg as impersonated that ran shared.
 
@@ -3586,8 +3586,8 @@ What a request carries besides the question.
 
 Two fields: who the call is attributed to, and - where the transport established one - the
 caller's own credential assertion. The second is what lets a `crate::identity::CredentialBroker`
-that exchanges a token have the caller's token to exchange: `docs/adr/0008` part 2 sketched a
-`Caller { subject, assertion }` for exactly this, and `docs/adr/0014`'s open Decision 3 is why the
+that exchanges a token have the caller's token to exchange: the architecture decision sketched a
+`Caller { subject, assertion }` for exactly this, and the architecture decision's open Decision 3 is why the
 assertion field was absent until a broker existed that performs an exchange. It is an `Option`
 because the two shapes that reach this value are genuinely different: a deployment's own identity,
 which has no credential, and a verified caller, whose transport retained the token it verified.
@@ -3991,7 +3991,7 @@ note - the glossary line, a caveat's scope, the request in a worked question - i
 type holds up, at its real width:
 
 * **A glossary entry may mean a model or a column** - Q2 of
-  `docs/adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md`. That is a new
+  the architecture decision. That is a new
   way to NAME a declared model or column in the prompt, not a new way to execute one, and a
   model or column note is shown only to a caller whose view holds that model
   (`Knowledge::scoped`). A caveat may not mean one: it is printed under the metric it is about,
@@ -4355,7 +4355,7 @@ predicates buy back the expressiveness while keeping exactly that.
 What is still unrepresentable, deliberately: an expression over two columns
 (`sum(price * quantity)`), a window function, a three-table join. Those need an expression
 language, and an expression language on this path is the escape hatch
-`docs/adr/0001-first-party-semantic-models.md` argues against. They belong to a definition
+the architecture decision argues against. They belong to a definition
 rendered upstream and taken as given.
 
 ### `struct AggregatedColumn`
@@ -4692,7 +4692,7 @@ passed to the generator in the first place.
 
 **There is no free-text expression type in this module, and that is the point.** A measure is an
 aggregate over a column, never the string `sum(amount)`; a relationship is a pair of columns,
-never the string `a.x = b.y`. `docs/adr/0001-first-party-semantic-models.md` argues why: a string
+never the string `a.x = b.y`. The architecture decision argues why: a string
 field is an escape hatch, and an escape hatch on the query path is the thing being defended
 against.
 
@@ -5054,7 +5054,7 @@ Parses a name, rejecting anything that is not one.
 pub struct AudienceId
 ```
 
-A portable identifier a catalog author restricts a metric's audience to - `docs/adr/0028`.
+A portable identifier a catalog author restricts a metric's audience to - the architecture decision.
  Not a scope: catalog metadata, not the deployed authorization-server contract.
 
 Construct it with `parse`. There is no other way in: the field is private and
@@ -5086,7 +5086,7 @@ pub enum Aggregate
 The aggregates a measure may use.
 
 A closed set, and the reason is the whole of
-`docs/adr/0001-first-party-semantic-models.md`: an open set would be a string, and a string is
+the architecture decision: an open set would be a string, and a string is
 SQL somebody wrote. Adding a variant is a visible diff plus a generator arm plus a golden, which
 is the review it deserves.
 
@@ -5526,7 +5526,7 @@ What each leg of this answer ran as.
 Read off the posture the **adapter was handed**, never off a settings tree - see
 `crate::source`. Non-empty, because `ExecutedAs` has no empty form. **Not uniform**: a
 federated answer whose legs decide identity differently is answered and names both postures
-here, one entry per source (`docs/adr/0040`).
+here, one entry per source (the architecture decision).
 
 ```rust
 pub fn metric_digests(&self) -> &[MetricDigest]
@@ -5564,7 +5564,7 @@ The digest covers all three. A glossary decides which metric an agent asks about
 glossary changed answers different questions from the same words - `crate::definitions` argues it
 where the hashing is. And `ContributionManifest` is the composition: which sources composed the
 bundle and what each declared, so a re-composition that assembles identically is still a different
-bundle. `docs/adr/0011`'s *contribution manifest* section states both, and `crate::pinned::manifest`
+bundle. The architecture decision's *contribution manifest* section states both, and `crate::pinned::manifest`
 is where the digest is taken over it.
 
 #### Methods
@@ -5601,7 +5601,7 @@ Which metadata sources composed this bundle, and what each declared.
 
 Under the digest, beside the definitions and the knowledge: a re-composition that assembles
 identically is a different bundle, which is the whole reason the manifest exists -
-`crate::pinned::manifest` and `docs/adr/0011`'s contribution-manifest section.
+`crate::pinned::manifest` and the architecture decision's contribution-manifest section.
 
 ```rust
 pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge, manifest: ContributionManifest) -> Result<Self, NotDigestible>
@@ -5630,7 +5630,7 @@ dependencies that made it possible.
 
 The knowledge argument arrived after both of those corrections and did not reopen either: it is
 a third piece of CONTENT, hashed with the rest, and not a third opinion about the hashing.
-The manifest is a fourth, and it is the resolution of `docs/adr/0011`'s *"no manifest
+The manifest is a fourth, and it is the resolution of the architecture decision's *"no manifest
 parameter"*: read against the two bugs above, that sentence means no digest, no closure, no
 trait - the manifest is content like the definitions and the knowledge, a caller can still not
 influence what the digest is taken over, and making the digest cover the composition is the
@@ -5717,7 +5717,7 @@ make unrepresentable.
 # A MIXED execution record is accepted, and names both postures
 
 The argument is `ExecutedAs`, so an answer whose legs decided identity differently is
-answered with one entry per source rather than refused - `docs/adr/0040`, taken because
+answered with one entry per source rather than refused - the architecture decision, taken because
 `BigQuery` was then the only impersonating adapter, so a `BigQuery` leg paired with a
 shared-posture leg is cross-posture. **The record is not the control:** it travels in the
 same body as the rows, so a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
@@ -5918,7 +5918,7 @@ Why a bundle is not validated.
 
 #### Variants
 
-- `AuthoredSqlNotExecutable` - The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every adapter this workspace ships. The fragment is stored as written and compiled by nothing, so this refusal is what stands between it and a served bundle; `docs/adr/0004` is the record.
+- `AuthoredSqlNotExecutable` - The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every adapter this workspace ships. The fragment is stored as written and compiled by nothing, so this refusal is what stands between it and a served bundle; the architecture decision is the record.
 - `AnchorMismatch` - The declared number and the produced one, both quoted.
 
   `{:?}` and not `{}`, for the reason `crate::measure::RequiredFilter`'s `Display` gives: a
@@ -5971,7 +5971,7 @@ pub enum CatalogKind
 
 Which class of catalog adapter this is: held to the whole model, or supplying part of it.
 
-The two classes are measured differently, and `docs/adr/0016` is where the difference is
+The two classes are measured differently, and the architecture decision is where the difference is
 decided. A **golden** adapter defines the model here - the wren-style directory of markdown -
 so it can be held to producing the whole of it, which is what agreeing with the hand-written
 oracle asserts. Everything else is **declaring**: it supplies part of the model and must say
@@ -6121,7 +6121,7 @@ Both are deleted rather than kept against a declaration that does not exist -
 `github.com/telekom/sutura#639` is where that was decided, and the reasoning is that a variant no
 deployment can reach is a combination the type admits and the constructors do not produce.
 
-**The FIELD stays, and the limit is worth stating exactly.** `docs/adr/0011` decided the
+**The FIELD stays, and the limit is worth stating exactly.** The architecture decision decided the
 manifest's serialized form, the digest is taken over it, and dropping the key changes every
 pinned digest - so the shape is what a deployment that declares availability fills in, and that
 diff brings back the second variant beside its producer. What is gone is the pre-built half, not
@@ -6133,9 +6133,9 @@ The contribution manifest: which metadata sources composed a bundle, and what ea
 
 `PinnedDefinitions`' digest is taken over a canonical form
 of the definitions, the knowledge and this manifest, so the digest covers the **composition**
-and not only the assembly - `docs/adr/0011`'s "two different compositions that assemble
+and not only the assembly - the architecture decision's "two different compositions that assemble
 identically are indistinguishable" is the gap this closes. Decision and serialized form:
-`docs/adr/0011`, *The contribution manifest is built, and its serialized form is decided*.
+the architecture decision, *The contribution manifest is built, and its serialized form is decided*.
 
 **The manifest says what was configured and reached, not what a source returned.** Each entry is
 the source's own declared capability list, its required-or-optional declaration, and whether it
@@ -6161,7 +6161,7 @@ Both are deleted rather than kept against a declaration that does not exist -
 `github.com/telekom/sutura#639` is where that was decided, and the reasoning is that a variant no
 deployment can reach is a combination the type admits and the constructors do not produce.
 
-**The FIELD stays, and the limit is worth stating exactly.** `docs/adr/0011` decided the
+**The FIELD stays, and the limit is worth stating exactly.** The architecture decision decided the
 manifest's serialized form, the digest is taken over it, and dropping the key changes every
 pinned digest - so the shape is what a deployment that declares availability fills in, and that
 diff brings back the second variant beside its producer. What is gone is the pre-built half, not
@@ -6292,7 +6292,7 @@ A bundle read from several sources, in declaration order.
 straight into the map, so a repeated source name OVERWROTE the earlier entry and an empty
 iterator produced an empty manifest - a bundle whose manifest records fewer contributors than
 composed it, which is precisely the "two different compositions that assemble identically are
-indistinguishable" gap `docs/adr/0011` built the manifest to close. A silent overwrite in the
+indistinguishable" gap the architecture decision built the manifest to close. A silent overwrite in the
 thing whose job is to make compositions distinguishable is worse than a refusal.
 
 **The limit, next to the claim:** `NoContributors` is not reachable from the one caller
@@ -6321,7 +6321,7 @@ no entries and has no second name to collide with.
 
 ### Module `view`
 
-A caller-scoped read of one pinned bundle - `docs/adr/0028-who-may-see-a-metric.md`.
+A caller-scoped read of one pinned bundle - the architecture decision.
 
 `crate::pinned::SemanticCatalog::load` takes no request context, so a per-caller filter
 cannot live there. `ScopedView` borrows the bundle instead. Mapping a claim to a
@@ -6362,7 +6362,7 @@ fn _read(pinned: &PinnedDefinitions) -> usize {
 pub const fn everything(pinned: &'a PinnedDefinitions) -> Self
 ```
 
-Every metric, unfiltered - for the surfaces `docs/adr/0028` names as retaining the whole
+Every metric, unfiltered - for the surfaces the architecture decision names as retaining the whole
 bundle. Public, so not sealed against misuse, and only review keeps a renderer from reading a
 bare `&PinnedDefinitions` instead.
 
@@ -6376,7 +6376,7 @@ A caller mapped to this set.
 pub const fn is_everything(&self) -> bool
 ```
 
-Whether this is the whole-bundle view - `docs/adr/0028`'s "explicit whole-bundle" case,
+Whether this is the whole-bundle view - the architecture decision's "explicit whole-bundle" case,
 the `TheDeploymentItself` caller and every operator-side command. A caller-scoped knowledge
 read needs to know it, because not every knowledge kind has a metric to inherit visibility
 from: an unscoped absence has no referent, and per the ADR is withheld unless a catalog-wide
@@ -6477,9 +6477,10 @@ name to a caller for a `top` question - which is the one place a message telling
 *"ask your operator to raise this"* has to be true rather than aspirational. A deployment
 configures one in its settings; absent, `Self::DEFAULT` is what every deployment already got.
 
-**The limit, next to the claim.** Nothing here makes the ORDINARY row cap configurable - a
+**The limit, next to the claim.** Nothing here makes the single-source row cap configurable - a
 question with no `top` is still refused against the compiled `MAX_ROWS`. Only the two `top`
-refusals this type feeds read a configured value.
+refusals this type feeds read a configured value; a federated answer's own bound is
+`FederatedRowCeiling`, which has a maximum this type does not.
 
 #### Methods
 
@@ -7169,7 +7170,7 @@ a plan the pinned bundle itself agrees is one of its anchors' own.
 
 **It is a self-check on the boot path, and it is NOT an authority.** That distinction is the whole
 of what a second review corrected, and getting it wrong once put a false sentence in ten places
-across seven files - `docs/adr/0008`'s second amendment to its correction 2 lists them. `Warehouse::execute` cannot be called without a
+across seven files - the architecture decision's second amendment to its correction 2 lists them. `Warehouse::execute` cannot be called without a
 `Presented`; `verify_anchor` deliberately takes no credential,
 because there is no caller at boot, and it therefore runs under whatever identity the deployment
 configured that adapter with. So the question is what bounds its INPUT.
@@ -7202,7 +7203,7 @@ workspace and not a crate outside it, and an `#[allow]` walks past it.
 A genuinely closed constructor is not available. The domain cannot compile a plan - compilation is
 `sutura-semantic`'s and dependencies point inward - and a token only `sutura-app`'s private `proof`
 module could mint would have to be constructible from `sutura-domain`, which is the same public
-door one level down. `docs/adr/0008`'s own corrections are the precedent for saying this rather
+door one level down. The architecture decision's own corrections are the precedent for saying this rather
 than implying more.
 
 ### `use NotAnAnchorsPlan`
@@ -7254,6 +7255,35 @@ fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBin
     PlanBindings::parse(filters, params)
 }
 ```
+
+### `use FederatedRowCeiling`
+
+How many rows a federated answer may return before it is refused - `github.com/telekom/sutura#828`.
+
+**A refusal and never a truncation:** the combined answer is counted after the combine, and one
+row over this is `RefusalReason::ResultTooLarge`, naming this number. `Self::DEFAULT` is
+`MAX_ROWS`, so a deployment that configures nothing is bounded as it always was. A `top` answer
+is held to it too, over the combined set it is ranked from, after `RowCeiling`.
+
+**Its own type, with a maximum, and `RowCeiling` stays as it is.** A bound an operator can
+raise has to have a ceiling in code, or "configure it high enough" is how a replica holds an
+unbounded answer. `Self::MAX` is a round number stated as one, not a measured one: past it the
+8 MiB `ResponseByteLimit` refuses any row wider than eight bytes anyway. `RowCeiling` is not
+bounded above, which is an asymmetry kept deliberately - a startup refusal on an existing key is a
+breaking change, and this key is new.
+
+**The limit:** this bounds ROWS and not memory. The check runs after the combine, so what holds
+the replica's memory down is still the working-set ceiling. The single-source row cap stays the
+compiled `MAX_ROWS`.
+
+### `use InvalidFederatedRowCeiling`
+
+Why a federated row ceiling did not parse.
+
+### `use RowCeilings`
+
+Both configured row ceilings, carried together so a service hands one argument down rather than
+two.
 
 ### `use AnswerKey`
 
@@ -8120,7 +8150,7 @@ total classifications that nothing used to execute; a `FederatedPlan` is the sma
 contract a splitter fills with facts, and `combiner`'s port is what turns two legs' results
 back into one answer's rows.
 
-**The combine used to be a method here and is not any more.** `docs/adr/0039` step 3 replaced
+**The combine used to be a method here and is not any more.** The architecture decision replaced
 `FederatedPlan::combine` - a pure domain function that walked rows one cell at a time - with a
 `DataFusion` plan in an adapter, under the owner instruction *no hand row handling*. What that
 leaves here is the plan TYPE, its refusals, the label scheme both halves read, and the port; the
@@ -8212,7 +8242,7 @@ pub const fn include_unmatched(&self) -> bool
 Whether a fact row with no lookup row survives with null remote keys.
 
 LEFT for a lookup leg carrying no filter, INNER for one that does - the splitter's decision,
-published here so a combiner does not have to guess. `docs/adr/0009` decides the direction.
+published here so a combiner does not have to guess. The architecture decision decides the direction.
 
 ```rust
 pub fn keys(&self) -> &[AnswerKey]
@@ -8654,18 +8684,17 @@ under the metric's own certified name, which `FederatedPlan`'s `measure_label` h
 
 The second driven port, and the pair of leg results it takes.
 
-`docs/adr/0007` designed it here and recorded that it was not built; step 3 of
-`docs/adr/0039` is what builds it.
+The architecture decision designed it here and recorded that it was not built; step 3 of
+the architecture decision is what builds it.
 The second driven port: what joins and re-aggregates two legs, above every adapter.
 
 # Why this is a port and not a function
 
-`docs/adr/0007` designed it here and recorded that it was not what got built: *"the combine
+The architecture decision designed it here and recorded that it was not what got built: *"the combine
 needs `DataFusion`, `sutura-app` may not name a framework, so the domain declares a port beside
 `Warehouse` and `SemanticCatalog` and a crate above it implements the combine over
 `DataFusion`"*. What landed instead was `FederatedPlan::combine`, a pure domain function that
-walked rows by hand. `docs/adr/0039-arrow-and-datafusion-override-the-hand-written-combiner.md`
-step 3 reverses that by owner instruction - *no hand row handling: `DataFusion`, Arrow, Arrow
+walked rows by hand. The architecture decision reverses that by owner instruction - *no hand row handling: `DataFusion`, Arrow, Arrow
 Flight or ADBC* - so this is the port arriving, not a new invention.
 
 A path in backticks rather than a Markdown link, and that is not style: `just api` republishes
@@ -9231,8 +9260,8 @@ One source's share of a federated question, and the only thing the port can be h
 `FederationCombiner` assembles the two results; `sutura-sql`
 renders a leg per dialect and `sutura-exec-datafusion` builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
 published artefact reaches, and this module says the shape rather than the state.
-`docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
-`docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
+the architecture decision decides the shape and
+the architecture decision decides what a leg may compute.
 
 **Why a leg is not a `QueryPlan`, which is the whole reason this module exists.** A
 `QueryPlan` requires a `PlanBucket`, a `PlanMeasure` and a measure
@@ -9722,7 +9751,7 @@ table with itself - and every projected column was qualified by an identifier th
 tables. On the pinned `DuckDB` that statement is
 `Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
 returns a number under a certified metric name, which is the failure class this repository is
-arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
+arranged against. **Same-name tables are the normal shape of the estate the architecture decision exists
 for** - dev/prod splits, per-tenant datasets, staging copies - so this is reachable rather than
 exotic.
 
@@ -10183,14 +10212,14 @@ somebody else's input.
   credential port bought, because the alternative was a leg that ran as the process and came
   back with rows the asker may not see, under a certified metric name and valid provenance.
 
-  **It is the one refusal `docs/adr/0008` adds, and the record deletes the other one it
+  **It is the one refusal the architecture decision adds, and the record deletes the other one it
   proposed.** A `SourceCannotImpersonate` was on that list at `409`, and part 6 walks every
   configuration that was supposed to reach it: each turns out to be a boot refusal, an `Err` for
   a wiring defect between the broker and the source declaration, this variant, or the decided
   permitted behaviour - a shared source in a multi-user deployment answers and records the
   posture it ran under. A variant no test can provoke is one this enum refuses to carry.
 
-  **It amends `docs/adr/0005`**, which says the `403`s "are not a statement about a credential"
+  **It amends the architecture decision**, which says the `403`s "are not a statement about a credential"
   because at the time no token widened anything. This one is, so a transport's detail for it must
   not send a caller looking for a better deployment token: the deployment's own credential is
   not what is missing.
@@ -10229,7 +10258,7 @@ somebody else's input.
   a UI and an agent's context.
 - `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
 
-  **A refusal rather than a failure, and `docs/adr/0029` argues both directions once rather
+  **A refusal rather than a failure, and the architecture decision argues both directions once rather
   than asserting the choice.** For a failure: time is load-dependent in a way memory is not, so
   *repeating this without modification will fail the same way* is likely here rather than
   certain. For a refusal, which wins: the deployment decided the bound and the data system
@@ -10252,7 +10281,7 @@ somebody else's input.
   how a deployment's sources compare.
 - `BudgetExhausted` - The asking subject has spent more than this replica's configured byte ceiling inside the current window.
 
-  **The first refusal in this enum that self-heals, and `docs/adr/0030` is the record.** Every
+  **The first refusal in this enum that self-heals, and the architecture decision is the record.** Every
   other 4xx row here is permanent in the sense that matters to a client: the same question
   refused now is refused again on an identical retry, because nothing about the refusal
   changes with time. This one is not - the same question asked again after the window this
@@ -10263,7 +10292,7 @@ somebody else's input.
   (`CredentialUnavailable`,
   `SourceRefused` - permanent grants) do not.
 
-  **It amends `docs/adr/0005`**, whose Context section says "the two \[statuses retried by
+  **It amends the architecture decision**, whose Context section says "the two \[statuses retried by
   convention, `429` and `408`\] and no refusal maps to either" - false from this variant on.
 
   **Keyed on the subject `PrincipalChain::attribution()` names, never the whole chain** - an
@@ -10308,7 +10337,7 @@ somebody else's input.
   used before this variant existed, which refused EVERY such ratio under one name regardless
   of what a catalog author could do about it. This one names the missing declaration
   specifically: a metric that DOES declare a reachable `shared_calendar` no longer reaches
-  this variant at all (`docs/adr/0002`'s second amendment). The retired variant is not kept
+  this variant at all (the architecture decision's second amendment). The retired variant is not kept
   unreachable - `xtask/src/refusals/registry.rs` records the straight substitution, the same
   mechanism `TopNotFederated` → `TopOverUncertifiedRows` already used.
 
@@ -11080,7 +11109,7 @@ The raw SQL tool's own outcome, refusal vocabulary and statement newtype.
 
 # Why this is a separate module, and not a widening of `crate::query`
 
-`docs/adr/0013` names the mechanism this module exists to be: the certified answer
+The architecture decision names the mechanism this module exists to be: the certified answer
 (`crate::query::ToolOutcome::Answer`) carries a `crate::pinned::Provenance` with no
 constructor that omits it, so a raw result that could ever be mistaken for one would have to
 reuse that type. `RawOutcome` is a different type instead - **no field of type `Provenance`
@@ -11088,14 +11117,14 @@ anywhere in this module**, so labelling a raw answer as certified is unrepresent
 merely undone by a rule somebody remembers to apply.
 
 `RawRefusalReason` is its own vocabulary for the same reason
-`docs/adr/0013`'s amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
+the architecture decision's amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
 answer about the statement, and this module's five variants are exactly that list.
 
 # What this module does not decide
 
-**Neither variant carries the data system's own error text.** `docs/adr/0022` Decision 3 - not yet
+**Neither variant carries the data system's own error text.** The architecture decision - not yet
 built, because the raw tool did not exist when that record was written - requires the raw tool's
 failure text to be treated as untrusted content once it is rendered; until then, the closed enum
 here is what keeps a driver's `Display` from reaching a caller unquoted. A `String` field would
@@ -11110,7 +11139,7 @@ pub struct RawStatement
 
 One statement, in the form it is executed: trimmed, bounded, non-empty text.
 
-**This is not a SQL type.** Nothing here reads a keyword out of the text - `docs/adr/0013`'s own
+**This is not a SQL type.** Nothing here reads a keyword out of the text - the architecture decision's own
 rule against inspecting a statement to decide read-only applies to every other purpose a parser
 might be tempted for, and this newtype's whole job is bounding the edge, not understanding the
 middle. Sutura hands the bytes to the data system's own parser unexamined.
@@ -11124,7 +11153,7 @@ pub fn as_str(&self) -> &str
 The statement text, for the one adapter that runs it and for an audit record.
 
 **Never handed to a renderer for a caller-facing message** - held by review, not by this
-type, since the accessor is public. This is the field `docs/adr/0013`'s
+type, since the accessor is public. This is the field the architecture decision's
 consequences call "an audit-only field never returned to the caller" - the accessor exists for
 `crate::audit::CallRecord::of_raw` and for the execution port, not for a wire type to echo back.
 
@@ -11197,8 +11226,8 @@ answer about the statement once it ran.
 
   **No text from the driver is carried**, and that is the whole point of the variant rather than
   a field left unfilled. Whoever controls the statement controls part of the message a database
-  returns about it - `docs/adr/0013`'s own accounting of what this tool spends - so until
-  `docs/adr/0022` Decision 3's quoting exists, nothing here forwards the data system's own words.
+  returns about it - the architecture decision's own accounting of what this tool spends - so until
+  the architecture decision's quoting exists, nothing here forwards the data system's own words.
   An operator reads the driver's complaint from the log line this refusal is built from, not
   from the field.
 - `SourceRefused` - The data system refused the statement at the identity or authorization level: a write inside the read-only transaction sutura wraps every call in, a role lacking a grant the statement needed, or a row-level policy denying it.
@@ -11206,7 +11235,7 @@ answer about the statement once it ran.
   **Distinguished from `Self::StatementFailed` on purpose**, the same split
   `RefusalReason::SourceRefused` draws against a plan's own execution failure: this is the data
   system saying no about WHO asked and what they may do, not a malformed statement or a timeout.
-  `docs/adr/0013`'s amendment is explicit that the read-only transaction is a real, server-
+  the architecture decision's amendment is explicit that the read-only transaction is a real, server-
   enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
   effects - see that record for the limit stated with the claim.
 - `DeadlineExceeded` - The asker's own per-request deadline ran out. `execute_raw` carries the same bound `execute` does, and the same `Warehouse::deadline_exceeded` predicate classifies the stop - including one by an adapter's own ceiling that fired before the budget did. Carries the configured budget in seconds, for `crate::query::RefusalReason::DeadlineExceeded`'s own reason: a number an operator configured, safe in a log, not how long the statement ran.
@@ -11236,7 +11265,7 @@ pub enum RawOutcome
 
 What the raw SQL tool produced.
 
-**The load-bearing type in `docs/adr/0013`.** Compare its shape with
+**The load-bearing type in the architecture decision.** Compare its shape with
 `crate::query::ToolOutcome::Answer`, which carries a `Provenance` with no constructor that omits
 it: `RawOutcome` has no field of that type anywhere in this module, so a raw result cannot be
 rendered as certified by filling in a digest - there is nowhere to put one. A `compile_fail`
@@ -11293,7 +11322,7 @@ How one source establishes the identity a query runs as, what an adapter can car
 each leg of an answer actually executed as.
 
 **Three facts by three different declarers, and conflating any two of them is how a mode acquires
-two owners.** [Pluggable by declaration](https://github.com/telekom/sutura/blob/main/docs/adr/0011-pluggable-by-declaration.md)
+two owners.** The pluggable-by-declaration decision
 is explicit about the split and this module is that split expressed as types:
 
 | Fact | Who declares it | The type here |
@@ -11325,7 +11354,7 @@ both of which happen before a listener is bound.
 
 An answer whose legs decide identity differently is **answered**, and `ExecutedAs` is what says
 so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
-came from which. `docs/adr/0040` is the record, and `BigQuery` then being the only impersonating adapter
+came from which. The architecture decision is the record, and `BigQuery` then being the only impersonating adapter
 is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
 by construction, so refusing the mix prevented that pairing.
 
@@ -11869,14 +11898,14 @@ The execution port: the plan that goes out, and the rows that come back.
 
 **The main port works with `crate::plan::QueryPlan`.** `Warehouse` says why that is what makes
 a second kind of adapter possible. The `execute_raw` method is an escape hatch for the raw SQL
-tool that operates on `crate::raw::RawStatement`; see `crate::raw` and `docs/adr/0013`.
+tool that operates on `crate::raw::RawStatement`; see `crate::raw` and the architecture decision.
 What stays is `ParamValue`, because
 a `crate::plan::QueryPlan` carries a vector of them and because the rule lives there - a value
 is a closed set of typed variants an adapter binds, never text somebody concatenated.
 `crate::query` is the *tool* surface, where SQL must be unrepresentable because the text comes
 from a caller; here there is no text for a value to reach at all.
 
-# The currency is Arrow, and `docs/adr/0039` step 2 decided it before there was a consumer
+# The currency is Arrow, and the architecture decision decided it before there was a consumer
 
 `Warehouse::execute` returns `ResultBatches` rather than a `RowSet`, so an adapter whose
 driver speaks Arrow hands its batches through untouched and the one Arrow-to-`Value` decode
@@ -11960,7 +11989,7 @@ subject in `dry_run`'s signature, a default of `Ok(())` stops being honest: it i
 indistinguishable from an adapter that asked the data system as that subject and was told yes, so
 a defaulted pre-flight would read as *this subject may run this plan* for every adapter that
 declined to implement one. The shape is the row cap's, where `row_limit()` is `max_rows + 1` so a
-result *at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 decides.
+result *at* the cap is distinguishable from one cut off *by* it. The architecture decision decides.
 
 **The limit, stated with the claim:** `Self::Accepted` is the data system's opinion at
 pre-flight time, not a guarantee about `execute` and not an authorization decision. Nothing in
@@ -11998,14 +12027,14 @@ do is nothing.
 # Nothing here executes without saying whose credential it holds
 
 `Self::execute` takes a `Presented` and has no default, so there is no code path into a data
-system that runs as whatever the process happens to be. `docs/adr/0008` part 1 is the decision -
+system that runs as whatever the process happens to be. The architecture decision is the decision -
 no service-identity fallback - and the mechanism is that `Self::execute` cannot be called
 without a `Presented`.
 
 The boot path is the other caller of this port and it has no subject, so it gets its own method:
 `Self::verify_anchor` takes no credential and returns `AnchorRows` rather than the
 `ResultBatches` a question comes back as.
-**Which is narrower than the record asked for, deliberately.** `docs/adr/0008` gave that method a
+**Which is narrower than the record asked for, deliberately.** The architecture decision gave that method a
 `VerificationIdentity` parameter so the two credentials could not be confused at a call site, and
 then named a `compile_fail` test asserting that answering a question cannot pass one. That test
 could not have held: `crate::source::VerificationIdentity::parse` is `pub`, so any crate can
@@ -12161,7 +12190,7 @@ and the check has to happen while the stream is read or a bound on it is not a b
 How many bytes one result may cost to hold and to convert, together.
 
 **A newtype for the unit, beside a `usize` row count that means something else entirely.**
-`Accumulating::announcing` takes both, and `docs/adr/0009`'s whole argument for retiring the
+`Accumulating::announcing` takes both, and the architecture decision's whole argument for retiring the
 per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
 one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
 budget refuses the empty result too, and an empty result is an answer.
@@ -12236,7 +12265,7 @@ system running as different identities: `execute` takes the asking subject's cre
 cannot be called without one, while
 `Warehouse::verify_anchor` takes none at all and
 runs as
-whatever identity the deployment configured - `docs/adr/0008` part 1 decides that for a path with
+whatever identity the deployment configured - the architecture decision decides that for a path with
 no caller. Two types rather than one so the separation is visible at a call site rather than in a
 comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
 way `crate::identity::Secret::expose_secret` is.
@@ -12440,7 +12469,7 @@ A dry run's own estimate of the bytes a statement would scan.
 
 **A newtype over `u64` rather than a bare integer carried on `super::PreFlight::Accepted`**,
 so a byte count read off a dry run cannot be confused with any of the plan's other `u64`s.
-`docs/adr/0030` decides this shape and the `Option` it sits inside together.
+the architecture decision decides this shape and the `Option` it sits inside together.
 
 **Zero is a legitimate estimate, not a stand-in for "unknown".** A cached result or a trivial
 `SELECT` can genuinely cost nothing to scan, so `Self::parse` cannot fail: this type validates
@@ -12690,7 +12719,7 @@ foreign cause to carry: the payload is a set of table paths and one count this a
 `Self::UnreadableInventory` carries the same set without inventing a count when none was readable.
 And an `Err` would have been the wrong channel twice over - `Warehouse::preflight_was_refused`
 puts everything that is not an authorization failure in the WARNING half, so the shape a
-cross-check exists to catch would have reached a root as *serving anyway*. `docs/adr/0018` and
+cross-check exists to catch would have reached a root as *serving anyway*. The architecture decision and
 `telekom/sutura#275` carry that argument; a refusal is a VALUE here for the same reason
 `ToolOutcome::Refusal` is one on the query path.
 
@@ -13528,14 +13557,14 @@ One absolute deadline per answer, and the budget it was opened from.
 
 A module of its own rather than a type or two added here, for the reason `cardinality`
 already gives - and because this file was at the `max-lines` cap the day the record needed
-somewhere to grow (`docs/adr/0029`). `Deadline` and `Budget` are used unqualified below, the
+somewhere to grow (the architecture decision). `Deadline` and `Budget` are used unqualified below, the
 same way `cardinality`'s two types are.
 One absolute deadline per answer: how long is left, read against an instant a caller supplies.
 
 The domain reads no clock - `crate::identity::Expiry::passed_by` is the precedent, and the same
 shape applies here: `now` arrives as an argument to `Deadline::remaining_at` rather than being
 read, so the one comparison this module makes lives here and not at whichever call site happens
-to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
+to hold a clock. The architecture decision is the record; this module is its first slice, carried by the
 port and enforced by Postgres (`SET LOCAL statement_timeout`) - the engine and BigQuery still
 accept the parameter and ignore it.
 
@@ -13606,7 +13635,7 @@ applied here to what a caller may configure to begin with.
 The only production constructor is `sutura_config::RequestTimeout::budget`, which subtracts a
 fixed reply margin from the configured request timeout once. `Self::parse` stays `pub`
 because a test - and a third transport - needs to build one directly; what holds production is
-that one call site and review, and `docs/adr/0029` states the limit next to the claim.
+that one call site and review, and the architecture decision states the limit next to the claim.
 
 ##### Methods
 
@@ -13861,7 +13890,7 @@ system running as different identities: `execute` takes the asking subject's cre
 cannot be called without one, while
 `Warehouse::verify_anchor` takes none at all and
 runs as
-whatever identity the deployment configured - `docs/adr/0008` part 1 decides that for a path with
+whatever identity the deployment configured - the architecture decision decides that for a path with
 no caller. Two types rather than one so the separation is visible at a call site rather than in a
 comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
 way `crate::identity::Secret::expose_secret` is.
@@ -13889,14 +13918,14 @@ The rows, for the boot path that compares them against what an author certified.
 An Arrow result at the interior.
 
 The schema guard a foreign driver needs, and the one place an Arrow array becomes a `Value`.
-`docs/adr/0039` decides that the interior may name an Arrow array type; the module header
+the architecture decision decides that the interior may name an Arrow array type; the module header
 carries the argument and where its checks stop.
 An Arrow result at the interior: the schema guard a foreign driver needs, and the one place an
 Arrow array becomes a domain `Value`.
 
 # Why the hexagon's interior names an Arrow array type
 
-`docs/adr/0039` decides it, reversing `docs/adr/0007`'s *the port's currency stays `RowSet`*
+The architecture decision decides it, reversing the architecture decision's *the port's currency stays `RowSet`*
 and the unmerged 0037's refusal. The argument is the one `ALLOWED_IN_DOMAIN`'s own line draws -
 *no runtime, no client, no engine*: Arrow is a data FORMAT, and the engine, the ADBC driver
 manager and every future Arrow Flight leg already speak it. **The cost is in that allowlist and
@@ -14064,7 +14093,7 @@ pub struct ResultBudget
 How many bytes one result may cost to hold and to convert, together.
 
 **A newtype for the unit, beside a `usize` row count that means something else entirely.**
-`Accumulating::announcing` takes both, and `docs/adr/0009`'s whole argument for retiring the
+`Accumulating::announcing` takes both, and the architecture decision's whole argument for retiring the
 per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
 one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
 budget refuses the empty result too, and an empty result is an answer.
@@ -14158,7 +14187,7 @@ pub fn arrow_column(values: &[crate::warehouse::cell::Value]) -> (arrow_schema::
 
 One column's Arrow array, built from domain values.
 
-**No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
+**No longer behind the `fixtures` feature, and the architecture decision's second half is why.**
 With `Warehouse::execute` returning `ResultBatches`,
 the two adapters whose drivers speak rows - Oracle and `ClickHouse` - call this on their own
 production path. An adapter whose driver speaks Arrow hands its batches on; `Postgres` calls this
@@ -14201,7 +14230,7 @@ A `RowSet` as Arrow batches: what an adapter whose driver speaks rows returns fr
 
 **One function, named, in the interior - which is what makes the cost of the Arrow port to the
 two row-speaking adapters, Oracle and `ClickHouse`, a single place to measure and a single place
-to delete.** `docs/adr/0007` asked for
+to delete.** The architecture decision asked for
 exactly that when it still expected the conversion to live in a combiner crate; the port moved
 and the property did not.
 

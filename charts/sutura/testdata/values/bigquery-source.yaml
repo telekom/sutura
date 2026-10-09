@@ -1,7 +1,7 @@
 # A non-trivial `config.base` - a declared `bigquery` source (`SourceKind::BigQuery`) -
 # rendered verbatim into the ConfigMap this chart mounts (`toYaml .Values.config.base`, parsed
-# by nothing here). `sources.<alias>.credential_file` has no dedicated chart value on purpose
-# (see the chart README); `extraVolumeMounts` is where its Secret would land in a real
+# by nothing here). `sources.<alias>.password_file` has no dedicated chart value on purpose
+# (see the chart README); `extraVolumeMounts` is where a source's Secret would land in a real
 # deployment, omitted here to keep this golden about the source declaration.
 #
 # `kind: bigquery` is declarable today and refused at startup, not by this chart -
@@ -24,4 +24,3 @@ config:
         dataset: metrics
         posture: shared-service-user
         acknowledged_because: "a single analytics project this deployment owns"
-        credential_file: /etc/sutura/sources/warehouse/credential.json

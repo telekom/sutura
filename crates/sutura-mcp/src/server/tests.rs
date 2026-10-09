@@ -32,6 +32,9 @@ mod deadline;
 /// header says what it builds instead and why.
 #[cfg(test)]
 mod asking;
+/// The catalog tool after a refresh swaps the served bundle.
+#[cfg(test)]
+mod refresh;
 /// The `run_sql` malformed-input path, and why `crate::NotServed` has no cell here.
 #[cfg(test)]
 mod variants;

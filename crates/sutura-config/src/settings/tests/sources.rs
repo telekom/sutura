@@ -17,7 +17,7 @@ use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sourc
 /// [`crate::sources`] - and this helper exists to reach the *deployment-level* refusals underneath it.
 fn source_overlay(posture: &str, extra: &str) -> String {
     let workload = if posture == "impersonation-at-source" {
-        "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n"
+        "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n"
     } else {
         ""
     };
@@ -136,8 +136,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
          local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/local\"\n    posture: \"shared-service-user\"\n    \
          acknowledged_because: \"a directory of CSVs this deployment owns\"\n  \
          warehouse:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/warehouse\"\n    posture: \"impersonation-at-source\"\n    \
-         workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-         scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n    \
+         workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n    \
          verification_identity: \"sutura_anchor_reader\"\n",
     );
     let settings = Settings::load(&sources).expect("two sources load");
@@ -193,6 +192,44 @@ fn a_password_literal_on_a_source_is_refused_as_an_unknown_key() {
     assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
     let rendered = format!("{:?}", core::error::Error::source(&error));
     assert!(rendered.contains("password"), "the error should name the key: {rendered}");
+}
+
+#[test]
+fn a_bigquery_credential_file_is_refused_as_an_unknown_key() {
+    // The key was required, checked absolute and read by nothing - the driver authenticates itself.
+    // `deny_unknown_fields` is what turns a config that still writes it into a refusal naming the
+    // key rather than a path that reads as a control in place.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\nsources:\n  warehouse:\n    \
+         kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+         credential_file: \"/etc/sutura/bigquery.json\"\n    max_bytes_billed: 1073741824\n    \
+         posture: \"shared-service-user\"\n",
+    );
+    let error = Settings::load(&sources).expect_err("a credential file is not a setting");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("credential_file"),
+        "the refusal names the key: {rendered}"
+    );
+}
+
+#[test]
+fn a_workload_identity_scope_is_refused_as_an_unknown_key() {
+    // The scope was required, parsed and sent by nothing: the credential document has no `scopes`
+    // member. A config that still writes it is refused by name.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/d\"\n    \
+         posture: \"impersonation-at-source\"\n    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
+         scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n",
+    );
+    let error = Settings::load(&sources).expect_err("a workload identity scope is not a setting");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("scope"),
+        "the refusal names the key: {rendered}"
+    );
 }
 
 /// A multi-user deployment whose SECOND shared source is unacknowledged does not start. No other

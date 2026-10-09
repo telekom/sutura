@@ -35,7 +35,7 @@ answers `None`. This module's own `#[cfg(test)]` cell,
 
 ## Limits
 
-- **No transport of its own, and less than `sutura_exec_postgres` carries.** ADR 0010's
+- **No transport of its own, and less than `sutura_exec_postgres` carries.** The architecture decision's
   declared-trust-store rule (a bundle path, or the host store, resolved once by a composition
   root and handed to the adapter as a `rustls::ClientConfig`) has NOWHERE to attach here:
   `oracledb::Connection` builds its OWN `rustls::ClientConfig` internally, from a wallet
@@ -45,7 +45,7 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   `OracleWarehouse::connect_secured` takes a wallet directory rather than a caller-built
   `rustls::ClientConfig`, and
   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
-  "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
+  "read the host trust store" option in the driver at all. This is a real fork in the architecture decision, not
   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
   a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
   The connection is not confined: `oracledb::connect` follows a listener's TNS REDIRECT to any
@@ -142,7 +142,7 @@ pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura
 ```
 
 Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based
-TLS - see the module header's limit on how far this reaches ADR 0010's declared-trust-store
+TLS - see the module header's limit on how far this reaches the architecture decision's declared-trust-store
 rule. `wallet` is a directory containing an `ewallet.pem`; `None` verifies against the
 driver's bundled `webpki-roots` set rather than against a declared anchor.
 

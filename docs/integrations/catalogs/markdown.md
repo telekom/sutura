@@ -12,11 +12,9 @@ relationships, metrics, cubes and knowledge.
 
 ## When to use it
 
-- You write the semantic model yourself, and you review it in git like code.
-- You want certified metrics, anchors and value allowlists. The other catalogs cannot supply all
-  of them.
-- You start with sutura. [Getting started](../../getting-started.md) and the
-  [single player](../../examples/single-player.md) example use this catalog.
+- Use it for single-player governance. One owner writes the model as files in the repository and
+  reviews it in git like code. The [single player](../../examples/single-player.md) example and
+  [Getting started](../../getting-started.md) use this catalog.
 
 ## Settings
 

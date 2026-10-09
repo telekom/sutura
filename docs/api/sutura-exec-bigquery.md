@@ -28,7 +28,7 @@ What it contains is everything this adapter DECIDES:
   (`telekom/sutura#929`); the refusal this replaces is gone rather than relaxed - see
   `BigQueryWarehouse::EXECUTES_LEGS`;
 - handing the driver's Arrow batches to the interior's own decode, which is where a wrong
-  number would come from and which is no longer this crate's code (`docs/adr/0039`);
+  number would come from and which is no longer this crate's code (the architecture decision);
 - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
   tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
   on a `files` deployment rather than a failed answer for whoever asks first.
@@ -37,7 +37,7 @@ What it contains is everything this adapter DECIDES:
 `sutura_domain::warehouse::arrow` maps `Date32` and refuses every timestamp type, so a
 `TIMESTAMP` or `DATETIME` column is refused NAMING its Arrow type and fails the answer - the
 correct and loud outcome. A time column therefore has to be a `DATE` here. The refusal moved
-there with the rest of the mapping (`docs/adr/0039`); it used to be this crate's own
+there with the rest of the mapping (the architecture decision); it used to be this crate's own
 `FieldType::Unmapped` over a type NAME the deleted HTTP transport read out of a JSON schema.
 
 The **transport** - one `transport::JobTransport` that executes the statement - is `adbc`,
@@ -82,7 +82,7 @@ credential is a posture disagreement before any transport sees it.
 **The mechanism this replaced is deleted rather than kept beside it.** For two rounds this
 adapter set the driver's `bigquery.impersonate.target_principal` from the DEPLOYMENT's own
 credentials - so the connection was the deployment's, the subject's credential was nowhere in
-the chain, and leg 1 was the only barrier. `docs/adr/0018`'s fifth amendment records it, and
+the chain, and leg 1 was the only barrier. The architecture decision's fifth amendment records it, and
 `JobIdentity` has no spelling for it: a principal switch is unrepresentable here, not refused at
 runtime.
 
@@ -166,7 +166,7 @@ an owned `#[source]`.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `Unreadable` - A result column could not be read as a domain value.
 
-  **This one variant replaces seven**, and `docs/adr/0039` is the record. The seven were an
+  **This one variant replaces seven**, and the architecture decision is the record. The seven were an
   unmapped type, an `INT64` that did not parse, a `FLOAT64` that did not parse, a `BOOL` that
   was neither spelling, a non-finite double, a date that did not parse, and a row whose width
   disagreed with the schema. Every one of them existed because the deleted HTTP wire transport
@@ -289,10 +289,10 @@ artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` c
 that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
 one pinned source.
 
-`impersonation` is whether this source impersonates and at what scope - the source's declared
-`workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
-rather than read per request because it is a property of the source, and a declared scope the
-driver would refuse then fails before a listener is bound.
+`impersonation` is whether this source impersonates and through which pool - the source's
+declared `workload_identity.audience`, or `adbc::Impersonation::Disabled` for a shared
+one. Taken here rather than read per request because it is a property of the source, and a
+pool the driver would refuse then fails before a listener is bound.
 
 `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
 every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
@@ -310,7 +310,7 @@ Who this data system says the leg presenting `presented` is executing AS.
 `Presented::SubjectToken` becomes this job's own credential - the subject's assertion
 federated, then impersonating the account declared beside that subject - so what the
 endpoint resolves it to IS the identity the source executed under, and asking the source
-rather than asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+rather than asserting it is the difference between evidence and a comment. The architecture decision names
 `SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
 
 It goes through `Self::deliverable` like every other credential-taking method, so a leg
@@ -446,7 +446,7 @@ Why the ADBC transport could not answer.
 - `Unannounced` - A batch did not carry the fields the driver's own announced schema said it would.
 
   **The check is `sutura_domain::warehouse::Accumulating`'s and not this crate's**, which is
-  `docs/adr/0039`'s point: a foreign driver streaming over a C ABI is exactly the case to
+  the architecture decision's point: a foreign driver streaming over a C ABI is exactly the case to
   refuse rather than trust, and the obligation is the same for every adapter that has one.
   This variant also carries the row ceiling being reached - see `MOST_RESULT_ROWS`.
 - `Uncovered` - ADBC does not yet cover a port method this transport was asked for.
@@ -629,15 +629,14 @@ provider resource the subject token is exchanged for - `externalaccount::Options
 refuses an empty one outright, so a deployment that declared nothing would fail on its first
 question instead of at boot.
 
-**One field, and the declared SCOPE is not it.** `sources.<alias>.workload_identity.scope` is
-parsed by `sutura_config` and reaches nothing here, because the pinned driver has nowhere to put
-it: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member,
-so the document cannot carry one, and the driver's only scope option is
-`bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` treats as a
-request for the DELETED mechanism - it then demands a target principal and replaces the
-federated credential with an impersonated token source. A screened value this transport cannot
-send would read as a control that is in place, so it is not held here at all and the operator is
-told where they declare it.
+**One field, and a scope is not it.** There is no `workload_identity.scope` key: the pinned
+driver has nowhere to put one. `credsfile::ExternalAccountFile`
+(`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member, so the document cannot carry one,
+and the driver's only scope option is `bigquery.impersonate.scopes`, which `connection.go`'s
+`hasImpersonationOptions` treats as a request for the DELETED mechanism - it then demands a
+target principal and replaces the federated credential with an impersonated token source. A
+declared value this transport cannot send would read as a control that is in place, so the
+settings parse refuses the key.
 
 ### `use DriverLocation`
 
@@ -673,7 +672,7 @@ tree ever defined, so for as long as the sentence stood the value was held by th
 
 **The engine passes `usize::MAX` deliberately**, and the contrast is the reason this is the
 caller's argument rather than the guard's default: `sutura-exec-datafusion` produces its own
-batches from its own plan and is bounded by its memory pool, which is where `docs/adr/0009`
+batches from its own plan and is bounded by its memory pool, which is where the architecture decision
 puts it. A foreign driver is what a row ceiling exists for.
 
 ### `constant MOST_RESULT_BYTES`
@@ -695,7 +694,7 @@ call another adapter, and nothing hands a transport that number - so the value i
 instead, and it is therefore **not checked against the memory available**: a container smaller
 than this ceiling can still be ended by a result under it.
 
-**The value, and why this one.** A quarter of `docs/adr/0009`'s provisional 1 GiB working set,
+**The value, and why this one.** A quarter of the architecture decision's provisional 1 GiB working set,
 so two federated legs plus the combine above them cannot each spend the whole of a query's
 provisional byte budget. It is provisional for exactly the reason that number is - 0009's
 amendment says the corpus it was measured on is too small to justify moving it, and it names
@@ -993,7 +992,7 @@ first shape of this type carried the dataset's project only, and the listing the
 the quota project - so a source declared `billing_project: acme-analytics` reading a model at
 `partner-data.shared.dim_region` attributed the listing to `partner-data`, which the caller holds
 no `serviceusage.services.use` on. It would have 403'd and become a permanent warning, while a
-QUERY against the same table attributed to `acme-analytics` and worked. `docs/adr/0018` states
+QUERY against the same table attributed to `acme-analytics` and worked. The architecture decision states
 the rule as *carrying the source's declared billing project*.
 
 **What that says about the newtype, written down because it is the interesting half:** a wrapper
@@ -1127,7 +1126,7 @@ the shape signal; an id `usable_table_id` rejected is the legitimate drop, and i
 
 **This is the only reported-total cross-check left in this crate.** There used to be a second,
 `BigQueryError::Incomplete`, comparing a query answer's delivered count against the endpoint's
-own `totalRows`; `docs/adr/0039` records why an ADBC read's completeness is the full drain
+own `totalRows`; the architecture decision records why an ADBC read's completeness is the full drain
 instead, and it went with the paging it described. A LISTING still carries a total, because a
 dataset listing is a metadata document and not a result stream. This type carries the inventory
 evidence; preflight decides whether it leaves a requested table unaccounted for and refuses
@@ -1172,7 +1171,7 @@ through a value.
   `TablesPresent::Unaccounted` rather than an absence: a table the bundle names that this
   listing did not name may be sitting in the gap, so a boot refuses without saying the catalog
   is wrong. A VALUE and not an `Err`, because `preflight_was_refused` puts everything that is
-  not a `401`/`403` in the warning half. `docs/adr/0018` carries the argument and
+  not a `401`/`403` in the warning half. The architecture decision carries the argument and
   `telekom/sutura#275` is where it was taken. `Self::Unreadable` can also refuse, but has no
   shortfall and does so only beside zero readable IDs. The other readings retain ordinary absence.
 
@@ -1324,7 +1323,7 @@ adapter above it cannot read one.
 
 ### `type_alias DryRunEstimate`
 
-A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s honest absence,
+A dry run's own byte estimate, when it priced one - `None` is the architecture decision's honest absence,
 never a defaulted zero.
 
 **A named alias rather than `Option<EstimatedBytes>` written out at every return type**, because

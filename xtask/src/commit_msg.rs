@@ -37,6 +37,8 @@ pub(crate) enum SubjectVerdict {
     NoSpaceAfterColon,
     TrailingPeriod,
     TooLong(usize),
+    /// A `feat`, `fix` or breaking subject that names a decision record.
+    NamesARecord,
 }
 
 impl SubjectVerdict {
@@ -53,6 +55,11 @@ impl SubjectVerdict {
             Self::NoSpaceAfterColon => String::from("missing space after the colon"),
             Self::TrailingPeriod => String::from("subject ends with `.`"),
             Self::TooLong(n) => format!("subject is {n} chars, limit is {MAX_SUBJECT}"),
+            Self::NamesARecord => String::from(
+                "a `feat`, `fix` or breaking subject names a decision record (`docs/adr/` or `ADR NNNN`) - \
+                 a published page may not name a record, so say what changed without one, \
+                 or type the commit `docs` when it only edits a record",
+            ),
         }
     }
 }
@@ -101,6 +108,7 @@ pub(crate) fn check_shape(subject: &str) -> SubjectVerdict {
     };
 
     // `!` marks a breaking change and is allowed on either `type!` or `type(scope)!`.
+    let breaking = prefix.ends_with('!');
     let prefix = prefix.strip_suffix('!').unwrap_or(prefix);
 
     let type_part = match prefix.split_once('(') {
@@ -131,6 +139,11 @@ pub(crate) fn check_shape(subject: &str) -> SubjectVerdict {
     }
     if text.ends_with('.') {
         return SubjectVerdict::TrailingPeriod;
+    }
+    // `cliff.toml` skips a record-naming commit unless it is a feat, a fix or breaking, which it keeps
+    // with the record stripped; the guard refuses the whole subject, scope included, so no line depends on the strip.
+    if (breaking || matches!(type_part, "feat" | "fix")) && crate::docs::names_a_decision_record(subject) {
+        return SubjectVerdict::NamesARecord;
     }
     SubjectVerdict::Ok
 }

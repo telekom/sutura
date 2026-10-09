@@ -955,6 +955,11 @@ mod governance;
 #[cfg(test)]
 mod row_ceiling;
 
+/// A written `governance.federated_row_ceiling` reaching `Settings::federated_row_ceiling()`, its
+/// default, and its two startup refusals. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod federated_row_ceiling;
+
 /// Reading an inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
 

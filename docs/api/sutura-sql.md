@@ -65,7 +65,7 @@ The one exception is `expression`, and it is an exception with a stated shape. A
 author a SQL fragment for a metric the closed measure vocabulary cannot express, and that
 fragment is parsed - **at catalog-compile time, once, never on the query path** - checked against
 a list of constructs this build refuses, qualified against the model's columns, and rendered for
-every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
+every dialect. What reaches a statement afterwards is our own generator's output. The architecture decision
 is the decision, and its amendment is the state of the tree: **nothing published calls
 `expression::compile` today.** An authored fragment is loaded, pinned as written and refused at
 boot; a catalog adapter may not reach this crate (`cargo xtask check-boundaries` forbids the edge,

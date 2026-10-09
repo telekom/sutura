@@ -163,7 +163,7 @@ fn two_legs_that_each_wait_for_the_other_run_concurrently() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
     .expect("a concurrent answer whose two legs wait on each other completes")
     .into_outcome();
@@ -213,7 +213,7 @@ fn a_federated_lookup_dry_run_that_spends_the_budget_refuses_both_legs_at_their_
         FEDERATED_BUDGET,
         almost_spent,
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();

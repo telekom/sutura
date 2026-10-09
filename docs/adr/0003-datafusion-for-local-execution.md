@@ -38,7 +38,7 @@ question this decision answers: why is there any text?
 **DataFusion is THE execution engine.** Not a second one beside `DuckDB`: the intended end state is one
 cohesive engine, DataFusion for execution and `polyglot-sql` for rendering SQL when a query is pushed
 down to a remote data system, taking concepts from the projects already surveyed in
-[Architecture](../architecture.md#where-the-parts-come-from) - a semantic layer that compiles to a
+[Architecture](../architecture.md) - a semantic layer that compiles to a
 plan, and a federation layer that decides where a subplan runs. Federation is explicitly later.
 
 **`DuckDB`'s role changes accordingly, and it is worth being precise rather than polite about it.** It
@@ -71,7 +71,7 @@ business - render a statement and send it, or build a plan of its own.
 
 The plan therefore moved into `sutura-domain`, because a port speaks domain types, and a port naming
 a compiler type would invert the direction
-[the layout exists to keep](../architecture.md#hexagonal-by-construction). `QueryPlan` and
+[the layout exists to keep](../architecture.md). `QueryPlan` and
 `Warehouse` there are the primary statement of this, and their module documentation says it at the
 length it deserves.
 
@@ -111,7 +111,7 @@ would be planning on somebody else's Python.
 **There is real version skew between DataFusion and `datafusion-federation`.** One more reason
 federation is later, on top of the reason that already governed it: federation is a second identity
 to satisfy, and
-[a plan that cannot run as one subject in both places](../architecture.md#the-engine-and-the-data-systems-behind-a-port)
+[a plan that cannot run as one subject in both places](../architecture.md)
 is refused rather than run partly as somebody else.
 
 ## What does not change

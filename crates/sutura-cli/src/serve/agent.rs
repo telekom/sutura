@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use sutura_app::surface::{Surface, SurfaceFailure};
+use sutura_app::surface::{Adopted, NotAdopted, Surface, SurfaceFailure};
 use sutura_domain::identity::RequestContext;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::query::{Query, ToolOutcome};
@@ -38,8 +38,11 @@ struct Serving {
 }
 
 impl Surface for Serving {
-    fn definitions(&self) -> &PinnedDefinitions {
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
         self.surface.definitions()
+    }
+    fn adopt(&self, next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        self.surface.adopt(next)
     }
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
         let answered = self.surface.answer(context, query, deadline);
@@ -116,6 +119,7 @@ pub(crate) fn mount(
             serving,
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
             settings.prompt().list_physical_schema(),
+            settings.row_ceilings(),
             admission,
             settings.server().request_timeout(),
             settings.server().max_body(),

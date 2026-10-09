@@ -30,7 +30,7 @@ use sutura_config::{StaticCredentialBroker, WorkingSetCeiling, available_memory_
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::RowCeilings;
 use sutura_domain::query::Query;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
@@ -137,7 +137,7 @@ fn run_question(bencher: divan::Bencher, name: &str) {
             WorkingSetCeiling::DEFAULT_BYTES,
             Deadline::opened_at(Instant::now(), fixture.budget),
             &SpendLedger::no_budget(),
-            RowCeiling::DEFAULT,
+            RowCeilings::DEFAULT,
         )
     });
 }
