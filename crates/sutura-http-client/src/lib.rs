@@ -19,10 +19,11 @@
 //!
 //! Everything here is protocol-agnostic ureq/TLS plumbing: it never names an entity kind, a wire
 //! field, or a mapping. [`Endpoint::parse`]'s grammar, [`ReadBounds`]'s two settings, the shared
-//! [`Budget`] a reader's own `read()` opens once, [`rotating_agent`]/[`fixed`]'s TLS wiring and the
-//! anchor fold in `tls` are the same read for `DataHub`'s `OpenAPI` v3 surface and `OpenMetadata`'s
-//! REST API alike. What stays in each reader crate: the entity-shaped `HttpReaderError` variants
-//! (their `Display` text names the platform), the paged `fetch`/`entities` helpers built over
+//! [`Budget`] a reader's own `read()` opens once, the cursor accounting in [`Pager`],
+//! [`rotating_agent`]/[`fixed`]'s TLS wiring and the anchor fold in `tls` are the same read for
+//! `DataHub`'s `OpenAPI` v3 surface and `OpenMetadata`'s REST API alike. What stays in each reader
+//! crate: the entity-shaped `HttpReaderError` variants (their `Display` text names the platform),
+//! the paged `fetch`/`entities` helpers built over
 //! [`Budget`], and every `harvest_*` mapping function - `docs/what-openmetadata-can-carry.md` and
 //! `sutura-catalog-datahub`'s own module header are explicit that those mappings are a first-party
 //! claim about each platform's wire shape, which this crate must never blur by generalizing over.
@@ -44,6 +45,7 @@ mod bounds;
 mod budget;
 mod endpoint;
 mod message;
+mod paging;
 mod routed;
 mod tls;
 
@@ -58,3 +60,4 @@ pub use bounds::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, InvalidRea
 pub use budget::Budget;
 pub use endpoint::{Endpoint, InvalidEndpoint, ShownEndpoint};
 pub use message::EndpointMessage;
+pub use paging::{DEFAULT_MAX_ENTITIES, DEFAULT_PAGE_SIZE, InvalidPageLimits, PageLimits, PageReport, Pager, PagingRefusal};
