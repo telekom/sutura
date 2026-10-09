@@ -324,8 +324,13 @@ def drop_unfollowable(match: re.Match[str]) -> str:
 # A citation of a design-decision record. The doc comments keep it for the people who read the
 # source; the published pages carry no record path, so the span becomes a noun phrase and the
 # `decision 7` / `part 4` / `step 2` that followed it - a pointer into a record the page does not
-# have - goes with it. `check-docs` refuses any `docs/adr/` text that still reaches a page.
-ADR_CITATION = re.compile(r"`docs/adr/[^`\n]*`(?:\s+(?:[Dd]ecision|part|step)\s+\d+)?")
+# have - goes with it. A record cited by number (`ADR 0011`, `ADR-0015 Decision 5`) is the same
+# citation and goes the same way, with the `the` that led it. `check-docs` refuses any
+# `docs/adr/` text or `ADR NNNN` that still reaches a page.
+ADR_CITATION = re.compile(
+    r"`docs/adr/[^`\n]*`(?:\s+(?:[Dd]ecision|part|step)\s+\d+)?"
+    r"|(?:\b[Tt]he\s+)?\bADR[\s-]\d{4}(?:\s+(?:[Dd]ecision|rule|part|step)\s+\d+)?"
+)
 
 
 def cite_decision(match: re.Match[str]) -> str:
@@ -631,7 +636,9 @@ def selftest_fixture() -> dict:
                 "docs": (
                     "THE VARIANT SUMMARY.\n\n"
                     "THE VARIANT RATIONALE, which is a second paragraph. "
-                    "`docs/adr/0001-x.md` decision 3 says why, as `docs/adr/0002` does."
+                    "`docs/adr/0001-x.md` decision 3 says why, as `docs/adr/0002` does. "
+                    "ADR 0011's reasons hold, as ADR-0015 Decision 5 does, "
+                    "and the ADR 0016 refusal fires."
                 ),
                 "inner": {"variant": {"kind": "plain", "discriminant": None}},
             },
@@ -657,8 +664,13 @@ def selftest() -> None:
     assert "THE VARIANT RATIONALE, which is a second paragraph." in text, text
     # A record citation reaches no page: the path and its `decision 3` pointer are gone.
     assert "docs/adr" not in text, text
+    assert re.search(r"ADR[\s-]\d{4}", text) is None, text
     assert (
         "The architecture decision says why, as the architecture decision does." in text
+    ), text
+    assert (
+        "The architecture decision's reasons hold, as the architecture decision does,"
+        " and the architecture decision refusal fires." in text
     ), text
 
 

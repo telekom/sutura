@@ -23,7 +23,7 @@ coupling the application to this adapter.
 
 # What a real dictionary yields
 
-ADR 0016's method, applied here: read a real dictionary before writing the adapter. A throwaway
+The architecture decision's method, applied here: read a real dictionary before writing the adapter. A throwaway
 reader, measured once against a two-table Postgres 18 schema (two tables, a primary key each, one
 foreign key, and table comments), reported the following:
 
@@ -41,7 +41,7 @@ Three findings, and two of them are the declaration's content:
    `Structure` half; table comments are
    the `Descriptions`
    half. A dictionary carries **no measure, no grain, no definitional filter, no value allowlist
-   and no anchor** - those are declared by a human in a semantic layer, which is what ADR 0011's
+   and no anchor** - those are declared by a human in a semantic layer, which is what the architecture decision's
    table says ("certified metrics, measures, grains, allowed values: **no** - a human declares
    those elsewhere").
 2. **A foreign key carries no metric cardinality.** It names the source and target columns, so

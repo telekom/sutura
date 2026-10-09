@@ -476,7 +476,7 @@ Not wrapped in `TrackConsumersPool` either, though it would improve the engine's
 reaches a caller is `sutura_domain::query::RefusalReason::ResourcesExhausted`,
 which carries the configured ceiling and deliberately nothing about what the question demanded.
 
-**No production gauge reads the `DataFusion` pool.** ADR 0015 specifies that absence because an
+**No production gauge reads the `DataFusion` pool.** The architecture decision specifies that absence because an
 operator-reservation reading is narrower than process memory. The opt-in measurement feature is
 a gauge whose absence it currently specifies for production: it observes a separate recording
 pool in fresh test children and exposes no accessor on the ordinary adapter.

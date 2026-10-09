@@ -167,7 +167,8 @@ markdown_extensions:
 # `/adr/` keeps the whole decision-record directory off the site, owner-decided. The records stay
 # under `docs/adr/`, so every citation in the repository keeps naming the file it names today, and
 # a new record needs no line here. `check-docs` refuses a published page that LINKS one, and any
-# published page that names a path under `docs/adr/`, in prose or in code.
+# published page that names a path under `docs/adr/`, in prose or in code, or cites a record by
+# number.
 exclude_docs: |
   /adr/
   implementation-plan.md

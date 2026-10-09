@@ -62,6 +62,20 @@ const INCLUDE_MARKER: &str = "--8<--";
 /// on a published page - a link or a plain mention - names a file the reader cannot open.
 const ADR_DIRECTORY: &str = "docs/adr/";
 
+/// The first citation of a decision record by number in `text`: `ADR`, one space, newline or
+/// hyphen, then four digits (`ADR 0011`, `ADR-0015`). The records are off the site, so the number
+/// points at a page the reader cannot open. A word that merely ends in `ADR` is not a citation.
+fn names_a_decision_number(text: &str) -> Option<&str> {
+    text.match_indices("ADR").find_map(|(at, _)| {
+        let (head, tail) = text.split_at(at);
+        let cited = tail.get(..8)?;
+        let separated = matches!(cited.get(3..4)?, " " | "\n" | "-");
+        let numbered = cited.get(4..)?.bytes().all(|b| b.is_ascii_digit());
+        let word_start = !head.chars().next_back().is_some_and(char::is_alphanumeric);
+        (separated && numbered && word_start).then_some(cited)
+    })
+}
+
 /// How many distinct files one page may pull in before this refuses to keep following.
 ///
 /// A cycle is already stopped by the visited set; this stops a legitimately deep chain from
@@ -324,6 +338,12 @@ fn scan_page(
         if body.contains(ADR_DIRECTORY) {
             out.problems.push(format!(
                 "`{file}` names `{ADR_DIRECTORY}`, which is not part of the site - the decision records are kept off it, so a published page carries no path into them. Say what the decision is instead"
+            ));
+        }
+        if let Some(cited) = names_a_decision_number(&body) {
+            let cited = cited.replace('\n', " ");
+            out.problems.push(format!(
+                "`{file}` cites a decision record by number (`{cited}`), and the records are not part of the site. Say what the decision is instead"
             ));
         }
         embed_problems(root, docs_dir, &here, &scanned.embeds, out);

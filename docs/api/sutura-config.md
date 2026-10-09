@@ -671,7 +671,7 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in the architecture decision observed only
 a small in-process workload and cannot see driver buffers, collected batches or domain-row
 conversion, so it did not justify changing the starting point. The default remains provisional.
 
@@ -3904,7 +3904,7 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in the architecture decision observed only
 a small in-process workload and cannot see driver buffers, collected batches or domain-row
 conversion, so it did not justify changing the starting point. The default remains provisional.
 
@@ -6021,7 +6021,7 @@ Mutual    { anchors, identity }                - TLS, verified, and sutura prese
 ```
 
 There is deliberately no `Verified`-without-anchors shape: a source asking for TLS and naming no
-trust store is a refusal at load, naming the source (ADR 0010 rule 2). `TrustAnchors` has no
+trust store is a refusal at load, naming the source (the architecture decision). `TrustAnchors` has no
 default, so there is no value the loader could have filled in on the operator's behalf.
 
 And `Verified` deliberately has no client identity either, which makes a written one a refusal
@@ -6211,7 +6211,7 @@ Each caller maps it into its own refusal, which names its own key path.
 pub fn parse(alias: &sutura_domain::model::SourceName, mode: &str, anchors: Option<&str>, client_certificate: Option<&str>, client_key: Option<&str>) -> Result<SourceTransport, InvalidTransport>
 ```
 
-Reads one source's transport from its written fields, refusing the combinations ADR 0010 says
+Reads one source's transport from its written fields, refusing the combinations the architecture decision says
 a closed type must refuse.
 
 `mode` is the `transport_mode` word. `anchors` is the written `transport_anchors` value (a path or

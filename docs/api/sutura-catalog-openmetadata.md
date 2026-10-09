@@ -15,7 +15,7 @@ sources, and still a **declaring** one.
 than `DataHub` or `Frictionless Table Schema` - but keeps **two half-a-definition slots**: a measure's
 aggregation-to-column binding lives in `measures[].expression` / `metricExpression.code` as free
 text in a dialect set (`SQL`/`Java`/`JavaScript`/`Python`/`External`) that does not intersect this
-repository's typed `Term`, and the required filter is a raw SQL `where`. ADR 0016's refusal fires
+repository's typed `Term`, and the required filter is a raw SQL `where`. The architecture decision's refusal fires
 on both: a measure carried as a raw expression string is half a definition, and taking it would
 certify a foreign dialect's free text.
 
@@ -55,7 +55,7 @@ carries any is the deployment's decision (it defined a metric whose binding reso
 not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
 `metricType` + `granularity` are read, but no metric is minted: its bound column cannot be read
 out of a foreign dialect's expression string without certifying that text, so those kinds
-arrive empty and the expression strings stay reported-not-defined, exactly as the ADR 0016
+arrive empty and the expression strings stay reported-not-defined, exactly as the architecture decision
 refusal demands.
 
 `RequiredFilters`, `AllowedValues` and `Anchors` are not declared at all: the filter is a raw SQL

@@ -161,3 +161,27 @@ fn a_published_page_naming_the_decision_record_directory_is_refused_naming_the_p
     let output = check_docs(&control);
     assert!(output.status.success(), "{}", said(&output));
 }
+
+#[test]
+fn a_published_page_citing_a_decision_record_by_number_is_refused_naming_the_page_and_the_number() {
+    for (case, body, cited) in [
+        ("adr-space", "The `ADR 0011` reasons hold.", "ADR 0011"),
+        ("adr-hyphen", "ADR-0015 Decision 5 says why.", "ADR-0015"),
+        ("adr-newline", "The shape ADR\n0016 picked.", "ADR 0016"),
+    ] {
+        let page = format!("# Architecture\n\n{body}\n\n[home](index.md)\n");
+        let output = check_docs(&site(case, &page, None));
+        let text = said(&output);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(text.contains("docs/architecture.md"), "{text}");
+        assert!(text.contains(cited), "{text}");
+    }
+    for (case, body) in [
+        ("adr-word", "A QUADR 0123 and a SQUADR-0456 are no citation."),
+        ("adr-short", "ADR 12 and ADRs and ADR 12ab are no citation."),
+    ] {
+        let page = format!("# Architecture\n\n{body}\n\n[home](index.md)\n");
+        let output = check_docs(&site(case, &page, None));
+        assert!(output.status.success(), "{}", said(&output));
+    }
+}

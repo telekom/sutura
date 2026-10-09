@@ -1485,13 +1485,13 @@ This is the *"metadata sources compose"* half of the architecture decision and o
 `sutura_domain::pinned::SemanticCatalog::load` reads one source; a deployment may declare
 several. The assembler is where they stop being several:
 
-- **Application code in this crate, not an adapter over adapters** - ADR 0011's three reasons
+- **Application code in this crate, not an adapter over adapters** - the architecture decision's three reasons
   are recorded on the `assemble` function, and this crate is the one that owns the two driving
   ports.
 - **One source may provide a given kind for a given entity.** Two sources defining one metric is
   refused, always, and refused naming both sources - "guessing which wins is how a metric
   silently means something different after a configuration change", which is the exact sentence
-  ADR 0011 refuses.
+  the architecture decision refuses.
 - **The declaration-fidelity check runs per contributor, not per bundle.** `checked_against`
   on the merged result would say nothing once two sources are merged - a narrow source's
   undeclared kind could be hidden by what another source produced. Each contributor is held to
@@ -1515,7 +1515,7 @@ pub enum CompositionError
 
 Why N contributions will not compose.
 
-Every collision variant names both sources and the entity, which is ADR 0011's *"refuses the
+Every collision variant names both sources and the entity, which is the architecture decision's *"refuses the
 load, naming both and the entity"* - a precedence rule nobody stated is a precedence rule nobody
 reviewed, so the refusal is what carries the names.
 
@@ -1579,9 +1579,9 @@ caught by nothing but review.
 pub fn assemble(bundles: &[sutura_domain::pinned::PinnedDefinitions]) -> Result<sutura_domain::pinned::PinnedDefinitions, CompositionError>
 ```
 
-Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.
+Composes N contributions into one bundle, refusing a composition the architecture decision says cannot exist.
 
-**Application code, not an adapter over adapters - the shape ADR 0011 picked, for three
+**Application code, not an adapter over adapters - the shape the architecture decision picked, for three
 reasons.** The rules being decided here are DOMAIN rules, not one adapter's; `load` stays free
 of a request context in either shape, so that property does not choose between them; and an
 assembling *adapter* implements the port over N others and would eventually depend on every one
@@ -2346,7 +2346,7 @@ pub fn headroom_bytes(&self, now: Instant) -> Option<u64>
 The tightest remaining headroom across every subject this ledger is currently tracking, or
 `None` where no ceiling is configured (the architecture decision's "absent means no budget").
 
-**Deployment-wide, never per-subject** - ADR-0015 Decision 5 types every metric label
+**Deployment-wide, never per-subject** - the architecture decision types every metric label
 parameter as `&'static str` precisely so request-owned text (a `Subject`'s own identifier
 included) cannot become one, so this reports the worst case across every subject rather than
 naming which one it is. A subject not yet in the map, or whose window has elapsed, has its

@@ -74,10 +74,12 @@ split_commits = false
 topo_order = false
 sort_commits = "newest"
 # The changelog is a published page, and `cargo xtask check-docs` refuses a published page that
-# names a path under the decision-record directory, which is not part of the site. A subject that
-# cites a record by path is rendered with the record's number instead.
+# names a path under the decision-record directory, or a record by number (`ADR 0011`), because the
+# records are not part of the site. A subject that cites a record by path or by number is rendered
+# with the word "decision" in its place. The first rule leaves `ADR NNNN` for the second.
 commit_preprocessors = [
   { pattern = 'docs/adr/(\d+)', replace = "ADR $1" },
+  { pattern = 'ADR[ -]\d{4}', replace = "decision" },
 ]
 
 # `filter_commits` is deliberately left off. A conventional type that matches no parser below
