@@ -89,8 +89,9 @@ This crate contains the conversion `RdbmsCatalog` applies to dictionary records,
 tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
 live implementors over a Postgres (`postgres_reader`) and an Oracle (`oracle_reader`)
-documentation schema, behind a default-off `live` feature so the library closure stays
-domain + thiserror and no build links either driver's stack without asking for it.
+documentation schema, behind default-off `live` and `live-oracle` features so the library
+closure stays domain + thiserror and no build links either driver's stack without asking for
+it.
 
 **The fake dominates the suite; the live reader is the production half, feature-gated.**
 `DictionaryReader` is the seam they implement (`fixture::FixtureReader` the recorded corpus,
@@ -110,7 +111,7 @@ either without a trait object.
 ### Variants
 
 - `Postgres` - The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
-- `Oracle` - The Oracle documentation-schema reader.
+- `Oracle` - The Oracle documentation-schema reader, behind the `live-oracle` feature.
 
 ### Methods
 
@@ -588,7 +589,7 @@ integration suite is a separate crate and cannot reach a `#[cfg(test)]` item.
 
 ## Module `oracle_reader`
 
-The live Oracle documentation-schema reader, behind the default-off `live` feature.
+The live Oracle documentation-schema reader, behind the default-off `live-oracle` feature.
 
 `crate::postgres_reader`'s twin over an Oracle connection: the same documented `columns` view
 (that module's header carries the column table), the same constructor checks, inline caps and

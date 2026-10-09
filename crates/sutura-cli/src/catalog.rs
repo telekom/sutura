@@ -66,7 +66,8 @@ pub(crate) enum OpenedCatalogs {
     DataContract(Vec<sutura_catalog_datacontract::DataContractCatalog>),
     /// A live RDBMS dictionary, behind this crate's default-off `rdbms` feature - see
     /// `Cargo.toml` for why it is default-off (artefact: its reader links outbound TLS). Opened over
-    /// a Postgres or an Oracle documentation schema by [`sutura_catalog_rdbms::AnyDictionaryReader`].
+    /// a Postgres documentation schema, or an Oracle one behind `oracle`, by
+    /// [`sutura_catalog_rdbms::AnyDictionaryReader`].
     #[cfg(feature = "rdbms")]
     Rdbms(Vec<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::AnyDictionaryReader>>),
 }
@@ -128,7 +129,10 @@ pub(crate) fn open_catalog(
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
-        sutura_config::CatalogKind::Rdbms => open_rdbms_catalogs(catalogs),
+        sutura_config::CatalogKind::Rdbms => {
+            refuse_oracle_dictionaries(catalogs, cfg!(feature = "oracle"))?;
+            open_rdbms_catalogs(catalogs)
+        }
     }
 }
 
@@ -403,6 +407,7 @@ fn open_one_rdbms_catalog(
             postgres_dictionary_reader(settings, connection, documentation_schema, environment, predicate, rdbms)
                 .map(|reader| AnyDictionaryReader::Postgres(Box::new(reader)))
         }
+        #[cfg(feature = "oracle")]
         sutura_config::CatalogConnection::Oracle(connection) => {
             let password = crate::password_file::read_key(
                 &format!("catalogs.{}.connection.password_file", settings.name()),
@@ -431,6 +436,8 @@ fn open_one_rdbms_catalog(
                 )
             })
         }
+        #[cfg(not(feature = "oracle"))]
+        sutura_config::CatalogConnection::Oracle(_) => Err(oracle_dictionary_not_linked(settings.name())),
     }?;
 
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
@@ -530,6 +537,32 @@ fn postgres_dictionary_reader(
             settings.name()
         )
     })
+}
+
+/// Refuses a declared `rdbms` catalog whose dictionary is an Oracle connection, in a build without
+/// the `oracle` feature - whether or not `rdbms` is linked, so the shipped feature set and the
+/// default one answer the same. The build's feature state arrives as `oracle_built`, so every
+/// build compiles and tests this refusal rather than only the one that lacks the feature.
+pub(crate) fn refuse_oracle_dictionaries(catalogs: &sutura_config::Catalogs, oracle_built: bool) -> Result<(), String> {
+    if oracle_built {
+        return Ok(());
+    }
+    catalogs
+        .each()
+        .find(|catalog| {
+            catalog
+                .rdbms()
+                .is_some_and(|rdbms| matches!(rdbms.connection(), sutura_config::CatalogConnection::Oracle(_)))
+        })
+        .map_or(Ok(()), |catalog| Err(oracle_dictionary_not_linked(catalog.name())))
+}
+
+/// The refusal for an Oracle dictionary connection in a build that did not enable `oracle`.
+fn oracle_dictionary_not_linked(name: &sutura_domain::model::SourceName) -> String {
+    format!(
+        "`catalogs.{name}` declares an Oracle dictionary connection, which needs a build with the `oracle` feature - \
+         build sutura-cli with --features oracle, or declare a Postgres dictionary"
+    )
 }
 
 /// The refusal for a build that did not link the `rdbms` adapter - the message names the feature.

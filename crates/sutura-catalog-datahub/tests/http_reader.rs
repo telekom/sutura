@@ -22,7 +22,10 @@
 mod tests {
     use std::time::Duration;
 
-    use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError, InvalidEndpoint, ReadBounds};
+    use sutura_catalog_datahub::http::{
+        DEFAULT_MAX_ENTITIES, DEFAULT_PAGE_SIZE, Endpoint, HttpAspectReader, HttpReaderError, InvalidEndpoint, PageLimits,
+        PagingRefusal, ReadBounds,
+    };
     use sutura_catalog_datahub::test_support::{
         DEPLOYMENT_PROPERTY, FakeServer, Scripted, dataset_page, happy_path_answers, metric_page, relationship_page,
     };
@@ -403,7 +406,7 @@ mod tests {
         );
     }
 
-    /// **One shared deadline across the (up to) three requests, not one per request.**
+    /// **One shared deadline across every request of a read, not one per request.**
     ///
     /// A one-second budget and a first response delayed past it: the second request
     /// (`semanticModel`) must never be attempted at all, because nothing is left of the shared
@@ -442,28 +445,265 @@ mod tests {
         );
     }
 
-    /// **A page that signals more results than the one page this reader reads is refused, not
-    /// silently truncated.**
+    /// The page size the paging cells force, so a few datasets span several pages.
+    fn two_per_page() -> PageLimits {
+        PageLimits::parse(2, DEFAULT_MAX_ENTITIES).expect("a page size of two is usable")
+    }
+
+    fn reader_of(server: &FakeServer, limits: PageLimits) -> HttpAspectReader {
+        reader(server, 10, GENEROUS_CAP).with_page_limits(limits)
+    }
+
+    /// One `dataset` page of bare datasets named `names`, `scroll_id` naming the next page.
+    fn datasets_of(names: &[&str], scroll_id: Option<&str>, total: Option<u64>) -> serde_json::Value {
+        let entities: Vec<_> = names
+            .iter()
+            .map(|name| {
+                serde_json::json!({
+                    "urn": format!("urn:li:dataset:(urn:li:dataPlatform:bigquery,{name},PROD)"),
+                    "schemaMetadata": { "value": { "fields": [{"fieldPath": "id"}] } },
+                })
+            })
+            .collect();
+        let mut page = serde_json::json!({ "entities": entities, "scrollId": scroll_id });
+        if let Some(total) = total {
+            page["total"] = serde_json::json!(total);
+        }
+        page
+    }
+
+    /// One `metric` page of bare metrics named `names`, `scroll_id` naming the next page.
+    fn metrics_of(names: &[String], scroll_id: Option<&str>) -> serde_json::Value {
+        let entities: Vec<_> = names
+            .iter()
+            .map(|name| {
+                serde_json::json!({
+                    "metricInfo": { "value": {
+                        "name": name,
+                        "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "count(*)" }] },
+                    } },
+                })
+            })
+            .collect();
+        serde_json::json!({ "entities": entities, "scrollId": scroll_id })
+    }
+
+    fn paging_cause(error: &DataHubError) -> (&'static str, PagingRefusal) {
+        match http_cause(error) {
+            HttpReaderError::Paging { entity, cause } => (*entity, *cause),
+            other => panic!("expected a paging refusal, got: {other}"),
+        }
+    }
+
+    /// **A list of several pages loads every page, for datasets and for metrics.** The first request
+    /// carries no `scrollId`, each later one carries the one the page before it gave - percent-encoded,
+    /// because it is the service's own text - and `count` is the page size.
     ///
-    /// RED/GREEN mutation: delete the `total`/`scrollId` check in
-    /// `HttpAspectReader::page_signals_more` - a page reporting a `total` above what it returned
-    /// would then be read as complete, and this assertion goes red.
+    /// RED/GREEN mutation: drop the `.query("scrollId", ..)` in `fetch` - every later request then
+    /// repeats the first page's line, and this assertion goes red.
     #[test]
-    fn a_page_reporting_more_results_than_it_returned_is_refused() {
-        let mut truncated = dataset_page();
-        truncated["total"] = serde_json::json!(2);
-        // Only ONE of the two entities the "total" claims, on a page carrying two.
-        let entities = truncated["entities"].as_array_mut().expect("the dataset page is an array");
-        drop(entities.pop());
-        assert_eq!(entities.len(), 1);
-        let server = FakeServer::start(vec![Scripted::ok(&truncated)]);
-        let error = reader(&server, 10, GENEROUS_CAP)
+    fn a_list_of_several_pages_loads_every_page() {
+        let metric_names: Vec<String> = ["m1", "m2", "m3"].into_iter().map(String::from).collect();
+        let server = FakeServer::start(vec![
+            Scripted::ok(&datasets_of(&["d1", "d2"], Some("s-1"), None)),
+            Scripted::ok(&datasets_of(&["d3", "d4"], Some("s-2&x=1"), None)),
+            Scripted::ok(&datasets_of(&["d5"], None, None)),
+            Scripted::ok(&relationship_page()),
+            Scripted::ok(&metrics_of(&metric_names[..2], Some("m-1"))),
+            Scripted::ok(&metrics_of(&metric_names[2..], None)),
+        ]);
+        let snapshot = reader_of(&server, two_per_page()).read().expect("every page loads");
+        let seen = server.finish();
+        let datasets: Vec<_> = snapshot.datasets().iter().map(|dataset| dataset.name().to_owned()).collect();
+        assert_eq!(datasets, ["d1", "d2", "d3", "d4", "d5"]);
+        let metrics: Vec<_> = snapshot.metrics().iter().map(|metric| metric.name().to_owned()).collect();
+        assert_eq!(metrics, ["m1", "m2", "m3"]);
+        let lines: Vec<_> = seen
+            .iter()
+            .map(sutura_http_client::test_support::CapturedRequest::request_line)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "GET /openapi/v3/entity/dataset?aspects=schemaMetadata&aspects=datasetProperties&count=2 HTTP/1.1",
+                "GET /openapi/v3/entity/dataset?aspects=schemaMetadata&aspects=datasetProperties&count=2&scrollId=s-1 HTTP/1.1",
+                "GET /openapi/v3/entity/dataset?aspects=schemaMetadata&aspects=datasetProperties&count=2&scrollId=s-2%26x%3D1 HTTP/1.1",
+                "GET /openapi/v3/entity/semanticModel?aspects=semanticModelInfo&count=2 HTTP/1.1",
+                "GET /openapi/v3/entity/metric?aspects=metricInfo&aspects=structuredProperties&count=2 HTTP/1.1",
+                "GET /openapi/v3/entity/metric?aspects=metricInfo&aspects=structuredProperties&count=2&scrollId=m-1 HTTP/1.1",
+            ]
+        );
+    }
+
+    /// **A `scrollId` the service gives twice is refused, not followed again.**
+    ///
+    /// RED/GREEN mutation: delete `Pager::advance`'s repeated-cursor refusal - the second page's
+    /// scroll id would be followed and this read would not be refused.
+    #[test]
+    fn a_repeated_scroll_id_is_refused() {
+        let server = FakeServer::start(vec![
+            Scripted::ok(&datasets_of(&["d1", "d2"], Some("s-1"), None)),
+            Scripted::ok(&datasets_of(&["d3", "d4"], Some("s-1"), None)),
+        ]);
+        let error = reader_of(&server, two_per_page())
             .read()
-            .expect_err("a truncated page is refused");
+            .expect_err("a repeated scroll id is refused");
+        assert_eq!(
+            server.finish().len(),
+            2,
+            "the second page was read, its scroll id was not followed"
+        );
+        assert_eq!(paging_cause(&error), ("dataset", PagingRefusal::RepeatedCursor));
+    }
+
+    /// **A page with no entity that still reports more is refused, not followed.**
+    ///
+    /// RED/GREEN mutation: delete `Pager::advance`'s no-progress refusal - the empty page's fresh
+    /// scroll id would be followed and this read would not be refused.
+    #[test]
+    fn a_page_with_no_progress_is_refused() {
+        let server = FakeServer::start(vec![
+            Scripted::ok(&datasets_of(&["d1", "d2"], Some("s-1"), None)),
+            Scripted::ok(&datasets_of(&[], Some("s-2"), None)),
+        ]);
+        let error = reader_of(&server, two_per_page())
+            .read()
+            .expect_err("a page with no progress is refused");
+        drop(server.finish());
+        assert_eq!(paging_cause(&error), ("dataset", PagingRefusal::NoProgress));
+    }
+
+    /// **The shared deadline holds on a page after the first, not only between entity kinds.**
+    ///
+    /// A one-second budget and a first `dataset` page that carries a scroll id and is delayed past it:
+    /// the second `dataset` page is never requested - it is refused as `DeadlineSpent` naming `dataset`.
+    ///
+    /// RED/GREEN mutation: in `HttpAspectReader::fetch`, give a request that carries a scroll id
+    /// `Some(self.bounds.timeout())` instead of `budget.remaining()` - the later page is dialled with a
+    /// fresh timeout and refused some other way, and this assertion goes red.
+    #[test]
+    fn the_shared_deadline_is_honoured_on_a_later_page() {
+        let server = FakeServer::start(vec![Scripted::delayed(
+            &datasets_of(&["d1", "d2"], Some("s-1"), None),
+            Duration::from_millis(1200),
+        )]);
+        let error = reader(&server, 1, GENEROUS_CAP)
+            .with_page_limits(two_per_page())
+            .read()
+            .expect_err("the shared budget is spent before the second page");
+        assert!(
+            matches!(http_cause(&error), HttpReaderError::DeadlineSpent { entity: "dataset", .. }),
+            "expected DeadlineSpent naming dataset, got: {}",
+            http_cause(&error)
+        );
+        assert_eq!(server.finish().len(), 1, "the second page was never requested");
+    }
+
+    /// **A page after the first is held to the byte cap as the first is.**
+    ///
+    /// The first page fits the declared cap; the second is one byte over it and is not JSON, deliberately:
+    /// the length check runs before the decode, so the refusal fires on size alone.
+    ///
+    /// RED/GREEN mutation: in `HttpAspectReader::fetch`, check the length only for a request that carries no
+    /// scroll id - the second page would reach the JSON decode and be refused as `NotADocument`, and this
+    /// assertion goes red.
+    #[test]
+    fn a_page_after_the_first_over_the_cap_is_refused() {
+        const CAP: u64 = 512;
+        let second = Scripted::raw(
+            200,
+            vec![b'x'; usize::try_from(CAP + 1).expect("a small test constant fits in usize")],
+        );
+        let server = FakeServer::start(vec![Scripted::ok(&datasets_of(&["d1", "d2"], Some("s-1"), None)), second]);
+        let error = reader(&server, 10, CAP)
+            .with_page_limits(two_per_page())
+            .read()
+            .expect_err("an oversized second page is refused");
+        assert!(
+            matches!(
+                http_cause(&error),
+                HttpReaderError::TooLarge {
+                    entity: "dataset",
+                    cap: CAP
+                }
+            ),
+            "expected TooLarge{{entity: \"dataset\", cap: {CAP}}}, got: {}",
+            http_cause(&error)
+        );
+        assert_eq!(server.finish().len(), 2, "the first page fit the cap and the second was read");
+    }
+
+    /// **A list above the entity bound is refused, never cut short.** One more metric than the bound
+    /// across a hundred and one default-sized pages: the refusal names the bound, and no snapshot of
+    /// the first hundred thousand comes back.
+    ///
+    /// The two literals are the bound the readers ship with, never read from the constant, so moving
+    /// the constant in either direction is a red cell.
+    ///
+    /// RED/GREEN mutation: raise or lower `DEFAULT_MAX_ENTITIES`, delete `Pager::advance`'s bound
+    /// check, or answer `Ok(false)` where it refuses - the read then returns a snapshot (or runs the script out)
+    /// and this assertion goes red.
+    #[test]
+    fn a_list_above_the_entity_bound_is_refused_not_truncated() {
+        let over = 100_001;
+        let names: Vec<String> = (0..over).map(|n| format!("m{n}")).collect();
+        let mut answers = vec![Scripted::ok(&dataset_page()), Scripted::ok(&relationship_page())];
+        let pages: Vec<_> = names.chunks(DEFAULT_PAGE_SIZE).collect();
+        for (n, page) in pages.iter().enumerate() {
+            let scroll_id = (n + 1 < pages.len()).then(|| format!("m-{n}"));
+            answers.push(Scripted::ok(&metrics_of(page, scroll_id.as_deref())));
+        }
+        let server = FakeServer::start(answers);
+        let error = reader(&server, 60, GENEROUS_CAP)
+            .read()
+            .expect_err("a list over the bound is refused, not truncated");
+        drop(server.finish());
+        assert_eq!(
+            paging_cause(&error),
+            ("metric", PagingRefusal::TooManyEntities { max: 100_000 })
+        );
+    }
+
+    /// **A last page that leaves the list short of a reported `total` is refused, not read as
+    /// complete.**
+    ///
+    /// RED/GREEN mutation: delete `Pager::advance`'s short-of-total refusal - the two datasets would
+    /// be read as the whole list and this assertion goes red.
+    #[test]
+    fn a_last_page_short_of_the_reported_total_is_refused() {
+        let server = FakeServer::start(vec![Scripted::ok(&datasets_of(&["d1", "d2"], None, Some(3)))]);
+        let error = reader_of(&server, two_per_page())
+            .read()
+            .expect_err("a list shorter than its total is refused");
+        drop(server.finish());
+        assert_eq!(
+            paging_cause(&error),
+            ("dataset", PagingRefusal::ShortOfTotal { read: 2, total: 3 })
+        );
+    }
+
+    /// **A `scrollId` that is not text is refused by name, not read as the last page.**
+    ///
+    /// RED/GREEN mutation: map `report`'s `Some(_)` arm to `None` - the page would be read as the
+    /// last and this assertion goes red.
+    #[test]
+    fn a_scroll_id_that_is_not_text_is_refused() {
+        let mut page = datasets_of(&["d1"], None, None);
+        page["scrollId"] = serde_json::json!(7);
+        let server = FakeServer::start(vec![Scripted::ok(&page)]);
+        let error = reader_of(&server, two_per_page())
+            .read()
+            .expect_err("a numeric scroll id is refused");
         drop(server.finish());
         assert!(
-            matches!(http_cause(&error), HttpReaderError::MorePages { entity: "dataset" }),
-            "expected MorePages{{entity: \"dataset\"}}, got: {}",
+            matches!(
+                http_cause(&error),
+                HttpReaderError::UnexpectedShape {
+                    entity: "dataset",
+                    field: "scrollId"
+                }
+            ),
+            "{}",
             http_cause(&error)
         );
     }
@@ -535,31 +775,6 @@ mod tests {
                 }
             ),
             "expected UnexpectedShape{{entity: \"dataset\", field: \"schemaMetadata.value.fields\"}}, got: {}",
-            http_cause(&error)
-        );
-    }
-
-    /// **A `scrollId` alone - no `total` field at all - is refused, not just a `total` above the
-    /// returned count.** `page_signals_more` checks both tells; a review found the existing cell
-    /// exercises only the `total` arm (the PR's own "paging truncation" mutation hardcoded the
-    /// WHOLE function to `false`, which cannot tell the two arms apart), so this cell isolates the
-    /// `scrollId` arm on its own.
-    ///
-    /// RED/GREEN mutation: delete the `scrollId` check in `page_signals_more` (keep the `total`
-    /// arm) - this page carries no `total` at all, so only the `scrollId` arm can catch it, and
-    /// deleting it alone goes red.
-    #[test]
-    fn a_page_carrying_only_a_scroll_id_is_refused() {
-        let mut scrolling = dataset_page();
-        scrolling["scrollId"] = serde_json::json!("opaque-scroll-token");
-        let server = FakeServer::start(vec![Scripted::ok(&scrolling)]);
-        let error = reader(&server, 10, GENEROUS_CAP)
-            .read()
-            .expect_err("a page carrying a scrollId and no total is refused");
-        drop(server.finish());
-        assert!(
-            matches!(http_cause(&error), HttpReaderError::MorePages { entity: "dataset" }),
-            "expected MorePages{{entity: \"dataset\"}}, got: {}",
             http_cause(&error)
         );
     }
