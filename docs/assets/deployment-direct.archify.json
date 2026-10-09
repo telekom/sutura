@@ -9,37 +9,47 @@
     "locale": "en"
   },
   "components": [
-    {"id": "user", "type": "external", "label": "User", "sublabel": "person", "pos": [40, 150], "size": [130, 60]},
-    {"id": "agent", "type": "frontend", "label": "Chat interface / agent", "sublabel": "MCP client", "pos": [40, 510], "size": [150, 60]},
-    {"id": "entra", "type": "security", "label": "Entra ID", "sublabel": "OIDC issuer", "pos": [250, 40], "size": [140, 60]},
-    {"id": "keycloak", "type": "security", "label": "Keycloak", "sublabel": "OIDC issuer, token exchange", "pos": [250, 130], "size": [140, 60]},
-    {"id": "gcpiam", "type": "security", "label": "GCP IAM", "sublabel": "workload identity pool", "pos": [250, 220], "size": [140, 60]},
-    {"id": "sutura", "type": "backend", "label": "sutura", "sublabel": "verifies the caller, runs each query", "pos": [600, 60], "size": [170, 200]},
-    {"id": "datahub", "type": "external", "label": "DataHub", "sublabel": "metadata", "pos": [1010, 40], "size": [140, 60]},
+    {"id": "portal", "type": "frontend", "label": "Access request portal", "sublabel": "data marketplace", "pos": [590, 40], "size": [190, 60]},
+    {"id": "user", "type": "external", "label": "User", "sublabel": "person", "pos": [40, 280], "size": [130, 60]},
+    {"id": "agent", "type": "frontend", "label": "Chat interface / agent", "sublabel": "MCP client", "pos": [40, 640], "size": [150, 60]},
+    {"id": "entra", "type": "security", "label": "Entra ID", "sublabel": "OIDC issuer", "pos": [250, 170], "size": [140, 60]},
+    {"id": "keycloak", "type": "security", "label": "Keycloak", "sublabel": "OIDC issuer, token exchange", "pos": [250, 260], "size": [140, 60]},
+    {"id": "gcpiam", "type": "security", "label": "GCP IAM", "sublabel": "workload identity pool", "pos": [250, 350], "size": [140, 60]},
+    {"id": "sutura", "type": "backend", "label": "sutura", "sublabel": "verifies the caller, runs each query", "pos": [600, 190], "size": [170, 200]},
     {"id": "clickhouse", "type": "database", "label": "ClickHouse", "sublabel": "data system", "pos": [1010, 170], "size": [140, 60]},
     {"id": "bigquery", "type": "database", "label": "BigQuery", "sublabel": "data system", "pos": [1010, 270], "size": [140, 60]},
     {"id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "data system", "pos": [1010, 370], "size": [140, 60]},
-    {"id": "model", "type": "external", "label": "Model provider", "sublabel": "language model", "pos": [1010, 510], "size": [140, 60]}
+    {"id": "datahub", "type": "external", "label": "DataHub", "sublabel": "metadata", "pos": [1010, 500], "size": [140, 60]},
+    {"id": "metrics", "type": "backend", "label": "Metrics serving layer", "sublabel": "e.g. Cube", "pos": [1280, 500], "size": [150, 60]},
+    {"id": "bi", "type": "external", "label": "BI tools", "sublabel": "dashboards", "pos": [1280, 360], "size": [150, 60]},
+    {"id": "apis", "type": "external", "label": "APIs", "sublabel": "applications", "pos": [1280, 640], "size": [150, 60]},
+    {"id": "model", "type": "external", "label": "Model provider", "sublabel": "language model", "pos": [1010, 640], "size": [140, 60]}
   ],
   "boundaries": [
     {"kind": "region", "label": "Identity", "wraps": ["entra", "keycloak", "gcpiam"]},
-    {"kind": "region", "label": "Metadata", "wraps": ["datahub"]},
     {"kind": "region", "label": "Data systems", "wraps": ["clickhouse", "bigquery", "postgres"]},
+    {"kind": "region", "label": "Metadata", "wraps": ["datahub"]},
     {"kind": "region", "label": "AI", "wraps": ["model"]}
   ],
   "connections": [
     {"id": "user-agent", "from": "user", "to": "agent", "label": "asks", "fromSide": "bottom", "toSide": "top"},
+    {"id": "user-portal", "from": "user", "to": "portal", "label": "requests access", "fromSide": "top", "toSide": "top", "via": [[105, 10], [685, 10]], "labelAt": [105, 150]},
+    {"id": "portal-entra", "from": "portal", "to": "entra", "label": "grants roles", "variant": "security", "fromSide": "left", "toSide": "top"},
+    {"id": "portal-clickhouse", "from": "portal", "to": "clickhouse", "label": "grants", "variant": "security", "fromSide": "right", "toSide": "top"},
     {"id": "user-entra", "from": "user", "to": "entra", "label": "sign in", "variant": "security"},
     {"id": "user-keycloak", "from": "user", "to": "keycloak", "label": "sign in", "variant": "security"},
     {"id": "entra-sutura", "from": "entra", "to": "sutura", "label": "key set", "variant": "security"},
     {"id": "keycloak-sutura", "from": "keycloak", "to": "sutura", "label": "key set", "variant": "security"},
     {"id": "sutura-keycloak", "from": "sutura", "to": "keycloak", "label": "token exchange", "variant": "security"},
     {"id": "sutura-gcpiam", "from": "sutura", "to": "gcpiam", "label": "pool, then mapped service account", "variant": "security"},
-    {"id": "sutura-datahub", "from": "sutura", "to": "datahub", "label": "definitions", "fromSide": "right", "toSide": "left"},
     {"id": "sutura-clickhouse", "from": "sutura", "to": "clickhouse", "label": "SQL as the caller", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
     {"id": "sutura-bigquery", "from": "sutura", "to": "bigquery", "label": "SQL as the caller", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
     {"id": "sutura-postgres", "from": "sutura", "to": "postgres", "label": "SQL as a shared service user", "fromSide": "right", "toSide": "left"},
-    {"id": "agent-model", "from": "agent", "to": "model", "label": "model calls", "fromSide": "bottom", "toSide": "bottom", "via": [[115, 600], [1080, 600]]},
-    {"id": "agent-sutura", "from": "agent", "to": "sutura", "label": "MCP, caller token", "variant": "emphasis", "fromSide": "right", "toSide": "bottom", "via": [[685, 540]]}
+    {"id": "sutura-datahub", "from": "sutura", "to": "datahub", "label": "definitions", "fromSide": "right", "toSide": "left"},
+    {"id": "datahub-metrics", "from": "datahub", "to": "metrics", "label": "metric definitions", "fromSide": "right", "toSide": "left"},
+    {"id": "metrics-bi", "from": "metrics", "to": "bi", "label": "metrics", "fromSide": "top", "toSide": "bottom"},
+    {"id": "metrics-apis", "from": "metrics", "to": "apis", "label": "metrics", "fromSide": "bottom", "toSide": "top"},
+    {"id": "agent-model", "from": "agent", "to": "model", "label": "model calls", "fromSide": "bottom", "toSide": "bottom", "via": [[115, 730], [1080, 730]]},
+    {"id": "agent-sutura", "from": "agent", "to": "sutura", "label": "MCP, caller token", "variant": "emphasis", "fromSide": "right", "toSide": "bottom", "via": [[685, 670]]}
   ]
 }

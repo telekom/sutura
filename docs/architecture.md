@@ -30,7 +30,7 @@ set of the identity provider lets sutura verify the caller's token.
   src="../assets/deployment-direct.html"
   title="sutura with an agent that calls it directly"
   loading="lazy"
-  style="width: 100%; height: 520px; border: 0;"
+  style="width: 100%; height: 540px; border: 0;"
 ></iframe>
 
 [Open the diagram on its own page](assets/deployment-direct.html). The agent calls sutura over MCP
@@ -42,7 +42,7 @@ with the caller's token.
   src="../assets/deployment-gateway.html"
   title="sutura behind an AI gateway"
   loading="lazy"
-  style="width: 100%; height: 520px; border: 0;"
+  style="width: 100%; height: 540px; border: 0;"
 ></iframe>
 
 [Open the diagram on its own page](assets/deployment-gateway.html). The gateway routes the model
@@ -51,6 +51,12 @@ audience.
 
 In both deployments, sutura verifies the token, reads the definitions from DataHub and runs each
 query in the data system.
+
+Users ask the access request portal for access. The portal grants roles in the identity provider and
+grants in the data system. sutura keeps no copy of the grants.
+
+DataHub holds each metric definition once. The metrics serving layer serves it to BI tools and APIs,
+and sutura serves it to agents, so every consumer gets the same number.
 
 Each part can change: another catalog (OpenMetadata, RDBMS, files), another data system (DuckDB,
 Oracle, files), another OIDC issuer, direct or through a gateway.
