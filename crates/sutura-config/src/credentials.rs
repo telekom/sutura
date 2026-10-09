@@ -165,5 +165,7 @@ impl CredentialBroker for StaticCredentialBroker {
     }
 }
 
+pub mod declared;
+
 #[cfg(test)]
 mod tests;

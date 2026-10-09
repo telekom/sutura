@@ -270,7 +270,7 @@ fn an_answer_whose_legs_run_under_two_postures_records_both_in_source_order() {
     // **`docs/adr/0040`: this record used to be the one shape an answer could not carry.**
     // `ExecutedAs::uniform` refused it and `PinnedDefinitions::provenance` took only what that
     // verdict returned, so a shared leg beside an impersonating one was a `409` rather than an
-    // answer naming which leg came from which. BigQuery is the only impersonating adapter, so
+    // answer naming which leg came from which. BigQuery was then the only impersonating adapter, so
     // refusing the mix prevented BigQuery from federating with a shared-posture adapter.
     //
     // The reasoning that refusal carried stays true and is not what changed: rows a shared identity

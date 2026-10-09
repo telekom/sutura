@@ -647,6 +647,39 @@ fn a_declared_rdbms_catalog_build_without_the_feature_is_refused_naming_it() {
     );
 }
 
+/// An Oracle dictionary connection is refused by name in a build without the `oracle` feature,
+/// whether or not `rdbms` is linked - so the default set and a build that ships `rdbms` alone
+/// answer the same. The decision takes the build's feature state as a value, so this cell runs at
+/// every feature set, `--all-features` included. Built through `Settings::load` because the
+/// connection block is private to `sutura-config`.
+#[test]
+fn an_oracle_dictionary_in_a_build_without_the_feature_is_refused_naming_it() {
+    let overlay = "security:\n  identity: \"single-user\"\n  single_user_because: \"a composition-root test reads its own \
+             fixture files\"\n\
+         sources:\n  warehouse:\n    kind: \"files\"\n    data_dir: \"/srv/warehouse\"\n    \
+         posture: \"shared-service-user\"\n\
+         catalogs:\n  - name: \"dictionary\"\n    kind: \"rdbms\"\n    version: \"dict-1\"\n    \
+         environment: \"prod\"\n    source_alias: \"warehouse\"\n    connection:\n      dialect: \"oracle\"\n      \
+         host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      user: \"reader\"\n      \
+         password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
+    let settings = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect("the settings tree is well-formed; the refusal is the composition root's");
+    let err = crate::catalog::refuse_oracle_dictionaries(settings.catalogs(), false)
+        .expect_err("a build without the feature refuses an Oracle dictionary");
+    assert!(err.contains("`catalogs.dictionary`"), "the refusal names the catalog: {err}");
+    assert!(
+        err.contains("--features oracle"),
+        "a build without the feature names the remedy: {err}"
+    );
+    assert_eq!(
+        crate::catalog::refuse_oracle_dictionaries(settings.catalogs(), true),
+        Ok(()),
+        "a build with the feature leaves the declaration to its reader"
+    );
+}
+
 /// The `openmetadata`-kind not-linked refusal, held as its own cell: a default build (without the
 /// feature) refuses `catalog.kind: openmetadata` by name, naming the feature an operator would
 /// build with - the same stand `datahub`'s own not-linked refusal makes in

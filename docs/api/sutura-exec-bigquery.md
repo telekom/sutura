@@ -159,7 +159,7 @@ an owned `#[source]`.
   security-critical setting must not be accepted and then ignored - and *silently widened* is
   the same defect from the other side.
 
-  Reachable only from a broker that is not `DeclaredPrincipalBroker`: that one mints the
+  Reachable only from a broker that is not `sutura_config::DeclaredPrincipalBroker`: that one mints the
   account off the map it parsed, so a served deployment refuses the declaration at boot
   instead. `Presented` is a public port, so the refusal is typed rather than an
   `unreachable!`.
@@ -383,49 +383,6 @@ What one load answers with: the row count, or why it did not happen.
 Named because `Result<usize, FixtureNotLoaded<T::Error>>` is over the `type_complexity` threshold
 this workspace tightened, and for the reason `crate::Mapped` is named: the generic error is the
 point, and erasing it would lose which transport failed.
-
-## `use DeclaredPrincipalBroker`
-
-Presents the asking subject's own credential at a source that declares it, beside the account
-declared for that subject - and the operator's witness for a shared one.
-
-**The credential is the verified assertion itself**, or, for a source declared through
-`Self::impersonating_delegated`, the token its `Delegation` returned for that assertion.
-
-**The assertion AND the account, because either alone loses the property.** The assertion (or
-its exchanged token) is what the caller possesses and what the pool verifies; the account is what a deployment declared
-this caller's questions should run as, and a broker that presented only the assertion ran every
-declared caller as one pool principal whatever the map said.
-
-**Both maps, because one plan may read one of each and a broker is per answer rather than per
-source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
-
-## `use DeclaredPrincipals`
-
-The subjects one source may be asked as, and the account each of them resolves to.
-
-**A parsed type and not a bare map, because the empty map is the interesting value.** An
-impersonating source with no declared subject can serve nobody: every request would be refused,
-while the boot log said the source opened. That is the exact defect this whole change exists to
-remove, so the emptiness is refused at the boundary that can turn it into a startup failure
-rather than documented at the one that cannot.
-
-## `use DeclaredPrincipalsUnusable`
-
-A defect in this broker itself, which no configuration reaches.
-
-Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
-thing minting can fail on is a credential set that does not cover the sources it was asked
-about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
-here would be process death under `panic = "abort"` for a case a type already describes.
-
-## `use NoDeclaredPrincipals`
-
-Why a declared impersonation map is not one a source can be served under.
-
-Two variants, and the second one is the reason the enum was one from the start: an empty
-declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
-the same class of defect one level down.
 
 ## Module `adbc`
 
@@ -1379,178 +1336,6 @@ earns its place on readability alone, not on a lint that does not fire either wa
 
 ## Module `delegation`
 
-The delegation exchange a `direct` deployment needs before a workload pool will accept its
-caller (`docs/adr/0014` Decision 3 and its fourth amendment).
-
-In `direct` the inbound token's `aud` is this deployment's own resource identifier, which leg 1
-requires, and the pool provider requires its own. One token cannot carry both, so the caller's
-identity provider is asked - RFC 8693, subject token = the inbound token - for a token whose audience is the
-pool provider's. The inbound token then serves leg 1 only, and the exchanged one is what the
-credential document hands Google's token service.
-
-**Nothing here caches.** One exchange per source per request, and the result lives in that
-request's `sutura_domain::identity::LegCredentials` and nowhere else, so two subjects cannot
-share an exchanged token through this module: there is no store for them to share.
-`docs/adr/0014`'s *Caching exchanged tokens is where this gets dangerous* is why the first
-version has none.
-
-# The limits, beside the claim
-
-- **The identity provider is a hard runtime dependency.** No exchange, no question - a failure is
-  `DelegationFailed` and reaches a caller as `503 identity_unavailable`, never as an answer
-  under the deployment.
-- **The client credential is the most sensitive value in the deployment**: whoever holds it can
-  obtain a pool-audience token for any subject whose inbound token they also hold. It is a
-  `Secret` (redacted `Debug`, no `Display`, zeroized on drop - with the copy limits that type
-  states).
-- **`sutura serve` composes it** for a source declaring `workload_identity.delegation`, refused
-  at boot unless the inbound mode is `direct`. No served-binary cell reaches it: a `bigquery`
-  deployment needs the ADBC driver to boot and the default test venue carries none, so the
-  composition is held in-process by `sutura-cli`'s `build_broker` cells.
-
-### `struct RequestedAudience`
-
-```rust
-pub struct RequestedAudience
-```
-
-The audience the exchanged token must carry: the pool provider's client ID.
-
-**Stored exactly as written**, as `ResourceIdentifier` is: an identity provider matches it byte for byte
-against a client it knows, so a normalised spelling would ask for a different audience.
-
-#### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-```rust
-pub fn parse(raw: &str) -> Result<Self, UnusableAudience>
-```
-
-Parses the pool provider's client ID.
-
-# Errors
-
-`UnusableAudience`, carrying a position and never the text.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `enum UnusableAudience`
-
-```rust
-pub enum UnusableAudience
-```
-
-Why a declared requested audience is not one an exchange can ask for.
-
-#### Variants
-
-- `Empty` - There was nothing there.
-- `TooLong` - Longer than `RequestedAudience::MOST`.
-- `Unprintable` - A space or a character outside printable ASCII, at a byte offset.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct Delegated`
-
-```rust
-pub struct Delegated
-```
-
-A token an identity provider issued for the requested audience, and the instant it stops being one.
-
-The instant is a number and not an `Expiry`: a delegated token that never expires is not a
-state an exchange can return, so the forever variant is unrepresentable here.
-
-#### Methods
-
-```rust
-pub fn into_token(self) -> Secret
-```
-
-The token, moved out: a leg presents it once and nothing else keeps a copy.
-
-```rust
-pub const fn new(token: Secret, not_after_unix_seconds: u64) -> Self
-```
-
-What an implementor of `DelegationExchange` returns after validating the identity provider's answer.
-
-```rust
-pub const fn not_after_unix_seconds(&self) -> u64
-```
-
-#### Implements
-
-`Clone`, `Debug`
-
-### `enum DelegationFailed`
-
-```rust
-pub enum DelegationFailed
-```
-
-Why an exchange produced no usable token.
-
-**No variant carries token material or the identity provider's free text.** `error_description` is dropped
-because an identity provider may echo its input there; the RFC 6749 `error` code survives only when it is the
-registered shape (`[a-z_]`, at most 64 bytes), which no JWT can be.
-
-#### Variants
-
-- `Unreachable` - The token endpoint could not be reached or its answer not read.
-- `Refused` - The identity provider answered with a non-success status.
-- `TooLarge` - The answer was larger than the deployment's cap.
-- `Malformed` - The answer lacked a field this exchange needs, or the token is not a JWT with an `exp`.
-- `WrongTokenType` - The identity provider issued something other than an access token.
-- `WrongAudience` - The issued token does not carry the requested audience.
-- `AlreadyExpired` - The issued token's `exp` is not after the instant it was checked at.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
-### `trait DelegationExchange`
-
-```rust
-pub trait DelegationExchange
-```
-
-The port: one RFC 8693 exchange at the caller's own identity provider.
-
-**Synchronous**, because `sutura_domain::identity::CredentialBroker::mint` is and every
-served caller of it is already on the blocking pool (`sutura_runtime::spawn_carrying_span`).
-
-### `struct Delegation`
-
-```rust
-pub struct Delegation
-```
-
-What one impersonating source exchanges through.
-
-`Arc` because a cloned broker shares its source's one identity provider client - one TLS agent,
-one credential - rather than building another. A composition root builds one per source that
-declares a delegation, never one per deployment.
-
-#### Methods
-
-```rust
-pub fn through(exchange: Arc<dyn DelegationExchange>, audience: RequestedAudience) -> Self
-```
-
-#### Implements
-
-`Clone`, `Debug`
-
-### Module `http`
-
 The real `DelegationExchange`: RFC 8693 over the shared outbound client, behind the
 default-off `wire` feature so a lean build links no exchange at all.
 
@@ -1565,7 +1350,7 @@ declared, and the signature is the pool's to verify - Google's token service doe
 provider's own keys. So the claim checks catch an identity provider configured to issue the wrong audience;
 they are not a defence against the identity provider itself.
 
-#### `struct TokenEndpoint`
+### `struct TokenEndpoint`
 
 ```rust
 pub struct TokenEndpoint
@@ -1581,7 +1366,7 @@ A loopback endpoint is dialled directly, never through a proxy - `sutura_http_cl
 own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
 an egress proxy needs.
 
-##### Methods
+#### Methods
 
 ```rust
 pub fn as_str(&self) -> &str
@@ -1595,11 +1380,11 @@ pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
 
 `InvalidEndpoint`, the shared client's own refusal.
 
-##### Implements
+#### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `enum UnusableClientId`
+### `enum UnusableClientId`
 
 ```rust
 pub enum UnusableClientId
@@ -1607,15 +1392,15 @@ pub enum UnusableClientId
 
 Why a declared client identifier is unusable.
 
-##### Variants
+#### Variants
 
 - `Unusable` - Empty, over 255 bytes, or carrying a space or a non-printable byte.
 
-##### Implements
+#### Implements
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
-#### `struct ExchangeClient`
+### `struct ExchangeClient`
 
 ```rust
 pub struct ExchangeClient
@@ -1623,11 +1408,11 @@ pub struct ExchangeClient
 
 This deployment's client at the identity provider and its secret (`client_secret_post`).
 
-**The most sensitive value in the deployment** - see the module header of
-`crate::delegation`. `Debug` prints the identifier and `Secret`'s redaction; there is no
+**The most sensitive value in the deployment**: whoever holds it can obtain a pool-audience
+token for any subject whose inbound token they also hold. `Debug` prints the identifier and `Secret`'s redaction; there is no
 `Display`.
 
-##### Methods
+#### Methods
 
 ```rust
 pub fn new(id: &str, secret: Secret) -> Result<Self, UnusableClientId>
@@ -1637,11 +1422,11 @@ pub fn new(id: &str, secret: Secret) -> Result<Self, UnusableClientId>
 
 `UnusableClientId` for an identifier no form can carry unambiguously.
 
-##### Implements
+#### Implements
 
 `Clone`, `Debug`
 
-#### `struct OverHttp`
+### `struct OverHttp`
 
 ```rust
 pub struct OverHttp
@@ -1649,22 +1434,22 @@ pub struct OverHttp
 
 `DelegationExchange` over HTTP.
 
-##### Methods
+#### Methods
 
 ```rust
 pub const fn new(endpoint: TokenEndpoint, client: ExchangeClient, agent: sutura_tls::Rotating<ureq::Agent>, bounds: ReadBounds) -> Self
 ```
 
-##### Implements
+#### Implements
 
 `Debug`, `DelegationExchange`
 
-#### `use ReadBounds`
+### `use ReadBounds`
 
 The bounds and the rotating agent `OverHttp` dials over, so a composition root builds them
 without naming the shared client crate itself.
 
-#### `use rotating_agent`
+### `use rotating_agent`
 
 The bounds and the rotating agent `OverHttp` dials over, so a composition root builds them
 without naming the shared client crate itself.

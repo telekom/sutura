@@ -58,6 +58,10 @@ fixtures = ["sutura-domain/fixtures"]
 name = "conformance"
 required-features = ["fixtures"]
 
+[[test]]
+name = "execute_as"
+required-features = ["fixtures"]
+
 [dev-dependencies]
 sutura-dev = { workspace = true }
 # `sutura_conformance::corpus` supplies this crate's own unit tests a real plan, posture and

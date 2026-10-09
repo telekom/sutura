@@ -350,7 +350,7 @@ fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
 fn a_provenance_carries_a_mixed_execution_record_and_names_which_leg_ran_as_what() {
     // **`docs/adr/0040`, at the type that used to make this unrepresentable.** `provenance` took a
     // `UniformlyExecuted`, obtainable only from a verdict that refused two postures, so a shared leg
-    // beside an impersonating one had no way to become an answer at all. BigQuery is the only
+    // beside an impersonating one had no way to become an answer at all. BigQuery was then the only
     // impersonating adapter, so that prevented BigQuery from federating with a shared-posture adapter.
     //
     // **What this is NOT:** a control. The record reaches a caller in the same body as the rows. The

@@ -104,10 +104,11 @@ pub(super) enum Tree<'a> {
 /// developer-machine direction, which skips loudly and names what did not run.
 ///
 /// AND IT IS WHY ONE COMMIT ANSWERED DIFFERENTLY IN TWO VENUES. `just causality` sources
-/// `nix/with-tier.sh` and so provisions a tier; `just ship-check` and `nix run .#causality` do
-/// not, so there those cells skipped and the verdict was about the change. The false green was
-/// reachable from the one venue a person runs by hand and cites, which is the worst place for it
-/// to live and the reason it went unnoticed.
+/// `nix/with-tier.sh` and so provisions a tier, and `just ship-check` calls that recipe; CI's
+/// `nix run .#causality` does not, so there those cells skip and the verdict is about the change.
+/// `just ship-check` once ran the bare task, so those cells skipped there too. The false green
+/// was reachable from the one venue a person runs by hand and cites, which is the worst place for
+/// it to live and the reason it went unnoticed.
 ///
 /// WHAT THAT LEAVES: a tier-backed cell cannot be proven causal by this gate. It skips in the
 /// reconstructed tree instead of running, so the base run is green and the verdict is *green

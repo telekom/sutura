@@ -518,8 +518,13 @@ in
       # step over no evidence. So the verdict is RETAINED as the last thing this section prints,
       # which is what the pull request has to state; the gate's own lines above it say which cause
       # and which remedy.
+      #
+      # THROUGH THE TASK, NOT A CARGO LINE: the recipe brings the Postgres tier up and exports its
+      # requirement, in a shell of its own so its EXIT trap cannot replace the one above. A bare
+      # `test-causality` here ran the tier-backed cells vacuously, or failed them closed when an
+      # earlier run had published a tier and nothing exported its credential.
       causality_status=0
-      cargo run -q -p xtask -- test-causality --since "$merge_base" || causality_status=$?
+      just causality "$merge_base" || causality_status=$?
       if [ "$causality_status" -eq 3 ]; then
         echo "ship-check: causality was INCONCLUSIVE - this run proves NO red-before-green."
         echo "  State the substitute in the pull request: a mutation run, or this gate scoped"

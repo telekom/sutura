@@ -561,7 +561,7 @@ property: a gate, rather than a reader of this paragraph.
 
 **Status of the amendment: accepted.** The sentence *"Nothing in this tree exchanges a token at all
 now"* stopped being true of the tree with `telekom/sutura#1208`:
-`sutura_exec_bigquery::delegation::DelegationExchange`, and its HTTP implementor behind the
+`sutura_domain::identity::DelegationExchange`, and its HTTP implementor behind the
 default-off `wire` feature, perform an RFC 8693 delegation exchange at the caller's identity
 provider for a source declared with `impersonating_delegated`
 ([0014](0014-how-a-caller-proves-who-it-is.md)'s fourth amendment). It is still true of every

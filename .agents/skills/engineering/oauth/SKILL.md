@@ -67,9 +67,10 @@ the raw token deep in a call stack is authorization nobody can audit.
 
 The intent is that every query runs as the calling principal. Concretely:
 
-**The port is built; the downstream leg is built and unproven, on BigQuery alone.**
+**The port is built; the downstream leg is built and unproven, on BigQuery and ClickHouse.**
 `sutura_domain::identity::CredentialBroker` is the credential port, with production implementors in
-`sutura-config` and in `sutura-exec-bigquery`'s `DeclaredPrincipalBroker`. There the caller's own
+`sutura-config` (`StaticCredentialBroker`, `DeclaredPrincipalBroker`). On ClickHouse the declared
+map names the user each statement runs as (`EXECUTE AS`). On BigQuery the caller's own
 verified assertion is federated through the declared pool, and the account the source's per-source
 map declares for that subject becomes the credential's `service_account_impersonation_url`. The
 first leg of that federation IS an RFC 8693 token exchange, at Google's STS - performed by the

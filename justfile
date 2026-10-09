@@ -416,7 +416,8 @@ causality base="origin/main":
     #!/usr/bin/env bash
     set -euo pipefail
     # The SAME tier `test` provisions, and it was missing: this gate's first step is *are the tests green
-    # on HEAD*, and the postgres cells are fail-closed, so it failed its own precondition.
+    # on HEAD*, and the postgres cells are fail-closed, so it failed its own precondition. `ship-check`
+    # calls this recipe rather than the xtask line, so the tier setup has one owner.
     source nix/with-tier.sh
     sutura_tier_up
     # Same shell, same shared cores - see `test`'s own comment above `sutura_dev::tolerance` reads.

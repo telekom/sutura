@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-rdbms/src/documentation.rs b/crates/sutura-catalog-rdbms/src/documentation.rs
+index 92b75fb2d..c90c8d954 100644
+--- a/crates/sutura-catalog-rdbms/src/documentation.rs
++++ b/crates/sutura-catalog-rdbms/src/documentation.rs
+@@ -86,7 +86,7 @@ impl Row {
+             &self.column_description,
+         ];
+         let bytes: usize = text.iter().map(|cell| cell.as_deref().map_or(0, str::len)).sum();
+-        u64::try_from(bytes).unwrap_or(u64::MAX).saturating_add(1)
++        u64::try_from(bytes).unwrap_or(u64::MAX).saturating_add(2)
+     }
+ }
+ 
