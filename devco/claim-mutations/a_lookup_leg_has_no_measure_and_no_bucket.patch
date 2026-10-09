@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/plan/leg.rs b/crates/sutura-domain/src/plan/leg.rs
+--- a/crates/sutura-domain/src/plan/leg.rs
++++ b/crates/sutura-domain/src/plan/leg.rs
+@@ -440,7 +440,7 @@
+             } => {
+                 labels.push(String::from(bucket.label()));
+                 labels.extend(terms.iter().map(|term| String::from(term.label())));
+             }
+-            Self::Lookup { .. } => {}
++            Self::Lookup { .. } => labels.push(String::from("bucket")),
+         }
+         labels
+     }

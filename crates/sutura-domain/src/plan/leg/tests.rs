@@ -145,7 +145,7 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
     // claim `docs/adr/0007` makes when it says a dimension model has no time column and no measure.
     let LegPlan::Lookup {
         ref source,
-        ref table,
+        table: ref _table,
         ref keys,
         ref bindings,
     } = lookup()
@@ -153,7 +153,7 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
         panic!("the lookup fixture is a lookup");
     };
     assert_eq!(source.as_str(), "crm");
-    assert_eq!(table.to_string(), "dim_customer");
+    assert_eq!(lookup().table().to_string(), "dim_customer");
     assert_eq!(keys.len(), 2);
     assert_eq!(bindings.filters(), []);
     assert_eq!(bindings.params(), []);

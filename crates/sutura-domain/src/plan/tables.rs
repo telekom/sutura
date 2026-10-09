@@ -55,8 +55,9 @@
 //! keeping from this.**
 //!
 //! What remains is narrow and stated so it is not mistaken for the above. A
-//! [`Lookup`](crate::plan::LegPlan::Lookup) leg reads ONE table and declares no joins, so it has no
-//! pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
+//! [`Lookup`](crate::plan::LegPlan::Lookup) leg takes a [`StatementTables`] too, and no builder gives
+//! it a join, so it has no pair to compare - the shape is the check. And two LEGS whose tables
+//! collide are not this defect:
 //! each leg is its own statement on its own data system, so nothing binds one identifier to two
 //! tables; what the combiner joins on is a label, and a label that shadowed a table is
 //! [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable)'s refusal at
@@ -193,6 +194,20 @@ impl StatementTables {
     #[inline]
     pub(crate) fn into_parts(self) -> (QualifiedTable, Vec<PlanJoin>) {
         (self.table, self.joins)
+    }
+}
+
+/// One table and no joins, so a leg's `table` can be spelled `x.into()`.
+impl From<TableName> for StatementTables {
+    fn from(table: TableName) -> Self {
+        Self::only(table)
+    }
+}
+
+/// One table and no joins, so a leg's `table` can be spelled `x.into()`.
+impl From<QualifiedTable> for StatementTables {
+    fn from(table: QualifiedTable) -> Self {
+        Self::only(table)
     }
 }
 

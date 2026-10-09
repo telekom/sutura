@@ -316,7 +316,7 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source(),
-        table: lookup_table,
+        table: lookup_table.into(),
         keys: lookup_keys,
         bindings,
     };
