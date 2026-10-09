@@ -146,6 +146,8 @@ fn a_loopback_agent_surface_answering_a_host_name_counts_as_off_host() {
         r#""127.0.0.1", "sutura.example.com", "::1""#,
     ] {
         let named = format!("  allowed_hosts: [{hosts}]\n");
+        let loaded = Settings::load(&Sources::defaults(Environment::Development).with_overlay(loopback(&named, "", "")));
+        assert!(loaded.is_err(), "{hosts}");
         let refusals = refused(&loopback(&named, "", ""));
         assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity], "{hosts}");
         let rendered = refusals.first().expect("one refusal").to_string();
