@@ -79,7 +79,10 @@
 //! so `sutura_domain::warehouse::Warehouse` is unchanged, and it is a `std` marker rather than a
 //! framework type - a requirement a transport states, satisfied here.
 
+use std::sync::Arc;
+
 use sutura_domain::audit::{AuditSink, CallRecord};
+use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::{FederationCombiner, RowCeilings};
@@ -96,12 +99,28 @@ use crate::{ServiceError, Validated, verify_and_validate};
 /// `Send + Sync + 'static` because it is shared between connections and moved onto a blocking pool.
 /// A transport holds it behind an `Arc` in its request state.
 pub trait Surface: Send + Sync + 'static {
-    /// The pinned bundle this process is serving.
+    /// The bundle this process is serving right now.
     ///
-    /// A borrow rather than a description, so the transport owns the wire shape and this trait does
-    /// not have to change when the shape does. It is the *validated* bundle: there is no accessor
-    /// here for an unvalidated one, because a [`Surface`] cannot be built from one.
-    fn definitions(&self) -> &PinnedDefinitions;
+    /// **A snapshot, not a view into the service**: an implementation may replace its bundle when a
+    /// refresh [adopts](Self::adopt) a newer one, so the value returned is the one that was current at
+    /// this call and stays the same however long the caller holds it. A caller that reads more than once
+    /// for one request may see two bundles; one that needs a single bundle takes this once and
+    /// passes it down. [`Self::answer`] does exactly that for itself.
+    ///
+    /// It is the *validated* bundle: there is no accessor here for an unvalidated one, because a
+    /// [`Surface`] cannot be built from one and [`Self::adopt`] stores only a validated one.
+    fn definitions(&self) -> Arc<PinnedDefinitions>;
+
+    /// Offers the service a freshly loaded bundle, and says what became of it.
+    ///
+    /// [`Adopted::Rotated`] means the next question reads it; [`Adopted::Unchanged`] means the
+    /// bundle served is the one served before. A refusal leaves the bundle already served in place.
+    /// [`LocalService`] keeps the bundle it started with and answers `Unchanged`.
+    ///
+    /// # Errors
+    ///
+    /// [`NotAdopted`] names which check refused.
+    fn adopt(&self, next: PinnedDefinitions) -> Result<Adopted, NotAdopted>;
 
     /// Answers one certified question, or says why it will not.
     ///
@@ -285,6 +304,45 @@ pub enum SurfaceFailure {
     },
 }
 
+/// What a refresh did to the served bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Adopted {
+    /// The bundle served is the one served before this call.
+    Unchanged,
+    /// A different bundle passed every check and is what the next question reads.
+    Rotated {
+        /// The digest that was served until now.
+        previous: DefinitionDigest,
+        /// The digest served from now on.
+        digest: DefinitionDigest,
+    },
+}
+
+/// Why a refreshed bundle was not stored. The bundle already served is still the one served.
+#[derive(Debug, thiserror::Error)]
+pub enum NotAdopted {
+    /// The deployment's own pre-flight refused it: a model names a table this process does not hold.
+    #[error("the refreshed bundle names tables this deployment cannot serve")]
+    Preflight {
+        /// The deployment's own refusal, whatever type it is.
+        #[source]
+        cause: ErasedCause,
+    },
+    /// A declared key or an anchor did not hold, or could not be run.
+    #[error("the refreshed bundle is not fit to serve")]
+    NotValidated {
+        #[source]
+        cause: NotValidated,
+    },
+}
+
+/// The deployment's pre-flight over a refreshed bundle: what boot ran over the first one, run again
+/// over the next, with the same refusal.
+///
+/// Held by the service because it is handed the data systems the check asks, and a composition
+/// root has already given those up by the time a refresh runs.
+pub type AdoptionGate<W> = Box<dyn Fn(&PinnedDefinitions, &Warehouses<W>) -> Result<(), ErasedCause> + Send + Sync>;
+
 /// Every cause beneath `error`, outermost first.
 ///
 /// **A logging concern, and it lives here because this is where the erasure happens.** `Display` on
@@ -364,6 +422,9 @@ pub enum ServiceNotStarted {
 pub struct LocalService<W, S, B, C> {
     definitions: Validated<PinnedDefinitions>,
     warehouses: Warehouses<W>,
+    /// The pre-flight a refreshed bundle is to pass; `None` where boot ran no pre-flight. Held and
+    /// not run: this service's [`Surface::adopt`] keeps the bundle it started with.
+    adoption_gate: Option<AdoptionGate<W>>,
     sink: S,
     broker: B,
     /// The federation combiner - `docs/adr/0007`'s second driven port, held beside the
@@ -461,6 +522,7 @@ where
         Ok(Self {
             definitions,
             warehouses,
+            adoption_gate: None,
             sink,
             broker,
             combiner,
@@ -493,6 +555,14 @@ where
         self.row_ceilings = row_ceilings;
         self
     }
+
+    /// Sets the pre-flight a refreshed bundle is to pass - the one the composition root ran over the
+    /// bundle it booted with. Held, not run: this service's [`Surface::adopt`] keeps the boot bundle.
+    #[must_use]
+    pub fn with_adoption_gate(mut self, gate: AdoptionGate<W>) -> Self {
+        self.adoption_gate = Some(gate);
+        self
+    }
 }
 
 impl<W, S, B, C> Surface for LocalService<W, S, B, C>
@@ -505,8 +575,13 @@ where
     C: FederationCombiner + Send + Sync + 'static,
     C::Error: Send + Sync,
 {
-    fn definitions(&self) -> &PinnedDefinitions {
-        self.definitions.get()
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
+        self.definitions.share()
+    }
+
+    /// Keeps the bundle this service started with, so every question answers from it as before.
+    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        Ok(Adopted::Unchanged)
     }
 
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {

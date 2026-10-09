@@ -60,6 +60,9 @@ pub struct ServiceState {
     /// fixed strings and takes no lock.
     registry: Arc<Registry>,
     metrics: crate::metrics::Metrics,
+    /// `sutura_catalog_metrics`: set from the served bundle at construction and again by whoever
+    /// swaps that bundle ([`Self::catalog_coverage`]), so the series follows what is served.
+    catalog_coverage: Gauge,
     /// `sutura_spend_headroom_bytes` and `sutura_spend_bytes_total` - registered only when this
     /// deployment's surface reports a headroom value at all, i.e. only when
     /// `governance.per_replica_spend_ceiling` is configured; both series exist under the one
@@ -373,11 +376,12 @@ impl ServiceState {
         // than guessed, because under a CPU quota the machine's own answer is the wrong one.
         let workers = builder.gauge("sutura_engine_worker_threads");
         workers.set(settings.runtime().engine_workers().count() as u64);
-        // `sutura_catalog_metrics` is the governed coverage the SERVED bundle carries. Read once
-        // from the pinned bundle the surface already holds - no load, no I/O, and the number a
-        // coverage ramp is measured against.
-        let coverage = builder.gauge("sutura_catalog_metrics");
-        coverage.set(surface.definitions().definitions().metrics().len() as u64);
+        // `sutura_catalog_metrics` is the governed coverage the SERVED bundle carries: the first
+        // sample is read here from the bundle the surface already holds - no load, no I/O - and a
+        // refresh that swaps the bundle pushes the next through `catalog_coverage`. It is the
+        // number a coverage ramp is measured against.
+        let catalog_coverage = builder.gauge("sutura_catalog_metrics");
+        catalog_coverage.set(surface.definitions().definitions().metrics().len() as u64);
         // Registered only when the surface reports SOME headroom right now - which it does
         // exactly when a ceiling is configured, since an unconfigured ledger's own accessor
         // returns `None` unconditionally. A fresh ledger's initial reading is its own ceiling, so
@@ -406,6 +410,7 @@ impl ServiceState {
             admission,
             registry,
             metrics,
+            catalog_coverage,
             spend_headroom,
             inbound: None,
             #[cfg(feature = "agent")]
@@ -466,9 +471,10 @@ impl ServiceState {
         Arc::clone(&self.surface)
     }
 
-    /// The service, borrowed, for a handler that only reads the pinned bundle.
+    /// The bundle the service is serving at this call, for a handler that only reads it. A handler
+    /// that needs one bundle for the whole request calls this once.
     #[must_use]
-    pub fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions {
+    pub fn definitions(&self) -> Arc<sutura_domain::pinned::PinnedDefinitions> {
         self.surface.definitions()
     }
 
@@ -489,6 +495,15 @@ impl ServiceState {
     pub fn registry(&self) -> Arc<Registry> {
         Arc::clone(&self.registry)
     }
+    /// The `sutura_catalog_metrics` gauge, for the one caller that swaps the served bundle: it sets
+    /// the gauge to the new bundle's governed coverage so the series never describes a bundle that is
+    /// no longer served. A clone shares the series.
+    #[inline]
+    #[must_use]
+    pub fn catalog_coverage(&self) -> Gauge {
+        self.catalog_coverage.clone()
+    }
+
     /// The transport's metrics observer: records question outcomes, admission and rate-limit
     /// events against the shared registry.
     #[inline]

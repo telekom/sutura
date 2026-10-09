@@ -61,8 +61,8 @@ pub(crate) async fn catalog(
     // now, the same value `crate::routes::v1::query::ask` reads through `sutura_app::Asked`.
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
 ) -> impl IntoResponse {
-    // No blocking pool and no data system: this reads a bundle that was pinned at startup and has
-    // not changed since. A catalog edit cannot reach this - it would be a different process.
+    // No blocking pool and no data system: this reads the bundle being served, taken once for this
+    // request. A refresh that lands while it renders does not change what it renders.
     //
     // The prose setting is read here, from the settings the state already holds, and `crate::state`
     // is right that a value a handler can read is a value a handler can branch on - so the reason
@@ -72,7 +72,8 @@ pub(crate) async fn catalog(
     // composition root forgot would take `CatalogProse::default()`, which is `quoted`, and ship the
     // prose of a deployment that asked for none. The settings are the one place that cannot be out
     // of date about what the operator wrote.
-    let view = sutura_app::scoped_for(state.definitions(), asked.context());
+    let definitions = state.definitions();
+    let view = sutura_app::scoped_for(&definitions, asked.context());
     (
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(CatalogBody::of(&view, state.settings().prompt().catalog_prose())),
