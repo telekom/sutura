@@ -214,7 +214,7 @@ mod tests {
     #[test]
     #[cfg(feature = "oracle")]
     fn a_malformed_authentication_response_refuses_the_oracle_source() {
-        let port = sutura_dev::tns_listener::authenticating().expect("the fake listener binds");
+        let port = sutura_dev::tns_listener::authenticating(&[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
         let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-auth-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
         let password = directory.join("password");

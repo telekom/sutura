@@ -68,6 +68,7 @@ pub enum ErrorKind {
     InvalidServiceName(String, String, String, u16),
     InvalidSid(String, String, String, u16),
     InvalidTrustAnchors(String),
+    IterationCountTooLarge(String, u32, u32),
     ListenerRefusedConnection(String, String, u16, usize),
     LockPoisoned,
     MissingBindValue(String),
@@ -80,6 +81,7 @@ pub enum ErrorKind {
     NotImplemented(String),
     OutOfData,
     OutOfRange(String),
+    PacketTooShort(usize),
     ParseError(String, usize),
     PemFileOperation,
     PoolHasBusyConnections,
@@ -307,6 +309,12 @@ impl fmt::Display for Error {
             ErrorKind::InvalidTrustAnchors(m) => {
                 write!(fmt, "invalid trust anchors: {m}")?
             }
+            ErrorKind::IterationCountTooLarge(key, count, max) => write!(
+                fmt,
+                "the authentication response from the database asks for \
+                 {count} iterations in {key}, more than the {max} the \
+                 driver allows"
+            )?,
             ErrorKind::ListenerRefusedConnection(
                 connection_id,
                 host,
@@ -323,6 +331,11 @@ impl fmt::Display for Error {
             }
             ErrorKind::OutOfData => fmt.write_str("out of data")?,
             ErrorKind::OutOfRange(m) => write!(fmt, "{}", m)?,
+            ErrorKind::PacketTooShort(length) => write!(
+                fmt,
+                "the database sent a packet of {length} bytes, shorter than \
+                 its header"
+            )?,
             ErrorKind::ParseError(s, p) => {
                 write!(fmt, "parse error at position {p} in text {s}")?
             }
@@ -646,6 +659,17 @@ impl Error {
         Error::new(ErrorKind::InvalidTrustAnchors(reason), None)
     }
 
+    pub(crate) fn iteration_count_too_large(
+        key: &str,
+        count: u32,
+        max: u32,
+    ) -> Error {
+        Error::new(
+            ErrorKind::IterationCountTooLarge(key.to_string(), count, max),
+            None,
+        )
+    }
+
     /// Returns a boolean indicating if the error is a call timeout exceeded
     /// error.
     pub(crate) fn is_call_timeout_exceeded(&self) -> bool {
@@ -712,6 +736,10 @@ impl Error {
 
     pub(crate) fn out_of_range(m: impl Into<String>) -> Error {
         Error::new(ErrorKind::OutOfRange(m.into()), None)
+    }
+
+    pub(crate) fn packet_too_short(length: usize) -> Error {
+        Error::new(ErrorKind::PacketTooShort(length), None)
     }
 
     pub(crate) fn parse_error(s: String, p: usize) -> Error {

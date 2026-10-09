@@ -1423,18 +1423,18 @@ cannot accidentally have.
 
 ## Module `tns_listener`
 
-Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with one
-packet a test chooses, or with an ACCEPT and then an authentication response the driver cannot
+Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with
+bytes a test chooses, or with an ACCEPT and then an authentication response the driver cannot
 use.
 
 Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
 `sutura-cli`, and the RDBMS catalog's Oracle reader - and both prove the same refusal. `cargo
 xtask check-jscpd` refuses a clone under `crates/`, so the fake is written once.
 
-Limit: `RedirectingListener` and `answering` speak only the pre-negotiation framing the
-driver reads first, so a driver that follows the redirect reaches
+Limit: `RedirectingListener`, `answering` and `sending` speak only the pre-negotiation
+framing the driver reads first, so a driver that follows the redirect reaches
 `RedirectingListener::target` and is closed there, before any authentication.
-`authenticating` goes one step further and no more: it never completes a login.
+`authenticating` and `marking` go one step further and no more: neither completes a login.
 
 ### `struct RedirectingListener`
 
@@ -1490,16 +1490,45 @@ Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with a single 
 
 A listener that cannot bind or has no local address.
 
+### `fn sending`
+
+```rust
+pub fn sending(bytes: Vec<u8>) -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with `bytes` as they are,
+framed or not, then closes, and returns its port.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
 ### `fn authenticating`
 
 ```rust
-pub fn authenticating() -> std::io::Result<u16>
+pub fn authenticating(session: &[(&str, &str)]) -> std::io::Result<u16>
 ```
 
 Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
 
-It offers fast authentication, then answers the first authentication message with session data
-that holds a session key and none of the verifier fields the driver reads next.
+It offers fast authentication, then answers the first authentication message with `session`,
+the key and value pairs of the session data the driver reads its verifier fields from.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn marking`
+
+```rust
+pub fn marking() -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+
+It offers fast authentication, then answers the first authentication message with a BREAK
+marker, which makes the driver reset the connection, and then with a marker whose body ends
+before its type.
 
 # Errors
 

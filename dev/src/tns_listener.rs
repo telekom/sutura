@@ -1,15 +1,15 @@
-//! Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with one
-//! packet a test chooses, or with an ACCEPT and then an authentication response the driver cannot
+//! Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with
+//! bytes a test chooses, or with an ACCEPT and then an authentication response the driver cannot
 //! use.
 //!
 //! Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
 //! `sutura-cli`, and the RDBMS catalog's Oracle reader - and both prove the same refusal. `cargo
 //! xtask check-jscpd` refuses a clone under `crates/`, so the fake is written once.
 //!
-//! Limit: [`RedirectingListener`] and [`answering`] speak only the pre-negotiation framing the
-//! driver reads first, so a driver that follows the redirect reaches
+//! Limit: [`RedirectingListener`], [`answering`] and [`sending`] speak only the pre-negotiation
+//! framing the driver reads first, so a driver that follows the redirect reaches
 //! [`RedirectingListener::target`] and is closed there, before any authentication.
-//! [`authenticating`] goes one step further and no more: it never completes a login.
+//! [`authenticating`] and [`marking`] go one step further and no more: neither completes a login.
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
@@ -99,15 +99,55 @@ pub fn answering(packet_type: u8, body: Vec<u8>) -> std::io::Result<u16> {
     Ok(port)
 }
 
-/// Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
-///
-/// It offers fast authentication, then answers the first authentication message with session data
-/// that holds a session key and none of the verifier fields the driver reads next.
+/// Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with `bytes` as they are,
+/// framed or not, then closes, and returns its port.
 ///
 /// # Errors
 ///
 /// A listener that cannot bind or has no local address.
-pub fn authenticating() -> std::io::Result<u16> {
+pub fn sending(bytes: Vec<u8>) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ignored = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut connect = [0_u8; 4096];
+        let _ignored = stream.read(&mut connect);
+        let _ignored = stream.write_all(&bytes);
+    }));
+    Ok(port)
+}
+
+/// Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+///
+/// It offers fast authentication, then answers the first authentication message with `session`,
+/// the key and value pairs of the session data the driver reads its verifier fields from.
+///
+/// # Errors
+///
+/// A listener that cannot bind or has no local address.
+pub fn authenticating(session: &[(&str, &str)]) -> std::io::Result<u16> {
+    after_accept(negotiated(6, &session_data(session)))
+}
+
+/// Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+///
+/// It offers fast authentication, then answers the first authentication message with a BREAK
+/// marker, which makes the driver reset the connection, and then with a marker whose body ends
+/// before its type.
+///
+/// # Errors
+///
+/// A listener that cannot bind or has no local address.
+pub fn marking() -> std::io::Result<u16> {
+    let mut answer = negotiated(12, &[1, 0, 1]);
+    answer.extend(negotiated(12, &[1]));
+    after_accept(answer)
+}
+
+/// Binds a listener on `127.0.0.1` that ACCEPTs ONE client's CONNECT, answers the client's next
+/// message with `answer`, closes after the message after that, and returns its port.
+fn after_accept(answer: Vec<u8>) -> std::io::Result<u16> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     drop(std::thread::spawn(move || {
@@ -117,9 +157,10 @@ pub fn authenticating() -> std::io::Result<u16> {
         let _ignored = stream.read(&mut read);
         let _ignored = stream.write_all(&packet(2, &accept()));
         let _ignored = stream.read(&mut read);
-        let _ignored = stream.write_all(&negotiated_data(&session_data("AUTH_SESSKEY", "00")));
-        // Read until the client closes, so the answer is not cut off by a reset.
-        while matches!(stream.read(&mut read), Ok(1..)) {}
+        let _ignored = stream.write_all(&answer);
+        // One more read - the client's next message, or its close - so the answer is not cut off by
+        // a reset, and a client that waits on the listener after its next message reads a close.
+        let _ignored = stream.read(&mut read);
     }));
     Ok(port)
 }
@@ -136,24 +177,33 @@ fn accept() -> Vec<u8> {
     body
 }
 
-/// A TTC parameter message with one session data pair, then a status message that ends the answer.
-fn session_data(key: &str, value: &str) -> Vec<u8> {
-    let mut ttc = vec![8, 1, 1];
-    for text in [key, value] {
-        let length = u8::try_from(text.len()).unwrap_or(u8::MAX);
-        ttc.extend([1, length, length]);
-        ttc.extend(text.as_bytes());
+/// A TTC parameter message with the session data pairs, each with zero flags, then a status
+/// message that ends the answer.
+fn session_data(pairs: &[(&str, &str)]) -> Vec<u8> {
+    let count = u8::try_from(pairs.len()).unwrap_or(u8::MAX);
+    let mut ttc = vec![8, 1, count];
+    for (key, value) in pairs {
+        for text in [key, value] {
+            let length = u8::try_from(text.len()).unwrap_or(u8::MAX);
+            ttc.extend([1, length, length]);
+            ttc.extend(text.as_bytes());
+        }
+        ttc.push(0);
     }
-    ttc.extend([0, 9, 0, 0]);
+    ttc.extend([9, 0, 0]);
     ttc
 }
 
-/// One DATA packet in the framing after an ACCEPT: a 32-bit length, the type, a zero flags byte,
-/// two zero bytes and two zero data-flag bytes, then the body.
-fn negotiated_data(body: &[u8]) -> Vec<u8> {
-    let length = u32::try_from(10 + body.len()).unwrap_or(u32::MAX);
+/// One packet in the framing after an ACCEPT: a 32-bit length, the type, a zero flags byte, two
+/// zero bytes - and, for a DATA packet, two zero data-flag bytes - then the body.
+fn negotiated(packet_type: u8, body: &[u8]) -> Vec<u8> {
+    let header = if packet_type == 6 { 10 } else { 8 };
+    let length = u32::try_from(header + body.len()).unwrap_or(u32::MAX);
     let mut packet = be32(length).to_vec();
-    packet.extend([6, 0, 0, 0, 0, 0]);
+    packet.extend([packet_type, 0, 0, 0]);
+    if packet_type == 6 {
+        packet.extend([0, 0]);
+    }
     packet.extend(body);
     packet
 }

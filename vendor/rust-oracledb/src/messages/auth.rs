@@ -48,6 +48,14 @@ use crate::write_buffer::WriteBuffer;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 
+// The most PBKDF2 iterations the driver runs for a count the database sends
+// in AUTH_PBKDF2_VGEN_COUNT or AUTH_PBKDF2_SDER_COUNT. Oracle does not document
+// a range for these counts. The OWASP Password Storage Cheat Sheet
+// (https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+// recommends 220,000 iterations for PBKDF2-HMAC-SHA512; the cap is nearly five
+// times that, and bounds the work one login can ask the client to do.
+const MAX_PBKDF2_ITERATIONS: u32 = 1 << 20;
+
 struct Pair {
     key: String,
     value: String,
@@ -132,6 +140,20 @@ impl AuthMessage {
             .map_err(|_| Error::invalid_auth_response(key))
     }
 
+    /// Returns the PBKDF2 iteration count the database sent for the key. A
+    /// count above MAX_PBKDF2_ITERATIONS is an error.
+    fn session_iterations(&self, key: &str) -> Result<u32, Error> {
+        let count = self.session_number(key)?;
+        if count > MAX_PBKDF2_ITERATIONS {
+            return Err(Error::iteration_count_too_large(
+                key,
+                count,
+                MAX_PBKDF2_ITERATIONS,
+            ));
+        }
+        Ok(count)
+    }
+
     /// Returns the value the database sent for the key, decoded from hex.
     fn session_bytes(&self, key: &str) -> Result<Vec<u8>, Error> {
         base16ct::upper::decode_vec(self.session_value(key)?)
@@ -188,7 +210,7 @@ impl AuthMessage {
         session_key_part_b: &[u8],
         combo_key: &mut [u8; 32],
     ) -> Result<(), Error> {
-        let iterations: u32 = self.session_number("AUTH_PBKDF2_SDER_COUNT")?;
+        let iterations = self.session_iterations("AUTH_PBKDF2_SDER_COUNT")?;
         let salt = self.session_bytes("AUTH_PBKDF2_CSK_SALT")?;
         let mut raw_temp_key: [u8; 64] = [0; 64];
         raw_temp_key[..32].copy_from_slice(session_key_part_b);
@@ -218,7 +240,7 @@ impl AuthMessage {
     /// server for validation.
     fn generate_verifier(&mut self, client: &mut Client) -> Result<(), Error> {
         // create password hash
-        let iterations: u32 = self.session_number("AUTH_PBKDF2_VGEN_COUNT")?;
+        let iterations = self.session_iterations("AUTH_PBKDF2_VGEN_COUNT")?;
         let verifier_data = self.session_bytes("AUTH_VFR_DATA")?;
         let mut salt = verifier_data.clone();
         salt.extend(b"AUTH_PBKDF2_SPEEDY_KEY");

@@ -29,6 +29,7 @@
 //-----------------------------------------------------------------------------
 
 use crate::constants;
+use crate::error::Error;
 
 pub(crate) struct Packet {
     pub(crate) packet_type: u8,
@@ -57,7 +58,7 @@ impl Packet {
     /// containing a reset marker type.
     pub(crate) fn has_reset_marker(&self) -> bool {
         if self.packet_type == constants::PACKET_TYPE_MARKER {
-            self.buf[2] == constants::MARKER_TYPE_RESET
+            self.buf.get(2) == Some(&constants::MARKER_TYPE_RESET)
         } else {
             false
         }
@@ -73,21 +74,25 @@ impl Packet {
         }
     }
 
-    /// Creates a new packet from the supplied buffer.
-    pub(crate) fn new(data: &[u8]) -> Packet {
-        let packet_type = data[4];
-        let packet_flags = data[5];
+    /// Creates a new packet from the supplied buffer. A buffer shorter than
+    /// the header of its packet type is an error.
+    pub(crate) fn new(data: &[u8]) -> Result<Packet, Error> {
+        let too_short = || Error::packet_too_short(data.len());
+        let header = data.get(..8).ok_or_else(too_short)?;
+        let packet_type = header[4];
+        let packet_flags = header[5];
         let mut data_flags: u16 = 0;
         let mut buf = &data[8..];
         if packet_type == constants::PACKET_TYPE_DATA {
-            data_flags = u16::from_be_bytes(data[8..10].try_into().unwrap());
+            let flags = data.get(8..10).ok_or_else(too_short)?;
+            data_flags = u16::from_be_bytes([flags[0], flags[1]]);
             buf = &data[10..];
         }
-        Packet {
+        Ok(Packet {
             packet_type,
             packet_flags,
             data_flags,
             buf: buf.into(),
-        }
+        })
     }
 }

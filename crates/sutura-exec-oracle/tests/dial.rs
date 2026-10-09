@@ -152,6 +152,57 @@ mod dial {
         assert!(cause.contains("native network encryption"), "{cause}");
     }
 
+    /// The driver's own message for a connect to `port` that must come back as a typed refusal. The
+    /// connect runs inside `catch_unwind`, so one that does not return fails this assertion.
+    fn refused_without_unwinding(port: u16) -> String {
+        let returned = std::panic::catch_unwind(|| connect(port, Channel::Plaintext, Duration::from_secs(5)).map(drop));
+        let error = returned
+            .expect("the connect returns rather than unwinding")
+            .expect_err("the connect is refused");
+        assert!(matches!(error, OracleError::Connect { .. }), "{error:?}");
+        std::error::Error::source(&error)
+            .expect("the refusal carries the driver's cause")
+            .to_string()
+    }
+
+    /// A DATA packet whose length says eight bytes: two short of a DATA packet's header.
+    #[test]
+    fn a_packet_shorter_than_its_header_is_refused_typed() {
+        let port = sutura_dev::tns_listener::sending(vec![0, 8, 0, 0, 6, 0, 0, 0]).expect("the fake listener binds");
+        let cause = refused_without_unwinding(port);
+        assert!(cause.contains("shorter than its header"), "{cause}");
+    }
+
+    /// A BREAK marker makes the driver reset the connection and wait for a RESET marker; the next
+    /// marker ends before its type, so it is not one, and the listener then closes.
+    #[test]
+    fn a_marker_too_short_to_name_its_type_is_refused_typed() {
+        let port = sutura_dev::tns_listener::marking().expect("the fake listener binds");
+        let cause = refused_without_unwinding(port);
+        assert!(cause.contains("unable to recover"), "{cause}");
+    }
+
+    /// **A server-sent iteration count above the driver's cap is refused at once.** Deriving a key
+    /// over `u32::MAX` PBKDF2 iterations would run for hours. The connect runs on its own
+    /// thread, so one still deriving after twenty seconds fails this cell's own assertion.
+    #[test]
+    fn an_iteration_count_above_the_cap_is_refused_at_once() {
+        let session = [("AUTH_PBKDF2_VGEN_COUNT", "4294967295"), ("AUTH_VFR_DATA", "00")];
+        let port = sutura_dev::tns_listener::authenticating(&session).expect("the fake listener binds");
+        let (told, returned) = mpsc::channel();
+        drop(std::thread::spawn(move || {
+            let _ignored = told.send(connect(port, Channel::Plaintext, Duration::from_secs(5)).map(drop));
+        }));
+        let error = returned
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the connect returns at once for an iteration count above the cap")
+            .expect_err("the connect is refused");
+        let cause = std::error::Error::source(&error)
+            .expect("the refusal carries the driver's cause")
+            .to_string();
+        assert!(cause.contains("more than the 1048576"), "{cause}");
+    }
+
     /// **A connect that is never answered is refused within the deadline.** A listener whose accept
     /// queue is full drops further connection requests, so the client's connect waits on the
     /// operating system's own retry schedule - a minute or more - unless the dial is bounded.

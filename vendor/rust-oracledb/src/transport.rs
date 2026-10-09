@@ -246,13 +246,14 @@ impl Transport {
     /// Extracts a packet from the data that has been received from the
     /// database. If insufficient bytes have been read, None is returned which
     /// signals that the caller should wait for some more bytes to be received.
-    fn extract_packet(&mut self) -> Option<Packet> {
+    /// A packet shorter than its header is an error.
+    fn extract_packet(&mut self) -> Result<Option<Packet>, Error> {
         if self.residual_bytes <= 4 {
-            return None;
+            return Ok(None);
         }
         self.last_packet_bytes = self.get_packet_size();
         if self.residual_bytes < self.last_packet_bytes {
-            return None;
+            return Ok(None);
         }
         self.residual_bytes -= self.last_packet_bytes;
         let packet_buf = &self.read_buf[0..self.last_packet_bytes];
@@ -261,7 +262,7 @@ impl Transport {
             let header = self.get_op_header("Receiving packet");
             print_packet(&header, packet_buf);
         }
-        Some(Packet::new(packet_buf))
+        Packet::new(packet_buf).map(Some)
     }
 
     /// Returns the op header used when displaying packet data.
@@ -398,7 +399,7 @@ impl Transport {
             self.last_packet_bytes = 0;
         }
         loop {
-            if let Some(packet) = self.extract_packet() {
+            if let Some(packet) = self.extract_packet()? {
                 return Ok(packet);
             }
             let num_bytes = self.read_packet()?;

@@ -236,7 +236,7 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
     use crate::serve::refresh::{Outcome, Refresher};
 
     let scratch = ScratchDir::prepared();
-    let port = sutura_dev::tns_listener::authenticating().expect("the fake listener binds");
+    let port = sutura_dev::tns_listener::authenticating(&[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
     let connection = oracle_connection(&readable_password_file(&scratch).display().to_string())
         .replace("port: 1521", &format!("port: {port}"));
     let opened = crate::catalog::open_catalog(&catalogs(&connection), None).expect("the Oracle reader opens at boot");
