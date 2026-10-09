@@ -14,7 +14,7 @@
 //! [`SITES`] says which file may invoke the gate and what it does with 3, and a site the scan finds
 //! that the list does not name is a failure. A NEW venue is a decision, not a diff.
 //!
-//! Three rules, and each one is a way the argument has failed or could:
+//! Four rules, and each one is a way the argument has failed or could:
 //!
 //! * **[`Handling::Propagates`] means no `||` on the invocation line.** `|| true`, `|| :` and
 //!   `|| exit 0` all read as ordinary shell and all turn 3 into 0. A site that captures the status
@@ -24,6 +24,9 @@
 //!   is a swallowed status wearing a declaration.
 //! * **A branching site still propagates everything else.** The same file has to `exit "$<var>"`,
 //!   because handling 3 and dropping 1 is a worse gate than not handling 3 at all.
+//! * **A venue that declares [`Site::through`] spells the invocation that way and no other.** The
+//!   recipe brings the test tier up; the bare task beside it runs the tier-backed cells without
+//!   one, and nothing else notices which of the two a venue calls.
 //!
 //! **What it does not reach**, stated next to the claim because a text scan always has a rim:
 //!
@@ -66,8 +69,11 @@ const NEEDLES: &[&str] = &[
     "test-causality",
     "nix run .#causality",
     "check-claim-mutation-kills",
-    "just causality \"",
+    RECIPE_CALL,
 ];
+
+/// A call to the recipe that passes it a base ref, the one spelling that provisions the test tier.
+const RECIPE_CALL: &str = "just causality \"";
 
 /// What a venue does with exit 3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +93,9 @@ struct Site {
     handling: Handling,
     /// Why, in one line, for the failure a change to this venue produces.
     because: &'static str,
+    /// The one spelling this venue may invoke the gate through, when it has to go through the
+    /// recipe that sets up what the bare task does not. `None` is a venue free to spell the task.
+    through: Option<&'static str>,
 }
 
 /// Every venue that may invoke the gate. A site the scan finds and this does not name fails.
@@ -95,21 +104,25 @@ const SITES: &[Site] = &[
         label: "justfile",
         handling: Handling::Propagates,
         because: "a developer typing the task reads the verdict and the shell reads the status",
+        through: None,
     },
     Site {
         label: "flake.nix",
         handling: Handling::Propagates,
         because: "the flake app is a passthrough: `exec`, so `nix run .#causality` IS the gate's status",
+        through: None,
     },
     Site {
         label: "devenv.nix",
         handling: Handling::BranchesOnThree,
         because: "`ship-check` retains the verdict and runs the remaining hooks, which a push still needs",
+        through: Some(RECIPE_CALL),
     },
     Site {
         label: "ci.yml",
         handling: Handling::BranchesOnThree,
         because: "the changes that land on an inconclusive arm are legitimate, and a gate that reddens correct work gets disabled",
+        through: None,
     },
 ];
 
@@ -256,10 +269,18 @@ fn invocations(sources: &[Source]) -> Vec<Found<'_>> {
 
 /// What is wrong with `one`, given what `site` declared.
 fn judge(site: &Site, one: &Found<'_>, sources: &[Source]) -> Vec<String> {
-    match site.handling {
+    let mut problems = match site.handling {
         Handling::Propagates => propagation_problems(site, one),
         Handling::BranchesOnThree => branch_problems(site, one, sources),
+    };
+    if let Some(spelling) = site.through.filter(|spelling| !one.line.contains(spelling)) {
+        problems.push(format!(
+            "{}:{} has to invoke the gate through a line containing `{spelling}` - the recipe brings the \
+             test tier up, and the bare task runs the tier-backed cells without one: {}",
+            one.label, one.number, one.line
+        ));
     }
+    problems
 }
 
 /// A declared passthrough with a `||` on it is not a passthrough.
@@ -510,6 +531,32 @@ mod tests {
             vec![("devenv.nix", call)],
             "the call is a site, the prose naming the recipe is not"
         );
+    }
+
+    #[test]
+    fn a_venue_that_goes_through_the_recipe_refuses_the_bare_task() {
+        // THE CHOICE OF SPELLING WAS HELD BY NOTHING: the bare task beside the recipe kept the exit
+        // 3 branch, the capture and the re-raise, so every other rule stayed green while the tier
+        // the recipe brings up went missing.
+        let devenv = site("devenv.nix");
+        let handled = "if [ \"$causality_status\" -eq 3 ]; then\n  :\nfi\nexit \"$causality_status\"\n";
+        let through = "just causality \"$merge_base\" || causality_status=$?";
+        let bare = "cargo run -q -p xtask -- test-causality --since \"$merge_base\" || causality_status=$?";
+
+        let sources = [source("devenv.nix", &format!("{through}\n{handled}"))];
+        assert!(
+            judge(devenv, &found("devenv.nix", through), &sources).is_empty(),
+            "the recipe call is the declared spelling"
+        );
+
+        let sources = [source("devenv.nix", &format!("{bare}\n{handled}"))];
+        let problems = judge(devenv, &found("devenv.nix", bare), &sources);
+        assert_eq!(
+            problems.len(),
+            1,
+            "capture, branch and re-raise are intact; only the spelling is wrong: {problems:?}"
+        );
+        assert!(problems[0].contains("containing `just causality"), "{problems:?}");
     }
 
     #[test]

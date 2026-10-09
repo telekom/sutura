@@ -1305,7 +1305,8 @@ Postgres and exports `SUTURA_DEV_REQUIRE_TIER` into the whole process tree - and
 requirement belongs to is published under the ROOT, in a gitignored file the base worktree cannot
 have. So the tier-backed cells failed closed there and became the base run's red. CI's
 `nix run .#causality` provisions no tier, so those cells skipped and the verdict was about the
-change; `just ship-check` once did the same and now runs the recipe, so it provisions the tier. **The false green was reachable from the one venue a person runs by hand and cites.**
+change; `just ship-check` once did the same and now runs the recipe, so it provisions the tier.
+**The false green was reachable from the one venue a person runs by hand and cites.**
 The base run drops that variable now, in the gate, because only the thing that provisioned a tier
 may declare one.
 
