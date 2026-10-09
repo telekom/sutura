@@ -1,149 +1,107 @@
-//! Re-reading a declared catalog on an interval and re-pinning it, without a restart -
-//! `github.com/telekom/sutura#975`.
+//! Re-reading a declared catalog on an interval and serving what it read, without a restart -
+//! `github.com/telekom/sutura#975`, `#1326`.
 //!
-//! The shape is `sutura_tls`'s own rotation poll: a poll side (`Refresher`) that owns the
-//! already-open catalog and can re-read it, and a read side (`Rotating`, `Clone`, cheap) that a
-//! caller holds and reads the current pinned bundle off through a lock-free
-//! `tokio::sync::watch` swap. Unlike that crate's fixed 30-second `sutura_tls::POLL_INTERVAL`,
-//! the interval here is `catalogs[].refresh_seconds` - a deployment's own declaration, not a
-//! constant - so it is the DRIVING loop's argument rather than this module's own; `poll_once`
-//! itself does not know it.
+//! A `Refresher` owns the already-open catalogs and the served [`Surface`]. Each tick re-reads and
+//! re-composes every catalog exactly as boot did (`crate::catalog::load_each`), then hands the
+//! bundle to [`Surface::adopt`], which decides what is served. The interval is
+//! `catalogs[].refresh_seconds`, a deployment's own declaration, so it is the DRIVING loop's argument
+//! rather than this module's own; `poll_once` does not know it.
 //!
 //! # What a refusal means, and what a change means
 //!
-//! `poll_once` re-runs the exact composition boot already used - `crate::catalog::load_each`,
-//! generic in the same catalog type `crate::catalog::OpenedCatalogs` monomorphises over - so a
-//! re-read that fails (the remote endpoint is down, a document no longer validates) keeps the
-//! previously pinned bundle and logs loudly rather than tearing anything down: an answer keeps
-//! being computed from the last GOOD pin. A re-read that succeeds and produces the SAME digest is
-//! silent (`Outcome::Unchanged`); one that succeeds with a DIFFERENT digest swaps and audits the
-//! transition by digest, never by content - `docs/adr/0010`'s reasoning about a log line applies
-//! here too: the two digests are the provenance an operator needs to correlate an answer against,
-//! and neither is the bundle itself.
+//! A re-read that fails (the remote endpoint is down, a document no longer validates), or a bundle
+//! the surface refuses, keeps the bundle already served and logs loudly rather than tearing anything
+//! down. A surface that keeps what it serves is silent (`Outcome::Unchanged`); a rotation is logged by
+//! digest, never by content - `docs/adr/0010`'s reasoning about a log line applies here too.
 //!
-//! # What is wired, and what is NOT - stated where the claim is
+//! # Which question sees which bundle
 //!
-//! `drive` starts the poll for real, from `serve_until_stopped` where a tokio runtime is
-//! already entered: a declared `catalogs[].refresh_seconds` re-reads and re-pins on that
-//! interval, and the currently-pinned digest is logged on the same tick, for real, through
-//! `Rotating::current` - not a dead handle nobody reads.
-//!
-//! **What is NOT wired is the LIVE SERVED bundle.** A rotation this module adopts does not reach
-//! an in-flight or a future `Surface::answer` - the audit trail above is a log line, not a
-//! consumer. Making an answer's provenance reflect a swap needs
-//! `sutura_app::surface::Surface::definitions` to return something other than
-//! `&PinnedDefinitions` (an `Arc` this module could hand a request), which is a signature every
-//! transport and every existing implementor shares - a wider architecture decision than this
-//! issue's own scope. `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired*
-//! section is the precedent for stating this rather than either hiding it or leaving the whole
-//! mechanism unbuilt.
+//! The one the surface serves: this module holds no bundle of its own. `LocalService::adopt` keeps
+//! the bundle the service started with, so a refresh changes no answer yet. Both transports read the
+//! catalog through `Surface::definitions`, so this module has no transport-specific half.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+use sutura_app::surface::{Adopted, Surface};
+use sutura_domain::pinned::SemanticCatalog;
+use sutura_runtime::Gauge;
 
 use crate::catalog::{OpenedCatalogs, load_each};
-
-/// The read side a caller would hold: clones the current pinned bundle out, cheap and lock-free.
-///
-/// `Clone` is sharing, not copying - every clone observes the same channel, so a swap `Refresher`
-/// adopts reaches every held `Rotating`. `Debug`-free like `sutura_tls::Rotating`, for the same
-/// reason: a bundle is a page of definitions, not something a log line should ever hold.
-#[derive(Clone)]
-pub(crate) struct Rotating {
-    current: tokio::sync::watch::Receiver<Arc<PinnedDefinitions>>,
-}
-
-impl Rotating {
-    /// The currently pinned bundle, as an `Arc` - cheap to clone and to hand to an answer in
-    /// flight.
-    #[must_use]
-    pub(crate) fn current(&self) -> Arc<PinnedDefinitions> {
-        Arc::clone(&self.current.borrow())
-    }
-}
 
 /// What one look at a declared catalog decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
-    /// Re-read successfully and the digest is byte-for-byte the one already in use.
+    /// Re-read successfully and the digest is byte-for-byte the one already served.
     Unchanged,
-    /// Re-read successfully, the digest changed, and the new bundle is what `Rotating::current`
-    /// returns next.
+    /// Re-read successfully, the digest changed, and the new bundle is what the next question reads.
     Rotated,
-    /// The re-read failed - a source refusal, a composition refusal, an unreadable directory.
-    /// What was pinned before this look is still what `current()` returns.
+    /// The re-read failed, or the surface refused the bundle read. What was served before this look
+    /// is still what the next question reads.
     Rejected,
 }
 
-/// The poll side: owns the already-open catalog (so it can re-read it) and the sender half of the
-/// channel `Rotating` reads.
+/// The poll side: owns the already-open catalog (so it can re-read it), the surface the result is
+/// handed to, and the `sutura_catalog_metrics` gauge a swap moves.
 ///
 /// Generic in `K` for the reason `LocalService::start_composed` is: the catalog type is
 /// monomorphised per declared KIND at the composition root, and this module does not add a second
 /// way to erase it.
 pub(crate) struct Refresher<K> {
     catalogs: Vec<K>,
-    sender: tokio::sync::watch::Sender<Arc<PinnedDefinitions>>,
+    surface: Arc<dyn Surface>,
+    coverage: Gauge,
 }
 
 impl<K> Refresher<K>
 where
     K: SemanticCatalog,
 {
-    /// Builds a refresher around the SAME already-open catalogs and the SAME already-pinned
-    /// bundle a composition root's boot produced - never a fresh load, so this cannot observe a
-    /// digest change that boot itself would not have.
+    /// Builds a refresher around the SAME already-open catalogs boot opened and the SAME surface it
+    /// serves - `Arc` because the transports and this poll are two owners of one service - and
+    /// `coverage`, the served state's own `sutura_catalog_metrics` gauge.
     #[must_use]
-    pub(crate) fn new(catalogs: Vec<K>, initial: PinnedDefinitions) -> Self {
-        let (sender, receiver) = tokio::sync::watch::channel(Arc::new(initial));
-        drop(receiver);
-        Self { catalogs, sender }
-    }
-
-    /// The read handle a caller holds. Cheap to clone; every clone observes this channel.
-    #[must_use]
-    pub(crate) fn rotating(&self) -> Rotating {
-        Rotating {
-            current: self.sender.subscribe(),
+    pub(crate) fn new(catalogs: Vec<K>, surface: Arc<dyn Surface>, coverage: Gauge) -> Self {
+        Self {
+            catalogs,
+            surface,
+            coverage,
         }
     }
 
-    /// Re-reads every declared catalog and re-composes them, mirroring the boot path exactly
-    /// (`load_each`). On success with a changed digest, adopts the new bundle and audits the
-    /// digest transition; on an unchanged digest, does nothing; on a refusal, keeps the bundle
-    /// already in use and logs loudly rather than tearing anything down.
+    /// Re-reads every declared catalog, re-composes them, and offers the result to the surface.
     ///
-    /// The compare and the swap are one write lock (`send_if_modified`), so two concurrent callers
-    /// cannot both pass the compare and let the older load land last: a single poller is not what
-    /// keeps this correct.
+    /// Blocking: the re-read does I/O, and a surface may check a changed bundle against the data
+    /// systems. [`spawn`] runs it on the blocking pool.
     pub(crate) fn poll_once(&self) -> Outcome {
-        match load_each(&self.catalogs) {
-            Ok(next) => {
-                let rotated = self.sender.send_if_modified(|current| {
-                    if next.digest() == current.digest() {
-                        return false;
-                    }
-                    tracing::info!(
-                        previous_digest = current.digest().as_str(),
-                        digest = next.digest().as_str(),
-                        "a declared catalog refresh re-pinned this bundle"
-                    );
-                    *current = Arc::new(next);
-                    true
-                });
-                if rotated { Outcome::Rotated } else { Outcome::Unchanged }
+        let next = match load_each(&self.catalogs) {
+            Ok(next) => next,
+            Err(cause) => {
+                tracing::error!(
+                    error = %cause,
+                    "a declared catalog's refresh failed to load; keeping the bundle already served"
+                );
+                return Outcome::Rejected;
+            }
+        };
+        match self.surface.adopt(next) {
+            Ok(Adopted::Unchanged) => Outcome::Unchanged,
+            Ok(Adopted::Rotated { previous, digest }) => {
+                self.coverage
+                    .set(self.surface.definitions().definitions().metrics().len() as u64);
+                tracing::info!(
+                    previous_digest = previous.as_str(),
+                    digest = digest.as_str(),
+                    "a declared catalog refresh re-pinned the served bundle"
+                );
+                Outcome::Rotated
             }
             Err(cause) => {
-                {
-                    let current = self.sender.borrow();
-                    tracing::error!(
-                        error = %cause,
-                        digest = current.digest().as_str(),
-                        "a declared catalog's refresh failed to load; keeping the bundle already pinned"
-                    );
-                }
+                tracing::error!(
+                    error = %cause,
+                    causes = ?sutura_app::surface::cause_chain(&cause),
+                    "a refreshed bundle was refused; keeping the bundle already served"
+                );
                 Outcome::Rejected
             }
         }
@@ -172,10 +130,10 @@ pub(crate) fn shortest_declared_interval(declared: &sutura_config::Catalogs) -> 
 /// documents for the outbound-material rotation: call this from `serve_until_stopped`, where
 /// `runtime.block_on` has already entered one, never from the synchronous boot section above it.
 ///
-/// Takes the opened catalogs and the boot pin BY VALUE: the poll is their last holder, so nothing is
-/// cloned for it - and a catalog holding a credential (the `rdbms` reader's connection string) need
-/// not be `Clone` at all.
-pub(crate) fn drive(catalogs: OpenedCatalogs, pinned: PinnedDefinitions, interval: Option<Duration>) {
+/// Takes the opened catalogs BY VALUE: the poll is their last holder, so nothing is cloned for it -
+/// and a catalog holding a credential (the `rdbms` reader's connection string) need not be `Clone`
+/// at all.
+pub(crate) fn drive(catalogs: OpenedCatalogs, surface: Arc<dyn Surface>, coverage: Gauge, interval: Option<Duration>) {
     let Some(interval) = interval else {
         return;
     };
@@ -188,34 +146,44 @@ pub(crate) fn drive(catalogs: OpenedCatalogs, pinned: PinnedDefinitions, interva
         "this deployment's catalog will be polled and re-pinned on a declared interval"
     );
     match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs, pinned, interval),
-        OpenedCatalogs::Okf(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs, surface, coverage, interval),
+        OpenedCatalogs::Okf(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs, pinned, interval),
-        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs, surface, coverage, interval),
+        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs, pinned, interval),
+        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs, surface, coverage, interval),
     }
 }
 
-/// One kind's worth of the poll loop: builds a `Refresher`, polls it on `interval`, and logs
-/// the digest currently pinned after every tick through `Rotating::current` - the real reader
-/// this module's own doc header promises, so the mechanism is observably running rather than
-/// built and immediately discarded.
-fn spawn<K>(catalogs: Vec<K>, initial: PinnedDefinitions, interval: Duration)
+/// One kind's worth of the poll loop: polls on `interval`, each poll on the blocking pool.
+///
+/// The refresher is moved into the blocking task and handed back with its outcome, so nothing is
+/// shared or cloned to get a `'static` closure. A panic inside a poll ends the loop, loudly: a
+/// refresher that may have died half-way is not one to keep calling.
+fn spawn<K>(catalogs: Vec<K>, surface: Arc<dyn Surface>, coverage: Gauge, interval: Duration)
 where
     K: SemanticCatalog + Send + Sync + 'static,
     K::Error: Send + Sync,
 {
-    let refresher = Refresher::new(catalogs, initial);
-    let rotating = refresher.rotating();
+    let mut refresher = Refresher::new(catalogs, surface, coverage);
     drop(tokio::spawn(async move {
         loop {
             tokio::time::sleep(interval).await;
-            refresher.poll_once();
-            tracing::debug!(digest = rotating.current().digest().as_str(), "catalog refresh polled");
+            match sutura_runtime::spawn_carrying_span(move || {
+                let outcome = refresher.poll_once();
+                (refresher, outcome)
+            })
+            .await
+            {
+                Ok((polled, _outcome)) => refresher = polled,
+                Err(cause) => {
+                    tracing::error!(error = %cause, "the catalog refresh panicked; it will not be polled again");
+                    return;
+                }
+            }
         }
     }));
 }
@@ -227,15 +195,24 @@ mod tests {
     use std::rc::Rc;
 
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, Model};
+    use sutura_domain::catalog::{Audience, Definitions, Description, InconsistentDefinitions, Metric, Model};
     use sutura_domain::definitions::NotDigestible;
     use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities};
-    use sutura_domain::model::{ColumnName, InvalidIdentifier, ModelName, SourceName, TableName};
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+    use sutura_domain::model::{Aggregate, ColumnName, Grain, InvalidIdentifier, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{
         CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
     };
 
     use sutura_config::{CatalogKind as ConfiguredKind, CatalogSettings, Catalogs};
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, PoisonError, RwLock};
+
+    use sutura_app::surface::{Adopted, ErasedCause, NotAdopted, Surface, SurfaceFailure};
+    use sutura_domain::identity::RequestContext;
+    use sutura_domain::query::{Query, ToolOutcome};
+    use sutura_domain::warehouse::deadline::Deadline;
 
     use super::{Outcome, Refresher, shortest_declared_interval};
 
@@ -296,7 +273,7 @@ mod tests {
 
         fn capabilities() -> MetadataCapabilities {
             MetadataCapabilities::of(
-                DefinitionCapabilities::of([DefinitionKind::Structure])
+                DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Metrics, DefinitionKind::Grains])
                     .and_may_provide([DefinitionKind::Descriptions, DefinitionKind::Relationships]),
                 KnowledgeCapabilities::none(),
             )
@@ -312,14 +289,38 @@ mod tests {
                 self.name.clone(),
                 TableName::parse("fake_table")?,
                 columns
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(ColumnName::parse)
                     .collect::<Result<BTreeSet<_>, _>>()?,
                 Description::parse("A fake catalog for the refresher's own tests.").map_err(|_cause| FakeRefused)?,
             );
-            let definitions = Definitions::assemble(vec![model], Vec::new(), Vec::new())?;
+            // One metric per column, so the number of metrics served is the number of columns read.
+            let metrics = columns
+                .iter()
+                .copied()
+                .map(|column| {
+                    Metric::new(
+                        MetricName::parse(column)?,
+                        ModelName::parse("fake_model")?,
+                        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+                            Aggregate::Sum,
+                            ColumnName::parse(column)?,
+                        ))),
+                        Vec::new(),
+                        ColumnName::parse(column)?,
+                        BTreeSet::from([Grain::Month]),
+                        Vec::new(),
+                        None,
+                        Description::default(),
+                        Audience::Open,
+                    )
+                    .map_err(|_cause| FakeRefused)
+                })
+                .collect::<Result<Vec<_>, FakeRefused>>()?;
+            let definitions = Definitions::assemble(vec![model], Vec::new(), metrics)?;
             let capabilities = MetadataCapabilities::of(
-                DefinitionCapabilities::of([DefinitionKind::Structure])
+                DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Metrics, DefinitionKind::Grains])
                     .and_may_provide([DefinitionKind::Descriptions, DefinitionKind::Relationships]),
                 KnowledgeCapabilities::none(),
             );
@@ -342,6 +343,17 @@ mod tests {
             },
             next,
         )
+    }
+
+    fn refreshing(catalog: FakeCatalog, surface: &Arc<FakeSurface>, coverage: sutura_runtime::Gauge) -> Refresher<FakeCatalog> {
+        Refresher::new(vec![catalog], Arc::<FakeSurface>::clone(surface), coverage)
+    }
+
+    /// The gauge a refresher moves, and the registry that renders it.
+    fn coverage() -> (sutura_runtime::Gauge, sutura_runtime::Registry) {
+        let mut builder = sutura_runtime::RegistryBuilder::default();
+        let gauge = builder.gauge("sutura_catalog_metrics");
+        (gauge, builder.build())
     }
 
     fn set(cell: &Cell, answer: Answer) {
@@ -381,87 +393,167 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_unchanged_read_is_silent_and_keeps_the_same_bundle() {
-        let (catalog, _next) = fake(vec!["a"]);
-        let initial = catalog.load().expect("the fake's own first load succeeds");
-        let refresher = Refresher::new(vec![catalog], initial);
-        let rotating = refresher.rotating();
-        let digest = rotating.current().digest().clone();
-
-        assert_eq!(refresher.poll_once(), Outcome::Unchanged);
-        assert_eq!(rotating.current().digest(), &digest);
+    /// A served bundle that stores whatever differs from it, and counts what it was offered - the
+    /// surface as the refresher sees it. What `LocalService` adds to this (the checks, and which
+    /// snapshot a question reads) is held by its own cells in `sutura-app`.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a test fake behind an Arc: the lock only clones or stores one `Arc`, never across an await point, the license `sutura_mcp`'s RecordingSurface already holds"
+    )]
+    struct FakeSurface {
+        served: RwLock<Arc<PinnedDefinitions>>,
+        offered: AtomicUsize,
+        refuses: bool,
     }
 
-    /// **The change cell.** Column set changes -> content changes -> digest changes -> adopted.
+    impl FakeSurface {
+        #[expect(clippy::disallowed_types, reason = "see the struct's own note")]
+        fn serving(initial: PinnedDefinitions, refuses: bool) -> Arc<Self> {
+            Arc::new(Self {
+                served: RwLock::new(Arc::new(initial)),
+                offered: AtomicUsize::new(0),
+                refuses,
+            })
+        }
+
+        fn digest(&self) -> String {
+            self.definitions().digest().as_str().to_owned()
+        }
+    }
+
+    impl Surface for FakeSurface {
+        fn definitions(&self) -> Arc<PinnedDefinitions> {
+            Arc::clone(&self.served.read().unwrap_or_else(PoisonError::into_inner))
+        }
+
+        fn adopt(&self, next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+            self.offered.fetch_add(1, Ordering::SeqCst);
+            if self.refuses {
+                return Err(NotAdopted::Preflight {
+                    cause: ErasedCause::from("the fake refuses every bundle"),
+                });
+            }
+            let previous = self.definitions().digest().clone();
+            if next.digest() == &previous {
+                return Ok(Adopted::Unchanged);
+            }
+            let digest = next.digest().clone();
+            *self.served.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(next);
+            Ok(Adopted::Rotated { previous, digest })
+        }
+
+        fn answer(&self, _: &RequestContext, _: &Query, _: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
+            Err(SurfaceFailure::Compile {
+                cause: Box::new(FakeRefused),
+            })
+        }
+
+        fn run_sql(
+            &self,
+            _: &RequestContext,
+            _: &sutura_domain::raw::RawStatement,
+            _: Deadline,
+        ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+            Err(SurfaceFailure::Compile {
+                cause: Box::new(FakeRefused),
+            })
+        }
+
+        fn spend_headroom_bytes(&self) -> Option<u64> {
+            None
+        }
+
+        fn spent_bytes_total(&self) -> Option<u64> {
+            None
+        }
+    }
+
     #[test]
-    fn a_changed_read_rotates_to_the_new_bundle() {
+    fn an_unchanged_read_is_silent_and_the_surface_keeps_its_bundle() {
+        let (catalog, _next) = fake(vec!["a"]);
+        let initial = catalog.load().expect("the fake's own first load succeeds");
+        let surface = FakeSurface::serving(initial, false);
+        let before = surface.digest();
+        let refresher = refreshing(catalog, &surface, coverage().0);
+
+        assert_eq!(refresher.poll_once(), Outcome::Unchanged);
+        assert_eq!(surface.digest(), before);
+    }
+
+    /// **The change cell.** Column set changes -> content changes -> digest changes -> the surface
+    /// serves the new bundle.
+    #[test]
+    fn a_changed_read_is_what_the_surface_serves_next() {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let before_digest = initial.digest().clone();
-        let refresher = Refresher::new(vec![catalog], initial);
-        let rotating = refresher.rotating();
+        let surface = FakeSurface::serving(initial, false);
+        let before = surface.digest();
+        let (gauge, registry) = coverage();
+        let refresher = refreshing(catalog, &surface, gauge);
+        assert!(
+            registry.render().contains("sutura_catalog_metrics 0"),
+            "{}",
+            registry.render()
+        );
 
         set(&next, Answer::Bundle(vec!["a", "b"]));
         assert_eq!(refresher.poll_once(), Outcome::Rotated);
-        let after = rotating.current();
         assert_ne!(
-            after.digest(),
-            &before_digest,
-            "a genuinely different bundle must re-pin under a new digest"
+            surface.digest(),
+            before,
+            "a genuinely different bundle must be served under a new digest"
+        );
+        assert_eq!(surface.definitions().definitions().metrics().len(), 2);
+        assert!(
+            registry.render().contains("sutura_catalog_metrics 2"),
+            "the coverage gauge follows the bundle now served: {}",
+            registry.render()
         );
 
         // The identical content is silent on the next tick - it produces the same digest again.
         assert_eq!(refresher.poll_once(), Outcome::Unchanged);
-        assert_eq!(rotating.current().digest(), after.digest());
     }
 
-    /// **The invalid-change cell.** A refusal keeps the previously pinned bundle rather than
-    /// tearing anything down or adopting nothing usable.
+    /// **The failed-read cell.** A catalog that cannot be read is never offered to the surface, so
+    /// what is served does not move - and keeps not moving across repeated failures.
     #[test]
-    fn an_invalid_change_is_rejected_and_the_old_bundle_survives() {
+    fn a_failed_read_never_reaches_the_surface_and_the_old_bundle_serves() {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let before_digest = initial.digest().clone();
-        let refresher = Refresher::new(vec![catalog], initial);
-        let rotating = refresher.rotating();
+        let surface = FakeSurface::serving(initial, false);
+        let before = surface.digest();
+        let refresher = refreshing(catalog, &surface, coverage().0);
 
         set(&next, Answer::Refused);
         assert_eq!(refresher.poll_once(), Outcome::Rejected);
-        assert_eq!(
-            rotating.current().digest(),
-            &before_digest,
-            "a refused re-read must not disturb the bundle already pinned"
-        );
-
-        // And the process keeps answering from that old bundle across repeated failures.
         assert_eq!(refresher.poll_once(), Outcome::Rejected);
-        assert_eq!(rotating.current().digest(), &before_digest);
+
+        assert_eq!(
+            surface.offered.load(Ordering::SeqCst),
+            0,
+            "a bundle that did not load is not offered"
+        );
+        assert_eq!(surface.digest(), before);
     }
 
-    /// **Provenance across a swap.** What a caller reads through `Rotating::current()` right
-    /// after a rotation carries the NEW digest, and a clone taken beforehand still (correctly)
-    /// reads the value it was handed - `Arc::clone` freezes a moment, not a subscription. The
-    /// acceptance's own third clause: an in-flight answer's provenance never moves under it.
+    /// **The refused-bundle cell.** A bundle the surface will not store is a failed refresh: the
+    /// bundle already served stays served.
     #[test]
-    fn provenance_reads_the_bundle_a_clone_was_taken_from_not_a_live_subscription() {
+    fn a_bundle_the_surface_refuses_keeps_the_old_one_served() {
         let (catalog, next) = fake(vec!["a"]);
         let initial = catalog.load().expect("the fake's own first load succeeds");
-        let refresher = Refresher::new(vec![catalog], initial);
-        let rotating = refresher.rotating();
-        let held_before_the_swap = rotating.current();
+        let surface = FakeSurface::serving(initial, true);
+        let before = surface.digest();
+        let refresher = refreshing(catalog, &surface, coverage().0);
 
         set(&next, Answer::Bundle(vec!["a", "b"]));
-        assert_eq!(refresher.poll_once(), Outcome::Rotated);
+        assert_eq!(refresher.poll_once(), Outcome::Rejected);
 
-        assert_ne!(
-            held_before_the_swap.digest(),
-            rotating.current().digest(),
-            "the swap must be visible to a NEW read"
+        assert_eq!(
+            surface.offered.load(Ordering::SeqCst),
+            1,
+            "the bundle was offered and refused"
         );
-        // The `Arc` taken before the swap is unaffected by it - exactly what makes it safe for an
-        // in-flight answer to have cloned `current()` once at the start and hold that clone for
-        // the whole of its own computation.
-        assert_eq!(held_before_the_swap.definitions().models().len(), 1);
+        assert_eq!(surface.digest(), before);
     }
 }

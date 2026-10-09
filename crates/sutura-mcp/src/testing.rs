@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use sutura_app::surface::{Surface, SurfaceFailure};
+use sutura_app::surface::{Adopted, ErasedCause, NotAdopted, Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
@@ -527,23 +527,37 @@ pub(crate) fn fake_warehouse() -> sutura_app::Warehouses<FakeWarehouse> {
 #[error("connection refused")]
 pub(crate) struct ConnectionRefused;
 
+/// What every fixture below answers to [`Surface::adopt`]: each serves one fixed bundle, so a
+/// refresh is refused rather than pretended to have changed anything.
+fn refuse_adoption() -> Result<Adopted, NotAdopted> {
+    Err(NotAdopted::Preflight {
+        cause: ErasedCause::from("this fixture serves one fixed bundle"),
+    })
+}
+
 /// A surface that answers nothing, so a transport's failure path can be asserted.
 ///
 /// It still hands back a real bundle, because a `Surface` is a validated bundle plus a data system
 /// and only the second half is broken here.
 pub(crate) struct FailingSurface {
-    definitions: PinnedDefinitions,
+    definitions: Arc<PinnedDefinitions>,
 }
 
 impl FailingSurface {
     pub(crate) fn new() -> Self {
-        Self { definitions: bundle() }
+        Self {
+            definitions: Arc::new(bundle()),
+        }
     }
 }
 
 impl Surface for FailingSurface {
-    fn definitions(&self) -> &PinnedDefinitions {
-        &self.definitions
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
+        Arc::clone(&self.definitions)
+    }
+
+    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        refuse_adoption()
     }
 
     fn answer(
@@ -587,20 +601,24 @@ impl Surface for FailingSurface {
 /// nothing, mirroring [`FailingSurface`] - a catalog listing never reaches `answer`, so the failure
 /// half is irrelevant to the cell that reads listings.
 pub(crate) struct RestrictedSurface {
-    definitions: PinnedDefinitions,
+    definitions: Arc<PinnedDefinitions>,
 }
 
 impl RestrictedSurface {
     pub(crate) fn new() -> Self {
         Self {
-            definitions: bundle_with_a_restricted_metric(),
+            definitions: Arc::new(bundle_with_a_restricted_metric()),
         }
     }
 }
 
 impl Surface for RestrictedSurface {
-    fn definitions(&self) -> &PinnedDefinitions {
-        &self.definitions
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
+        Arc::clone(&self.definitions)
+    }
+
+    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        refuse_adoption()
     }
 
     fn answer(
@@ -642,20 +660,24 @@ impl Surface for RestrictedSurface {
 /// Answers nothing, like [`RestrictedSurface`]; what the scoping test reads is the `describe_catalog`
 /// listing and its audience-scoped `knowledge` section.
 pub(crate) struct RestrictedKnowledgeSurface {
-    definitions: PinnedDefinitions,
+    definitions: Arc<PinnedDefinitions>,
 }
 
 impl RestrictedKnowledgeSurface {
     pub(crate) fn new() -> Self {
         Self {
-            definitions: bundle_with_restricted_metric_and_glossary(),
+            definitions: Arc::new(bundle_with_restricted_metric_and_glossary()),
         }
     }
 }
 
 impl Surface for RestrictedKnowledgeSurface {
-    fn definitions(&self) -> &PinnedDefinitions {
-        &self.definitions
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
+        Arc::clone(&self.definitions)
+    }
+
+    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        refuse_adoption()
     }
 
     fn answer(
@@ -703,7 +725,7 @@ impl Surface for RestrictedKnowledgeSurface {
     reason = "a test collector over an Arc: one Mutex holding the subjects a caller-test reads back, the same instrument sutura-http's RecordingSink licenses"
 )]
 pub(crate) struct RecordingSurface {
-    definitions: PinnedDefinitions,
+    definitions: Arc<PinnedDefinitions>,
     subjects: std::sync::Mutex<Vec<sutura_domain::identity::Subject>>,
 }
 
@@ -714,7 +736,7 @@ impl RecordingSurface {
     )]
     pub(crate) fn new() -> Self {
         Self {
-            definitions: bundle(),
+            definitions: Arc::new(bundle()),
             subjects: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -728,8 +750,12 @@ impl RecordingSurface {
 }
 
 impl Surface for RecordingSurface {
-    fn definitions(&self) -> &PinnedDefinitions {
-        &self.definitions
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
+        Arc::clone(&self.definitions)
+    }
+
+    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        refuse_adoption()
     }
 
     fn answer(
@@ -805,7 +831,7 @@ impl sutura_domain::audit::AuditSink for CountingSink {
 /// It records the PEAK occupancy and not the current one, because the assertion is *nine were asked
 /// and N were inside*: a number that is true for an instant and cannot be sampled afterwards.
 pub(crate) struct HoldingSurface {
-    definitions: PinnedDefinitions,
+    definitions: Arc<PinnedDefinitions>,
     /// The answer this fake hands back, prepared at construction.
     ///
     /// Built here and not inside `answer`, because `answer` returns a `Result` and
@@ -837,8 +863,12 @@ struct Occupancy {
 const HELD_AT_MOST: Duration = Duration::from_secs(20);
 
 impl Surface for HoldingSurface {
-    fn definitions(&self) -> &PinnedDefinitions {
-        &self.definitions
+    fn definitions(&self) -> Arc<PinnedDefinitions> {
+        Arc::clone(&self.definitions)
+    }
+
+    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        refuse_adoption()
     }
 
     fn answer(&self, _context: &RequestContext, _query: &Query, _port_deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
@@ -927,7 +957,7 @@ pub(crate) fn surface_that_can_be_held() -> (HoldingSurface, Holding) {
     let occupancy = Arc::new(Occupancy::default());
     (
         HoldingSurface {
-            definitions: bundle(),
+            definitions: Arc::new(bundle()),
             rows: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(ANCHORED_VALUE)]])
                 .expect("a one-cell result is a result set"),
             occupancy: Arc::clone(&occupancy),

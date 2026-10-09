@@ -273,7 +273,7 @@ where
     // catalog load leaves, exactly as it does there and in `crate::serve`.
     let service = crate::catalog::start_composed(catalogs, opened.engines, opened.broker, settings)?;
     if let Some(attached) = opened.attached {
-        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(&service.definitions()), &attached)
             .map_err(|changed| changed.to_string())?;
     }
     // Read off the SERVICE rather than a second catalog load: `service.definitions()` is the exact

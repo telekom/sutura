@@ -383,7 +383,8 @@ where
         let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref())
             .listing_physical_schema(self.list_physical_schema);
         std::future::ready(self.asked(&context).and_then(|asked| {
-            let view = sutura_app::scoped_for(self.service.definitions(), asked.context());
+            let definitions = self.service.definitions();
+            let view = sutura_app::scoped_for(&definitions, asked.context());
             self.negotiate_initialize(&request)
                 .map(|negotiated| negotiated.with_instructions(sutura_app::prompt::render(&view, &inputs)))
         }))
@@ -717,11 +718,11 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
     .into_error_data()
 }
 
-/// The pinned bundle, as THIS caller's view, rendered as a tool result.
+/// The served bundle, as THIS caller's view, rendered as a tool result.
 ///
 /// **No blocking pool and no data system**, which is why this is not `async` and takes no slot: it
-/// reads a bundle that was pinned and validated at startup and has not changed since. A catalog edit
-/// cannot reach it - that would be a different process. The same judgement
+/// reads the validated bundle being served, taken once for this call, so a refresh that lands while
+/// it renders does not change what it renders. The same judgement
 /// `sutura_http::routes::v1::catalog` makes, for the same reason.
 ///
 /// **The view is the caller's at this door - `docs/adr/0028`.** A caller sees only the metrics its
@@ -761,7 +762,8 @@ where
     //
     // And the view is built here, from the caller this request's own verification resolved - see the
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
-    let view = sutura_app::scoped_for(service.definitions(), context);
+    let definitions = service.definitions();
+    let view = sutura_app::scoped_for(&definitions, context);
     // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
     // the catalog tool so a gateway that surfaces only tools (and never delivers
     // `initialize.instructions`) still reaches the operator's rules.

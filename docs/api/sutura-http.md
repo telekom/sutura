@@ -3534,10 +3534,19 @@ layers the versioned surface runs behind, and to refuse assembly when it is pres
 inbound identity attached. Nothing else may reach the transport.
 
 ```rust
-pub fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions
+pub fn catalog_coverage(&self) -> Gauge
 ```
 
-The service, borrowed, for a handler that only reads the pinned bundle.
+The `sutura_catalog_metrics` gauge, for the one caller that swaps the served bundle: it sets
+the gauge to the new bundle's governed coverage so the series never describes a bundle that is
+no longer served. A clone shares the series.
+
+```rust
+pub fn definitions(&self) -> Arc<sutura_domain::pinned::PinnedDefinitions>
+```
+
+The bundle the service is serving at this call, for a handler that only reads it. A handler
+that needs one bundle for the whole request calls this once.
 
 ```rust
 pub const fn inbound_identity(&self) -> Option<&Arc<crate::inbound::InboundGate>>
