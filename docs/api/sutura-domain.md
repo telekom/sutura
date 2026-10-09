@@ -8106,13 +8106,11 @@ is the type that cannot be spelled by one.
 `FederatedPlan::federation` hands a combiner that tree rather than a per-leg guard - a guard
 applied inside a leg is the wrong number this shape exists to prevent.
 
-**What no combiner may be asked to express, and the refusal is here rather than there.** The
-re-aggregation above the legs covers the leaves a *decomposable* measure produces - a
-re-aggregating `Sum`, `Min` or
-`Max`. A measure that does not decompose at all (an exact
-distinct count) has no re-aggregating function, so `FederatedPlan::new` refuses such a leaf
-before a plan exists and `reaggregates` is the whole statement of which do. That keeps an
-implementor's own unsupported-aggregate arm unreachable through this constructor.
+**A measure that does not decompose is pulled up, and the plan holds that as a key rather than a
+term.** An exact distinct count has no function that adds per-group counts back up, so its leaf
+(`Carried::Keys`) is a key of the fact leg - one row per
+distinct value - and the combine counts the distinct values above. `FederatedPlan::new` checks
+that the fact leg projects each such key under the leaf's own label.
 
 #### `struct FederatedPlan`
 
@@ -8350,11 +8348,6 @@ Why a federated plan could not be built.
 - `NotLookup` - The leg meant to be the lookup leg is not a `LegPlan::Lookup`.
 - `SameSource` - Both legs name the same data system, which is a single-source question, not a federated one.
 - `KeyNotOnLeg` - An answer key names a column the leg it belongs to does not project.
-- `LeafDoesNotReaggregate` - A carried leaf names an aggregate the combine has no re-aggregating function for.
-
-  Refused before a plan exists rather than when a group is reduced: it is a defect in this
-  workspace's own wiring, and reduced, the same plan refused a group holding a value and
-  answered `Null` for a group of nulls, under the metric's own certified name.
 - `BucketMismatch` - The bucket handed to this constructor is not the fact leg's own.
 
   Unreachable through the one production splitter, which builds both from one local value -
@@ -10056,14 +10049,6 @@ somebody else's input.
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
-- `MeasureDoesNotFederate` - The question's measure cannot be decomposed into one leg per source.
-
-  A measure federates only when its aggregate can be recomputed above the legs. A distinct count
-  cannot: two exact distinct counts added together over-count every key the two legs share, and
-  no re-aggregating function repairs it. The honest answer is to refuse rather than to pull the
-  rows up through a combiner that would have to guess.
-
-  Carries the metric and the aggregate that cannot descend, so a caller sees why.
 - `FederatedAnswerNotWellFormed` - The combiner could not compute the answer as asked, deterministically.
 
   **D19 + A4: this used to have no refusal at all.** A non-finite ratio and a link value

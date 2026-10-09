@@ -148,7 +148,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                   CSV and NDJSON files in the directory it was given - each text format plain or \
                   compressed, Parquet first; `sutura-exec-duckdb` is a DEV-dependency of \
                   `sutura-app`'s tests and, behind `sutura-cli`'s default-off `duckdb` feature, \
-                  what a `kind: duckdb` source opens. `docs/architecture.md`'s table is the inventory",
+                  what a `kind: duckdb` source opens. `docs/integrations.md`'s table is the inventory",
         only: &[],
         except: &[],
     },
@@ -353,7 +353,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         instead: "`sources.<alias>.kind` selects the adapter, and BOTH composition roots dispatch \
                   it through an exhaustive match. What stays a compile-time decision is which KINDS \
                   a given build linked: `kind: bigquery` on a build without the default-off \
-                  `bigquery` feature is a refusal naming that feature. `docs/architecture.md`'s \
+                  `bigquery` feature is a refusal naming that feature. `docs/integrations.md`'s \
                   table is the inventory",
         only: &[],
         except: &[],
@@ -800,8 +800,8 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         }],
         instead: "`crates/sutura-config/src/sources.rs` parses a `sources:` tree per deployment: a \
                   `SourceName` selects a warehouse out of a registry rather than being compared \
-                  for equality against the one linked adapter. `docs/architecture.md#what-exists-\
-                  today` and `docs/adr/0007`'s `Amendment, 2026-09-16` carry the correction",
+                  for equality against the one linked adapter. `docs/integrations.md#data-system-\
+                  settings` and `docs/adr/0007`'s `Amendment, 2026-09-16` carry the correction",
         only: &[],
         except: &["docs/adr/0007-federating-across-different-data-systems.md"],
     },

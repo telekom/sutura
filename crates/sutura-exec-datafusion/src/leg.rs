@@ -143,7 +143,22 @@ pub(crate) fn logical(
     }
     // Keys, then the bucket if this leg has one, which is the order `LegPlan::result_labels` states
     // - so the aggregate's output fields line up with the labels position for position.
-    let mut grouping: Vec<Expr> = leg.keys().iter().map(|key| column(key.column())).collect();
+    //
+    // **A column can be two keys**: a distinct count's column that is also the link or a dimension is
+    // grouped once under each label. The aggregate's schema refuses two fields of one name and a
+    // plain `GROUP BY` would collapse them, so a later key on a column an earlier key already took is
+    // named by its own label.
+    let labels = leg.result_labels();
+    let mut grouping: Vec<Expr> = Vec::with_capacity(labels.len());
+    for (index, (key, label)) in leg.keys().iter().zip(&labels).enumerate() {
+        let reference = column(key.column());
+        let repeated = leg.keys().iter().take(index).any(|earlier| earlier.column() == key.column());
+        grouping.push(if repeated {
+            reference.alias(label.as_str())
+        } else {
+            reference
+        });
+    }
     let mut aggregates = Vec::new();
     match *leg {
         LegPlan::Fact {
@@ -166,7 +181,6 @@ pub(crate) fn logical(
         .aggregate(grouping, aggregates)
         .map_err(|cause| DataFusionError::Build { cause })?;
 
-    let labels = leg.result_labels();
     let (projection, ordering) = outputs(builder.schema(), &labels, group_count)?;
     // Sorted by what it groups by and NOT limited, which is the fourth difference above. `sort_by`
     // is ascending nulls-last, which is what `generate_leg`'s `ordered_nulls_last` renders.

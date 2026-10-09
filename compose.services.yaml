@@ -176,6 +176,21 @@ x-datahub-backend-environment: &datahub-backend-environment
   SCHEMA_REGISTRY_TYPE: INTERNAL
   DATAHUB_TELEMETRY_ENABLED: "false"
 
+# The environment the OpenMetadata migration job and server share: one answer to "which database" and
+# "which search index", for the reason `x-datahub-backend-environment` gives. The two stores carry
+# their own hostnames (`om-mysql`, `om-search`) because the DataHub stack's `mysql` and `search`
+# share this project's network when both profiles are up. Everything else is the image's own
+# default - the server image's `openmetadata.yaml` already names the database, user and index
+# settings, and the user and password are the FIXTURE credentials the `openmetadata/db` image
+# bakes in, reachable from nothing outside this host.
+x-openmetadata-environment: &openmetadata-environment
+  DB_HOST: om-mysql
+  ELASTICSEARCH_HOST: om-search
+  ELASTICSEARCH_PORT: "9200"
+  ELASTICSEARCH_SCHEME: http
+  SEARCH_TYPE: opensearch
+  PIPELINE_SERVICE_CLIENT_ENABLED: "false"
+
 services:
 
   # The columnar source. The HTTP interface, which is what an adapter would speak.
@@ -511,6 +526,117 @@ services:
       retries: 60
       start_period: 45s
 
+  # ## The OpenMetadata metadata platform: four containers behind one profile
+  #
+  # `sutura-catalog-openmetadata` reads an instance over its REST API, and `docs/what-openmetadata-can-carry.md`
+  # is the finding it was decided against. This is the instance that finding left unmeasured, and
+  # `just openmetadata-acceptance` is the one thing that talks to it.
+  #
+  # **`openmetadata` IS the server container**: the key is a DISCOVERY name, and the three below it
+  # (`openmetadata-mysql`, `openmetadata-opensearch`, `openmetadata-migrate`) are its store, its
+  # search index and its migration job, none of which publishes a port or is a row in
+  # `sutura_dev::scope::SERVICES`. The server is healthy only after the migration job exited
+  # successfully, which is gated on both stores being healthy.
+  #
+  # Reproduced from upstream's `docker/docker-compose-quickstart/docker-compose.yml` at the pinned
+  # release, read on 2026-10-08, with four departures: (1) **OpenSearch, not Elasticsearch** - upstream's
+  # quickstart names an Elastic-registry image, which breaks this file's one-registry rule, and
+  # the OpenSearch the DataHub stack already pins is a search backend the server supports
+  # (`SEARCH_TYPE: opensearch`); measured to start and create its indices on the pinned release. (2) **No
+  # ingestion (Airflow) container**: nothing here ingests, the cells write entities over the REST API, so
+  # the pipeline client is off. (3) No host port: the server publishes 8585 ephemerally and the admin
+  # port 8586 stays inside the container, where the health check asks it. (4) Named volumes.
+  #
+  # **Auth is the upstream default, ON**: the `basic` provider with a JWT. The acceptance cells log in as
+  # the image's built-in administrator - a credential that is the upstream container's own default and
+  # exists in this throwaway tier only - and present the token as a bearer; a bearer-less read is
+  # `401`, which a cell asserts. The limit: this is the image's single-node default, not a
+  # production OpenMetadata, and no per-user authorization is exercised.
+  #
+  # Behind a profile for `datahub`'s reason: two JVMs and a migration job, where `clickhouse` is one
+  # alpine container. Both OpenMetadata images are pinned by tag AND digest (the manifest-list digest
+  # Docker Hub serves for the tag, read on the pin date), as `oracle` is: a permanent CI job earns a
+  # pin a by-hand fixture does not. Re-pin when the tag moves.
+  openmetadata-mysql:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/openmetadata/db:1.13.6@sha256:4fdca3fb7ced05d04a0013b9e1d203669514e16baca572d51f7e0476f678afa4
+    profiles:
+      - openmetadata
+    hostname: om-mysql
+    command: --sort_buffer_size=10M
+    environment:
+      MYSQL_ROOT_PASSWORD: *fixture-password
+    volumes:
+      - openmetadata-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysql --user=root --silent --execute 'use openmetadata_db' --password=$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  openmetadata-opensearch:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/opensearchproject/opensearch:2.19.3
+    profiles:
+      - openmetadata
+    hostname: om-search
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms768m -Xmx1024m -Dlog4j2.formatMsgNoLookups=true
+    volumes:
+      - openmetadata-opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS --fail 'http://om-search:9200/_cluster/health?wait_for_status=yellow&timeout=0s'"]
+      interval: 5s
+      timeout: 15s
+      retries: 24
+      start_period: 30s
+
+  # The migration job: it creates the schema and the search indices, then exits. The server gates on
+  # it having exited SUCCESSFULLY, so a failed migration is a server that never starts.
+  openmetadata-migrate:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/openmetadata/server:1.13.6@sha256:a6505716f264ea54c1bbd3cc4a82ccf052e3b172ec53bd17a5271323f0e61bab
+    profiles:
+      - openmetadata
+    hostname: openmetadata-migrate
+    command: ./bootstrap/openmetadata-ops.sh migrate
+    depends_on:
+      openmetadata-mysql:
+        condition: service_healthy
+      openmetadata-opensearch:
+        condition: service_healthy
+    environment:
+      <<: *openmetadata-environment
+
+  # The one service anything discovers: `sutura_dev::scope::SERVICES` names `openmetadata`, this
+  # publishes 8585 ephemerally, and `xtask dev-up` writes back whatever it landed on.
+  openmetadata:
+    # CI venue: compose only - the `datahub` block's argument.
+    # Because: the server is not packaged in `nixpkgs`, it does not run without a relational store
+    #   and a search index, and a nix `checks.*` derivation has no docker socket and no network.
+    # Converges: when the server and its two stores are packaged as nix-native tiers, taking
+    #   `nix/postgres-tier.nix`'s shape. Until then the instance is reached by the `ci-openmetadata-tier`
+    #   CI job (`ci.yml`) through `nix run .#openmetadata-acceptance`, and NO nix check covers it:
+    #   a green `just validate` says nothing about a live OpenMetadata.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/openmetadata/server:1.13.6@sha256:a6505716f264ea54c1bbd3cc4a82ccf052e3b172ec53bd17a5271323f0e61bab
+    profiles:
+      - openmetadata
+    hostname: openmetadata
+    depends_on:
+      openmetadata-migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *openmetadata-environment
+    ports:
+      - 8585
+    healthcheck:
+      # The server's own admin-port probe, quoted from upstream's quickstart.
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8586/healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
   # The Oracle data source (`github.com/telekom/sutura#127`). `sutura_dev::scope::SERVICES` names
   # `oracle`, this publishes 1521 ephemerally, and `xtask dev-up --with oracle` reads back whatever
   # it landed on.
@@ -637,8 +763,7 @@ services:
 # ## Services the plan names that are NOT here, and why - stated rather than left as an omission
 #
 # The compose-tier section of `docs/implementation-plan-identity-and-services.md` names Oracle,
-# Datahub and OpenMetadata. Oracle and Datahub have left this list, below; OpenMetadata is DEFERRED,
-# for a reason that is about this tier's job rather than about effort. That job is to stand up the
+# Datahub and OpenMetadata. All three have left this list, below. The tier's job is to stand up the
 # source an adapter is tested against - so a service with no live leg to test is cost with no coverage.
 #
 #   * **Oracle has LEFT this list**: the `oracle` service is above and the `oracle-tier` CI job
@@ -646,11 +771,10 @@ services:
 #     `gvenzl/oracle-free` rebuild is, under the Oracle Free licence - the `oracle-tier` job's
 #     comment in `ci.yml` carries the licence note and its limit. `docs/adr/0008` still records
 #     Oracle's per-subject impersonation as DEFERRED; this tier serves the shared fixture user only.
-#   * **OpenMetadata.** Not one image: a stack - its own store, a search index, a scheduler. The
-#     `sutura-catalog-openmetadata` crate reads an instance over its REST API, so something WOULD read
-#     from one; but its reader has only been run against a fake server, no service here and no CI job
-#     provisions an instance, and no live test leg exists. The deferral rests on the cost of the
-#     stack, which buys coverage only once that leg does.
+#   * **OpenMetadata has LEFT this list**: the stack is above, four containers behind an
+#     `openmetadata` profile, and the `ci-openmetadata-tier` CI job runs the live golden round trip
+#     against it. What it buys is the measurement `docs/what-openmetadata-can-carry.md` left open - the
+#     HTTP reader had only been run against a fake server.
 #   * **`Datahub` was in the bullet above and has LEFT it, and which half of the argument was spent
 #     when is the part worth reading.** The first half went earlier: this cell used to say
 #     `sutura-datahub` was planned and non-existent, and `sutura-catalog-datahub` exists - the first
@@ -673,3 +797,5 @@ volumes:
   datahub-mysql-data:
   datahub-opensearch-data:
   demo-webui-data:
+  openmetadata-mysql-data:
+  openmetadata-opensearch-data:

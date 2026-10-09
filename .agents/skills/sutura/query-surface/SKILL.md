@@ -89,7 +89,8 @@ certified ungrouped one, and both legs' recorded postures. Above it,
 executions plus the combiner against the same questions answered whole by one engine, in TWO
 passes - two `DuckDB` databases and two instances of the shipped engine - over null and orphan
 join keys, remote filters, the whole reduction table above the legs, a zero denominator in one
-subgroup, and the `MeasureDoesNotFederate` refusal.
+subgroup, and a distinct count whose values span two join keys (pulled up: the fact leg carries the
+values as a key and the combine counts them).
 **Four limits, and the first two are the ones that get overstated:**
 (1) **not two identities on every answer** - `files` and Postgres sources still use
 `NoPlaceForASubject`; two such legs can run under different deployment identities even though both

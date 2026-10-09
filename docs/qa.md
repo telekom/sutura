@@ -57,7 +57,7 @@ alone the record names the *deployment*, because that is who asked as far as any
 deployment that declares `security.inbound` names the caller, from a signature. Still a design
 target is a refusal attributable to a subject whose own **access** decided it. BigQuery can carry
 the asking subject's assertion, but the source's acceptance is unproven; shared legs still read
-under their source's declared identity ([identity venues](where-identity-is-proven.md)).
+under their source's declared identity ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
 
 ## Why does the tool surface take no table name?
 
@@ -91,7 +91,7 @@ disclosure, not an authorization check (see
 
 BigQuery can carry a per-subject credential, but its real two-subject venue is wired with no
 observed run. The other adapters still execute under a shared identity, and no live test has shown
-two subjects receiving different rows ([identity venues](where-identity-is-proven.md)).
+two subjects receiving different rows ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
 
 ## Why are definitions not editable here?
 
@@ -115,7 +115,7 @@ subject, but no hosted run has shown the source accepting either identity hop. O
 execute under their source's shared identity. The bound demonstrated today is the tool surface
 plus, where a deployment declares `security.inbound`, the scopes that caller was granted. Those
 scopes decide which operations the caller may invoke, not which rows an answer contains; per-subject
-rows through BigQuery remain unproven ([identity venues](where-identity-is-proven.md)).
+rows through BigQuery remain unproven ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
 
 ## Why do the musl builds swap the allocator?
 

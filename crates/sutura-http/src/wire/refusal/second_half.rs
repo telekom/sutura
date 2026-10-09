@@ -32,14 +32,6 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "federation_link_compound",
         ),
         (
-            RefusalReason::MeasureDoesNotFederate {
-                metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
-                aggregate: sutura_domain::model::Aggregate::CountDistinct,
-            },
-            StatusCode::CONFLICT,
-            "measure_does_not_federate",
-        ),
-        (
             RefusalReason::FederatedAnswerNotWellFormed {
                 federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
             },
