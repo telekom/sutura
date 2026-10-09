@@ -2818,8 +2818,9 @@ a deployment whose whole model is a physical schema must not be told it has metr
 tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 not mocked SQL (<code>github.com/telekom/sutura#151</code>'s thing 4). Since #972, it also contains the
 live implementors over a Postgres (<code>postgres_reader</code>) and an Oracle (<code>oracle_reader</code>)
-documentation schema, behind a default-off <code>live</code> feature so the library closure stays
-domain + thiserror and no build links either driver's stack without asking for it.</p>
+documentation schema, behind default-off <code>live</code> and <code>live-oracle</code> features so the library
+closure stays domain + thiserror and no build links either driver's stack without asking for
+it.</p>
 <p><strong>The fake dominates the suite; the live reader is the production half, feature-gated.</strong>
 <code>DictionaryReader</code> is the seam they implement (<code>fixture::FixtureReader</code> the recorded corpus,
 <code>AnyDictionaryReader</code> a real connection), and the conversion is the same for each.
@@ -2833,7 +2834,7 @@ either without a trait object.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Postgres</code> - The Postgres documentation-schema reader, boxed because it is several times the Oracle one.</li>
-<li><code>Oracle</code> - The Oracle documentation-schema reader.</li>
+<li><code>Oracle</code> - The Oracle documentation-schema reader, behind the <code>live-oracle</code> feature.</li>
 </ul>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
@@ -3114,7 +3115,7 @@ foreign key between them.</p>
 <p>The constructor the conformance registry uses to register the adapter; it is <code>pub</code> because an
 integration suite is a separate crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
 <h2 id="module-oracle_reader">Module <code>oracle_reader</code><a class="headerlink" href="#module-oracle_reader" title="Permanent link">&para;</a></h2>
-<p>The live Oracle documentation-schema reader, behind the default-off <code>live</code> feature.</p>
+<p>The live Oracle documentation-schema reader, behind the default-off <code>live-oracle</code> feature.</p>
 <p><code>crate::postgres_reader</code>'s twin over an Oracle connection: the same documented <code>columns</code> view
 (that module's header carries the column table), the same constructor checks, inline caps and
 assembly - all held once in <code>crate::documentation</code> - so the conversion in <code>crate::RdbmsCatalog</code>
