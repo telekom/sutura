@@ -46,8 +46,8 @@ use crate::translate::{bucket_expression, column, predicate, term_expression};
 
 /// The same-source hops this leg keeps as joins of its own.
 ///
-/// A dimension on another data system is a second leg, never a join of the first. A lookup leg
-/// joins whatever its own tables carry, read the way a fact leg's are.
+/// A dimension on another data system is a second leg, never a join of the first. What a lookup leg
+/// joins is the hops of a chain that carried on after it crossed onto this system.
 pub(crate) fn joins(leg: &LegPlan) -> &[PlanJoin] {
     leg.tables().joins()
 }

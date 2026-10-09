@@ -44,10 +44,15 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 /// turning the measurement into a benchmark while still making an order-of-magnitude regression
 /// fail.
 const MAX_RSS_PER_POOL_BYTE: usize = 1024;
+/// Questions whose one-source path ends in the driver's non-finite-cell error.
 const EXPECTED_FAILURES: [&str; 2] = [
     "revenue-per-churned-subscription-january",
     "two-source-a-zero-denominator-that-fails",
 ];
+/// The members of [`EXPECTED_FAILURES`] the two-source topology refuses rather than fails: the
+/// combiner takes a non-finite ratio as `FederatedAnswerNotWellFormed`, which the census counts as
+/// refused.
+const REFUSED_WHEN_FEDERATED: [&str; 1] = ["two-source-a-zero-denominator-that-fails"];
 const EXPECTED_METRIC: &str = "revenue_per_churned_subscription";
 
 type MeasurementResult = Result<ToolOutcome, ServiceError<DataFusionError, BrokerCannotFail, CombineError>>;
@@ -398,9 +403,10 @@ fn every_corpus_question_has_one_fresh_child_outcome_in_each_topology() {
     let expected_failed = cases
         .iter()
         .filter(|case| {
-            every_question()
-                .get(case.question)
-                .is_some_and(|(name, _)| EXPECTED_FAILURES.contains(&name.as_str()))
+            every_question().get(case.question).is_some_and(|(name, _)| {
+                EXPECTED_FAILURES.contains(&name.as_str())
+                    && !(case.topology == Topology::Two && REFUSED_WHEN_FEDERATED.contains(&name.as_str()))
+            })
         })
         .count();
     println!(

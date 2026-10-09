@@ -2,11 +2,15 @@
 //! qualifies each hop's origin column, and which hop - if any - leaves the metric's own source.
 //!
 //! **A module rather than six functions in `plan.rs`, and the seam is the concept.** Every plan
-//! shape asks the same three questions of a chain, and the whole-answer path and the fact leg each
+//! shape asks the same questions of a chain, and the whole-answer path and the fact leg each
 //! answered the second one with their own copy of the loop - which is how one of them came to
 //! qualify every hop by the metric's table. One reader, two callers.
 //!
-//! Nothing here renders and nothing here refuses: [`chain_leaving_its_source`] reports what it
+//! **A chain crosses one data system boundary, at any hop.** The hops before the crossing join on
+//! the metric's own source, the crossing hop is the federated plan's link, and the hops after it join
+//! inside the lookup leg - [`crossing`] cuts a chain into those three.
+//!
+//! Nothing here renders and nothing here refuses: [`chain_leaving_its_crossing`] reports what it
 //! found and `super::plan` decides what that is. The module is private and sits under `plan`, so
 //! the dependency runs inward only - it reads `crate::resolve` and `sutura_domain`, and neither
 //! reads it.
@@ -15,27 +19,42 @@ use sutura_domain::catalog::{JoinKey, Model, Relationship};
 use sutura_domain::model::{DimensionName, SourceName, TableName};
 use sutura_domain::plan::{PlanColumn, PlanJoin, PlanJoinKey};
 
-use crate::resolve::{Resolution, ResolvedDimension};
+use crate::resolve::{Resolution, ResolvedDimension, ResolvedJoin};
 
-/// The first chain that leaves the metric's data system after its first hop, and which hop it is.
+/// A chain cut at the hop that crosses onto another data system.
+pub(super) struct Crossing<'r, 'a> {
+    /// The hops on the metric's own source, which the fact leg joins.
+    pub(super) before: &'r [ResolvedJoin<'a>],
+    /// The hop that lands on the other system: the link the lookup leg carries.
+    pub(super) hop: &'r ResolvedJoin<'a>,
+    /// The hops after it, which join inside the lookup leg.
+    pub(super) after: &'r [ResolvedJoin<'a>],
+}
+
+/// Where `hops` leaves `own`, or `None` for a chain that never does.
+pub(super) fn crossing<'r, 'a>(hops: &'r [ResolvedJoin<'a>], own: &SourceName) -> Option<Crossing<'r, 'a>> {
+    let at = hops.iter().position(|hop| hop.model.source() != own)?;
+    let (before, rest) = hops.split_at(at);
+    let (hop, after) = rest.split_first()?;
+    Some(Crossing { before, hop, after })
+}
+
+/// The first chain that leaves the data system it crossed to, and which hop does it.
 ///
-/// Hop 1 may cross - that is the federated case, one link into one lookup table. Every later hop
-/// must join two tables on the metric's own source, so BOTH of its ends are compared: a hop whose
-/// origin sits elsewhere is a chain that crossed earlier and came back, which neither plan shape
-/// can render and which [`is_remote`] reads as local. The hop number is 1-based, so it matches the
-/// load-time report a catalog author reads.
-///
-/// `windows(2)` rather than an index, which is `sutura_domain::catalog::ViaChain`'s own rule: the
-/// pair is (where the walk stands, where the hop after it goes), and the hop under test is the
-/// second of the two.
-pub(super) fn chain_leaving_its_source<'a>(resolution: &Resolution<'a>) -> Option<(&'a DimensionName, usize)> {
+/// A chain may cross from the metric's source at any hop, and every hop after the crossing must land
+/// on the system it crossed to. A later hop that lands anywhere else - back on the metric's source, or
+/// on a third - is a chain neither plan shape can render, and [`is_remote`] reads the first of those
+/// as local. The hop number is 1-based, so it matches the load-time report a catalog author reads.
+pub(super) fn chain_leaving_its_crossing<'a>(resolution: &Resolution<'a>) -> Option<(&'a DimensionName, usize)> {
     let own = resolution.model.source();
     every_dimension(resolution).find_map(|resolved| {
         let hops = resolved.join.as_ref()?;
-        let leaving = hops
-            .windows(2)
-            .position(|pair| pair.iter().any(|end| end.model.source() != own))?;
-        Some((resolved.dimension.name(), leaving.saturating_add(2)))
+        let cut = crossing(hops, own)?;
+        let landed = cut.hop.model.source();
+        let (offset, _) = cut.after.iter().enumerate().find(|(_, hop)| hop.model.source() != landed)?;
+        // Hops before the crossing, the crossing itself, the offset into what follows it, 1-based.
+        let hop = cut.before.len().saturating_add(2).saturating_add(offset);
+        Some((resolved.dimension.name(), hop))
     })
 }
 
@@ -47,9 +66,9 @@ pub(super) fn every_remote_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> 
 
 /// Whether a dimension sits on a data system other than `own`.
 ///
-/// The LAST hop decides: hop 1 may cross a source boundary - that is the federated case - but from
-/// the second hop on a chain stays on the data system its previous hop ended at, so a chain whose
-/// last hop is local is a local dimension, not a federated one.
+/// The LAST hop decides: a chain crosses at most once and stays where it crossed to, so a chain whose
+/// last hop is on another system crossed, and one whose last hop is local never left - which is why a
+/// chain that crossed and came back has to be refused before this is asked.
 pub(super) fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
     dimension
         .join
@@ -61,13 +80,48 @@ pub(super) fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> 
 /// One [`PlanJoin`] per hop of every chain the question reaches, for both plan shapes.
 ///
 /// **Hop N's origin column is qualified by hop N-1's target, and qualifying it by the metric's own
-/// table was a wrong answer.** `origin` walks the chain the way
+/// table was a wrong answer.** [`walk`] follows the chain the way
 /// `sutura_domain::catalog::Definitions::assemble` walks it - the metric's table before the first
 /// hop, each hop's target after it. Before that walk existed, `own_table` was used for every hop, so
 /// a three-model chain rendered `ON fact.region_code = regions.code` when the origin column belongs
 /// to `customers`: a binder error where the fact table has no such column, and a SILENTLY wrong
 /// grouping where it happens to have one by the same name. Reproduced both ways against `DuckDB`.
 ///
+/// A chain stops at its crossing hop. On the fact leg that hop is the link the lookup leg carries
+/// instead, and the hops after it are [`lookup_joins`]; on the whole-answer path no such hop exists,
+/// because `plan` dispatches there only for a question with no remote dimension. So a chain that
+/// crossed never contributes a join to the statement it has left.
+pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, own_source: &SourceName) -> Vec<PlanJoin> {
+    unique_chains(every_dimension(resolution).filter_map(|resolved| {
+        let hops = resolved.join.as_ref()?;
+        Some(walk(crossing(hops, own_source).map_or(hops, |cut| cut.before), own_table))
+    }))
+}
+
+/// One [`PlanJoin`] per hop that follows the crossing, for the lookup leg's statement.
+///
+/// The first of them starts at the crossing hop's own table, which is the lookup leg's `FROM`. The
+/// sort and the deduplication are [`chain_joins`]', through one function, so the two statements'
+/// join order is a function of the plan in the same way.
+pub(super) fn lookup_joins(resolution: &Resolution<'_>, own_source: &SourceName) -> Vec<PlanJoin> {
+    unique_chains(every_dimension(resolution).filter_map(|resolved| {
+        let cut = crossing(resolved.join.as_ref()?, own_source)?;
+        Some(walk(cut.after, cut.hop.model.table_name()))
+    }))
+}
+
+/// One join per hop, each starting at the table the previous hop ended on - `from` for the first.
+fn walk(hops: &[ResolvedJoin<'_>], from: &TableName) -> Vec<PlanJoin> {
+    let mut origin = from;
+    hops.iter()
+        .map(|hop| {
+            let join = hop_join(hop.relationship, origin, hop.model);
+            origin = hop.model.table_name();
+            join
+        })
+        .collect()
+}
+
 /// **Chains are sorted as units, which is what makes the statement a function of the plan rather
 /// than of the order the caller listed their dimensions.** The per-join sort that used to do this
 /// was dropped when `via` became a chain, for a real reason - sorting flattened hops renders a
@@ -79,29 +133,8 @@ pub(super) fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> 
 ///
 /// Deduplicated by relationship AFTER the sort, so two dimensions reached through one hop produce
 /// one join and which chain contributed it is decided by the sort rather than by arrival order.
-///
-/// A chain stops at its first hop that leaves `own_source`. On the fact leg that hop is the link
-/// the lookup leg carries instead; on the whole-answer path no such hop exists, because `plan`
-/// dispatches there only for a question with no remote dimension. Either way no hop may FOLLOW a
-/// crossing one - [`super::PlanError::ChainLeavesItsSource`] is the refusal - so this stops rather than
-/// skipping, and a chain that crossed can never contribute a join to a statement it has left.
-pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, own_source: &SourceName) -> Vec<PlanJoin> {
-    let mut chains: Vec<Vec<PlanJoin>> = Vec::new();
-    for resolved in every_dimension(resolution) {
-        let Some(hops) = resolved.join.as_ref() else {
-            continue;
-        };
-        let mut origin = own_table;
-        let mut chain: Vec<PlanJoin> = Vec::with_capacity(hops.len());
-        for hop in hops {
-            if hop.model.source() != own_source {
-                break;
-            }
-            chain.push(hop_join(hop.relationship, origin, hop.model));
-            origin = hop.model.table_name();
-        }
-        chains.push(chain);
-    }
+fn unique_chains(chains: impl Iterator<Item = Vec<PlanJoin>>) -> Vec<PlanJoin> {
+    let mut chains: Vec<Vec<PlanJoin>> = chains.collect();
     chains.sort_by(|left, right| {
         left.iter()
             .map(PlanJoin::relationship)

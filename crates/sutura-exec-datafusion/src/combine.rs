@@ -765,11 +765,15 @@ fn leaf_expression(carried: &Carried, column: Expr, reading: Reading) -> Result<
 /// above would answer by which engine produced the leg. The widening is exact for every float width,
 /// so no two distinct values meet. NULL stays NULL and is not counted.
 ///
-/// **The `-0.0` arm is needed because the zeros are counted apart in some plan shapes.** `DataFusion`
-/// merges them in a lone distinct count, and with a sum beside it, but counts them apart when the one
-/// aggregate holds two distinct counts over different columns (measured; the likely cause is that its
-/// single-distinct rewrite no longer applies). A ratio of two distinct counts builds that aggregate.
-/// Without the arm the answer depends on which zero a leg kept per link value. The arm is held by
+/// **The `-0.0` arm is needed because the zeros are counted apart in some plan shapes and for some
+/// key expressions.** `DataFusion` merges them in a lone distinct count over a plain column, and with
+/// a sum beside it, but counts them apart when the one aggregate holds two distinct counts over
+/// different columns (measured; the likely cause is that its single-distinct rewrite no longer
+/// applies). A ratio of two distinct counts builds that aggregate. The key expression matters too:
+/// with this arm's condition made never true, a lone distinct count over `0.0` under one link value
+/// and `-0.0` under another counted 2, and with the arm deleted it counted 1. So the merge is not a
+/// property of the plan shape alone, and the arm is needed in general. Without it the answer depends
+/// on which zero a leg kept per link value. The arm is held by
 /// `a_ratio_of_two_distinct_counts_counts_both_zeros_once`.
 fn distinct_key(column: Expr, float: bool) -> Result<Expr, CombineError> {
     if !float {
@@ -777,7 +781,7 @@ fn distinct_key(column: Expr, float: bool) -> Result<Expr, CombineError> {
     }
     let wide = cast(column, DataType::Float64);
     // `abs`, because `DataFusion` compares floats in total order, where `-0.0 = 0.0` is false and
-    // `abs(-0.0) = 0.0` is true; a `+ 0.0` would be folded away before it ran.
+    // `abs(-0.0) = 0.0` is true.
     when(abs(wide.clone()).eq(lit(0.0_f64)), lit(0.0_f64))
         .when(isnan(wide.clone()), lit(f64::NAN))
         .otherwise(wide)

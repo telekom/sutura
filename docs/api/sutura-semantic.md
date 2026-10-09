@@ -126,7 +126,7 @@ as a refusal a caller would retry.
   remote source exists and a remote dimension has a join by construction, so nothing provokes
   this either. It replaces a fabricated `RefusalReason::PlanSpansTooManySources { sources: 1,
   limit: 2 }` a caller could not have narrowed their way out of.
-- `ChainLeavesItsSource` - A chain that leaves the metric's data system after its first hop reached the plan stage.
+- `ChainLeavesItsSource` - A chain that crossed onto another data system and then left it reached the plan stage.
 
   The bundle should not have assembled: `sutura_domain::catalog` refuses such a chain at load,
   naming the dimension and the hop. So nothing provokes this from a catalog either, and what it

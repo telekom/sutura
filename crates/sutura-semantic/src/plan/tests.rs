@@ -23,7 +23,9 @@ use super::{DimensionName, Plan, PlanError, plan};
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
 use crate::{CompileFailure, Compiled};
 
+mod corpus;
 mod two_sources;
+use corpus::{Corpus, federated_by, join_tables, pair, read_from};
 use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, federated, refusal, revenue_beside_a_ratio, two_facts};
 
 fn column(raw: &str) -> ColumnName {
@@ -58,104 +60,6 @@ fn relationship(name: &str, from: (&str, &str), to: (&str, &str)) -> Relationshi
         }])
         .expect("a test relationship declares one key"),
     )
-}
-
-/// `facts -> customers -> regions` beside `facts -> products`, with `customers` placed on the
-/// source given.
-///
-/// Two chains that share NO hop, which is what the order cell needs: two chains sharing hop 1
-/// dedup to the same list in either order, so a corpus built that way passes with the sort
-/// removed - measured, and it is why `family` is reached through a relationship of its own.
-///
-/// `region_code` is hop 2's origin column and sits on `customers` only: `dim_facts` does not
-/// declare it, which is what turns the hop-qualification defect into a binder error rather than
-/// a silent regrouping in this venue.
-struct Corpus {
-    facts: Model,
-    /// Every declared hop beside the model on its far side, which is what a resolution holds.
-    reached: Vec<(Relationship, Model)>,
-    held: Metric,
-}
-
-impl Corpus {
-    fn with_customers_on(customers: &str) -> Self {
-        Self {
-            facts: model("facts", "local", &["amount_cents", "day", "customer_key", "product_key"]),
-            reached: vec![
-                (
-                    relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key")),
-                    model("customers", customers, &["customer_key", "region_code"]),
-                ),
-                (
-                    relationship("customers_region", ("customers", "region_code"), ("regions", "code")),
-                    model("regions", "local", &["code", "label"]),
-                ),
-                (
-                    relationship("facts_product", ("facts", "product_key"), ("products", "product_key")),
-                    model("products", "local", &["product_key", "family"]),
-                ),
-            ],
-            held: Metric::new(
-                MetricName::parse("revenue").expect("a test metric is a metric"),
-                ModelName::parse("facts").expect("a test model is a model"),
-                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-                Vec::new(),
-                column("day"),
-                BTreeSet::from([Grain::Month]),
-                vec![
-                    declared("region", "label", &["facts_customer", "customers_region"]),
-                    declared("family", "family", &["facts_product"]),
-                ],
-                None,
-                Description::default(),
-                Audience::Open,
-            )
-            .expect("these dimensions are distinct"),
-        }
-    }
-
-    /// The dimension named, with each hop of its declared chain resolved by name.
-    fn key(&self, name: &str) -> ResolvedDimension<'_> {
-        let held = self
-            .held
-            .dimension(&dimension_name(name))
-            .expect("the metric declares this dimension");
-        ResolvedDimension {
-            dimension: held,
-            join: Some(
-                held.via()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|hop| {
-                        let (relationship, model) = self
-                            .reached
-                            .iter()
-                            .find(|(declared_hop, _)| declared_hop.name() == hop)
-                            .expect("the corpus declares this hop");
-                        ResolvedJoin { relationship, model }
-                    })
-                    .collect(),
-            ),
-        }
-    }
-
-    fn asking<'a>(&'a self, keys: Vec<ResolvedDimension<'a>>) -> Resolution<'a> {
-        Resolution {
-            metric: &self.held,
-            metrics: vec![&self.held],
-            model: &self.facts,
-            grain: Grain::Month,
-            range: TimeRange::new(
-                Date::parse("2026-06-01").expect("a test date is a date"),
-                Date::parse("2026-07-01").expect("a test date is a date"),
-            )
-            .expect("June is a range"),
-            keys,
-            filters: Vec::new(),
-            top: None,
-            cross: None,
-        }
-    }
 }
 
 fn declared(name: &str, col: &str, via: &[&str]) -> Dimension {
@@ -282,6 +186,95 @@ fn a_chain_that_leaves_its_source_is_refused_at_plan_time() {
             PlanError::ChainLeavesItsSource { ref dimension, hop: 2, .. } if *dimension == dimension_name("region")
         ),
         "expected the chain refusal naming hop 2, got {refused:?}"
+    );
+}
+
+/// A chain that crosses at its FIRST hop and carries on is one lookup statement.
+///
+/// `customers` and `regions` both on `elsewhere`: hop 1 is the link, so the fact leg joins nothing
+/// and links on its own table; hop 2 is a join the LOOKUP leg makes, from the table hop 1 landed on,
+/// and the dimension is read from `regions`. A splitter that drops the lookup's joins projects a
+/// column its statement does not read, and one that qualifies the lookup's keys by the crossing
+/// table asks `customers` for a column only `regions` has.
+#[test]
+fn a_chain_that_crosses_and_carries_on_joins_inside_the_lookup_leg() {
+    let corpus = Corpus::placed("elsewhere", "elsewhere", "local");
+    let planned = federated_by(&corpus, "region");
+    let (fact, lookup) = (planned.fact(), planned.lookup());
+    assert!(join_tables(fact).is_empty(), "hop 1 is the link and no fact join");
+    assert_eq!(read_from(fact.keys().last()), pair("dim_facts", "customer_key"));
+    assert_eq!(lookup.table_name().to_string(), "dim_customers");
+    assert_eq!(join_tables(lookup), vec![pair("dim_customers", "dim_regions")]);
+    assert_eq!(read_from(lookup.keys().first()), pair("dim_customers", "customer_key"));
+    assert_eq!(read_from(lookup.keys().get(1)), pair("dim_regions", "label"));
+}
+
+/// A chain that crosses at a LATER hop links through the hop before it.
+///
+/// `brands` on `elsewhere`, `products` local: hop 1 is a fact-leg join and hop 2 is the link, so the
+/// fact leg's link column belongs to `products`, the table hop 1 landed on, and not to `facts`. A
+/// splitter that qualifies the link by the metric's table asks the fact table for `brand_key`.
+#[test]
+fn a_chain_that_crosses_at_a_later_hop_links_through_the_hop_before_it() {
+    let corpus = Corpus::placed("local", "local", "elsewhere");
+    let planned = federated_by(&corpus, "brand");
+    let (fact, lookup) = (planned.fact(), planned.lookup());
+    assert_eq!(join_tables(fact), vec![pair("dim_facts", "dim_products")]);
+    assert_eq!(read_from(fact.keys().last()), pair("dim_products", "brand_key"));
+    assert_eq!(lookup.table_name().to_string(), "dim_brands");
+    assert!(join_tables(lookup).is_empty(), "the crossing hop is the last hop here");
+    assert_eq!(read_from(lookup.keys().first()), pair("dim_brands", "brand_key"));
+    assert_eq!(read_from(lookup.keys().get(1)), pair("dim_brands", "name"));
+}
+
+/// A filter on a dimension reached AFTER the crossing is bound on that dimension's own table.
+#[test]
+fn a_filter_after_the_crossing_binds_on_the_table_it_reaches() {
+    let corpus = Corpus::placed("elsewhere", "elsewhere", "local");
+    let resolution = Resolution {
+        filters: vec![ResolvedFilter {
+            dimension: corpus.key("region"),
+            value: ResolvedFilterValue::Eq(String::from("north")),
+        }],
+        ..corpus.asking(vec![corpus.key("region")])
+    };
+    let Plan::Federated(planned) = plan(&resolution).expect("this resolution plans") else {
+        panic!("a dimension on another data system is a federated plan");
+    };
+    let filter = planned.lookup().filters().first().expect("the lookup leg carries the filter");
+    let PlanPredicate::Equals { column, .. } = filter.predicate() else {
+        panic!("an equality filter plans as Equals, got {:?}", filter.predicate());
+    };
+    assert_eq!(
+        pair(&column.table().to_string(), &column.column().to_string()),
+        pair("dim_regions", "label")
+    );
+}
+
+/// Two tables of one lookup statement that answer to one identifier are refused, not aliased.
+///
+/// `regions` carried on a table named like `customers`: the lookup leg would render
+/// `FROM dim_customers LEFT JOIN dim_customers`, which binds either column to the wrong table. The
+/// fact leg's own tables take the same refusal.
+#[test]
+fn two_tables_of_a_lookup_leg_under_one_name_are_refused() {
+    let mut corpus = Corpus::placed("elsewhere", "elsewhere", "local");
+    corpus.reached[1].1 = Model::new(
+        ModelName::parse("regions").expect("a test model is a model"),
+        SourceName::parse("elsewhere").expect("a test source is a source"),
+        TableName::parse("dim_customers").expect("a test table is a table"),
+        ["code", "label"].iter().map(|c| column(c)),
+        Description::default(),
+    );
+    let Err(refused) = plan(&corpus.asking(vec![corpus.key("region")])) else {
+        panic!("two tables under one identifier must be refused");
+    };
+    assert!(
+        matches!(
+            refused,
+            PlanError::Refused(RefusalReason::PlanTablesShareAnIdentifier { ref table }) if table.as_str() == "dim_customers"
+        ),
+        "expected the shared-identifier refusal, got {refused:?}"
     );
 }
 
