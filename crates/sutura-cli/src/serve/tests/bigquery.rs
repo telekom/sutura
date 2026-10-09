@@ -211,7 +211,7 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
 
 /// The `workload_identity` block an impersonating source needs, with whatever the case adds after it.
 ///
-/// `wif()` plus a tail rather than a second literal, so the audience and scope every case shares are
+/// `wif()` plus a tail rather than a second literal, so the audience every case shares is
 /// written once and only the part under test differs.
 #[cfg(feature = "bigquery")]
 fn wif_with(extra: &str) -> String {

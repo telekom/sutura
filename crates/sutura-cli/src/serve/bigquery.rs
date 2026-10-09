@@ -16,8 +16,7 @@
 /// **Nothing is attached and nothing is registered, which is the difference from `open_files` that
 /// matters:** the tables live in the dataset. What this function does instead is everything that can
 /// fail before a listener is bound - the posture cross-check, the driver path, and PARSING the
-/// declared impersonation scope, each of which would otherwise fail on a question rather than at
-/// boot.
+/// declared pool audience, each of which would otherwise fail on a question rather than at boot.
 #[cfg(feature = "bigquery")]
 pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
