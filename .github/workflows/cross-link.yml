@@ -23,8 +23,9 @@
 # `cross (<triple>)`. None of them is a required context - `ci` and `ci-aggregate` are the only
 # ones in the `main` ruleset - so no ruleset changes with this file. What makes a red leg block a
 # merge is `ci-aggregate`'s `needs: [cross]`: a leg that ran and is not green fails that job, on a
-# pull request and a push, and the merge queue never runs `cross` at all. `devco/required-contexts`
-# is the record - the API response, the date, and the organisation-level scope that could not be
+# pull request and a push, and the merge queue never runs `cross` at all. The cost of that edge:
+# `ci-aggregate` waits for the whole link matrix, so a merge is no earlier than its slowest leg.
+# `devco/required-contexts` is the record - the API response, the date, and the organisation-level scope that could not be
 # read - and `cargo xtask check-workflows` is what keeps it in step with the jobs, THIS FILE'S JOB
 # INCLUDED: a workflow a gating one calls is read for its jobs too, so adding a second job here
 # fails that gate until somebody classifies it.
