@@ -212,7 +212,7 @@ Whether the registry package is readable without a login is a registry setting.
 
 ## What the SBOM covers
 
-Each leaf image ships two inventories of the same scan - CycloneDX and SPDX, so the two cannot
+Each leaf image carries two inventories of the same scan - CycloneDX and SPDX, so the two cannot
 disagree - attached to the release and, for CycloneDX, attached to the image itself:
 
 ```bash

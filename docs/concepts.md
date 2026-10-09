@@ -117,8 +117,8 @@ The **subject** is the identity that the data system sees: the person, not the s
 
 A leg runs in one of two ways:
 
-- **secure-impersonation** (BigQuery). The leg runs as the subject. sutura mints a credential for
-  each request.
+- **secure-impersonation** (BigQuery, ClickHouse). The leg runs as the subject. sutura mints a
+  credential for each request.
 - **shared-service-user** (files, Postgres). The leg runs as the deployment's own identity for
   that source. An operator declares this in the configuration.
 
