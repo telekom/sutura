@@ -37,6 +37,8 @@ pub(crate) enum SubjectVerdict {
     NoSpaceAfterColon,
     TrailingPeriod,
     TooLong(usize),
+    /// A `feat`, `fix` or breaking subject that names a decision record.
+    NamesARecord,
 }
 
 impl SubjectVerdict {
@@ -53,6 +55,11 @@ impl SubjectVerdict {
             Self::NoSpaceAfterColon => String::from("missing space after the colon"),
             Self::TrailingPeriod => String::from("subject ends with `.`"),
             Self::TooLong(n) => format!("subject is {n} chars, limit is {MAX_SUBJECT}"),
+            Self::NamesARecord => String::from(
+                "a `feat`, `fix` or breaking subject names a decision record (`docs/adr/` or `ADR NNNN`) - \
+                 the changelog skips such a commit, so a change would vanish from the release notes. \
+                 Say what changed, or type the commit `docs` when it only edits a record",
+            ),
         }
     }
 }
@@ -101,6 +108,7 @@ pub(crate) fn check_shape(subject: &str) -> SubjectVerdict {
     };
 
     // `!` marks a breaking change and is allowed on either `type!` or `type(scope)!`.
+    let breaking = prefix.ends_with('!');
     let prefix = prefix.strip_suffix('!').unwrap_or(prefix);
 
     let type_part = match prefix.split_once('(') {
@@ -131,6 +139,10 @@ pub(crate) fn check_shape(subject: &str) -> SubjectVerdict {
     }
     if text.ends_with('.') {
         return SubjectVerdict::TrailingPeriod;
+    }
+    // `cliff.toml` skips every commit that names a record, and a change a user reads must not be one.
+    if (breaking || matches!(type_part, "feat" | "fix")) && crate::docs::names_a_decision_record(text) {
+        return SubjectVerdict::NamesARecord;
     }
     SubjectVerdict::Ok
 }

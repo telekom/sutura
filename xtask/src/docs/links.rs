@@ -62,6 +62,12 @@ const INCLUDE_MARKER: &str = "--8<--";
 /// on a published page - a link or a plain mention - names a file the reader cannot open.
 const ADR_DIRECTORY: &str = "docs/adr/";
 
+/// Whether `text` names a decision record, by path or by number. The one reading that the docs gate
+/// and the commit subject gate share.
+pub(crate) fn names_a_decision_record(text: &str) -> bool {
+    text.contains(ADR_DIRECTORY) || names_a_decision_number(text).is_some()
+}
+
 /// The first citation of a decision record by number in `text`: `ADR`, one space, newline or
 /// hyphen, then four digits (`ADR 0011`, `ADR-0015`). The records are off the site, so the number
 /// points at a page the reader cannot open. A word that merely ends in `ADR` is not a citation.

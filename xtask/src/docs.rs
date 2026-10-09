@@ -62,6 +62,8 @@ mod exclude;
 mod links;
 mod site_links;
 
+pub(crate) use links::names_a_decision_record;
+
 /// The site configuration. Paths inside it are relative either to this file's directory (the
 /// repo root) or to the docs directory, and which is which is per key - see `asset_problems`.
 const CONFIG: &str = "mkdocs.yml";

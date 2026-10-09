@@ -94,13 +94,16 @@ sort_commits = "newest"
 # Every type the commit-msg gate accepts appears here (`TYPES` in `xtask/src/commit_msg.rs`):
 # feat, fix, refactor, chore, test, docs, perf, ci, build, style, revert.
 commit_parsers = [
+  { message = "^.*!:", group = "<!-- 00 -->Breaking changes" },
+  { body = ".*BREAKING CHANGE", group = "<!-- 00 -->Breaking changes" },
   # A subject that cites a decision record, by path or by number, edits that record. It is not a
   # change a user reads. The changelog is a published page, and `cargo xtask check-docs` refuses a
   # page that names the record directory or cites a record by number, so git-cliff skips the commit.
-  # The match is the subject line only: a body may name a record.
+  # The match is the subject line only: a body may name a record. The rule sits AFTER the two
+  # breaking rules, so a breaking commit that names a record is filed as a breaking change and is
+  # never skipped; `check-version-bump` holds that order. `xtask commit-msg` and `check-pr-title`
+  # refuse a `feat`, `fix` or breaking subject that names a record, so no such change is skipped.
   { message = '\A[^\n]*(?:docs/adr/|ADR[ -]\d{4})', skip = true },
-  { message = "^.*!:", group = "<!-- 00 -->Breaking changes" },
-  { body = ".*BREAKING CHANGE", group = "<!-- 00 -->Breaking changes" },
   { message = "^feat", group = "<!-- 01 -->Features" },
   { message = "^fix", group = "<!-- 02 -->Fixes" },
   # A hand-written `revert: ...` is a conventional commit and was reaching none of these, so

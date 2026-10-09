@@ -28,6 +28,12 @@
 //!   6. `cliff.toml` carries the anchored `tag_pattern` - without it, on the same repository,
 //!      `git-cliff --bumped-version` answered `v0.6.1-performance.1`.
 //!
+//! And one about the changelog's order of rules:
+//!
+//!   7. the `commit_parsers` rule that skips a commit naming a decision record comes AFTER the
+//!      two breaking-change rules. First match wins, so with the skip first a breaking commit
+//!      that names a record is filed under its type and loses the "Breaking changes" heading.
+//!
 //! Reads the job's raw lines through [`super::step::job`] rather than a YAML parser, for the
 //! reason every other `xtask` workflow gate does: no dependency, and the shapes this one
 //! workflow writes are simple enough for a line scan to hold. **What this does not reach:** a
@@ -60,6 +66,10 @@ const HYGIENE_MARKERS: [&str; 2] = ["xtask -- hygiene", "xtask hygiene"];
 const DESCRIBE_MARKER: &str = "git describe";
 const PERFORMANCE_EXCLUDE: &str = "--exclude 'v*-performance'";
 const CLIFF: &str = "cliff.toml";
+/// The `commit_parsers` line that skips a commit naming a decision record carries this path.
+const RECORD_SKIP_MARKER: &str = "docs/adr/";
+/// The group both breaking-change `commit_parsers` lines file a commit under.
+const BREAKING_GROUP: &str = "Breaking changes";
 /// The exact line, so a widened pattern is a diff this rule refuses rather than a reading of it.
 const TAG_PATTERN: &str = r#"tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$""#;
 
@@ -141,14 +151,25 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
     problems
 }
 
-/// Rule 6, over `cliff.toml`'s text.
+/// Rules 6 and 7, over `cliff.toml`'s text.
 pub(crate) fn cliff_problems(cliff: &str) -> Vec<String> {
-    if cliff.lines().any(|line| line.trim() == TAG_PATTERN) {
-        return Vec::new();
+    let mut problems = Vec::new();
+    if !cliff.lines().any(|line| line.trim() == TAG_PATTERN) {
+        problems.push(format!(
+            "{CLIFF} lacks `{TAG_PATTERN}` - git-cliff then reads `v<version>-performance` as a release and bumps it"
+        ));
     }
-    vec![format!(
-        "{CLIFF} lacks `{TAG_PATTERN}` - git-cliff then reads `v<version>-performance` as a release and bumps it"
-    )]
+    let rules: Vec<&str> = cliff.lines().filter(|line| !line.trim_start().starts_with('#')).collect();
+    let skip = rules
+        .iter()
+        .position(|line| line.contains(RECORD_SKIP_MARKER) && line.contains("skip = true"));
+    let breaking = rules.iter().rposition(|line| line.contains(BREAKING_GROUP));
+    if matches!((skip, breaking), (Some(skip), Some(breaking)) if skip < breaking) {
+        problems.push(format!(
+            "{CLIFF}: the rule that skips a commit naming a decision record comes before a breaking-change rule - a breaking commit that names a record is then filed under its type, not under `{BREAKING_GROUP}`"
+        ));
+    }
+    problems
 }
 
 /// Reads [`WORKFLOW`] off the tree and hands [`check`] the text.
@@ -162,17 +183,17 @@ fn run_over(root: Option<&Path>) -> Verdict {
         return Verdict::Fail;
     };
     let Ok(workflow) = std::fs::read_to_string(root.join(WORKFLOW)) else {
-        eprintln!("xtask check-version-bump: {WORKFLOW} is unreadable - none of the six rules could be checked");
+        eprintln!("xtask check-version-bump: {WORKFLOW} is unreadable - none of the seven rules could be checked");
         return Verdict::Fail;
     };
     let Ok(cliff) = std::fs::read_to_string(root.join(CLIFF)) else {
-        eprintln!("xtask check-version-bump: {CLIFF} is unreadable - rule 6 could not be checked");
+        eprintln!("xtask check-version-bump: {CLIFF} is unreadable - rules 6 and 7 could not be checked");
         return Verdict::Fail;
     };
     let mut problems = check(&workflow);
     problems.extend(cliff_problems(&cliff));
     if problems.is_empty() {
-        println!("xtask check-version-bump: ok - {WORKFLOW}'s `{JOB}` job keeps all six properties");
+        println!("xtask check-version-bump: ok - {WORKFLOW}'s `{JOB}` job keeps all seven properties");
         return Verdict::Pass;
     }
     eprintln!("xtask check-version-bump: {} problem(s)", problems.len());
