@@ -120,8 +120,8 @@ rateLimit:
 # `resources.limits`/`requests` on the container. `resources.limits.cpu`/`.memory`, when set,
 # now DERIVE `runtime.engineWorkerThreads`/`workingSetMaxBytes` below whenever those are left
 # empty - `templates/_helpers.tpl`'s `sutura.engineWorkerThreads`/`workingSetMaxBytes` - closing
-# the two traps `docs/serving.md` documents by name: an engine width resolved from the host's
-# cores under a CPU quota, and a working-set ceiling left at its provisional one gibibyte
+# the two traps behind the `runtime.*` rows of `docs/serving.md`: an engine width resolved from the
+# host's cores under a CPU quota, and a working-set ceiling left at its provisional one gibibyte
 # regardless of what memory limit the Deployment actually carries. Setting either
 # `runtime.*` key explicitly below always wins over the derivation.
 resources: {}
@@ -129,8 +129,8 @@ resources: {}
 runtime:
   # `runtime.engine_worker_threads` (`SUTURA__RUNTIME__ENGINE_WORKER_THREADS`). Empty derives
   # from `resources.limits.cpu` (rounded up to a whole thread) when that limit is set, and
-  # otherwise means "as many threads as the machine reports" - see docs/serving.md's "The
-  # engine's width". Set this directly to override the derivation.
+  # otherwise means "as many threads as the machine reports" - see `runtime.engine_worker_threads`
+  # in docs/serving.md. Set this directly to override the derivation.
   engineWorkerThreads: ""
   # `runtime.working_set_max_bytes` (`SUTURA__RUNTIME__WORKING_SET_MAX_BYTES`). Empty derives
   # from `resources.limits.memory` (75% of the limit, leaving headroom for what this ceiling
@@ -140,10 +140,9 @@ runtime:
   workingSetMaxBytes: ""
 
 # `/health` (`crates/sutura-http/src/constants.rs`) is the liveness path, and there is
-# deliberately no readiness route - docs/serving.md: "There is nothing it could report that is
-# not already true of a process that is listening: the bundle validated, or the process did
-# not start." So this chart wires `/health` as BOTH the liveness and the startup probe, and
-# configures no readinessProbe.
+# deliberately no readiness route - docs/serving.md: an open port already means the
+# bundle validated, or the process did not start. So this chart wires `/health` as BOTH the
+# liveness and the startup probe, and configures no readinessProbe.
 #
 # The startup probe carries a generous failure budget because boot re-verifies every anchor,
 # which is a round trip per anchor against a networked source - a liveness probe firing during

@@ -57,7 +57,7 @@ override file, so it is a lower bound on what will actually refuse, not a replac
 
 `GET /health` is the liveness path, and there is deliberately no readiness route - the boot
 sequence re-verifies every catalog anchor before the listener opens, so an open port already
-means a verified bundle (`docs/serving.md`, "What is not built"). This chart wires `/health` as
+means a verified bundle (`docs/serving.md`, "Endpoints"). This chart wires `/health` as
 both the `startupProbe` (with a generous failure budget: anchor verification against a
 networked source is a round trip per anchor) and the `livenessProbe`, and configures no
 `readinessProbe`.
@@ -70,7 +70,7 @@ Setting `resources.limits.cpu`/`.memory` derives `runtime.engineWorkerThreads` /
 `testdata/values/resource-limits.yaml`. A CPU limit rounds up to a whole thread; a memory limit
 keeps 75% of itself as the ceiling, leaving headroom for what that ceiling does not count
 (the process's own RSS) so it trips before the kernel OOM-kills the container at the cgroup
-limit - `docs/serving.md`'s "422 rather than 503" distinction. Setting either `runtime.*` key
+limit - `docs/serving.md`'s `resources_exhausted` refusal (`422`). Setting either `runtime.*` key
 directly always overrides the derivation.
 
 ## A catalog to serve

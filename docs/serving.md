@@ -148,6 +148,9 @@ writes an audit record. The page of the data system says what bounds a statement
 the listener with the API, so only a network control can keep it internal. Its labels are fixed, and no label holds a question, a
 caller or a source.
 
+There is no readiness route. The listener opens only after every anchor reproduces its certified number, so an open
+port already means a verified catalog, and `/health` is the one probe.
+
 ### A refusal carries a status
 
 `POST /v1/query` answers `200` only when the question was answered. An answer has `"outcome": "answer"` and the
@@ -187,6 +190,8 @@ A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentenc
 | `422`  | `metrics_span_different_models`, `too_many_metrics`, `duplicate_metric_name`, `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, `too_many_filters`, `duplicate_dimension`, `cross_model_ratio_without_shared_dimension`, `top_over_uncertified_rows`, `resources_exhausted`, `deadline_exceeded`                                     |
 | `429`  | `budget_exhausted`                                                                                                                                                                                                                                                                                                                                      |
 | `503`  | `source_unavailable`. This is the one refusal that is worth a retry                                                                                                                                                                                                                                                                                     |
+
+12 refusal reasons land on `422`. A client should expect a `422` to fail again on an unchanged request.
 
 `credential_unavailable` means the caller has no access at the data system, and sutura does not read it as the
 deployment instead. The fix is a grant at the data system. A `403` with no `outcome` is `insufficient_scope`.

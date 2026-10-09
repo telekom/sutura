@@ -40,8 +40,8 @@ by anything here. No test in this repository runs them.
 
 ## The settings
 
-Everything `docs/serving.md`'s Postgres section already says about `transport_mode`, the password
-file and the role grant applies unchanged. One block is new:
+Everything the [Postgres page](../../docs/integrations/data-systems/postgres.md) already says about
+`transport_mode`, the password file and the role grant applies unchanged. One block is new:
 
 ```yaml
 security:
@@ -72,10 +72,9 @@ turning the tool on is a diff an operator makes and a reviewer sees.
 
 ## The role, and the limit next to the claim
 
-`docs/serving.md`'s guidance for every Postgres source is sharper here, because `run_sql` executes
-whatever the caller sent: the connecting role should be able to `SELECT` from the tables this catalog
-names and nothing else. `run_sql` wraps every statement in a transaction this adapter opens
-`READ ONLY` and always rolls back - a real, server-enforced second control - but that transaction
+`run_sql` executes whatever the caller sent, so the connecting role should be able to `SELECT` from
+the tables this catalog names and nothing else. `run_sql` wraps every statement in a transaction this
+adapter opens `READ ONLY` and always rolls back - a real, server-enforced second control - but that transaction
 bounds SQL-visible writes, not what the role itself could otherwise do outside it. The role is the
 first and the durable control:
 
