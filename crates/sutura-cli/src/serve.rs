@@ -234,9 +234,9 @@ pub(crate) fn run() -> Result<(), String> {
     // remedy for a heterogeneous set, and it is `W` for the `Mixed` arm alone.
     let (service, attached) = match opened {
         OpenedSources::Files(files) => {
-            // The same table set the boot check below compares against, held by the service so a
-            // refreshed bundle is held to it too. Cloned once, at boot: two owners, the service for
-            // its lifetime and the check below for this statement.
+            // The table set the boot check below compares against. The gate checks no table yet, so
+            // this clone is dropped when `adoption_gate` returns; the next change adds the `files`
+            // table check that keeps it.
             let gate = adoption_gate(Some(files.attached.clone()), false);
             (
                 shared_identity_service(&catalogs, files.engines, gate, &settings)?,

@@ -32,7 +32,7 @@ use crate::catalog::{OpenedCatalogs, load_each};
 /// What one look at a declared catalog decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
-    /// Re-read successfully and the digest is byte-for-byte the one already served.
+    /// Re-read successfully, and the surface kept the bundle it serves (`Adopted::Unchanged`).
     Unchanged,
     /// Re-read successfully, the digest changed, and the new bundle is what the next question reads.
     Rotated,
