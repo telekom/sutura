@@ -36,8 +36,9 @@
 //! A `src` that names no file is the fourth. [`embeds`] holds an `<iframe>`, an `<img>` and a
 //! markdown image to a file under the docs directory, and carries what it does not read.
 //!
-//! An icon that runs is the fifth. Material pastes an SVG under `overrides/.icons` into the page, so
-//! [`icons`] refuses one with a script, an event attribute or a reference that leaves the page.
+//! An icon that holds more than drawing is the fifth. Material pastes an SVG under `overrides/.icons`
+//! into the page, so [`icons`] refuses an element outside plain SVG drawing, an event attribute or a
+//! reference that leaves the page.
 //!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:
@@ -597,7 +598,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if found.is_empty() {
         println!(
-            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} iframe and image source(s) resolve, {} asset(s) resolve, {} icon(s) carry nothing that runs",
+            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} iframe and image source(s) resolve, {} asset(s) resolve, {} icon(s) hold only allowed SVG elements",
             nav.len(),
             present.len(),
             excluded.len(),

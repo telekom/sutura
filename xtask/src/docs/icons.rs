@@ -1,22 +1,19 @@
-//! The icon half of the docs gate: an SVG under `overrides/.icons` must carry nothing that runs or
-//! fetches once it is part of a page.
+//! The icon half of the docs gate: an SVG under `overrides/.icons` may hold only plain SVG drawing
+//! elements, and nothing that fetches or runs, once it is part of a page.
 //!
 //! **Why this is a gate.** `pymdownx.emoji`'s `to_svg` pastes the file into the page's HTML, so an
-//! icon is not an image: a `<script>` in it runs with the origin of the docs, and an `href` or a
-//! `url(..)` in it makes the reader's browser fetch what the file names. An icon is copied from
-//! another project, so nobody reads it as code.
+//! icon is not an image: what it holds is HTML in the page. An icon is copied from another project,
+//! so nobody reads it as code.
 //!
 //! **What is refused**, each by the text of the file and not by a parse, so a malformed file is
 //! judged by what a browser could still make of it:
 //!
 //! | Form | Why |
 //! | --- | --- |
-//! | `<script` | runs in the page |
-//! | an `on*=` attribute | runs in the page |
-//! | `<foreignObject` | embeds HTML, so everything above again |
-//! | `<set` or `<animate*` | can assign an `href` or an event handler at run time |
+//! | an element outside [`ELEMENTS`] | script, embedded HTML, frames, forms and animation are not drawing |
+//! | an `on*=`, `src`, `srcdoc`, `data`, `action` or `formaction` attribute | runs or fetches |
 //! | `href` or `xlink:href` to anything but a `#fragment` | fetches or navigates |
-//! | `url(..)` or `@import` to anything but a `#fragment` | fetches |
+//! | `url(..)`, `image-set(` or `@import` to anything but a `#fragment` | fetches |
 //!
 //! **The limits, next to the claim.** NOT covered: a `<style>` rule, which is global once inlined, so
 //! an icon whose class names collide with another icon restyles it; an icon that is huge, which
@@ -35,52 +32,84 @@ pub(super) struct Swept {
     pub(super) problems: Vec<String>,
 }
 
+/// Plain SVG drawing, the `style` rule and the `metadata` an editor leaves. An element with a `:` in
+/// its name (`rdf:RDF`, `sodipodi:namedview`) is no HTML element, so it is inert metadata. Everything
+/// else is refused by being absent: `script`, `foreignobject`, `set`, `animate`, `iframe`, `img`, `meta`
+/// and the rest of HTML. Names are lower case, as [`refusals`] reads them.
+const ELEMENTS: &[&str] = &[
+    "svg",
+    "g",
+    "path",
+    "circle",
+    "ellipse",
+    "rect",
+    "line",
+    "polyline",
+    "polygon",
+    "defs",
+    "lineargradient",
+    "radialgradient",
+    "stop",
+    "clippath",
+    "mask",
+    "title",
+    "desc",
+    "symbol",
+    "use",
+    "style",
+    "metadata",
+];
+
 /// The forms `svg` carries that an inlined icon must not, by name.
-fn refusals(svg: &str) -> Vec<&'static str> {
+fn refusals(svg: &str) -> Vec<String> {
     let lower = svg.to_ascii_lowercase();
-    let mut out = Vec::new();
-    if has_element(&lower, "script") {
-        out.push("a `<script` element");
-    }
-    if has_element(&lower, "foreignobject") {
-        out.push("a `<foreignObject` element");
-    }
-    if has_element(&lower, "set") || lower.contains("<animate") {
-        out.push("a `<set` or `<animate` element");
-    }
-    if event_attribute(&lower) {
-        out.push("an `on*=` event attribute");
+    let mut out: Vec<String> = elements(&lower)
+        .filter(|name| !ELEMENTS.contains(name) && !name.contains(':'))
+        .map(|name| format!("a `<{name}` element (not plain SVG drawing)"))
+        .collect();
+    let runs_or_fetches = |name: &str| {
+        name.strip_prefix("on").is_some_and(|rest| !rest.is_empty())
+            || matches!(name, "src" | "srcdoc" | "data" | "action" | "formaction")
+    };
+    if attribute(&lower, runs_or_fetches) {
+        out.push("an `on*=`, `src`, `srcdoc`, `data`, `action` or `formaction` attribute".to_owned());
     }
     if leaves_the_document(&lower, "href", |rest| rest.trim_start().strip_prefix('=')) {
-        out.push("an `href` to anything but a `#fragment`");
+        out.push("an `href` to anything but a `#fragment`".to_owned());
     }
-    if leaves_the_document(&lower, "url(", Some) || lower.contains("@import") {
-        out.push("a `url(..)` or `@import` to anything but a `#fragment`");
+    if leaves_the_document(&lower, "url(", Some) || lower.contains("@import") || lower.contains("image-set(") {
+        out.push("a `url(..)`, `image-set(` or `@import` to anything but a `#fragment`".to_owned());
     }
     out
 }
 
-/// `<name` followed by something that ends a tag name, so `<set` is not `<settings`.
-fn has_element(lower: &str, name: &str) -> bool {
-    lower.match_indices(&format!("<{name}")).any(|(at, matched)| {
-        lower
-            .get(at.saturating_add(matched.len())..)
-            .and_then(|rest| rest.chars().next())
-            .is_none_or(|next| next.is_ascii_whitespace() || matches!(next, '/' | '>'))
-    })
+/// The name after each `<` that opens an element: not a closing tag, a comment, a declaration or a
+/// processing instruction.
+fn elements(lower: &str) -> impl Iterator<Item = &str> {
+    lower
+        .split('<')
+        .skip(1)
+        .filter(|piece| piece.starts_with(|c: char| c.is_ascii_alphabetic()))
+        .map(|piece| {
+            piece
+                .split(|c: char| c.is_ascii_whitespace() || matches!(c, '/' | '>'))
+                .next()
+                .unwrap_or_default()
+        })
 }
 
-/// An attribute named `on` and letters, then `=`, after a character that can end the one before.
-fn event_attribute(lower: &str) -> bool {
-    lower.match_indices("on").any(|(at, _)| {
-        let after_a_boundary = lower
-            .get(..at)
-            .and_then(|head| head.chars().next_back())
-            .is_some_and(|c| c.is_ascii_whitespace() || matches!(c, '/' | '"' | '\''));
-        let rest = lower.get(at.saturating_add(2)..).unwrap_or_default();
-        let letters = rest.chars().take_while(char::is_ascii_lowercase).count();
-        after_a_boundary && letters > 0 && rest.get(letters..).is_some_and(|tail| tail.trim_start().starts_with('='))
-    })
+/// Whether `refused` names an attribute that appears: a name after whitespace, `/` or a quote, then `=`.
+fn attribute(lower: &str, refused: impl Fn(&str) -> bool) -> bool {
+    lower
+        .match_indices(|c: char| c.is_ascii_whitespace() || matches!(c, '/' | '"' | '\''))
+        .any(|(at, boundary)| {
+            let rest = lower.get(at.saturating_add(boundary.len())..).unwrap_or_default();
+            let name = rest
+                .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':')))
+                .next()
+                .unwrap_or_default();
+            !name.is_empty() && rest.get(name.len()..).is_some_and(|tail| tail.trim_start().starts_with('=')) && refused(name)
+        })
 }
 
 /// Whether any `marker` is followed, through `value`, by something other than a `#fragment`.
@@ -171,13 +200,15 @@ fn visit(dir: &Path, swept: &mut Swept) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{DIR, refusals, sweep};
 
-    const CLEAN: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><defs><linearGradient id="a"/></defs><use href="#a" xlink:href="#a"/><path fill="url(#a)" d="M0 0"/><settings/></svg>"##;
+    const CLEAN: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><defs><linearGradient id="a"/></defs><use href="#a" xlink:href="#a"/><path fill="url(#a)" d="M0 0"/><rdf:RDF/></svg>"##;
 
     #[test]
     fn each_refused_form_is_named_and_a_clean_icon_is_not() {
-        let forms: [(&str, &str); 11] = [
+        let forms: [(&str, &str); 27] = [
             ("<script", "<svg><script>alert(1)</script></svg>"),
             ("<SCRIPT", r#"<svg><SCRIPT SRC="x"></SCRIPT></svg>"#),
             ("on*=", r#"<svg onload="alert(1)"><path d="M0 0"/></svg>"#),
@@ -195,13 +226,32 @@ mod tests {
                 "<set",
                 r#"<svg><a><set attributeName="href" to="javascript:alert(1)"/></a></svg>"#,
             ),
+            (
+                "<animate",
+                r#"<svg><a><animate attributeName="href" values="javascript:alert(1)"/></a></svg>"#,
+            ),
+            ("iframe javascript", r#"<svg><iframe src="javascript:alert(1)"/></svg>"#),
+            ("iframe", "<svg><iframe/></svg>"),
+            ("img", "<svg><img/></svg>"),
+            ("meta", "<svg><meta/></svg>"),
+            ("embed", "<svg><embed/></svg>"),
+            ("object", "<svg><object/></svg>"),
+            ("form", "<svg><form/></svg>"),
+            ("src on a drawing element", r#"<svg><path src="x"/></svg>"#),
+            ("srcdoc", r#"<svg><path srcdoc="x"/></svg>"#),
+            ("data", r#"<svg><path data="x"/></svg>"#),
+            ("action", r#"<svg><path action="x"/></svg>"#),
+            ("image-set", r#"<svg><path style="fill:image-set('x' 1x)"/></svg>"#),
+            ("formaction", r#"<svg><path formaction="x"/></svg>"#),
+            ("on*= after a quote", r#"<svg a="b"onload="alert(1)"/>"#),
+            ("on*= after a single quote", r#"<svg a='b'onload="alert(1)"/>"#),
         ];
         for (name, svg) in forms {
             assert!(!refusals(svg).is_empty(), "{name} must be refused: {svg}");
         }
         assert_eq!(
             refusals(CLEAN),
-            Vec::<&str>::new(),
+            Vec::<String>::new(),
             "a fragment reference is an icon's own business"
         );
     }
@@ -224,6 +274,26 @@ mod tests {
         );
         std::fs::write(dir.join("bin.svg"), [0xFF, 0xFE]).unwrap();
         assert!(sweep(&root, DIR).problems.iter().any(|p| p.contains("not readable")));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("ok.svg"), dir.join("link.svg")).unwrap();
+            assert!(
+                sweep(&root, DIR)
+                    .problems
+                    .iter()
+                    .any(|p| p.contains("link.svg") && p.contains("is a symlink"))
+            );
+            std::fs::remove_file(dir.join("link.svg")).unwrap();
+        }
+        std::fs::remove_file(dir.join("ok.svg")).unwrap();
+        std::fs::remove_file(dir.join("bad.svg")).unwrap();
+        std::fs::remove_file(dir.join("bin.svg")).unwrap();
+        let empty = sweep(&root, DIR);
+        assert!(
+            empty.problems.iter().any(|p| p.contains("holds no")),
+            "an empty named directory is a finding: {:?}",
+            empty.problems
+        );
         std::fs::remove_dir_all(root.join(DIR)).unwrap();
         assert_eq!(
             sweep(&root, DIR).problems.len(),
@@ -235,5 +305,12 @@ mod tests {
             "an unnamed absent directory is not"
         );
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn every_shipped_logo_passes() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let swept = sweep(root, DIR);
+        assert!(swept.scanned >= 5 && swept.problems.is_empty(), "{:?}", swept.problems);
     }
 }
