@@ -1,6 +1,7 @@
 //! `catalog.kind: rdbms`, with the `rdbms` feature ON: the refusals this build now REACHES
-//! rather than the "not linked" one above. No real endpoint here - each cell is asserting which
-//! refusal string a boot-time misconfiguration earns, not a read.
+//! rather than the "not linked" one above. No real endpoint here - each cell but one is asserting
+//! which refusal string a boot-time misconfiguration earns, not a read. The one that reads dials a
+//! fake listener on loopback and asserts what a refresh does when the login fails.
 //!
 //! The `rdbms` catalog's own connection block is parsed by `sutura-config` (which checks the
 //! shape: a host or a unix socket, a port, a database, a user, an absolute `password_file`, and a
@@ -222,6 +223,53 @@ fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
     assert!(
         err.contains("`catalogs.dictionary.connection.password_file` could not be read"),
         "the refusal names the catalog's key: {err}"
+    );
+}
+
+/// **A refresh whose Oracle login gets a malformed authentication response keeps the pinned
+/// bundle and logs the refusal.** The fake accepts the reader's CONNECT and answers the first
+/// authentication message with session data that has none of the verifier fields. The poll runs
+/// inside `catch_unwind`, so a poll that does not return fails this cell's first assertion.
+#[test]
+#[cfg(feature = "oracle")]
+fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle() {
+    use crate::serve::refresh::{Outcome, Refresher};
+
+    let scratch = ScratchDir::prepared();
+    let port = sutura_dev::tns_listener::authenticating().expect("the fake listener binds");
+    let connection = oracle_connection(&readable_password_file(&scratch).display().to_string())
+        .replace("port: 1521", &format!("port: {port}"));
+    let opened = crate::catalog::open_catalog(&catalogs(&connection), None).expect("the Oracle reader opens at boot");
+    let crate::catalog::OpenedCatalogs::Rdbms(opened) = opened else {
+        panic!("an rdbms declaration opens an rdbms catalog")
+    };
+    let initial = crate::serve::tests::bundle_over(&[("customers", "warehouse", "dim_customer")]);
+    let pinned = initial.digest().clone();
+    let refresher = Refresher::new(opened, initial);
+
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let polled = tracing::subscriber::with_default(subscriber, || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| refresher.poll_once()))
+    });
+
+    assert_eq!(
+        polled.ok(),
+        Some(Outcome::Rejected),
+        "the poll returns and rejects the re-read"
+    );
+    assert_eq!(refresher.rotating().current().digest(), &pinned, "the pinned bundle stays");
+    let log = sink.contents();
+    assert!(
+        log.contains("keeping the bundle already pinned") && log.contains("AUTH_PBKDF2_VGEN_COUNT"),
+        "{log}"
     );
 }
 

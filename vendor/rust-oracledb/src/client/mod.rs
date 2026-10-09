@@ -106,7 +106,7 @@ impl Client {
         &mut self,
         message: &mut impl Message,
     ) -> Result<Response, Error> {
-        message.pre_process(self);
+        message.pre_process(self)?;
         self.send_message(message)?;
         let mut response = Response::new();
         if let Err(e) = self.receive_response(message, &mut response) {
@@ -871,7 +871,7 @@ impl Client {
         &mut self,
         auth_message: &mut AuthMessage,
     ) -> Result<DbInfo, Error> {
-        let db_info = DbInfo::new(self, auth_message);
+        let db_info = DbInfo::new(self, auth_message)?;
         self.combo_key = auth_message.take_combo_key();
         let max_open_cursors = db_info.get_max_open_cursors();
         if max_open_cursors < self.statement_cache.max_size() {

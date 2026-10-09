@@ -64,11 +64,16 @@ impl Pair {
     }
 }
 
-fn decrypt_cbc(key: &[u8; 32], encrypted_text: &[u8], plain_text: &mut [u8]) {
+fn decrypt_cbc(
+    key: &[u8; 32],
+    encrypted_text: &[u8],
+    plain_text: &mut [u8],
+) -> Result<(), Error> {
     let iv = [0u8; 16];
     Aes256CbcDec::new(key.into(), &iv.into())
         .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
-        .unwrap();
+        .map_err(|_| Error::invalid_auth_response("AUTH_SESSKEY"))?;
+    Ok(())
 }
 
 fn encrypt_cbc(key: &[u8; 32], plain_text: &[u8], encrypted_text: &mut [u8]) {
@@ -106,6 +111,31 @@ impl AuthMessage {
     fn add_pair_binary(&mut self, key: &str, value: &[u8], flags: u32) {
         let str_value = base16ct::upper::encode_string(value);
         self.add_pair(key, &str_value, flags);
+    }
+
+    /// Returns the value the database sent for the key. A missing key is an
+    /// error.
+    fn session_value(&self, key: &str) -> Result<&str, Error> {
+        self.session_data
+            .get(key)
+            .map(String::as_str)
+            .ok_or_else(|| Error::invalid_auth_response(key))
+    }
+
+    /// Returns the value the database sent for the key as a number.
+    fn session_number<T: std::str::FromStr>(
+        &self,
+        key: &str,
+    ) -> Result<T, Error> {
+        self.session_value(key)?
+            .parse()
+            .map_err(|_| Error::invalid_auth_response(key))
+    }
+
+    /// Returns the value the database sent for the key, decoded from hex.
+    fn session_bytes(&self, key: &str) -> Result<Vec<u8>, Error> {
+        base16ct::upper::decode_vec(self.session_value(key)?)
+            .map_err(|_| Error::invalid_auth_response(key))
     }
 
     /// Encrypts a password and adds a key/value pair containing the encrypted
@@ -157,23 +187,16 @@ impl AuthMessage {
         session_key_part_a: &[u8],
         session_key_part_b: &[u8],
         combo_key: &mut [u8; 32],
-    ) {
-        let iterations: u32 = self
-            .session_data
-            .get("AUTH_PBKDF2_SDER_COUNT")
-            .unwrap()
-            .parse()
-            .unwrap();
-        let salt = base16ct::upper::decode_vec(
-            self.session_data.get("AUTH_PBKDF2_CSK_SALT").unwrap(),
-        )
-        .unwrap();
+    ) -> Result<(), Error> {
+        let iterations: u32 = self.session_number("AUTH_PBKDF2_SDER_COUNT")?;
+        let salt = self.session_bytes("AUTH_PBKDF2_CSK_SALT")?;
         let mut raw_temp_key: [u8; 64] = [0; 64];
         raw_temp_key[..32].copy_from_slice(session_key_part_b);
         raw_temp_key[32..].copy_from_slice(session_key_part_a);
         let temp_key_str = base16ct::upper::encode_string(&raw_temp_key);
         let temp_key = temp_key_str.as_bytes();
         get_derived_key(temp_key, &salt, iterations, combo_key);
+        Ok(())
     }
 
     /// Generates the "speedy" key used by the server for validation without
@@ -193,18 +216,10 @@ impl AuthMessage {
 
     /// Generates the password verifier and the various keys required by the
     /// server for validation.
-    fn generate_verifier(&mut self, client: &mut Client) {
+    fn generate_verifier(&mut self, client: &mut Client) -> Result<(), Error> {
         // create password hash
-        let iterations: u32 = self
-            .session_data
-            .get("AUTH_PBKDF2_VGEN_COUNT")
-            .unwrap()
-            .parse()
-            .unwrap();
-        let verifier_data = base16ct::upper::decode_vec(
-            self.session_data.get("AUTH_VFR_DATA").unwrap(),
-        )
-        .unwrap();
+        let iterations: u32 = self.session_number("AUTH_PBKDF2_VGEN_COUNT")?;
+        let verifier_data = self.session_bytes("AUTH_VFR_DATA")?;
         let mut salt = verifier_data.clone();
         salt.extend(b"AUTH_PBKDF2_SPEEDY_KEY");
         let mut password_key: [u8; 64] = [0; 64];
@@ -217,16 +232,13 @@ impl AuthMessage {
             &hasher.finalize()[..32].try_into().unwrap();
 
         // decrypt first half of session key
-        let encoded_server_key = base16ct::upper::decode_vec(
-            self.session_data.get("AUTH_SESSKEY").unwrap(),
-        )
-        .unwrap();
+        let encoded_server_key = self.session_bytes("AUTH_SESSKEY")?;
         let mut session_key_part_a = [0u8; 32];
         decrypt_cbc(
             password_hash,
             &encoded_server_key,
             &mut session_key_part_a,
-        );
+        )?;
 
         // generate second half of session key
         let mut session_key_part_b = [0u8; 32];
@@ -241,7 +253,7 @@ impl AuthMessage {
             &session_key_part_a,
             &session_key_part_b,
             &mut combo_key,
-        );
+        )?;
 
         // generate speedy key
         self.generate_speedy_key(&password_key, &combo_key);
@@ -249,6 +261,7 @@ impl AuthMessage {
         // encrypt password(s)
         self.encrypt_passwords(client, &combo_key);
         self.combo_key = Some(combo_key);
+        Ok(())
     }
 
     /// Returns the alter session statement that is sent during the initial
@@ -371,42 +384,36 @@ impl AuthMessage {
     }
 
     /// Returns the maximum number of bytes allowed to be used in identifiers.
-    pub(crate) fn get_max_identifier_length(&self) -> usize {
-        if let Some(value) = self.session_data.get("AUTH_MAX_IDEN_LENGTH") {
-            value.parse::<usize>().unwrap()
+    pub(crate) fn get_max_identifier_length(&self) -> Result<usize, Error> {
+        if self.session_data.contains_key("AUTH_MAX_IDEN_LENGTH") {
+            self.session_number("AUTH_MAX_IDEN_LENGTH")
         } else {
-            30
+            Ok(30)
         }
     }
 
     /// Returns the maximum number of open cursors allowed by the database.
-    pub(crate) fn get_max_open_cursors(&self) -> usize {
-        if let Some(value) = self.session_data.get("AUTH_MAX_OPEN_CURSORS") {
-            value.parse::<usize>().unwrap()
+    pub(crate) fn get_max_open_cursors(&self) -> Result<usize, Error> {
+        if self.session_data.contains_key("AUTH_MAX_OPEN_CURSORS") {
+            self.session_number("AUTH_MAX_OPEN_CURSORS")
         } else {
-            0
+            Ok(0)
         }
     }
 
     /// Returns the serial number associated with the connection to the
     /// database.
-    pub(crate) fn get_serial_num(&self) -> usize {
-        self.session_data
-            .get("AUTH_SERIAL_NUM")
-            .unwrap()
-            .parse::<usize>()
-            .unwrap()
+    pub(crate) fn get_serial_num(&self) -> Result<usize, Error> {
+        self.session_number("AUTH_SERIAL_NUM")
     }
 
     /// Returns the server version.
-    pub(crate) fn get_server_version(&self, client: &Client) -> OracleVersion {
-        let full_version_num = self
-            .session_data
-            .get("AUTH_VERSION_NO")
-            .unwrap()
-            .parse::<usize>()
-            .unwrap();
-        if client.supports_ttc_field_version(
+    pub(crate) fn get_server_version(
+        &self,
+        client: &Client,
+    ) -> Result<OracleVersion, Error> {
+        let full_version_num: usize = self.session_number("AUTH_VERSION_NO")?;
+        Ok(if client.supports_ttc_field_version(
             constants::TTC_FIELD_VERSION_18_1_EXT_1,
         ) {
             OracleVersion(
@@ -424,7 +431,7 @@ impl AuthMessage {
                 (full_version_num >> 8) & 0x0f,
                 full_version_num & 0x0f,
             )
-        }
+        })
     }
 
     /// Returns the service name used to connect to the database.
@@ -437,12 +444,8 @@ impl AuthMessage {
     }
 
     /// Returns the session id associated with the connection to the database.
-    pub(crate) fn get_session_id(&self) -> usize {
-        self.session_data
-            .get("AUTH_SESSION_ID")
-            .unwrap()
-            .parse::<usize>()
-            .unwrap()
+    pub(crate) fn get_session_id(&self) -> Result<usize, Error> {
+        self.session_number("AUTH_SESSION_ID")
     }
 
     /// Creates a new auth message.
@@ -483,7 +486,7 @@ impl Message for AuthMessage {
         Ok(())
     }
 
-    fn pre_process(&mut self, client: &mut Client) {
+    fn pre_process(&mut self, client: &mut Client) -> Result<(), Error> {
         self.pairs.clear();
         if self.get_is_phase_one() {
             self.add_pair("AUTH_TERMINAL", client.config().terminal(), 0);
@@ -495,7 +498,7 @@ impl Message for AuthMessage {
         } else if let Some(combo_key) = self.combo_key {
             self.encrypt_passwords(client, &combo_key);
         } else {
-            self.generate_verifier(client);
+            self.generate_verifier(client)?;
             self.add_pair(
                 "SESSION_CLIENT_CHARSET",
                 &constants::CHARSET_ID_UTF8.to_string(),
@@ -528,6 +531,7 @@ impl Message for AuthMessage {
             }
             self.resend_needed = false;
         }
+        Ok(())
     }
 
     fn resend_needed(&self) -> bool {

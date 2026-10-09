@@ -234,7 +234,9 @@ pub(crate) trait Message {
     }
 
     /// Called just before the message is sent to the database for processing.
-    fn pre_process(&mut self, _client: &mut Client) {}
+    fn pre_process(&mut self, _client: &mut Client) -> Result<(), Error> {
+        Ok(())
+    }
 
     /// Called just before the data sent by the database is deserialized.
     fn pre_deserialize(&mut self, _client: &mut Client, _resp: &mut Response) {

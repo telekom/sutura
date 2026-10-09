@@ -107,10 +107,10 @@ impl Message for FastAuthMessage {
         client.reset_ttc_field_version();
     }
 
-    fn pre_process(&mut self, client: &mut Client) {
-        self.protocol_message.pre_process(client);
-        self.data_types_message.pre_process(client);
-        self.auth_message.pre_process(client);
+    fn pre_process(&mut self, client: &mut Client) -> Result<(), Error> {
+        self.protocol_message.pre_process(client)?;
+        self.data_types_message.pre_process(client)?;
+        self.auth_message.pre_process(client)
     }
 
     fn post_deserialize(

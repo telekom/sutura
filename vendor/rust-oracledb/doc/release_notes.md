@@ -25,6 +25,9 @@
     timestamp value shorter than a date, and a statement with no SQL and no
     cursor; and added the error
     [ErrorKind::EmptyStatement](crate::ErrorKind::EmptyStatement).
+1.  The driver returns errors for malformed authentication responses, and
+    added the error
+    [ErrorKind::InvalidAuthResponse](crate::ErrorKind::InvalidAuthResponse).
 1.  Added support for specifying the transport connect timeout and ensure it is
     actually used when establishing a connection to the database
     ([issue 35](https://github.com/oracle/rust-oracledb/issues/35)).

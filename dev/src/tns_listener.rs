@@ -1,13 +1,15 @@
-//! Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, or with
-//! one packet a test chooses.
+//! Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with one
+//! packet a test chooses, or with an ACCEPT and then an authentication response the driver cannot
+//! use.
 //!
 //! Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
 //! `sutura-cli`, and the RDBMS catalog's Oracle reader - and both prove the same refusal. `cargo
 //! xtask check-jscpd` refuses a clone under `crates/`, so the fake is written once.
 //!
-//! Limit: it speaks only the pre-negotiation framing the driver reads first. It cannot accept a
-//! connection, so a driver that follows the redirect reaches [`RedirectingListener::target`] and is
-//! closed there, before any authentication.
+//! Limit: [`RedirectingListener`] and [`answering`] speak only the pre-negotiation framing the
+//! driver reads first, so a driver that follows the redirect reaches
+//! [`RedirectingListener::target`] and is closed there, before any authentication.
+//! [`authenticating`] goes one step further and no more: it never completes a login.
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
@@ -97,6 +99,65 @@ pub fn answering(packet_type: u8, body: Vec<u8>) -> std::io::Result<u16> {
     Ok(port)
 }
 
+/// Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+///
+/// It offers fast authentication, then answers the first authentication message with session data
+/// that holds a session key and none of the verifier fields the driver reads next.
+///
+/// # Errors
+///
+/// A listener that cannot bind or has no local address.
+pub fn authenticating() -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ignored = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut read = [0_u8; 8192];
+        let _ignored = stream.read(&mut read);
+        let _ignored = stream.write_all(&packet(2, &accept()));
+        let _ignored = stream.read(&mut read);
+        let _ignored = stream.write_all(&negotiated_data(&session_data("AUTH_SESSKEY", "00")));
+        // Read until the client closes, so the answer is not cut off by a reset.
+        while matches!(stream.read(&mut read), Ok(1..)) {}
+    }));
+    Ok(port)
+}
+
+/// An ACCEPT body: protocol version 318, no native network encryption, an 8 KiB SDU, and the flag
+/// that offers fast authentication.
+fn accept() -> Vec<u8> {
+    let mut body = be(318).to_vec();
+    body.extend([0; 13]);
+    body.extend([0; 9]);
+    body.extend(be32(8192));
+    body.extend([0; 5]);
+    body.extend(be32(0x1000_0000));
+    body
+}
+
+/// A TTC parameter message with one session data pair, then a status message that ends the answer.
+fn session_data(key: &str, value: &str) -> Vec<u8> {
+    let mut ttc = vec![8, 1, 1];
+    for text in [key, value] {
+        let length = u8::try_from(text.len()).unwrap_or(u8::MAX);
+        ttc.extend([1, length, length]);
+        ttc.extend(text.as_bytes());
+    }
+    ttc.extend([0, 9, 0, 0]);
+    ttc
+}
+
+/// One DATA packet in the framing after an ACCEPT: a 32-bit length, the type, a zero flags byte,
+/// two zero bytes and two zero data-flag bytes, then the body.
+fn negotiated_data(body: &[u8]) -> Vec<u8> {
+    let length = u32::try_from(10 + body.len()).unwrap_or(u32::MAX);
+    let mut packet = be32(length).to_vec();
+    packet.extend([6, 0, 0, 0, 0, 0]);
+    packet.extend(body);
+    packet
+}
+
 /// A REDIRECT packet carrying `data`, then the DATA packet the driver reads it from.
 fn redirect(data: &[u8]) -> Vec<u8> {
     let length = u16::try_from(data.len()).unwrap_or(u16::MAX);
@@ -121,5 +182,10 @@ fn packet(packet_type: u8, body: &[u8]) -> Vec<u8> {
 
 #[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
 const fn be(value: u16) -> [u8; 2] {
+    value.to_be_bytes()
+}
+
+#[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
+const fn be32(value: u32) -> [u8; 4] {
     value.to_be_bytes()
 }

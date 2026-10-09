@@ -51,6 +51,7 @@ pub enum ErrorKind {
     EndUserSecurityContextRequiresTcps,
     IfileCycleDetected(String, String),
     IntegerTooLarge(usize, usize),
+    InvalidAuthResponse(String),
     InvalidBindName(String),
     InvalidColumnIndex(usize),
     InvalidColumnName(String),
@@ -251,6 +252,12 @@ impl fmt::Display for Error {
             ErrorKind::InvalidDescriptorNode(key, expected_type) => write!(
                 fmt,
                 "full descriptor node {key} is not a valid {expected_type}"
+            )?,
+            ErrorKind::InvalidAuthResponse(key) => write!(
+                fmt,
+                "the authentication response from the database has a \
+                 missing or invalid {}",
+                key
             )?,
             ErrorKind::InvalidEncodedString => {
                 fmt.write_str("invalid encoded string")?
@@ -532,6 +539,10 @@ impl Error {
         actual_size: usize,
     ) -> Error {
         Error::new(ErrorKind::IntegerTooLarge(max_size, actual_size), None)
+    }
+
+    pub(crate) fn invalid_auth_response(key: &str) -> Error {
+        Error::new(ErrorKind::InvalidAuthResponse(key.to_string()), None)
     }
 
     pub(crate) fn invalid_bind_name(name: &str) -> Error {

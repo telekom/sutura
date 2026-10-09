@@ -29,6 +29,7 @@
 //-----------------------------------------------------------------------------
 
 use crate::client::Client;
+use crate::error::Error;
 use crate::messages::AuthMessage;
 use crate::ora_version::OracleVersion;
 
@@ -91,17 +92,20 @@ impl DbInfo {
     }
 
     /// Returns a new structure populated from the client and auth message.
-    pub(crate) fn new(client: &Client, auth_message: &AuthMessage) -> DbInfo {
-        DbInfo {
-            max_open_cursors: auth_message.get_max_open_cursors(),
-            max_identifier_length: auth_message.get_max_identifier_length(),
-            session_id: auth_message.get_session_id(),
-            serial_num: auth_message.get_serial_num(),
+    pub(crate) fn new(
+        client: &Client,
+        auth_message: &AuthMessage,
+    ) -> Result<DbInfo, Error> {
+        Ok(DbInfo {
+            max_open_cursors: auth_message.get_max_open_cursors()?,
+            max_identifier_length: auth_message.get_max_identifier_length()?,
+            session_id: auth_message.get_session_id()?,
+            serial_num: auth_message.get_serial_num()?,
             db_domain: auth_message.get_db_domain(),
             db_name: auth_message.get_db_name(),
             service_name: auth_message.get_service_name(),
             instance_name: auth_message.get_instance_name(),
-            server_version: auth_message.get_server_version(client),
-        }
+            server_version: auth_message.get_server_version(client)?,
+        })
     }
 }

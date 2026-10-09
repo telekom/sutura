@@ -1423,16 +1423,18 @@ cannot accidentally have.
 
 ## Module `tns_listener`
 
-Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, or with
-one packet a test chooses.
+Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with one
+packet a test chooses, or with an ACCEPT and then an authentication response the driver cannot
+use.
 
 Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
 `sutura-cli`, and the RDBMS catalog's Oracle reader - and both prove the same refusal. `cargo
 xtask check-jscpd` refuses a clone under `crates/`, so the fake is written once.
 
-Limit: it speaks only the pre-negotiation framing the driver reads first. It cannot accept a
-connection, so a driver that follows the redirect reaches `RedirectingListener::target` and is
-closed there, before any authentication.
+Limit: `RedirectingListener` and `answering` speak only the pre-negotiation framing the
+driver reads first, so a driver that follows the redirect reaches
+`RedirectingListener::target` and is closed there, before any authentication.
+`authenticating` goes one step further and no more: it never completes a login.
 
 ### `struct RedirectingListener`
 
@@ -1483,6 +1485,21 @@ pub fn answering(packet_type: u8, body: Vec<u8>) -> std::io::Result<u16>
 
 Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with a single packet of
 `packet_type` carrying `body`, then closes, and returns its port.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn authenticating`
+
+```rust
+pub fn authenticating() -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+
+It offers fast authentication, then answers the first authentication message with session data
+that holds a session key and none of the verifier fields the driver reads next.
 
 # Errors
 

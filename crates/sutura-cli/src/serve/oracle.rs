@@ -207,6 +207,39 @@ mod tests {
         );
     }
 
+    /// **A malformed authentication response refuses the source, and the process keeps running.**
+    /// The fake accepts the CONNECT and answers the first authentication message with session
+    /// data that has none of the verifier fields. The open runs inside `catch_unwind`, so an open
+    /// that does not return fails this cell's first assertion rather than the test harness.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn a_malformed_authentication_response_refuses_the_oracle_source() {
+        let port = sutura_dev::tns_listener::authenticating().expect("the fake listener binds");
+        let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-auth-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let password = directory.join("password");
+        std::fs::write(&password, "not-a-real-password").expect("the password file writes");
+        let entry = format!(
+            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
+             service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
+             transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
+            password.display()
+        );
+        let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&entry),
+                one_worker(),
+                default_timeout(),
+                None,
+            )
+        }));
+        let _ignored = std::fs::remove_dir_all(&directory);
+        let opened = opened.expect("the open returns for a malformed authentication response");
+        let error = refusal(opened, "a malformed authentication response is refused");
+        assert!(error.contains("AUTH_PBKDF2_VGEN_COUNT"), "{error}");
+    }
+
     /// **A `verified` source opens TLS before the listener reads a TNS packet.** The fake answers
     /// a CONNECT with packet type 3, which the driver refuses by name. A `plaintext` source reaches
     /// that refusal; a `verified` one does not, because its first bytes are a TLS handshake that the
