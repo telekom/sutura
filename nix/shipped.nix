@@ -161,12 +161,13 @@ let
       # fat LTO, which is also what `features` now ships. `openmetadata` joined `datahub` here under
       # `github.com/telekom/sutura#970`: the same networked-adapter shape (an outbound TLS reader
       # behind a default-off feature), so the Fifteenth amendment's "every adapter compiled in"
-      # applies identically.
+      # applies identically. `oracle` is not probed either: the one C it links is `ring`, which
+      # `clickhouse`'s probe already links alone on every triple.
       probeFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
-      allFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "rdbms" "agent" ];
+      allFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "rdbms" "oracle" "agent" ];
       # WHAT THE SHIPPED BUILD ACTUALLY LINKS - `github.com/telekom/sutura#685` step 5,
       # `docs/adr/0017`'s Fifteenth amendment implemented. Read by `nativeFor`/`crossFor` below for
       # every release and release-performance build of this binary, native and cross; the `-ci`
@@ -179,21 +180,18 @@ let
       # binaries). The two lists are meant to agree; a future feature added to one and not the
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
-      features = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "rdbms" "agent" ];
+      features = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "rdbms" "oracle" "agent" ];
       # `tokio-postgres` is banned by name (`github.com/telekom/sutura#1246`). Every Postgres
       # source and the RDBMS catalog reader answer over the ADBC connector now, so no crate in the
       # workspace depends on it. This entry keeps it that way: a dependency or feature that brings
       # it back into the shipped binary fails `checks.shipped-features`. A change that ships it
       # on purpose lifts the ban in the same diff, the way `permit` below lifts `ring` and `ureq`.
       #
-      # `oracledb` is banned by name too: the Oracle source and dictionary need a build with the
-      # `oracle` feature, which `features` above does not carry.
-      #
       # Limit: `checks.shipped-features` runs only in `just shipped` and in the tag-triggered
       # `release.yml` and `release-performance.yml`; `just validate` and every pull-request and
       # merge-group job skip it. A change that brings the crate back stays green until a release
       # or a local `just shipped`.
-      alsoForbidden = [ "tokio-postgres" "oracledb" ];
+      alsoForbidden = [ "tokio-postgres" ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
       # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
       # `datahub` and `openmetadata`, and each pulls `ring` and `ureq` - so this entry states BY NAME that
@@ -814,7 +812,7 @@ let
         # **Every shipped adapter crate too, since `github.com/telekom/sutura#1247`**: a release
         # that stopped linking one fails here naming it, and `check-shipped-binaries` holds this
         # list to the record's `features` at PR time (`xtask/src/shipped/adapters.rs`).
-        required = { sutura = [ "axum" "datafusion" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-duckdb" "sutura-exec-clickhouse" "sutura-catalog-datahub" "sutura-catalog-openmetadata" "sutura-catalog-rdbms" ]; };
+        required = { sutura = [ "axum" "datafusion" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-duckdb" "sutura-exec-clickhouse" "sutura-exec-oracle" "sutura-catalog-datahub" "sutura-catalog-openmetadata" "sutura-catalog-rdbms" ]; };
         # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
         # variant of, while `ring` is the one that compiles C and assembly and is therefore
         # the one the cross builds actually pay for.

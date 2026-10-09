@@ -118,9 +118,8 @@ question would leak rows between callers.
 <a id="connectors-arrow-flight-not-a-driver-per-data-system"></a>
 Each release has four artifacts: musl and glibc builds for x86_64 and aarch64. Each artifact is
 a distroless image that holds only the binary. The release binary links the features that
-`nix/shipped.nix` lists, and `sutura doctor` shows which adapters a binary links. The Oracle
-adapter is built with the `oracle` feature. `just build-release` builds the release binary, and
-Nix compiles and links the ADBC drivers into it.
+`nix/shipped.nix` lists, and `sutura doctor` shows which adapters a binary links.
+`just build-release` builds the release binary, and Nix compiles and links the ADBC drivers into it.
 
 In the development shell, a `cargo` build can select one feature:
 

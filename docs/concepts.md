@@ -206,8 +206,8 @@ it reads CSV, Parquet and NDJSON files itself, executes the plan over Arrow and 
 and every build links it; `sutura-exec-duckdb` is a **data source** - it renders the plan into
 `DuckDB` SQL and pushes the statement down. Postgres, ClickHouse, Oracle and BigQuery are data
 sources too, each behind a default-off feature, and the release binary enables DuckDB, BigQuery,
-Postgres and ClickHouse: a musl release links the DuckDB driver, and any other build mounts the
-`libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. The golden
+Postgres, ClickHouse and Oracle: a musl release links the DuckDB driver, and any other build
+mounts the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. The golden
 suite executes the example corpus against Postgres and ClickHouse on a server their nix tier starts
 beside the suite; BigQuery's golden cells run against a real dataset in the `bigquery-conformance`
 CI job and skip elsewhere under a named exemption, and Oracle's skip under one because no gate

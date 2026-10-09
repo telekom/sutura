@@ -137,9 +137,8 @@ surface, and - where a deployment declares `security.inbound` - a verified calle
 signature, with OAuth scopes deciding which operations that caller may invoke. Other sources use an
 acknowledged shared identity, so a deployment can know who is asking and still read rows under its
 own source identity. The Arrow result envelope is not built. The published build opens the
-in-process engine, Postgres and BigQuery;
-other adapters require their own features. The pinned bundle and source grants govern which rows
-can be read.
+in-process engine, DuckDB, Postgres, ClickHouse, Oracle and BigQuery. The pinned bundle and source
+grants govern which rows can be read.
 [What exists today](architecture.md#what-exists-today) is the inventory.
 
 The environment, the gates and the release pipeline do work, because a mechanism is cheaper to

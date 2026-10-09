@@ -45,22 +45,6 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   `OracleError::RedirectRefused`: the driver is told not to follow one, so the connection
   stays on the address the source declared. A clustered listener that redirects every client is
   therefore refused too; declare the address that answers.
-- **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
-  links this crate into both composition roots through `OracleWarehouse::connect`;
-  `nix/shipped.nix` does not carry that feature - see its entry in `sutura-cli`'s manifest.
-- **Every mapping below is reasoned from the driver's documented wire types, not measured
-  against a live Oracle** - no docker socket was available while this adapter was written. The
-  golden matrix's `oracle` cells (`crates/sutura-app/tests/adapters/adapters.rs`) skip rather
-  than run wherever that is still true - that file's own `DataSystemUnderTest::available`
-  decides which venues those are.
-- **No venue that runs `just validate` can reach a live Oracle.** `compose.services.yaml`'s
-  `oracle` service is a docker-compose tier brought up by hand (`just dev-up-oracle`); the nix
-  sandbox has no docker socket and no `oracle-tier.nix` exists, so a gate leg cannot
-  provision one - and Oracle Database is proprietary, so no nix-native tier could take
-  `nix/postgres-tier.nix`'s shape even in principle. The render goldens this suite pins for
-  Oracle therefore assert what `sutura-sql` emitted and nothing a data system said back; that
-  is what `crates/sutura-app/tests/golden/dialects.rs`'s `Venue::ByHandOnly` arm declares. The
-  check there holds this path, never this prose - a header that stops arguing this stays green.
 - **One `parking_lot::Mutex` serializes every call**, and for good reason:
   `Connection`'s own methods
   take `&self`, so the port's shared reference alone does not prove the driver tolerates two
