@@ -18,7 +18,7 @@ By default, queries use certified metric definitions. Metadata and data sources 
 A query can combine data from several sources.
 
 Deployments can verify caller tokens. Each data source declares the identity it uses.
-See [identity verification](docs/where-identity-is-proven.md) for the tested paths and their limits.
+See [identity verification](docs/where-identity-is-proven.md) for each identity claim and its environment.
 
 ## Technology
 

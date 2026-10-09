@@ -61,13 +61,14 @@ say: a window function, a percentile, an expression over two columns. It is a *s
 `measure:`, not a field on it, and exactly one of the two may be present. The fragment is admitted
 as text: present, bounded, one fragment rather than a script, free of control and invisible
 characters. It is pinned under the definition digest exactly as written. sutura does not compile
-it: an adapter refuses to start on a bundle that carries one, naming the metric. A caller still
-has no field for SQL, and the agent prompt never sees any.
+it. Every adapter this workspace ships refuses to start on a bundle that carries one, naming the
+metric. A caller still has no field for SQL, and the agent prompt never sees any.
 
-An **anchor** is a known result for a metric. `sutura_app::verify_and_validate` re-executes every metric that declares one. It returns the bundle as `Validated` only if every
-anchor it declares was checked and matched. A bundle whose anchors were never checked cannot reach
-the query path. That function is the only thing anywhere that produces a `Validated`, and it takes
-the data system as an argument, so the type cannot be obtained unless a data system was asked.
+An **anchor** is a known result for a metric. `sutura_app::verify_and_validate` re-executes every
+metric that declares one. It returns the bundle as `Validated` only if every anchor it declares was
+checked and matched. A bundle whose anchors were never checked cannot reach the query path. That
+function is the only thing anywhere that produces a `Validated`, and it takes the data system as an
+argument, so the type cannot be obtained unless a data system was asked.
 
 ## The pinned snapshot
 
@@ -117,8 +118,10 @@ The **subject** is the identity that the data system sees: the person, not the s
 
 A leg runs in one of two ways:
 
-- **secure-impersonation** (BigQuery, ClickHouse). The leg runs as the subject. sutura mints a
-  credential for each request.
+- **secure-impersonation** (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery, the
+  caller's verified token is exchanged for the service account that the operator declares for that
+  subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  ClickHouse user that the operator declares for that subject (`EXECUTE AS`).
 - **shared-service-user** (files, Postgres). The leg runs as the deployment's own identity for
   that source. An operator declares this in the configuration.
 
