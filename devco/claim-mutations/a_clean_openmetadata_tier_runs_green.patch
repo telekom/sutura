@@ -1,0 +1,9 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index dcdb80dcf..dd1ea60b6 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -2447,3 +2447,3 @@ jobs:
+           if [ "$OM_SELECTED" = "true" ]; then
+-            if [ "$OM_RESULT" != "success" ]; then
++            if [ "$OM_RESULT" = "success" ]; then
+               fail "ci-openmetadata-tier must run (catalog_openmetadata category selected) but reported '$OM_RESULT'"

@@ -817,6 +817,13 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
+# Four containers, of which one - `openmetadata`, its server - is the endpoint the discovery file carries.
+# Off by default because it COSTS: two JVMs and a migration job that creates the schema and the search
+# indices before the server will start. The reasoning lives in compose.services.yaml.
+# The same, plus the OpenMetadata metadata platform.
+dev-up-openmetadata:
+    cargo run -q -p xtask -- dev-up --with openmetadata
+
 # Off by default because it is a full database server and nothing here reads it in `just validate` -
 # `compose.services.yaml`'s own `oracle` row says why there is no nix-native tier to converge to.
 # The same, plus Oracle Database - `github.com/telekom/sutura#127`.
@@ -874,6 +881,24 @@ datahub-acceptance:
     SUTURA_DEV_REQUIRE_TIER=1 \
     SUTURA_DATAHUB_PAT="$(cat "$DATAHUB_TOKEN_FILE")" \
     cargo test -p sutura-catalog-datahub --features http --test provisioned -- --ignored --nocapture
+
+# A named task rather than a cell in the default suite, for `datahub-acceptance`'s reasons: `just test`
+# sets `SUTURA_DEV_REQUIRE_TIER=1`, the OpenMetadata profile costs two JVMs and a migration job, and
+# the nix sandbox has no docker socket. It brings the profile up first, because asking for the
+# fail-closed direction against a tier nobody started is a confusing way to spell an error.
+# CI runs the same cells through `nix run .#openmetadata-acceptance`; keep the two aligned - nothing
+# checks it.
+# The provisioned OpenMetadata, asked whether the real reader decodes what a live deployment serves.
+openmetadata-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "openmetadata-acceptance: scope sutura-catalog-openmetadata - the live OpenMetadata tier: the"
+    echo "openmetadata-acceptance: serving surface, a bearer-LESS read refused (auth is ON), and the golden"
+    echo "openmetadata-acceptance: catalog provisioned over the REST API and read back through"
+    echo "openmetadata-acceptance: src/http.rs's HttpSnapshotReader (hence --features http)."
+    echo "openmetadata-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
+    cargo run -q -p xtask -- dev-up --with openmetadata
+    SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-openmetadata --features http --test provisioned -- --ignored --nocapture
 
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:

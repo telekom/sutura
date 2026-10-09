@@ -59,3 +59,11 @@ serde_json = { workspace = true }
 sutura-http-client = { workspace = true, features = ["tls-test"] }
 # `env_proxy`, the harness `tests/http_reader.rs` re-runs the proxy cell under an environment proxy with.
 sutura-dev = { workspace = true }
+
+# The live golden cell (`tests/provisioned.rs`) reads the golden catalog through the markdown adapter
+# to compare against. Dev-only; a dev-dependency between two catalog adapters is the COMPARE case
+# `xtask/src/boundaries/adapters.rs` exempts.
+sutura-catalog-local = { workspace = true }
+# The provisioned-instance cells (`tests/provisioned.rs`) write the golden entities over the REST API
+# with their own hand-built requests - the writes are the test's, the read-back is `src/http.rs`'s.
+ureq = { workspace = true }
