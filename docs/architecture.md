@@ -19,6 +19,42 @@ metadata source or one data system.
 [Open the diagram on its own page](assets/architecture.html). The diagram works without
 JavaScript; the script only highlights the connections of the crate you point at.
 
+## Deployments
+
+Two deployments show how the parts connect. In both, the agent reaches sutura over MCP, and the key
+set of the identity provider lets sutura verify the caller's token.
+
+### Direct
+
+<iframe
+  src="../assets/deployment-direct.html"
+  title="sutura with an agent that calls it directly"
+  loading="lazy"
+  style="width: 100%; height: 700px; border: 0;"
+></iframe>
+
+[Open the diagram on its own page](assets/deployment-direct.html). The agent calls sutura over MCP
+with the caller's token.
+
+### Through an AI gateway
+
+<iframe
+  src="../assets/deployment-gateway.html"
+  title="sutura behind an AI gateway"
+  loading="lazy"
+  style="width: 100%; height: 700px; border: 0;"
+></iframe>
+
+[Open the diagram on its own page](assets/deployment-gateway.html). The gateway routes the model
+calls and the MCP calls. It passes the caller's token to sutura. The token must name sutura as its
+audience.
+
+In both deployments, sutura verifies the token, reads the definitions from DataHub and runs each
+query in the data system.
+
+Each part can change: another catalog (OpenMetadata, RDBMS, files), another data system (DuckDB,
+Oracle, files), another OIDC issuer, direct or through a gateway.
+
 ## Identity
 
 sutura separates two parts of identity:
