@@ -54,7 +54,7 @@ Why this data system could not answer.
 - `FixtureRead`
 - `InvalidColumnName` - A CSV header named a column that is not a valid identifier. Refused, not interpolated.
 - `FixtureSchema` - The shared conformance fixture schema could not be inferred.
-- `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
+- `InvalidStatementTimeout` - The `fixtures` build's `statement_timeout` tuning value is not a `u32` millisecond count.
 
   The value becomes a `SET LOCAL statement_timeout = N` ceiling, so it is parsed at the
   boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
@@ -92,8 +92,8 @@ links (both musl triples) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names.
   in the workspace - except one written inside an existing `disallowed_methods` expectation's
   scope, which that expectation covers too (the ban's own entry states it).
 - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
-  opens when autocommit is switched off, clamped to the deployment's ceiling
-  (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`), and always rolled back. A statement the server cancelled for it
+  opens when autocommit is switched off, clamped to the ceiling
+  (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, else 15 s), and always rolled back. A statement the server cancelled for it
   (`57014`), or a stream that failed once that timeout had run out, is the deadline to
   `Warehouse::deadline_exceeded`.
 - **The channel is the declared one.** `Conninfo` builds the libpq
@@ -174,8 +174,8 @@ pub fn new(source: SourceName, posture: SourcePosture, driver: PostgresDriver, c
 
 Takes the source, the driver and the connection string it connects with.
 
-Reads the deployment's statement-timeout ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`), which a
-request's own budget may only narrow.
+Reads the statement-timeout ceiling a request's own budget may only narrow:
+`SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, a fixed 15 s in every other.
 
 # Errors
 
@@ -270,7 +270,7 @@ Reads the declared password file into a `Secret`.
 
 The password is trimmed exactly once after reading, so a trailing newline from a mounted secret
 is not part of the credential. The read `String` is shadowed by that `Secret`, not dropped - it
-is not zeroised, and it lives unzeroised until this function returns (`docs/adr/0020`'s "not
+is not zeroised, and it lives unzeroised until this function returns (the architecture decision's "not
 claimed" list).
 
 # Errors

@@ -9,38 +9,65 @@
 
 use super::*;
 
+/// `federated_plan()` asking for its top one group by the metric.
+pub(super) fn top_one_plan() -> sutura_domain::plan::FederatedPlan {
+    let top = sutura_domain::query::Top::new(
+        sutura_domain::query::TopN::parse(1).expect("one is a row count"),
+        sutura_domain::query::TopBy::Metric,
+        sutura_domain::query::TopDirection::Desc,
+    );
+    federated_plan().with_top(top)
+}
+
 /// One case-2 answer, over the two leg-executing fakes and a chosen `top` row ceiling.
-///
-/// **One builder rather than three copies, and `check-jscpd` is why**: the three cells below differ
-/// in the ceiling and in what they assert, and the setup around them was byte-identical once the
-/// combiner became an argument. `row_ceiling` is the only knob, because it is the only thing
-/// `github.com/telekom/sutura#777`'s refusal reads.
 fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome {
+    outcome_with(
+        &top_one_plan(),
+        sutura_domain::plan::RowCeilings::new(row_ceiling, sutura_domain::plan::FederatedRowCeiling::DEFAULT),
+    )
+}
+
+/// One answer to `plan`, over the two leg-executing fakes (the shared two-group fixtures) and
+/// chosen row ceilings.
+///
+/// **One builder rather than copies, and `check-jscpd` is why**: the cells that use it differ in the
+/// plan, the ceilings and what they assert, and the setup around them was byte-identical once the
+/// combiner became an argument. The ceilings are the only knob, because they are the only thing
+/// `github.com/telekom/sutura#777`'s and `#828`'s refusals read.
+pub(super) fn outcome_with(
+    plan: &sutura_domain::plan::FederatedPlan,
+    row_ceilings: sutura_domain::plan::RowCeilings,
+) -> ToolOutcome {
+    outcome_over(plan, row_ceilings, federated_fact_rows(), federated_lookup_rows())
+}
+
+/// [`outcome_with`] over chosen leg results, for a cell whose combined answer must be wider than
+/// the shared fixtures'.
+pub(super) fn outcome_over(
+    plan: &sutura_domain::plan::FederatedPlan,
+    row_ceilings: sutura_domain::plan::RowCeilings,
+    fact_rows: RowSet,
+    lookup_rows: RowSet,
+) -> ToolOutcome {
     let fact_source = SourceName::parse("facts").expect("a test source");
     let lookup_source = SourceName::parse("geo").expect("a test source");
     let shared = shared();
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
         fact_source,
         shared.clone(),
-        federated_fact_rows(),
+        fact_rows,
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
         lookup_source,
         shared,
-        federated_lookup_rows(),
+        lookup_rows,
     ))
     .expect("two sources, one registry");
     let broker = crate::tests_support::CountingBroker::default();
-    let top = sutura_domain::query::Top::new(
-        sutura_domain::query::TopN::parse(1).expect("one is a row count"),
-        sutura_domain::query::TopBy::Metric,
-        sutura_domain::query::TopDirection::Desc,
-    );
-    let plan = federated_plan().with_top(top);
     let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
     answer_federated(
         &bundle(),
-        &plan,
+        plan,
         &asked_by_a_person(),
         &broker,
         &warehouses,
@@ -48,7 +75,7 @@ fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        row_ceiling,
+        row_ceilings,
     )
     .expect("a case-2 top is answered or refused, never an error")
     .into_outcome()

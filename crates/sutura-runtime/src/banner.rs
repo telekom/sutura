@@ -363,7 +363,7 @@ mod tests {
              transport_mode: \"verified\"\n    transport_anchors: \"/etc/sutura/ca.pem\"\n    \
              posture: \"shared-service-user\"\n    acknowledged_because: \"one service role for everybody\"\n  \
              analytics:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
-             credential_file: \"/etc/sutura/bigquery.json\"\n    max_bytes_billed: 1073741824\n    \
+             max_bytes_billed: 1073741824\n    \
              posture: \"shared-service-user\"\n    acknowledged_because: \"one service account for everybody\"\n",
         );
         let settings = Settings::load(&sources).expect("two declared sources load");

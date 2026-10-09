@@ -47,9 +47,8 @@ use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
 /// # The variant names are not the configured words, and that is deliberate
 ///
 /// A deployment writes `single-user` or `multi-user` - [`Self::as_str`] and [`Self::NAMES`] own those
-/// spellings, and they are the vocabulary
-/// [a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-/// 5a names. The variants are named for the *property each mode decides* instead, because
+/// spellings, and they are the vocabulary the credential-per-leg decision (5a) names. The variants
+/// are named for the *property each mode decides* instead, because
 /// `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
 /// that survived that say more: what changes between the two is whether credentials are static
 /// configuration or a subject arrives per request.
@@ -58,12 +57,13 @@ pub enum DeploymentIdentity {
     /// Static credentials, one user, one host - the `single-user` mode. Carries the operator's own
     /// reason, so the mode is unreachable by leaving a key out.
     StaticCredentials { declared: AcknowledgementReason },
-    /// A subject per request, established by the transport - the `multi-user` mode.
+    /// A subject per request - the `multi-user` mode.
     ///
-    /// **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
-    /// is currently a statement of intent whose only mechanical effect is that every shared source has
-    /// to be acknowledged on its own entry. That is the honest description and it is worth having: the
-    /// acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
+    /// **A declaration of intent, independent of the `security.inbound` block that makes a subject
+    /// arrive.** This mode alone establishes no subject: leg 1 is built, but it is configured under
+    /// `inbound`, and a `multi-user` deployment without that block still authenticates only the
+    /// deployment's bearer token. What this mode decides mechanically is that every shared source
+    /// has to be acknowledged on its own entry, and that the raw SQL tool is refused.
     SubjectPerRequest,
 }
 

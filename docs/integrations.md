@@ -1,9 +1,9 @@
 ---
-title: Integrations
-description: The catalogs sutura reads definitions from, the data systems it runs questions on, and how it verifies callers.
+title: Kinds and settings
+description: The catalog kinds, the data system kinds and the settings that every catalog and every data system reads.
 ---
 
-# Integrations
+# Kinds and settings
 
 sutura connects to two kinds of system. A **catalog** supplies the definitions: models, joins and
 metrics. A **data system** holds the data and runs the queries. Each one has an adapter crate and
@@ -42,14 +42,14 @@ All entries must have the same `version`. A key that sutura does not know is an 
 
 ## Data systems
 
-| Data system                                                   | `kind`       | Identity of the query                                                |
-| ------------------------------------------------------------- | ------------ | -------------------------------------------------------------------- |
-| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura                                  |
-| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura                                  |
-| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account (built, not proven) |
-| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                                    |
-| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller                     |
-| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user                                                    |
+| Data system                                                   | `kind`       | Identity of the query                            |
+| ------------------------------------------------------------- | ------------ | ------------------------------------------------ |
+| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura              |
+| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura              |
+| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account |
+| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                |
+| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller |
+| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user                                |
 
 A federated question reads two data systems. Each one runs its part, and DataFusion joins the
 parts. ClickHouse cannot run a part of a federated question.

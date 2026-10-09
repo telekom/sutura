@@ -629,9 +629,9 @@ re-review rejected that trade for a reason that survives the argument: a differe
 over a deployment that ignores the declared values and lets the pool resolve each subject to some
 principal of its own, which is the *accepted and then ignored* defect F3 fixed. The equality is
 still an expectation and not a result: no run has been observed. The
-settings shape is the declared `workload_identity` block - `audience` (the pool), the `impersonate`
-map whose KEYS decide which subjects may be served and whose VALUES name the account each of them
-executes as, and `scope`, which reaches nothing: the credential document has no `scopes` member,
+settings shape is the declared `workload_identity` block - `audience` (the pool) and the
+`impersonate` map whose KEYS decide which subjects may be served and whose VALUES name the account
+each of them executes as. There is no `scope` key: the credential document has no `scopes` member,
 and the library sends `cloud-platform` to the STS leg and the caller's own scopes to the
 impersonation call.
 

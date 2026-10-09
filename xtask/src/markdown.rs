@@ -237,6 +237,24 @@ pub(crate) struct Destination<'a> {
     pub(crate) line: usize,
     /// What is between `](` and the matching `)`, trimmed and as written.
     pub(crate) text: &'a str,
+    /// Whether the link is an image, `![alt](..)`, rather than a link.
+    pub(crate) image: bool,
+}
+
+/// Whether the `[` that the `](` after `before` closes follows a `!`.
+///
+/// `before` is the line up to that `](`. Brackets nest, so `![a [b]](c)` is still an image.
+fn opens_image(before: &str) -> bool {
+    let mut depth = 0_usize;
+    for (at, c) in before.char_indices().rev() {
+        match c {
+            ']' => depth = depth.saturating_add(1),
+            '[' if depth == 0 => return before.get(..at).is_some_and(|head| head.ends_with('!')),
+            '[' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Where the destination starting at `after` ends: the first `)` at nesting depth zero.
@@ -283,9 +301,11 @@ pub(crate) fn destinations(lines: &[String]) -> Vec<Destination<'_>> {
                 break;
             };
             if let Some(text) = after.get(..end) {
+                let offset = line.len().saturating_sub(rest.len()).saturating_add(at);
                 found.push(Destination {
                     line: number,
                     text: text.trim(),
+                    image: line.get(..offset).is_some_and(opens_image),
                 });
             }
             rest = after.get(end..).unwrap_or("");

@@ -12,8 +12,10 @@ so it gives an agent a map of the tables before anyone defines a metric.
 
 ## When to use it
 
+- Use it for multi-player governance. Many owners document their tables in one shared database, and
+  that database is the source of truth. The [multi player](../../examples/multi-player.md) example shows this model with
+  DataHub.
 - Your database team documents tables and columns in the database itself.
-- You want an agent to know the tables and the descriptions that people wrote for them.
 - Later, you define metrics in a [markdown catalog](markdown.md) over the same tables.
 
 ## The documentation view

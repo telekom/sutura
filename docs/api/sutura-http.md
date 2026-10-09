@@ -133,7 +133,7 @@ ever reached when there is none.
 `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 deployment-level switch and a caller's own scope are two different reasons a capability is
 absent, and `Permitted::without` is what applies the first without `Permitted` growing a
-second notion of what a scope is. `docs/adr/0013`'s off-by-default raw SQL tool is the first
+second notion of what a scope is. The architecture decision's off-by-default raw SQL tool is the first
 capability this applies to; a second one gains a parameter here rather than a widened boolean.
 
 ## `use require_capability`
@@ -149,7 +149,7 @@ happen while `crate::router::assemble` installs `establish_asked` unconditionall
 layer - it is the same "cannot happen, refuse anyway" shape `asked_for`'s own ungoverned-route
 arm already uses, not a second thing this file has to be tested for on its own.
 
-Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
+Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. The architecture decision's tool
 must be absent for every caller when a deployment never turned it on - see `permitted_for`.
 
 ## `use ClientAddress`
@@ -444,7 +444,7 @@ contains.** The catalog and question routes read the same pinned bundle, and thi
 nothing about which rows come back. Which rows come back depends on the identity each leg runs
 under: the deployment's, for a source that has none declared, or the account the source's
 per-source map declares for that subject, for an `impersonation-at-source` source.
-`docs/adr/0014`'s leg 1 establishes who is asking; leg 2 (a source executing AS them) is **built
+the architecture decision's leg 1 establishes who is asking; leg 2 (a source executing AS them) is **built
 and unproven** - `docs/where-identity-is-proven.md` decides which venue may be cited, and none is
 cited here. A caller granted `sutura:metrics.ask` and not `sutura:catalog.read` cannot list the
 catalog, but is not thereby guaranteed the same rows as any other caller: that depends on which
@@ -573,7 +573,7 @@ ever reached when there is none.
 `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 deployment-level switch and a caller's own scope are two different reasons a capability is
 absent, and `Permitted::without` is what applies the first without `Permitted` growing a
-second notion of what a scope is. `docs/adr/0013`'s off-by-default raw SQL tool is the first
+second notion of what a scope is. The architecture decision's off-by-default raw SQL tool is the first
 capability this applies to; a second one gains a parameter here rather than a widened boolean.
 
 ### `fn require_capability`
@@ -593,7 +593,7 @@ happen while `crate::router::assemble` installs `establish_asked` unconditionall
 layer - it is the same "cannot happen, refuse anyway" shape `asked_for`'s own ungoverned-route
 arm already uses, not a second thing this file has to be tested for on its own.
 
-Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
+Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. The architecture decision's tool
 must be absent for every caller when a deployment never turned it on - see `permitted_for`.
 
 ## Module `client_address`
@@ -737,7 +737,7 @@ Asking one certified question.
 
 #### `constant RUN_SQL`
 
-Running one raw SQL statement - `docs/adr/0013`'s tool, off by default.
+Running one raw SQL statement - the architecture decision's tool, off by default.
 
 ## Module `correlation`
 
@@ -943,7 +943,7 @@ has to run for a whole subtree. The value refused is not logged - it is the call
 
 Leg 1 of the identity path: how a caller proves who it is, on this transport.
 
-`docs/adr/0014` is the record. It decides two inbound modes with no default, and it puts every
+The architecture decision is the record. It decides two inbound modes with no default, and it puts every
 piece of this in the transport on purpose: *"All of it is transport: it parses a wire shape and
 produces a domain value, and it decides nothing about what a question may ask."* That is what this
 module is - a header becomes a `VerifiedCaller`, which becomes a
@@ -967,7 +967,7 @@ algorithms - and names no JWT library at all. The two vocabularies meet in exact
 and `sutura_domain::identity::Subject::Verified` finally has a constructor with something real
 behind it. Every audit record written for such a call names the person rather than the deployment.
 
-**Not delivered, and `docs/adr/0014` says so in the same words:** leg 1 proves who is asking. It
+**Not delivered, and the architecture decision says so in the same words:** leg 1 proves who is asking. It
 does *not* make a data source execute as that person - that is leg 2, and it needs a credential per
 leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows who
 is asking and still reads every row as one identity. The startup log prints that sentence on every
@@ -987,7 +987,7 @@ An overstated claim is itself the defect, so each of these is written down here 
 3. **A ceiling derived from a scope.** `Scopes` is now read by exactly one thing -
    `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
    decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
-   live behind, and `docs/adr/0013`'s raw tool is not built. See `caller` for the limit stated
+   live behind, and the architecture decision's raw tool is not built. See `caller` for the limit stated
    beside the claim.
 4. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
@@ -1000,7 +1000,7 @@ An overstated claim is itself the defect, so each of these is written down here 
 
 This module is the one that holds caller-supplied token material *and* a `tracing` dependency, so
 it is where the claim `sutura_domain::identity::Secret` makes can be checked against the macro
-rather than against the bound the macro imposes. `docs/adr/0020` decides the type; the domain
+rather than against the bound the macro imposes. The architecture decision decides the type; the domain
 carries the `compile_fail` doctest for a `Display` bound, because `sutura-domain` may not acquire
 `tracing` - `cargo xtask check-boundaries` walks its whole resolve graph.
 
@@ -1040,7 +1040,7 @@ acquires an inbound transport is an architecture decision, not a refactor.
 
 ### `use Groups`
 
-The `groups` claim a verified token carried - `docs/adr/0028`'s input to a deployment's own
+The `groups` claim a verified token carried - the architecture decision's input to a deployment's own
 group-to-audience mapping.
 
 **Not a scope, and not read by the capability gate**: this decides metadata visibility, never
@@ -1217,7 +1217,7 @@ argument for why nothing here refuses on it.
 
 How long after one attempt to reach the source another may be made.
 
-**The rate limit `docs/adr/0014` asks for**, as a constant rather than a configuration key. It is
+**The rate limit the architecture decision asks for**, as a constant rather than a configuration key. It is
 not a posture decision - nothing a caller can do changes what the right answer is - and a knob
 here would only ever be set wrong, in the direction that reopens the denial-of-service primitive.
 Thirty seconds is far below any horizon at which a rotation is late and far above the cost of a
@@ -1258,7 +1258,7 @@ diagnostics.
 Why a presented token did not establish a caller.
 
 **Every variant is "this caller is not authenticated", and none of them is a
-`sutura_domain::query::RefusalReason`.** That is the placement `docs/adr/0008` part 6 already gives
+`sutura_domain::query::RefusalReason`.** That is the placement the architecture decision already gives
 an expired assertion: a refusal is a governance answer to a question that was understood, and a
 caller who has not proved who they are has not asked a question yet. `crate::problem::Failure` is
 where this becomes a status.
@@ -1302,7 +1302,7 @@ context, and it is why that module still has no way to build a chain out of a he
 
 # What the scopes are read for, and what they are still not read for
 
-`docs/adr/0014` Decision 4 says a per-caller ceiling is **derived from the claims** and never read
+The architecture decision says a per-caller ceiling is **derived from the claims** and never read
 from anything the caller sends with its question - the same argument that keeps a subject off the
 `Query`. `Scopes` is that claim shape, parsed and bounded.
 
@@ -1312,7 +1312,7 @@ capabilities this caller may invoke. A route it may not invoke answers `403` wit
 `insufficient_scope`.
 
 **Two consumers still do not exist, and the presence of this type must not be read as either.**
-`docs/adr/0013`'s raw tool is not built, and a budget keyed on a principal has nowhere to live -
+the architecture decision's raw tool is not built, and a budget keyed on a principal has nowhere to live -
 there is no budget port in this workspace.
 
 **And the limit on the one that does exist is the important sentence here:** a scope decides which
@@ -1373,7 +1373,7 @@ pub fn grants(&self, scope: &str) -> bool
 Whether one scope was granted.
 
 **On the type rather than left to a caller to write**, so there is one comparison rather than
-one per consumer. It is what `docs/adr/0013`'s raw tool would ask, and it is not what the
+one per consumer. It is what the architecture decision's raw tool would ask, and it is not what the
 capability gate asks: that reads `Scopes::iter` and hands the whole set to
 `sutura_app::Permitted::granted_by`, so the comparison against a capability's own scope literal
 happens once, in the crate that owns the capability, rather than once per transport.
@@ -1391,7 +1391,7 @@ do belongs there and not here. Handing over the values rather than answering
 `Scopes::grants` per capability is what keeps this transport from holding a copy of that
 comparison - and `sutura_app` needs no parse, because it compares against fixed literals.
 
-**The type does not move, deliberately.** `docs/adr/0014`'s closing section reserves the
+**The type does not move, deliberately.** The architecture decision's closing section reserves the
 decision of which crate a validator lives in for whoever makes the agent surface reachable over
 a network, and moving the parse now would be taking it early.
 
@@ -1446,7 +1446,7 @@ Why a group claim value is not one.
 pub struct Groups
 ```
 
-The `groups` claim a verified token carried - `docs/adr/0028`'s input to a deployment's own
+The `groups` claim a verified token carried - the architecture decision's input to a deployment's own
 group-to-audience mapping.
 
 **Not a scope, and not read by the capability gate**: this decides metadata visibility, never
@@ -1555,7 +1555,7 @@ treated as valid forever.
 pub const fn groups(&self) -> &Groups
 ```
 
-What the token said this caller's group membership is - `docs/adr/0028`.
+What the token said this caller's group membership is - the architecture decision.
 
 Read by `crate::visibility`, which maps it through this deployment's own settings into a
 `sutura_domain::catalog::GrantedAudiences`. Never by the capability gate: a group decides
@@ -1736,7 +1736,7 @@ rest on that alone - is replaced rather than joined.
 
 The signing keys, the cache in front of them, and the two things that make it re-read.
 
-`docs/adr/0014` names key rotation as one of three things a directly validating deployment newly
+The architecture decision names key rotation as one of three things a directly validating deployment newly
 owns, and it names the standard way to get it wrong: *"Cache the key set, honour its cache
 headers, refetch on an unknown key id - and **rate-limit that refetch**. Without the limit, a
 forged key id turns every request into an outbound call to the authorization server, which is a
@@ -1833,7 +1833,7 @@ confirm the keys, and refused on by nothing.
 
 `FileKeySet` is the only source that ships. **There is no HTTPS fetcher**, and that is stated
 here rather than left to be discovered: an outbound HTTP client is a supply-chain change with its
-own review, and `docs/adr/0014` says plainly that the authorization server then becomes a hard
+own review, and the architecture decision says plainly that the authorization server then becomes a hard
 runtime dependency whose outage must stay *distinguishable from a dead data system*. None of that
 is built.
 
@@ -2005,7 +2005,7 @@ Parses a JWK set document.
 **Every refusal here is a refusal to start, not a key that gets skipped.** A key set is
 operator-supplied configuration and a deployment that silently dropped half of it would
 authenticate an arbitrary subset of its callers - which reads exactly like an intermittent
-outage. `docs/adr/0014`'s posture is fail-closed on the query path and this is that.
+outage. The architecture decision's posture is fail-closed on the query path and this is that.
 
 ##### Implements
 
@@ -2242,7 +2242,7 @@ nothing in this module can make it.
 
 How long after one attempt to reach the source another may be made.
 
-**The rate limit `docs/adr/0014` asks for**, as a constant rather than a configuration key. It is
+**The rate limit the architecture decision asks for**, as a constant rather than a configuration key. It is
 not a posture decision - nothing a caller can do changes what the right answer is - and a knob
 here would only ever be set wrong, in the direction that reopens the denial-of-service primitive.
 Thirty seconds is far below any horizon at which a rotation is late and far above the cost of a
@@ -2286,7 +2286,7 @@ comment is that nothing configured applies yet because a JWT header is unauthent
 applied to a document the issuer signed - the same reasoning that already puts the actor-nesting
 bound there.
 
-# The three things `docs/adr/0014` says a direct deployment owns
+# The three things the architecture decision says a direct deployment owns
 
 Key rotation is `super::keys`. The other two are here:
 
@@ -2330,7 +2330,7 @@ pub enum TokenRejected
 Why a presented token did not establish a caller.
 
 **Every variant is "this caller is not authenticated", and none of them is a
-`sutura_domain::query::RefusalReason`.** That is the placement `docs/adr/0008` part 6 already gives
+`sutura_domain::query::RefusalReason`.** That is the placement the architecture decision already gives
 an expired assertion: a refusal is a governance answer to a question that was understood, and a
 caller who has not proved who they are has not asked a question yet. `crate::problem::Failure` is
 where this becomes a status.
@@ -2375,7 +2375,7 @@ and an error is not a place for credential material.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
 - `UnusableScope`
-- `UnusableGroups` - The `groups` claim is not usable as one - `docs/adr/0028`.
+- `UnusableGroups` - The `groups` claim is not usable as one - the architecture decision.
 - `WrongTokenType` - The token is of a class this deployment does not accept.
 
   **The refusal that closes cross-JWT substitution.** It carries the required type - a configured
@@ -2533,7 +2533,7 @@ The metric series the HTTP surface observes, and the one place their labels are 
 
 # It is a boundary, not a pass-through
 
-This module owns the transport's half of `docs/adr/0015`'s series table: the outcome counters,
+This module owns the transport's half of the architecture decision's series table: the outcome counters,
 the duration histogram, the admission series, the rate-limit visibility, the unauthorized
 counter and the answer-rows histogram. The registry lives in `sutura-runtime`; this type holds
 the handles and names the series. Every labeled registration and update accepts
@@ -2555,7 +2555,7 @@ builder is consumed.
 
 # What this does NOT hold
 
-The three engine-pool series `docs/adr/0015` specifies - reserved bytes, the limit and refusals -
+The three engine-pool series the architecture decision specifies - reserved bytes, the limit and refusals -
 are deliberately absent, following that record's own *absent rather than zero*: the pool bounds
 the engine's own operators and nothing else, and a gauge an operator would alert on as process
 memory is worse than no gauge. Nothing here closes that gap.
@@ -2796,7 +2796,7 @@ pub async fn require_metrics_token(__arg0: axum::extract::State<crate::state::Se
 
 Requires the metrics token, which is a DIFFERENT credential from the API token.
 
-`docs/adr/0015` Decision 1: a holder of the API token can ask any question the catalog
+The architecture decision: a holder of the API token can ask any question the catalog
 certifies and a scrape needs none of that, so `/metrics` is gated by its own
 `security.metrics_token`. This mirrors `require_token`'s shape - the presented bearer is
 compared through the same `AccessToken::matches_in_constant_time`, reused rather than copied -
@@ -2838,7 +2838,7 @@ The tier for the versioned API.
 pub fn metrics_rate_limit_layer(metrics: &crate::metrics::Metrics, quota: sutura_config::Quota, key: crate::client_address::ClientAddress) -> Result<(RateLimit, LimiterHandle), LimiterNotBuilt>
 ```
 
-The tier for `/metrics`, a scrape about once a second - the `docs/adr/0015` tier, deliberately
+The tier for `/metrics`, a scrape about once a second - the the architecture decision tier, deliberately
 distinct from the API's and the probe's so one surface's burst cannot exhaust another's.
 
 It reuses the probe quota's numbers, because a scrape is not a thing an operator needs to tune
@@ -2882,7 +2882,7 @@ that needs a cancellation token the `Warehouse` port does not have.
 
 **Also where the port's `Deadline` is opened**, at the instant this layer is reached - before
 admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
-adds to it (`docs/adr/0029`). Inserted as a request extension, which is what lets the route
+adds to it (the architecture decision). Inserted as a request extension, which is what lets the route
 handler read it with no state of its own to thread it through: `crate::inbound::VerifiedCaller`
 reaches the handler the same way, for the same reason.
 
@@ -3025,7 +3025,7 @@ back in one piece, or this deployment's own ceiling on the bytes a rendered answ
 **A refusal is not routed through `Failure`, and must not be.** `Failure` is what an `Err`
 becomes, and `ToolOutcome::Refusal` is a domain *result*: a `Failure::Refused` variant would put a
 governance outcome into the error enum and make the type system agree with the mistake this design
-exists to prevent. `docs/adr/0005` is the record.
+exists to prevent. The architecture decision is the record.
 
 # What a failure body may say
 
@@ -3106,7 +3106,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
   type that could hold caller text is a type somebody reflects caller text through.
 - `ToolNotEnabled` - The capability exists on this surface, but this DEPLOYMENT never turned it on - distinct from `Self::InsufficientScope`, where the caller's own credential is what is missing.
 
-  **`403`, the same status, a different code and sentence.** `docs/adr/0013`'s off-by-default
+  **`403`, the same status, a different code and sentence.** The architecture decision's off-by-default
   raw SQL tool is the first capability this applies to: a caller told `insufficient_scope`
   for a route no scope can turn on would go obtain a grant that could never help. Checked
   BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
@@ -3141,7 +3141,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 
   **Shares the status with `Self::Unavailable` and not the code.** Both are worth retrying, and
   the two are diagnosed in different places: one is a data system that is unwell and this is the
-  authorization server the identity path depends on. `docs/adr/0014` states the requirement that
+  authorization server the identity path depends on. The architecture decision states the requirement that
   the two stay distinguishable - a caller told the same sentence for both retries an outage that
   will clear the same way it retries one that will not.
 
@@ -3534,10 +3534,19 @@ layers the versioned surface runs behind, and to refuse assembly when it is pres
 inbound identity attached. Nothing else may reach the transport.
 
 ```rust
-pub fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions
+pub fn catalog_coverage(&self) -> Gauge
 ```
 
-The service, borrowed, for a handler that only reads the pinned bundle.
+The `sutura_catalog_metrics` gauge, for the one caller that swaps the served bundle: it sets
+the gauge to the new bundle's governed coverage so the series never describes a bundle that is
+no longer served. A clone shares the series.
+
+```rust
+pub fn definitions(&self) -> Arc<sutura_domain::pinned::PinnedDefinitions>
+```
+
+The bundle the service is serving at this call, for a handler that only reads it. A handler
+that needs one bundle for the whole request calls this once.
 
 ```rust
 pub const fn inbound_identity(&self) -> Option<&Arc<crate::inbound::InboundGate>>
@@ -4430,7 +4439,7 @@ documentation.
 **The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
 already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
 `#[serde(rename)]` on each, so no container-level `rename_all` can turn `Refusal` into the
-certified path's own `outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+certified path's own `outcome: "refusal"`, the one collision the architecture decision forbids.
 
 ### `use RunSqlBody`
 
@@ -4449,7 +4458,7 @@ What this catalog defines.
 
 # Why a structured surface reads the prose setting at all
 
-`prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
+`prompt.catalog_prose: omitted` is not a mitigation for the forgery the architecture decision is about -
 `serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
 this body escapes nothing. It is a decision about **who may put words in front of an agent**: an
 operator whose catalog authors are not the people who decide what their agents are told drops the
@@ -4484,7 +4493,7 @@ response here - never the discriminator's VALUE, and never a provenance-shaped k
 
 # The discriminant, restated for this transport
 
-`docs/adr/0013` requires no shared discriminant VALUE and no provenance-shaped key with a
+The architecture decision requires no shared discriminant VALUE and no provenance-shaped key with a
 certified answer's - WEAKER than "no field name in common": `columns` and `rows` are the same
 two keys on both bodies, because both carry rows and need the same two labels for them.
 
@@ -4536,7 +4545,7 @@ documentation.
 **The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
 already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
 `#[serde(rename)]` on each, so no container-level `rename_all` can turn `Refusal` into the
-certified path's own `outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+certified path's own `outcome: "refusal"`, the one collision the architecture decision forbids.
 
 ##### Variants
 
@@ -4594,7 +4603,7 @@ What this catalog defines.
 
 # Why a structured surface reads the prose setting at all
 
-`prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
+`prompt.catalog_prose: omitted` is not a mitigation for the forgery the architecture decision is about -
 `serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
 this body escapes nothing. It is a decision about **who may put words in front of an agent**: an
 operator whose catalog authors are not the people who decide what their agents are told drops the
@@ -4611,10 +4620,10 @@ pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self
 The reader's view of a caller-scoped catalog, under the prose setting this deployment was
 started with.
 
-**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - `docs/adr/0028`. A metric
+**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - the architecture decision. A metric
 outside the view is not in `metrics` below, so advertisement and invocation cannot disagree
 about which metrics exist; the provenance still names the whole bundle's version and digest,
-because that is what `docs/adr/0028` says the digest continues to identify.
+because that is what the architecture decision says the digest continues to identify.
 
 **The knowledge is not scoped here.** It is rendered by `sutura_app::prompt::catalog_knowledge`
 over the same view, the function the agent surface's catalog tool calls, so both transports

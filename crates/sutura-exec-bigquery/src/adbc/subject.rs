@@ -42,8 +42,8 @@
 //! standing between a declared value and an arbitrary request target is this workspace's own
 //! narrowing (`sutura_config::DeclaredPrincipals::parse` at boot, `super::identity` at send). And the
 //! STS leg is exchanged for `cloud-platform` while the CALLER's scopes go to the impersonation
-//! call (externalaccount.go:256-263), which is why this document still carries no `scopes` member
-//! and why `sources.<alias>.workload_identity.scope` still reaches nothing here.
+//! call (externalaccount.go:256-263), which is why this document carries no `scopes` member and
+//! why a source declares no scope.
 //!
 //! # Why a loopback URL rather than a file or an executable
 //!
@@ -173,15 +173,14 @@ const READ_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
 /// refuses an empty one outright, so a deployment that declared nothing would fail on its first
 /// question instead of at boot.
 ///
-/// **One field, and the declared SCOPE is not it.** `sources.<alias>.workload_identity.scope` is
-/// parsed by `sutura_config` and reaches nothing here, because the pinned driver has nowhere to put
-/// it: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member,
-/// so the document cannot carry one, and the driver's only scope option is
-/// `bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` treats as a
-/// request for the DELETED mechanism - it then demands a target principal and replaces the
-/// federated credential with an impersonated token source. A screened value this transport cannot
-/// send would read as a control that is in place, so it is not held here at all and the operator is
-/// told where they declare it.
+/// **One field, and a scope is not it.** There is no `workload_identity.scope` key: the pinned
+/// driver has nowhere to put one. `credsfile::ExternalAccountFile`
+/// (`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member, so the document cannot carry one,
+/// and the driver's only scope option is `bigquery.impersonate.scopes`, which `connection.go`'s
+/// `hasImpersonationOptions` treats as a request for the DELETED mechanism - it then demands a
+/// target principal and replaces the federated credential with an impersonated token source. A
+/// declared value this transport cannot send would read as a control that is in place, so the
+/// settings parse refuses the key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadPool {
     audience: String,

@@ -9,7 +9,7 @@ The public API of `sutura-conformance`, rendered from rustdoc JSON.
 
 The conformance packs: one set of test bodies over the ports, bound to an adapter by a macro.
 
-`docs/adr/0012` is the construction and this crate is the first piece of it built. The
+The architecture decision is the construction and this crate is the first piece of it built. The
 requirement it serves is that **a new data system proves itself by registering and declaring**
 rather than by anybody editing a test - so the bodies live here, written once against the port,
 and an adapter contributes a constructor.
@@ -55,7 +55,7 @@ mod conformance {
 # What a green conformance run does NOT establish
 
 - **Ordering within a leg, and impersonation in any form.** `execute`'s header says which and
-  why; `docs/adr/0012` decides the impersonation one.
+  why; the architecture decision decides the impersonation one.
 - **Most of the port.** The packs call `execute` and `dry_run`. `verify_anchor`,
   `working_set_exhausted`, `result_did_not_fit`, `preflight` and `preflight_was_refused` are
   never called, so *held to the same test bodies* is a statement about two methods and not about
@@ -97,7 +97,7 @@ mod conformance {
   this is isolation by worktree rather than by process.
 - **A COST, rather than a budget.** `Spent` reports what every cell and every fixture took,
   and `census` prints the per-adapter floor; nothing thresholds either, and nothing joins two
-  adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
+  adapters' numbers. The architecture decision carries what the remaining half would need.
 
 ## `enum Behaviour`
 
@@ -187,7 +187,7 @@ pub struct Spent
 
 What one cell of the matrix cost, measured rather than stated.
 
-**`docs/adr/0012` said per-pack timings were reported *from the start* and nothing measured
+**the architecture decision said per-pack timings were reported *from the start* and nothing measured
 one** (`telekom/sutura#353`). The record's own argument for having them is the one that governs
 every number in this repository: a conformance matrix grows multiplicatively - adapters times
 behaviours times cases - so *the tier that is supposed to be fast stops being fast quietly*, and
@@ -213,7 +213,7 @@ count in a message is not a witness.
 each binding is its own test binary in its own crate - under nextest each test is its own
 PROCESS - so no value here can see another binding's. Aggregating per pack ACROSS adapters
 needs a reader of a run's machine-readable output, which is a gate rather than a measurement;
-`docs/adr/0012` carries that split. **And nothing thresholds any of this**: a budget with no
+the architecture decision carries that split. **And nothing thresholds any of this**: a budget with no
 run beside it cannot be re-taken, so the report is the deliverable and a budget comes second
 with its own measurement.
 
@@ -279,7 +279,7 @@ a corpus of many says which one.
 - `Unreadable` - The data system answered, and a column of the answer could not become a domain value.
 
   **Its own fault rather than a content disagreement, and the diagnosis is why.** Since
-  `docs/adr/0039` step 2 the port's currency is Arrow, so the decode happens above every
+  the architecture decision the port's currency is Arrow, so the decode happens above every
   adapter - and the failure it can produce is *this workspace maps no cell of that Arrow type*,
   not *this adapter computed the wrong number*. Reported as a disagreement it would send a
   reader to look at the data.
@@ -307,7 +307,7 @@ tells a rejected statement from an outage is one and two levels down.
 
 **The cost is on the failing line too**, and that is not symmetry for its own sake: a cell that
 failed in two milliseconds and one that failed after thirty seconds are different diagnoses, and
-the second is the one `docs/adr/0012` says goes quiet.
+the second is the one the architecture decision says goes quiet.
 
 ## `fn not_here`
 
@@ -375,7 +375,7 @@ Five things, and the first is the one a review had to correct:
    A suite that reports a ratio it has not earned is the failure this repository has already met
    twice, and `.config/nextest.toml`'s second override is what makes this line survive a green
    run instead of being captured and discarded;
-4. **the per-adapter FLOOR is printed, from a measurement.** `docs/adr/0012` asks for timings
+4. **the per-adapter FLOOR is printed, from a measurement.** The architecture decision asks for timings
    aggregated per pack and per adapter (`telekom/sutura#353`); this is the per-adapter half that
    a test process can actually take. `execute_packs` rebuilds the fixture once per behaviour,
    so `behaviours x fixture` is the cost this binding pays before a single assertion runs - the
@@ -648,14 +648,14 @@ them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` 
 A case is a tracked data file under `corpus/cases/`, embedded at compile time by
 `include_str!` and parsed by the typed loader in `case_files`. Adding a case is a data edit - a
 new `.case` file plus one `include_str!` line - and no Rust function in this module changes.
-That is the half of `docs/adr/0012`'s *the corpus is files, not code* that was unbuilt when the
+That is the half of the architecture decision's *the corpus is files, not code* that was unbuilt when the
 cases were values in this module. The fixture table (`corpus/conformance_events.csv`) set the
 precedent: a tracked data file read at compile time, served from the file rather than from a
 copied constant.
 
 # The federated cases, and the one adapter pair that runs them
 
-The three cases `docs/adr/0012` names - a filter on a remote dimension over an orphan key, a
+The three cases the architecture decision names - a filter on a remote dimension over an orphan key, a
 ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join keys -
 are `.case` files too, and `federated_cases` holds all three. The `CountDistinct` one is pulled
 up: the fact leg carries the distinct column as a key and the combine counts it, so the expected
@@ -701,7 +701,7 @@ must be a GROUP and not a row a join or a filter dropped, which is the failure c
 # Collation: the opt-out this corpus used to lack, and what it does and does not decide
 
 Every key above is chosen so no bound engine's own collation can disagree with byte order -
-`docs/adr/0012` names this as the corpus's deliberate limit. `total-by-collation-sensitive-key-and-day`
+the architecture decision names this as the corpus's deliberate limit. `total-by-collation-sensitive-key-and-day`
 is the one case that does not have that property on purpose, and `Case::order_is_asserted` is
 what lets it exist without lying: `Behaviour::Order` skips exactly this case, so a source
 whose locale answers `"apple"` before `"Banana"` is not reported as a defect for disagreeing
@@ -853,7 +853,7 @@ The posture every adapter in this pack is opened with.
 per-subject credential needs one minted for a real subject at a real source to be exercised as
 such, which is leg 2 and is not built - so binding an impersonating adapter to these packs holds
 it to the shared path only, and the pack says so rather than reporting a green that reads wider.
-`docs/adr/0012` decides that impersonation gets no negative pack at all, and this is the same
+the architecture decision decides that impersonation gets no negative pack at all, and this is the same
 boundary from the positive side.
 
 ### `fn presented`
@@ -992,7 +992,7 @@ The one table every case reads.
 The execute pack: what every implementor of the execution port must do with a plan.
 
 **Every body here is generic in the port and mentions no adapter.** That is the property
-`docs/adr/0012` is built on: an assertion that appears twice will disagree with itself, and the
+the architecture decision is built on: an assertion that appears twice will disagree with itself, and the
 disagreement will be read as a difference between two data systems rather than as a difference
 between two copies of a test. An adapter contributes a constructor, never an assertion.
 
@@ -1007,9 +1007,9 @@ per adapter; nothing here panics, so a pack can also be called directly.
   no statement that an order was promised, so `a_leg_is_executed` asserts content only -
   `sutura_domain::warehouse::agreement`'s own header says a leg comparing against a plan that
   claimed no order should not call the order assertion.
-- **Impersonation, in either direction.** `docs/adr/0012` decides that a declared absence of
+- **Impersonation, in either direction.** The architecture decision decides that a declared absence of
   impersonation gets no pack: the fallback a negative one would assert as correct is the one
-  `docs/adr/0008` forbids, and the direction worth worrying about is not observable from this
+  the architecture decision forbids, and the direction worth worrying about is not observable from this
   port at all. The mechanism is the boot refusal, tested over a composition root.
 - **Which error an adapter refused with.** `Self::Error` is the adapter's own type, so a pack
   sees only that a call failed. `a_leg_is_refused` is written around that limit rather than
@@ -1147,7 +1147,7 @@ pub fn a_leg_is_refused<W>(warehouse: &W) -> crate::Conformed<<W as >::Error>
 A leg is refused by an adapter that declares it does not execute one.
 
 Selected for an adapter that leaves `EXECUTES_LEGS` at its default. This is the direction
-`docs/adr/0012` calls *a declared absence with something to try*: a leg IS built and executed
+the architecture decision calls *a declared absence with something to try*: a leg IS built and executed
 on the shipped answer path now, so what this direction is worth is narrower and still real -
 it is the only thing that exercises the guard of an adapter with no leg venue of its own -
 and an adapter that quietly computed one instead would be surfacing half an answer under a
@@ -1437,7 +1437,7 @@ The same four mechanisms, so a reader who knows one pack knows the other:
 | `EXECUTES_LEGS` declaration, chcked by a `const` assert | `SemanticCatalog::KIND` declaration, checked by a `const` assert |
 
 And the one difference is what makes this pack a pair rather than a copy: **the GOLDEN/DECLARING
-split** `CatalogKind` and `docs/adr/0016` draw. A catalog is held to the oracle only if it
+split** `CatalogKind` and the architecture decision draw. A catalog is held to the oracle only if it
 declares itself *golden* - it can produce the whole model - which is enforced by a marker trait
 bound, not by review (see `GoldenCatalog`).
 
@@ -1637,7 +1637,7 @@ pub fn fidelity_holds<C>()
 `CompileBehaviour::Fidelity` - what the catalog declared is exactly what its bundle produced.
 
 **UNIVERSAL: both a golden and a declaring catalog owe this**, and it is the assertion a
-declaring adapter gets in place of the golden oracle - `docs/adr/0016`'s decision. It is two
+declaring adapter gets in place of the golden oracle - the architecture decision's decision. It is two
 directions in one `MetadataCapabilities::checked_against` call: everything declared was
 produced, and nothing undeclared appears. A declaration widened beyond the bundle fails the
 `Unprovided` direction and reddens here.

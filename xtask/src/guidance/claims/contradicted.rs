@@ -500,15 +500,15 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "dimension validation reads the pinned definitions, not the scoped view",
             "The scoped view BORROWS the pinned definitions",
         ],
-        // What the request path actually borrows: the pinned bundle itself, handed out whole by
+        // What the request path actually takes: the served bundle itself, handed out whole by
         // the transport's shared state. A view between the two would be this accessor's return
         // type, and it is not.
         evidence: &[Evidence {
             path: "crates/sutura-http/src/state.rs",
-            holds: "fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions",
+            holds: "fn definitions(&self) -> Arc<sutura_domain::pinned::PinnedDefinitions>",
         }],
-        instead: "`load()` runs at boot and the request path borrows the pinned bundle whole - \
-                  `crates/sutura-http/src/state.rs` hands a handler `&PinnedDefinitions` - so \
+        instead: "`load()` runs at boot and on a refresh, and the request path takes the served bundle whole - \
+                  `crates/sutura-http/src/state.rs` hands a handler `Arc<PinnedDefinitions>` - so \
                   there is no per-request view over it, and nothing on that path can acquire I/O",
         only: &[],
         except: &[],

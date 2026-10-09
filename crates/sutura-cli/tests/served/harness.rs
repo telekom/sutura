@@ -275,12 +275,10 @@ pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client
            kind: \"bigquery\"\n    \
            billing_project: \"acme-analytics\"\n    \
            dataset: \"warehouse\"\n    \
-           credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
            max_bytes_billed: 1073741824\n    \
            posture: \"impersonation-at-source\"\n    \
            workload_identity:\n      \
            audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-           scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
            impersonate:\n        \
            \"{subject}\": \"{account}\"\n      \
            delegation:\n        \

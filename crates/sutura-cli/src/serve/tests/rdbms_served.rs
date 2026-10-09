@@ -233,6 +233,7 @@ fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
 #[test]
 #[cfg(feature = "oracle")]
 fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle() {
+    use crate::serve::refresh::tests::{FakeSurface, coverage};
     use crate::serve::refresh::{Outcome, Refresher};
 
     let scratch = ScratchDir::prepared();
@@ -244,8 +245,10 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
         panic!("an rdbms declaration opens an rdbms catalog")
     };
     let initial = crate::serve::tests::bundle_over(&[("customers", "warehouse", "dim_customer")]);
-    let pinned = initial.digest().clone();
-    let refresher = Refresher::new(opened, initial);
+    let pinned = initial.digest().as_str().to_owned();
+    let surface = FakeSurface::serving(initial, false);
+    let (gauge, _registry) = coverage();
+    let refresher = Refresher::new(opened, std::sync::Arc::<FakeSurface>::clone(&surface), gauge);
 
     let sink = sutura_runtime::testing::Capture::new();
     let telemetry = sutura_config::TelemetrySettings::new(
@@ -265,7 +268,7 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
         Some(Outcome::Rejected),
         "the poll returns and rejects the re-read"
     );
-    assert_eq!(refresher.rotating().current().digest(), &pinned, "the pinned bundle stays");
+    assert_eq!(surface.digest(), pinned, "the pinned bundle stays");
     let log = sink.contents();
     assert!(
         log.contains("keeping the bundle already pinned") && log.contains("AUTH_PBKDF2_VGEN_COUNT"),

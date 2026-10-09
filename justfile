@@ -417,7 +417,8 @@ causality base="origin/main":
     #!/usr/bin/env bash
     set -euo pipefail
     # The SAME tier `test` provisions, and it was missing: this gate's first step is *are the tests green
-    # on HEAD*, and the postgres cells are fail-closed, so it failed its own precondition.
+    # on HEAD*, and the postgres cells are fail-closed, so it failed its own precondition. `ship-check`
+    # calls this recipe rather than the xtask line, so the tier setup has one owner.
     source nix/with-tier.sh
     sutura_tier_up
     # Same shell, same shared cores - see `test`'s own comment above `sutura_dev::tolerance` reads.
@@ -526,7 +527,7 @@ docs-list:
     pixi run --frozen -e docs docs-list
 
 # Named by the UTC second, never the next ordinal, so two branches do not contend for one (#937).
-# A new ADR: docs/adr/<YYYYMMDDHHMMSS>-<slug>.md, listed under exclude_docs in mkdocs.yml.
+# A new ADR: docs/adr/<YYYYMMDDHHMMSS>-<slug>.md. `exclude_docs` keeps the whole directory off the site.
 new-adr slug:
     cargo run -q -p xtask -- new-adr {{ quote(slug) }}
 

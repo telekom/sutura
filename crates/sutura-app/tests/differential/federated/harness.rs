@@ -7,7 +7,7 @@ use sutura_app::Validated;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::{RowCeiling, RowCeilings};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
@@ -265,7 +265,7 @@ where
         combine_bytes,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
-        RowCeiling::DEFAULT,
+        RowCeilings::DEFAULT,
     ) {
         Ok(answered) => Ok(answered.into_outcome()),
         Err(error) => Err(chain(&error, name)),

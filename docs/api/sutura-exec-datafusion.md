@@ -107,7 +107,7 @@ map" send a reader to three different places.
 - `Execute`
 - `Unreadable` - A result column could not be read as a domain value.
 
-  **Wrapped rather than restated, and that is `docs/adr/0039`'s point.** The mapping from an
+  **Wrapped rather than restated, and that is the architecture decision's point.** The mapping from an
   Arrow array to a `Value` is `sutura_domain::warehouse::arrow`'s, shared with every adapter
   whose driver speaks Arrow, so the five variants this replaces - an unmapped type, a failed
   downcast, a non-finite double, a day count that is not a date, a result that is not
@@ -147,7 +147,7 @@ map" send a reader to three different places.
   **An `Err` and never a refusal, and the direction is the point.** Nothing about the question
   was wrong: it is a wiring defect between the broker and the source declaration, and offering
   it as a refusal would invite a client to retry a deployment bug until something works.
-  `docs/adr/0008` part 4 states both directions and says which one is silent - an adapter that
+  the architecture decision states both directions and says which one is silent - an adapter that
   quietly *accepted* material it cannot use would report a leg as impersonated that ran shared.
 
   This adapter is one process reading local files under one operating-system identity, which is
@@ -441,7 +441,7 @@ sort. **It counts nothing else.** Not what a driver buffers, not the batches a r
 not the `Vec<Vec<Value>>` built while a result is converted into domain rows.
 
 **Two of those three are now bounded, by a different mechanism, and this is where the boundary
-between them is stated.** `docs/adr/0009` puts a byte budget at the execution boundary rather
+between them is stated.** The architecture decision puts a byte budget at the execution boundary rather
 than here, and it is built: `WorkingSet::result_budget` converts this ceiling into a
 `ResultBudget` that
 `sutura_domain::warehouse::Accumulating::push` spends as each batch arrives, charging both the
@@ -460,7 +460,7 @@ than once. Neither is alertable as process memory.
 
 `GreedyMemoryPool` rather than
 `FairSpillPool`: first come, first served, and a reservation over the ceiling fails immediately.
-`docs/adr/0009` Decision 3 decides the policy and the second of its two reasons is what settles
+the architecture decision decides the policy and the second of its two reasons is what settles
 it - spilling writes the **asking subject's rows** to the pod's local disk, a data-at-rest
 surface nothing in this design governs, on the one path whose whole purpose is that a query
 executes as the person who asked. A bound that protects memory by making an ungoverned copy of
@@ -476,7 +476,7 @@ Not wrapped in `TrackConsumersPool` either, though it would improve the engine's
 reaches a caller is `sutura_domain::query::RefusalReason::ResourcesExhausted`,
 which carries the configured ceiling and deliberately nothing about what the question demanded.
 
-**No production gauge reads the `DataFusion` pool.** ADR 0015 specifies that absence because an
+**No production gauge reads the `DataFusion` pool.** The architecture decision specifies that absence because an
 operator-reservation reading is narrower than process memory. The opt-in measurement feature is
 a gauge whose absence it currently specifies for production: it observes a separate recording
 pool in fresh test children and exposes no accessor on the ordinary adapter.
@@ -532,7 +532,7 @@ second key could be all three.
 **The limit, next to the claim:** two budgets sized from one number are still two budgets.
 The operators may reserve up to the ceiling and one result may cost up to the ceiling, so a
 query's worst case is twice it - not once, which is what a reader of one number would assume.
-`docs/adr/0009`'s amendment carries the arithmetic.
+the architecture decision's amendment carries the arithmetic.
 
 #### Implements
 

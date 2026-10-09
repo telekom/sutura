@@ -3,7 +3,8 @@
 //! **The finding this exists for:** the four `cross / link (<triple>)` legs were widely assumed to
 //! gate a merge and are required by nothing. Measured against the API on 2026-09-24, the `main`
 //! branch ruleset requires `ci` and `ci-aggregate`, and classic branch protection is absent - so
-//! a red link leg does not block a merge under the ruleset read that day.
+//! a red link leg blocks a merge only through `ci-aggregate`'s `needs: [cross]`, which
+//! `aggregate_inputs` holds.
 //!
 //! Nothing in the repository could say so, because the required set lived only in GitHub's API.
 //! `devco/required-contexts` is that set written down, with the date, the exact response and the

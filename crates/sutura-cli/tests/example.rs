@@ -539,7 +539,7 @@ mod tests {
                 1 << 30,
                 deadline(),
                 &sutura_app::SpendLedger::no_budget(),
-                sutura_domain::plan::RowCeiling::DEFAULT,
+                sutura_domain::plan::RowCeilings::DEFAULT,
             );
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match answered.map(sutura_app::Answered::into_outcome) {

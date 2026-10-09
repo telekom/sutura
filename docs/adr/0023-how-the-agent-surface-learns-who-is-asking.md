@@ -590,3 +590,7 @@ the limiter, and has no source declaring `impersonation-at-source`, `/mcp` answe
 the deployment, as `/v1` does there. Every other deployment keeps the row.
 [20261007230959](20261007230959-agent-surface-without-an-inbound-identity-on-a-single-user-deployment.md)
 records the decision, its two startup refusals and its limits.
+
+## Seventh amendment, 2026-10-09: `workload_identity.scope` is gone
+
+`WorkloadIdentity` no longer carries a `scope`: `github.com/telekom/sutura#1328` refuses `workload_identity.scope` by name, so the "one audience/scope pair" in the first of the four chain changes is the pair the deleted exchange took, not a declared setting.

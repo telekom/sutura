@@ -64,5 +64,7 @@ sources:
 
 ## Identity
 
+This data system supports `shared-service-user` only: DataFusion runs inside the sutura process, so no per-caller identity reaches the source.
+
 The engine reads the files as the operating-system user of the sutura process. The source must
 use `posture: shared-service-user`.

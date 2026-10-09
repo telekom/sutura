@@ -38,7 +38,7 @@ answers `None`. This module's own `#[cfg(test)]` cell,
 - **TLS verifies against the declared anchors only.** `Channel::Verified` hands the driver
   PEM certificates that REPLACE its bundled public certificate authorities, so a server is
   admitted only under a certificate those anchors issue. The driver still builds its own
-  `rustls::ClientConfig`, so ADR 0010's host store (`transport_anchors: system`) and a client
+  `rustls::ClientConfig`, so the architecture decision's host store (`transport_anchors: system`) and a client
   certificate (`mutual`) have nothing here to reach, and `sutura-config` refuses both on a
   `kind: oracle` source.
 - **A listener's redirect is refused before authentication**, as

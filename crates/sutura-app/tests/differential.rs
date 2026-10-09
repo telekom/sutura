@@ -295,7 +295,7 @@ mod tests {
                 1 << 30,
                 crate::adapters::deadline(),
                 &no_budget,
-                sutura_domain::plan::RowCeiling::DEFAULT,
+                sutura_domain::plan::RowCeilings::DEFAULT,
             );
             let from_other = answer(
                 &validated,
@@ -307,7 +307,7 @@ mod tests {
                 1 << 30,
                 crate::adapters::deadline(),
                 &no_budget,
-                sutura_domain::plan::RowCeiling::DEFAULT,
+                sutura_domain::plan::RowCeilings::DEFAULT,
             );
 
             // A third outcome, and it is the one that used to be missing.

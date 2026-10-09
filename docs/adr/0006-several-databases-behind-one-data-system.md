@@ -53,7 +53,7 @@ connection and an identity, not a file.** Two DuckDB database files opened by on
 set of file-system permissions, in one transaction, are one data system that stores its tables in two
 places. Two data systems are two logins, two policy engines and two answers to *who is asking*, which
 is the reason
-[a plan resolves to exactly one of them](../architecture.md#the-engine-and-the-data-systems-behind-a-port).
+[a plan resolves to exactly one of them](../architecture.md).
 
 Reading the goal the first way makes it cheap and makes it the wrong thing. Reading it the second way
 makes it federation. Three routes were available:
