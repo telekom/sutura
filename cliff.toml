@@ -73,14 +73,6 @@ protect_breaking_commits = true
 split_commits = false
 topo_order = false
 sort_commits = "newest"
-# The changelog is a published page, and `cargo xtask check-docs` refuses a published page that
-# names a path under the decision-record directory, or a record by number (`ADR 0011`), because the
-# records are not part of the site. A subject that cites a record by path or by number is rendered
-# with the word "decision" in its place. The first rule leaves `ADR NNNN` for the second.
-commit_preprocessors = [
-  { pattern = 'docs/adr/(\d+)', replace = "ADR $1" },
-  { pattern = 'ADR[ -]\d{4}', replace = "decision" },
-]
 
 # `filter_commits` is deliberately left off. A conventional type that matches no parser below
 # keeps its own type as the group name, so it renders in a section named after itself instead
@@ -102,6 +94,11 @@ commit_preprocessors = [
 # Every type the commit-msg gate accepts appears here (`TYPES` in `xtask/src/commit_msg.rs`):
 # feat, fix, refactor, chore, test, docs, perf, ci, build, style, revert.
 commit_parsers = [
+  # A subject that cites a decision record, by path or by number, edits that record. It is not a
+  # change a user reads. The changelog is a published page, and `cargo xtask check-docs` refuses a
+  # page that names the record directory or cites a record by number, so git-cliff skips the commit.
+  # The match is the subject line only: a body may name a record.
+  { message = '\A[^\n]*(?:docs/adr/|ADR[ -]\d{4})', skip = true },
   { message = "^.*!:", group = "<!-- 00 -->Breaking changes" },
   { body = ".*BREAKING CHANGE", group = "<!-- 00 -->Breaking changes" },
   { message = "^feat", group = "<!-- 01 -->Features" },

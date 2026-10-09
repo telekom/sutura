@@ -65,7 +65,6 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **mcp**: Ship the rendered agent prompt as MCP initialize.instructions (#838)
 - **xtask**: Causality accepts a declared claim-cell arm (#835)
 - **surface**: Resolve a relative time range at the deployment's clock (#830)
-- **identity**: Per-metric visibility, steps 2-4 of decision (#825)
 - **cli,app,domain**: A closed enum over the shipped warehouse kinds (#827)
 - **e2e**: Wave-one E2E over the real docker DataHub tier plus its hosted job (#791)
 - **http**: A budget refusal counts as itself in sutura_questions_total (#818)
@@ -177,7 +176,6 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **xtask**: ADR-number uniqueness gate, and the last unused-deps door (#826)
 - **nix**: Split the postgres tier provisioner out of postgres-tier.nix (#824)
 - **domain**: Refuse a federated join whose link columns disagree in type (#822)
-- **nix**: Make checks.shipped-features per-artefact, amend decision (#821)
 - **xtask**: Key a src/ file's test by the #[path] that claims it (#819)
 - **nix**: Keycloak-tier unknown-lock refusal and a late teardown trap (#815)
 - **mcp**: Seal an MCP error message behind a private-field newtype (#811)
@@ -188,7 +186,6 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **xtask**: Ratchet the retired leg-2 multiplayer wording (#806)
 - **nix**: Stop refuses rather than deleting a live JVM's state (#803)
 - **docs**: Stop README claiming multiplayer ships and is selectable (#800)
-- **docs**: Decision's digest arity claim in a third phrasing (#798)
 - **docs,flake**: Retire present-tense two-binary prose after the fold (#797)
 - **docs**: Serving's answer above the fold, three stale corrections gone (#793)
 - **xtask,docs**: A partial move, a deleted ratchet, a stale citation (#788)
@@ -218,7 +215,6 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **demo,xtask,dev**: Pair a pin, scan Dockerfiles, split the cap (#722)
 - **answer-path**: A deterministic federated failure is typed and non-retryable (#717)
 - **docs**: Eight controls described wrongly, plus the operator page (#713)
-- **docs**: Decision's shipped-artifact claims, and a stray merge log (#714)
 - **xtask**: Check-worktree-state's file tally can drop below the census (#689) (#707)
 - **dev**: Serialise the tier writer, gate a backtick, watch the tree (#711)
 - **xtask**: Guard run_sql through check-boundaries (#703)
@@ -238,10 +234,8 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **xtask**: Refuse a version written where no mechanism compares it (#641)
 - **app**: Classify source refusal during preflight (#637)
 - **gates**: Two gates whose claim was wider than their mechanism (#629)
-- **xtask**: Hold decision's two never-write sentences by a gate (#632)
 - **docs**: Three statements the tree has since falsified (#622)
 - **ci**: Three comments still name the 32-core runner #614 moved (#616)
-- **xtask**: Narrow the decision row to the one sentence it can refuse (#612)
 - **release**: A gate holds the image-record grammar, not a coincidence (#609)
 - **xtask**: Gates over a rustdoc blind spot, a false prescription and a superseded cause (#606)
 - **dev**: The worktree is the tier identity, and with-tier reads the endpoint file (#607)
@@ -329,7 +323,6 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **exec**: Provoke six adapter refusals through the port (#1091)
 - **cli**: Prove bounded instruction file read (#1073)
 - **app**: Tighten the knowledge and federated-leg review leftovers (#1051)
-- **conformance**: The three decision federated cases as .case files (#1048)
 - **conformance**: A two-warehouse execute_packs! arm and federated pack (#1033)
 - **e2e**: Serve a DataHub metric through ADBC BigQuery (#1005)
 - **golden**: Execute the clickhouse corpus against a nix tier (#978)
@@ -668,7 +661,6 @@ this file. Fix a wrong entry by fixing the commit message convention, not the fi
 - **xtask**: Ban #[expect] on count-threshold lints (#107)
 - **catalog**: Let a deployment declare several catalogs
 - **catalog**: Declare a catalog kind and dispatch it in the server
-- **identity**: Grant the two principals jobUser+dataViewer and record the cell state in decision
 - **test-infra**: Run Pulumi through pixi, drop requirements.txt/venv
 - **test-infra**: Google identity E2E scaffold, config-driven Pulumi
 - Answer every file's licence mechanically, per the REUSE specification (#101)
