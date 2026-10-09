@@ -38,11 +38,10 @@ accepted as loopback. `verified` and `mutual` need `host`, not `unix_socket`.
 
 Related settings:
 
-| Setting                           | Default | Meaning                                                                 |
-| --------------------------------- | ------- | ----------------------------------------------------------------------- |
-| `tools.run_sql.enabled`           | `false` | Turns on the raw SQL tool. Refused with `security.identity: multi-user` |
-| `SUTURA_POSTGRES_ADBC_DRIVER`     | not set | An absolute path to the driver, for a build that links no driver        |
-| `SUTURA_DEV_STATEMENT_TIMEOUT_MS` | `15000` | The longest statement time. A request can only make it shorter          |
+| Setting                       | Default | Meaning                                                                 |
+| ----------------------------- | ------- | ----------------------------------------------------------------------- |
+| `tools.run_sql.enabled`       | `false` | Turns on the raw SQL tool. Refused with `security.identity: multi-user` |
+| `SUTURA_POSTGRES_ADBC_DRIVER` | not set | An absolute path to the driver, for a build that links no driver        |
 
 The musl release binaries link the PostgreSQL driver with libpq. Other builds load the driver that
 `SUTURA_POSTGRES_ADBC_DRIVER` names. `sutura doctor` shows which driver the process opens.
