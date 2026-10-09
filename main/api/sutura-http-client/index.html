@@ -2741,10 +2741,11 @@ already lets both depend on <code>sutura-tls</code>.</p>
 <h1 id="what-is-generic-and-what-stays-in-each-reader">What is generic, and what stays in each reader<a class="headerlink" href="#what-is-generic-and-what-stays-in-each-reader" title="Permanent link">&para;</a></h1>
 <p>Everything here is protocol-agnostic ureq/TLS plumbing: it never names an entity kind, a wire
 field, or a mapping. <code>Endpoint::parse</code>'s grammar, <code>ReadBounds</code>'s two settings, the shared
-<code>Budget</code> a reader's own <code>read()</code> opens once, <code>rotating_agent</code>/<code>fixed</code>'s TLS wiring and the
-anchor fold in <code>tls</code> are the same read for <code>DataHub</code>'s <code>OpenAPI</code> v3 surface and <code>OpenMetadata</code>'s
-REST API alike. What stays in each reader crate: the entity-shaped <code>HttpReaderError</code> variants
-(their <code>Display</code> text names the platform), the paged <code>fetch</code>/<code>entities</code> helpers built over
+<code>Budget</code> a reader's own <code>read()</code> opens once, the cursor accounting in <code>Pager</code>,
+<code>rotating_agent</code>/<code>fixed</code>'s TLS wiring and the anchor fold in <code>tls</code> are the same read for
+<code>DataHub</code>'s <code>OpenAPI</code> v3 surface and <code>OpenMetadata</code>'s REST API alike. What stays in each reader
+crate: the entity-shaped <code>HttpReaderError</code> variants (their <code>Display</code> text names the platform),
+the paged <code>fetch</code>/<code>entities</code> helpers built over
 <code>Budget</code>, and every <code>harvest_*</code> mapping function - <code>docs/what-openmetadata-can-carry.md</code> and
 <code>sutura-catalog-datahub</code>'s own module header are explicit that those mappings are a first-party
 claim about each platform's wire shape, which this crate must never blur by generalizing over.</p>
@@ -2857,6 +2858,25 @@ rest of the credential would read as path. The limit: a secret written into the 
 <p>Bounded, filtered, and reachable only through <code>Self::as_str</code> - never through <code>Debug</code>, which
 is the rendering a cause-chain walk uses, so a <code>Display</code>-flattened error chain never carries
 endpoint-owned text.</p>
+<h2 id="use-default_max_entities"><code>use DEFAULT_MAX_ENTITIES</code><a class="headerlink" href="#use-default_max_entities" title="Permanent link">&para;</a></h2>
+<p>The bound on the entities one entity kind may return across all its pages.</p>
+<p>A catalog of 100,000 tables is the size a deployment is built for; this is that, so a read above
+it is refused (<code>PagingRefusal::TooManyEntities</code>) rather than held in memory.</p>
+<h2 id="use-default_page_size"><code>use DEFAULT_PAGE_SIZE</code><a class="headerlink" href="#use-default_page_size" title="Permanent link">&para;</a></h2>
+<p>The recommended page size: how many entities one request asks for.</p>
+<h2 id="use-invalidpagelimits"><code>use InvalidPageLimits</code><a class="headerlink" href="#use-invalidpagelimits" title="Permanent link">&para;</a></h2>
+<p>Why a declared limit is not usable.</p>
+<h2 id="use-pagelimits"><code>use PageLimits</code><a class="headerlink" href="#use-pagelimits" title="Permanent link">&para;</a></h2>
+<p>What one entity kind's paged read may ask for and may collect.</p>
+<p>Constants by default, a code-level parameter and never a settings key: a deployment's request
+timeout and byte cap are settings, the size of what a catalog may hold is not.</p>
+<h2 id="use-pagereport"><code>use PageReport</code><a class="headerlink" href="#use-pagereport" title="Permanent link">&para;</a></h2>
+<p>What one page said about the rest of its list.</p>
+<h2 id="use-pager"><code>use Pager</code><a class="headerlink" href="#use-pager" title="Permanent link">&para;</a></h2>
+<p>One entity kind's read in progress: the cursor to ask for, the cursors already followed and how
+many entities have arrived.</p>
+<h2 id="use-pagingrefusal"><code>use PagingRefusal</code><a class="headerlink" href="#use-pagingrefusal" title="Permanent link">&para;</a></h2>
+<p>Why a paged read was refused. Never carries a cursor: it is endpoint-owned text.</p>
 <h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
 <p>A real local HTTP server - "ports get fakes, not mocked HTTP".</p>
 <p><code>pub</code> behind this crate's <code>test</code> feature so a reader's own tests AND a composition root's

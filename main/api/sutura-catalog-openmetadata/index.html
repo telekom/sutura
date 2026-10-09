@@ -3036,27 +3036,28 @@ certify a bundle silently missing a model, a join or a metric.</p>
 not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
 composition root's settings default to, following <code>sutura-config</code>'s own convention of a default
 function per optional key, not a value baked into this type. <code>read</code>
-makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
-once, and what is left after the first is what the second gets - the same shape
-<code>sutura_domain::warehouse::deadline::Deadline</code> and <code>sutura-catalog-datahub</code>'s own reader hold.
-<strong>The aggregate byte cost of one <code>read()</code> is bounded by construction, not by a third check</strong>:
-two requests at <code>cap</code> each is at most <code>2×cap</code> read into memory before either response is
-checked, and <code>fetch</code>'s own <code>ureq</code> backstop (<code>limit(2×cap)</code> per request, ahead of the precise
-<code>len &gt; cap</code> refusal) makes the true per-request ceiling <code>2×cap</code> rather than <code>cap</code> - so a single
-<code>read()</code> never holds more than <code>4×cap</code> at once across both in-flight bodies. Stated here rather
-than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
-raise this number and this sentence would have to move with it.</p>
+follows each entity kind's pages (tables, then metrics) and shares ONE deadline across every
+request - opened once, and what is left after one request is what the next gets - the same
+shape <code>sutura_domain::warehouse::deadline::Deadline</code> and <code>sutura-catalog-datahub</code>'s own reader
+hold. <strong>The response-size cap is per page</strong>: <code>fetch</code>'s own <code>ureq</code> backstop (<code>limit(2×cap)</code>, ahead
+of the precise <code>len &gt; cap</code> refusal) makes the true per-page ceiling <code>2×cap</code>, and one page is read
+at a time, so a <code>read()</code> holds at most <code>2×cap</code> of raw response at once. <strong>Stated limit: nothing
+bounds the bytes across pages.</strong> What a read keeps is bounded by <code>PageLimits</code>' entity bound,
+and the bytes it transfers by the deadline.</p>
 <h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
 <p>A bearer token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request. The
 token is a constructor argument here; a composition root reads it from a settings-declared file
 at boot (<code>token_file</code>), never inline in a settings document.</p>
 <h1 id="paging">Paging<a class="headerlink" href="#paging" title="Permanent link">&para;</a></h1>
-<p>One page per entity kind, at a generous count. A page that SIGNALS more results exist - an
-<code>after</code> cursor, or a returned count below a reported <code>paging.total</code> - is refused
-(<code>HttpReaderError::MorePages</code>) rather than silently read as complete: the same "one page or a
-refusal" shape <code>sutura-catalog-datahub</code>'s reader and <code>sutura-exec-bigquery</code>'s wire hold for
-<code>jobs.query</code>, because a caller must not certify a bundle built from a <code>Snapshot</code> that silently
-dropped a model or a metric.</p>
+<p>Each entity kind is read page by page at <code>PageLimits</code>' page size (<code>limit</code>, 1000 by default),
+following <code>paging.after</code> until a page carries none. The list is whole or the read is refused
+(<code>HttpReaderError::Paging</code>): a cursor the service repeats, a page with no entity that still
+reports more, more than the entity bound (<code>PageLimits::DEFAULT</code>'s 100,000) for one entity kind,
+and a last page that leaves the list short of <code>paging.total</code> are each refused, never read as
+complete. The cursor is the service's own text, so it is percent-encoded into the query.
+<strong>Stated limits: the bound is a constant that <code>HttpSnapshotReader::with_page_limits</code> changes in
+code and no settings key does, and a list that ends early on a service that reports no <code>total</code>
+is not caught.</strong></p>
 <h1 id="tls-and-the-endpoint">TLS and the endpoint<a class="headerlink" href="#tls-and-the-endpoint" title="Permanent link">&para;</a></h1>
 <p><code>Endpoint</code> and its <code>Endpoint::parse</code> now live in <code>sutura-http-client</code>, shared with
 <code>sutura-catalog-datahub</code>'s identical reader since issue #970's review found the two
@@ -3093,7 +3094,7 @@ shape <code>.agents/skills/sutura/secure-by-design/SKILL.md</code> argues for at
   <code>field</code> is a dotted path (e.g. <code>"columns[].name"</code>) so a refusal names exactly where the
   document stopped matching this reader's expectation.
 - <code>NotTheCanonicalShape</code> - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching <code>serde_json::from_value</code> here was already read out of the page by name above.
-- <code>MorePages</code> - The page stated or implied more results exist than the one page this reader will read.</p>
+- <code>Paging</code> - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.</p>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-httpsnapshotreader"><code>struct HttpSnapshotReader</code><a class="headerlink" href="#struct-httpsnapshotreader" title="Permanent link">&para;</a></h3>
@@ -3126,16 +3127,26 @@ one is declared) the <code>sutura_tls::Rotator</code> the composition root drive
 compiled-in roots, presenting no identity, and no poll handle.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
 <p>The declared bundle or client identity cannot be loaded at boot.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_page_limits</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">limits</span><span class="p">:</span><span class="w"> </span><span class="nc">PageLimits</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Replaces the page size and the entity bound, which default to <code>PageLimits::DEFAULT</code>.</p>
 <h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>SnapshotReader</code></p>
 <h3 id="use-budget"><code>use Budget</code><a class="headerlink" href="#use-budget" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_max_entities"><code>use DEFAULT_MAX_ENTITIES</code><a class="headerlink" href="#use-default_max_entities" title="Permanent link">&para;</a></h3>
 <h3 id="use-default_max_response_bytes"><code>use DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#use-default_max_response_bytes" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_page_size"><code>use DEFAULT_PAGE_SIZE</code><a class="headerlink" href="#use-default_page_size" title="Permanent link">&para;</a></h3>
 <h3 id="use-default_timeout_seconds"><code>use DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#use-default_timeout_seconds" title="Permanent link">&para;</a></h3>
 <h3 id="use-endpoint"><code>use Endpoint</code><a class="headerlink" href="#use-endpoint" title="Permanent link">&para;</a></h3>
 <h3 id="use-endpointmessage"><code>use EndpointMessage</code><a class="headerlink" href="#use-endpointmessage" title="Permanent link">&para;</a></h3>
 <h3 id="use-invalidendpoint"><code>use InvalidEndpoint</code><a class="headerlink" href="#use-invalidendpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidpagelimits"><code>use InvalidPageLimits</code><a class="headerlink" href="#use-invalidpagelimits" title="Permanent link">&para;</a></h3>
 <h3 id="use-invalidreadbounds"><code>use InvalidReadBounds</code><a class="headerlink" href="#use-invalidreadbounds" title="Permanent link">&para;</a></h3>
 <h3 id="use-outboundagent"><code>use OutboundAgent</code><a class="headerlink" href="#use-outboundagent" title="Permanent link">&para;</a></h3>
+<h3 id="use-pagelimits"><code>use PageLimits</code><a class="headerlink" href="#use-pagelimits" title="Permanent link">&para;</a></h3>
+<h3 id="use-pagereport"><code>use PageReport</code><a class="headerlink" href="#use-pagereport" title="Permanent link">&para;</a></h3>
+<h3 id="use-pager"><code>use Pager</code><a class="headerlink" href="#use-pager" title="Permanent link">&para;</a></h3>
+<h3 id="use-pagingrefusal"><code>use PagingRefusal</code><a class="headerlink" href="#use-pagingrefusal" title="Permanent link">&para;</a></h3>
 <h3 id="use-readbounds"><code>use ReadBounds</code><a class="headerlink" href="#use-readbounds" title="Permanent link">&para;</a></h3>
 <h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
 <p>The happy-path <code>OpenMetadata</code> wire pages this crate's own tests need.</p>
@@ -3150,19 +3161,19 @@ own header gives: an integration test binary cannot see another crate's <code>te
 the only way to share a fake across crates is through a library, <code>pub</code>, reachable at compile
 time from whichever feature both a reader and its composition root's tests turn on.</p>
 <h3 id="fn-tables_page"><code>fn tables_page</code><a class="headerlink" href="#fn-tables_page" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
 </span></code></pre></div>
 <p>One <code>tables</code> page, over the two models the crate's recorded fixture carries (<code>orders</code> and
 <code>customers</code>), each with its columns, data types, and descriptions. Served in the shape a REAL
 <code>OpenMetadata</code> list endpoint answers: a <code>data</code> array with a <code>paging</code> block whose <code>total</code> matches
 what was returned (so the reader does not refuse it as truncated).</p>
 <h3 id="fn-metrics_page"><code>fn metrics_page</code><a class="headerlink" href="#fn-metrics_page" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
 </span></code></pre></div>
 <p>One <code>metrics</code> page carrying the recorded fixture's OWN reported-not-defined metric, so the two
 transports cannot drift - it is read through the crate's public fixture rather than restated.</p>
 <h3 id="fn-happy_path_answers"><code>fn happy_path_answers</code><a class="headerlink" href="#fn-happy_path_answers" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">happy_path_answers</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">happy_path_answers</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The two pages a <code>read()</code> call makes, in order, all answering <code>200</code> - what a real <code>OpenMetadata</code>
 carrying exactly the recorded fixture's content would serve.</p>
