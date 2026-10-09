@@ -1,13 +1,14 @@
-//! The credential broker a served deployment that links the `BigQuery` adapter is answered
+//! The credential broker a served deployment with an impersonating source is answered
 //! through - built here, out of `serve.rs`, so the composition root keeps the dispatch and the one
 //! thing that is genuinely its own logic reads next to the refusals that guard it.
 //!
-//! The whole file is `#[cfg(feature = "bigquery")]` by construction in `serve.rs`'s `mod broker;`,
-//! so nothing here is compiled into a build that links no `BigQuery` adapter.
+//! The whole file is behind the two impersonating adapters' features in `serve.rs`'s `mod broker;`,
+//! and the `workload_identity` half behind `bigquery` alone: only that adapter's `wire` client can
+//! compose a delegation exchange.
 //!
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
-//! implementor a composition root can reach. `sutura_exec_bigquery::DeclaredPrincipalBroker` is what
+//! implementor a composition root can reach. `sutura_config::DeclaredPrincipalBroker` is what
 //! the ADBC transport can be served through: it presents the asking subject's OWN verified
 //! assertion, and the declared pool is what resolves that subject to a principal. What the declared
 //! map decides is only WHETHER this caller may be served here. Its own module header states what
@@ -25,8 +26,8 @@
 //! one of another, and a broker is per answer. A non-`BigQuery` adapter that cannot deliver the
 //! impersonating posture is already refused at its own posture cross-check, before any question.
 
+use sutura_config::DeclaredPrincipalBroker;
 use sutura_domain::source::SourcePosture;
-use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 
 /// Reads the declared sources into the broker a served question is answered through.
 ///
@@ -50,6 +51,10 @@ use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 ///   adapter cannot send - see [`delegation`].
 pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
+    #[cfg_attr(
+        not(feature = "bigquery"),
+        expect(unused_variables, reason = "only a `bigquery` source composes a delegation over it")
+    )]
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
     let mut broker = DeclaredPrincipalBroker::empty();
@@ -60,49 +65,61 @@ pub(crate) fn build_broker(
         #[cfg(feature = "clickhouse")]
         if let Some(declared) = crate::clickhouse::declared_principals(alias, source)? {
             broker = broker.switching(alias.clone(), declared);
-            continue;
         }
-        let Some(workload) = source.workload_identity() else {
-            continue;
-        };
-        // **A declaration nothing in this process checks is refused at boot, not ignored at boot.**
-        // The exchange DOES happen now - Google's token service performs it against the declared
-        // pool - but it happens THERE, so the pool's own provider configuration is what decides
-        // which issuer and which audience are acceptable. These two keys would have this deployment
-        // re-state that decision and then not enforce it, which is the exact shape
-        // `sutura_config`'s own `VerificationIdentityOnASharedSource` refuses.
-        if workload.expected_issuer().is_some() || workload.expected_audience().is_some() {
-            return Err(format!(
-                "`sources.{alias}.workload_identity` declares the pool expectations \
-                 `expected_issuer`/`expected_audience`, and nothing in this process checks them - \
-                 the asker's own assertion is federated to the identity pool, which applies its \
-                 provider's own issuer and audience conditions. Declare them on the pool's provider \
-                 and remove both keys here"
-            ));
+        #[cfg(feature = "bigquery")]
+        {
+            broker = impersonating(broker, alias, source, outbound)?;
         }
-        // The declared subject -> service-account map, re-expressed once here into the adapter's own
-        // parsed shape: an adapter may not depend on the settings tree, so every value on this path
-        // is parsed again by the crate that sends it. Both halves are read now - the KEYS decide
-        // which callers a source may be asked as, the VALUES the account each of them executes as -
-        // so `DeclaredPrincipals::parse` refusing here is what keeps a security-critical
-        // declaration from being accepted and then ignored.
-        let mut declared = std::collections::BTreeMap::new();
-        for (subject, target) in workload.impersonate() {
-            let name = sutura_domain::identity::PrincipalName::parse(target.as_str()).map_err(|cause| {
-                format!("`sources.{alias}.workload_identity.impersonate` names a target this adapter cannot execute as: {cause}")
-            })?;
-            drop(declared.insert(subject.clone(), name));
-        }
-        let declared = DeclaredPrincipals::parse(declared)
-            .map_err(|cause| format!("`sources.{alias}.workload_identity.impersonate` is unusable: {cause}"))?;
-        broker = match workload.delegation() {
-            None => broker.impersonating(alias.clone(), declared),
-            Some(declaration) => {
-                broker.impersonating_delegated(alias.clone(), declared, delegation(alias, declaration, outbound)?)
-            }
-        };
     }
     Ok(broker)
+}
+
+/// One `bigquery` source's `workload_identity` declaration, added to `broker`; a source without one
+/// is returned unchanged.
+#[cfg(feature = "bigquery")]
+fn impersonating(
+    broker: DeclaredPrincipalBroker,
+    alias: &sutura_domain::model::SourceName,
+    source: &sutura_config::ConfiguredSource,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<DeclaredPrincipalBroker, String> {
+    let Some(workload) = source.workload_identity() else {
+        return Ok(broker);
+    };
+    // **A declaration nothing in this process checks is refused at boot, not ignored at boot.**
+    // The exchange DOES happen now - Google's token service performs it against the declared
+    // pool - but it happens THERE, so the pool's own provider configuration is what decides
+    // which issuer and which audience are acceptable. These two keys would have this deployment
+    // re-state that decision and then not enforce it, which is the exact shape
+    // `sutura_config`'s own `VerificationIdentityOnASharedSource` refuses.
+    if workload.expected_issuer().is_some() || workload.expected_audience().is_some() {
+        return Err(format!(
+            "`sources.{alias}.workload_identity` declares the pool expectations \
+             `expected_issuer`/`expected_audience`, and nothing in this process checks them - \
+             the asker's own assertion is federated to the identity pool, which applies its \
+             provider's own issuer and audience conditions. Declare them on the pool's provider \
+             and remove both keys here"
+        ));
+    }
+    // The declared subject -> service-account map, re-expressed once here into the adapter's own
+    // parsed shape: an adapter may not depend on the settings tree, so every value on this path
+    // is parsed again by the crate that sends it. Both halves are read now - the KEYS decide
+    // which callers a source may be asked as, the VALUES the account each of them executes as -
+    // so `DeclaredPrincipals::parse` refusing here is what keeps a security-critical
+    // declaration from being accepted and then ignored.
+    let mut declared = std::collections::BTreeMap::new();
+    for (subject, target) in workload.impersonate() {
+        let name = sutura_domain::identity::PrincipalName::parse(target.as_str()).map_err(|cause| {
+            format!("`sources.{alias}.workload_identity.impersonate` names a target this adapter cannot execute as: {cause}")
+        })?;
+        drop(declared.insert(subject.clone(), name));
+    }
+    let declared = sutura_config::DeclaredPrincipals::parse(declared)
+        .map_err(|cause| format!("`sources.{alias}.workload_identity.impersonate` is unusable: {cause}"))?;
+    Ok(match workload.delegation() {
+        None => broker.impersonating(alias.clone(), declared),
+        Some(declaration) => broker.impersonating_delegated(alias.clone(), declared, delegation(alias, declaration, outbound)?),
+    })
 }
 
 /// What one source's declared delegation exchange is composed into: the real RFC 8693 client at
@@ -114,13 +131,14 @@ pub(crate) fn build_broker(
 ///
 /// One client per source rather than one per deployment: nothing here is shared that would need
 /// to be, and a second declared source pays one more TLS agent.
+#[cfg(feature = "bigquery")]
 fn delegation(
     alias: &sutura_domain::model::SourceName,
     declared: &sutura_config::sources::workload_identity::DelegationDeclared,
     outbound: Option<&sutura_tls::Declared>,
-) -> Result<sutura_exec_bigquery::delegation::Delegation, String> {
-    use sutura_exec_bigquery::delegation::http::{ExchangeClient, OverHttp, ReadBounds, TokenEndpoint, rotating_agent};
-    use sutura_exec_bigquery::delegation::{Delegation, RequestedAudience};
+) -> Result<sutura_domain::identity::Delegation, String> {
+    use sutura_domain::identity::{Delegation, RequestedAudience};
+    use sutura_exec_bigquery::delegation::{ExchangeClient, OverHttp, ReadBounds, TokenEndpoint, rotating_agent};
 
     let key = format!("sources.{alias}.workload_identity.delegation");
     let endpoint = TokenEndpoint::parse(declared.token_endpoint())
@@ -141,9 +159,11 @@ fn delegation(
     ))
 }
 
+#[cfg(feature = "bigquery")]
 /// How long one exchange may take. Fixed rather than declared: it runs inside a question's own
 /// request timeout, so a key for it would be a second bound on the same wait.
 const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
 
+#[cfg(feature = "bigquery")]
 /// A token response is a few kilobytes; this bounds a misbehaving endpoint, not a real answer.
 const EXCHANGE_MAX_ANSWER_BYTES: u64 = 64 * 1024;

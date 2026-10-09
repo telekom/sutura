@@ -390,6 +390,52 @@ fn the_boot_probe_accepts_only_the_declared_user_switched_from_the_service_user(
     }
 }
 
+/// Answers the boot probe as a server whose service user holds `IMPERSONATE` on one user alone:
+/// switched to that user, refused for any other.
+struct Granting(&'static str);
+
+impl ClickHouseTransport for Granting {
+    type Error = Refused;
+
+    fn run(&self, statement: &str, _params: &[ParamValue], _deadline: Deadline) -> Result<Vec<u8>, Self::Error> {
+        if !statement.starts_with(&format!("EXECUTE AS \"{}\" ", self.0)) {
+            return Err(Refused);
+        }
+        Ok(format!(
+            "[\"currentUser()\",\"authenticatedUser()\"]\n[\"String\",\"String\"]\n[\"{}\",\"sutura\"]\n",
+            self.0
+        )
+        .into_bytes())
+    }
+}
+
+/// **Every declared user is probed, not only the first**: of two declared users, the one the
+/// service user may not become stops the boot, named.
+#[test]
+fn the_boot_probe_runs_for_each_declared_user() {
+    let warehouse = ClickHouseWarehouse::of(
+        sutura_conformance::corpus::source(),
+        SourcePosture::ImpersonationAtSource,
+        Granting("analyst_one"),
+        budget(),
+    );
+    let declared = ["analyst_one", "analyst_two"]
+        .into_iter()
+        .enumerate()
+        .map(|(at, user)| {
+            (
+                sutura_domain::identity::SubjectKey::parse(format!("analyst-{at}@example.com")).expect("a test key"),
+                crate::execute_as::ClickHouseUser::parse(user).expect("a test user parses"),
+            )
+        })
+        .collect();
+    let outcome = warehouse.refuse_unless_each_executes_as(&declared);
+    assert!(
+        matches!(outcome, Err(ClickHouseError::ExecuteAsRefused { ref user, .. }) if user.as_str() == "analyst_two"),
+        "{outcome:?}"
+    );
+}
+
 /// `Warehouse::EXECUTES_LEGS` stays at its domain default, so a leg needs a combiner this adapter
 /// does not have.
 #[test]

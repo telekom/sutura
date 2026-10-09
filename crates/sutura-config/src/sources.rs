@@ -432,7 +432,7 @@ pub enum InvalidSourceRegistry {
     /// the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
     /// `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
     /// each caller's questions execute as, and `scope` alone is read by nothing - see
-    /// `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
+    /// [`crate::DeclaredPrincipals::target`] for the values.
     #[error(
         "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, the `scope` (declared for a future transport, and sent by none in this build - the driver applies its own), and the `impersonate` map naming which subjects may be served here"
     )]

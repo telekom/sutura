@@ -64,7 +64,7 @@ pub(crate) type ClickHouseSource = ClickHouseWarehouse<Http>;
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
 /// password file that cannot be read or is empty; declared TLS material that is not usable; and,
 /// for an `impersonation-at-source` source, a declared user this adapter cannot name or one the
-/// server will not run a statement as (`refuse_unless_executes_as`, once per declared user).
+/// server will not run a statement as (`refuse_unless_each_executes_as`).
 pub(crate) fn build(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
@@ -105,11 +105,9 @@ pub(crate) fn build(
         transport,
         working_set.result_budget(),
     );
-    for declared in users.values() {
-        warehouse
-            .refuse_unless_executes_as(declared)
-            .map_err(|cause| format!("`sources.{source}.impersonate`: {}", render(&cause)))?;
-    }
+    warehouse
+        .refuse_unless_each_executes_as(&users)
+        .map_err(|cause| format!("`sources.{source}.impersonate`: {}", render(&cause)))?;
     Ok(warehouse)
 }
 
@@ -135,7 +133,7 @@ fn declared_users(source: &SourceName, impersonate: &sutura_config::sources::pla
 pub(crate) fn declared_principals(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
-) -> Result<Option<sutura_exec_bigquery::DeclaredPrincipals>, String> {
+) -> Result<Option<sutura_config::DeclaredPrincipals>, String> {
     let sutura_config::SourcePlacement::ClickHouse { ref impersonate, .. } = *configured.placement() else {
         return Ok(None);
     };
@@ -148,7 +146,7 @@ pub(crate) fn declared_principals(
             .map_err(|cause| format!("`sources.{source}.impersonate` names `{user}`, which is not a principal: {cause}"))?;
         drop(principals.insert(subject, name));
     }
-    sutura_exec_bigquery::DeclaredPrincipals::switched(principals)
+    sutura_config::DeclaredPrincipals::switched(principals)
         .map(Some)
         .map_err(|cause| format!("`sources.{source}.impersonate` is unusable: {cause}"))
 }

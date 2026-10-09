@@ -84,6 +84,4 @@ Requirements:
   caller's question fail; it does not run as `user`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
-The limit: this is built and not proven as a citable identity claim.
-`docs/where-identity-is-proven.md` records no venue for ClickHouse. The
-caller does not sign in to ClickHouse; the server decides which users the user in `user` may become.
+The caller does not sign in to ClickHouse; the server decides which users the user in `user` may become.

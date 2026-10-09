@@ -318,6 +318,20 @@ where
         Ok(())
     }
 
+    /// [`Self::refuse_unless_executes_as`] for every user the source declares, so no subject the
+    /// broker serves is run as a user the boot probe skipped. The declared map itself rather than
+    /// an iterator, so a caller cannot hand over a subset of it.
+    ///
+    /// # Errors
+    ///
+    /// The first refusal, naming its user, as [`Self::refuse_unless_executes_as`] gives it.
+    pub fn refuse_unless_each_executes_as(
+        &self,
+        declared: &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>,
+    ) -> ChResult<(), T::Error> {
+        declared.values().try_for_each(|user| self.refuse_unless_executes_as(user))
+    }
+
     fn render(executable: Executable<'_>) -> ChResult<GeneratedQuery, T::Error> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),

@@ -396,7 +396,7 @@ fn delegated_broker(
     endpoint: &str,
     secret_file: &std::path::Path,
     outbound: Option<&sutura_tls::Declared>,
-) -> Result<sutura_exec_bigquery::DeclaredPrincipalBroker, String> {
+) -> Result<sutura_config::DeclaredPrincipalBroker, String> {
     super::super::broker::build_broker(
         &direct_registry(&bigquery_entry(
             "warehouse",
@@ -557,7 +557,7 @@ fn a_refused_exchange_fails_the_mint_and_never_presents_the_inbound_token() {
         )
         .expect_err("a refused exchange must not mint");
     assert!(
-        matches!(error, sutura_exec_bigquery::DeclaredPrincipalsUnusable::Delegation { .. }),
+        matches!(error, sutura_config::DeclaredPrincipalsUnusable::Delegation { .. }),
         "{error:?}"
     );
     let chain = format!("{error} / {error:?}");
@@ -666,7 +666,7 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
     );
     let refused = mint(None).expect_err("the compiled-in roots do not name a self-signed identity provider");
     assert!(
-        matches!(refused, sutura_exec_bigquery::DeclaredPrincipalsUnusable::Delegation { .. }),
+        matches!(refused, sutura_config::DeclaredPrincipalsUnusable::Delegation { .. }),
         "{refused:?}"
     );
 }

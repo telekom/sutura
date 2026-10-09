@@ -218,7 +218,7 @@ pub(crate) fn run() -> Result<(), String> {
     // writes a record per outcome and keeps nothing.
     // The credential broker is the fourth port and the one that decides what a question executes
     // as, and which one this root attaches is decided per ARM below: an impersonating source can
-    // only be served by `sutura_exec_bigquery::DeclaredPrincipalBroker`, which presents the asking
+    // only be served by `sutura_config::DeclaredPrincipalBroker`, which presents the asking
     // subject's own verified assertion for the driver to federate, and only a `bigquery` build links
     // one. **The EXCHANGING broker this line used to name is deleted** (`docs/adr/0018`, eighth
     // amendment): its HTTP hops went with the `wire` transport. Every other shape goes through `shared_identity_service`, whose doc carries the

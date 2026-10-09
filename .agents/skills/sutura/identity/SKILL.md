@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides WHETHER a caller may be served there AND which account their questions execute as: the subject's own assertion is federated to the declared pool, and the pool's principal then impersonates the account declared beside that subject (`telekom/sutura#929` F3). The port, the broker and the serve composition are built; the hosted venue that would show either hop is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides WHETHER a caller may be served there AND which account their questions execute as: the subject's own assertion is federated to the declared pool, and the pool's principal then impersonates the account declared beside that subject (`telekom/sutura#929` F3). The port, the broker and the serve composition are built; the hosted venue that would show either hop is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), with no venue row either. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -143,12 +143,15 @@ mode; and scopes decide **operations**, not rows.
 
 ## Brokers
 
-`StaticCredentialBroker` mints what an operator declared and is **the one every non-`bigquery` build
-uses** (and the `sutura` command's). It holds an entry only for a source declared shared, so an
+`StaticCredentialBroker` mints what an operator declared and is **the one every build linking
+neither `bigquery` nor `clickhouse` uses** (and the `sutura` command's). It holds an entry only for a source declared shared, so an
 impersonating source gets nothing and the question is refused rather than answered as the process.
 
-`DeclaredPrincipalBroker` (`crates/sutura-exec-bigquery/src/principal.rs`) is what a served
-`bigquery` deployment attaches, and it is the reason `RequestContext` carries an assertion at all.
+`DeclaredPrincipalBroker` (`crates/sutura-config/src/credentials/declared.rs`, beside
+`StaticCredentialBroker` and in no adapter crate) is what a served `bigquery` or `clickhouse`
+deployment attaches, and it is the reason `RequestContext` carries an assertion at all. A
+`clickhouse` source is added with `switching`: its leg carries the declared user alone, as
+`Presented::SubjectPrincipal`, and no subject material leaves the process.
 Two maps by source, so one plan reading a shared source and an impersonating one is served by one
 broker. **It decides WHETHER, never WHO**: a declared per-source map keyed on the full verified
 [`SubjectKey`] says which callers this source may be asked as, and a caller absent from it is refused
@@ -169,7 +172,7 @@ paragraph), only for a source that declares it. `security.credential_cache` is d
 settings surface reads as a cache that is merely off.
 
 **The delegation exchange (#1208) is a port inside that broker, not a second broker.**
-`delegation::DelegationExchange` is called by `DeclaredPrincipalBroker` for a source declared with
+`sutura_domain::identity::DelegationExchange` is called by `DeclaredPrincipalBroker` for a source declared with
 `impersonating_delegated`: the exchanged token replaces the inbound one in
 `Presented::SubjectToken`, every refusal is decided before any exchange, and nothing stores the
 result - each request exchanges again, so two subjects have no store to collide in. A cache added

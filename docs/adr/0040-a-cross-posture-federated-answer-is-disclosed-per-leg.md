@@ -143,13 +143,15 @@ no posture and needed no change.
 
 ## Amendment, 2026-10-08: ClickHouse runs each statement as a declared user
 
-ClickHouse now declares `PerSubjectCredential`, so the last bullet of *What this does not buy* has
-happened: a ClickHouse source mixed with a shared source is answered by this record, with no code
-change in the orchestrator.
+ClickHouse now declares `PerSubjectCredential`, so the posture cross-check no longer refuses an
+`impersonation-at-source` ClickHouse source. The last bullet of *What this does not buy* has NOT
+happened for it: ClickHouse runs no federated legs (`Warehouse::EXECUTES_LEGS` stays at its `false`
+default), so `federated::answer_federated` refuses a federated question with a ClickHouse leg as
+`federation_not_executable` before the mint, whatever either source's posture.
 
 An `impersonation-at-source` ClickHouse source declares `impersonate`, a map from each verified
 subject to a ClickHouse user - the same shape and the same refusal as BigQuery's map, through the
-same `DeclaredPrincipalBroker`, which presents the declared user as `Presented::SubjectPrincipal`.
+same `sutura_config::DeclaredPrincipalBroker`, which presents the declared user as `Presented::SubjectPrincipal`.
 The adapter sends each statement as `EXECUTE AS "<user>" <statement>`, the per-statement form only.
 An undeclared or anonymous caller is refused by the broker, and the deployment's own identity at
 that source is refused by `agrees_with`.

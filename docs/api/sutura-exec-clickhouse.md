@@ -171,6 +171,18 @@ Opens an adapter over an already-constructed transport - `T = transport::Http` f
 connection, and a fake for the conformance pack.
 
 ```rust
+pub fn refuse_unless_each_executes_as(&self, declared: &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>) -> core::result::Result<(), ClickHouseError<<T as >::Error>>
+```
+
+`Self::refuse_unless_executes_as` for every user the source declares, so no subject the
+broker serves is run as a user the boot probe skipped. The declared map itself rather than
+an iterator, so a caller cannot hand over a subset of it.
+
+# Errors
+
+The first refusal, naming its user, as `Self::refuse_unless_executes_as` gives it.
+
+```rust
 pub fn refuse_unless_executes_as(&self, user: &ClickHouseUser) -> core::result::Result<(), ClickHouseError<<T as >::Error>>
 ```
 

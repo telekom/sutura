@@ -525,7 +525,7 @@ which document each inbound mode retains to fill the leg's credential.
 
 **Where the port sits, and why "beside `StsExchange`" no longer applies.** `StsExchange` was deleted
 by `docs/adr/0018`'s eighth amendment and the STS hop now runs inside the ADBC driver, from the
-credential document. So `sutura_exec_bigquery::delegation::DelegationExchange` is called by
+credential document. So `sutura_domain::identity::DelegationExchange` is called by
 `DeclaredPrincipalBroker` for a source declared through `impersonating_delegated`, and what that
 source presents - and the document serves - is the exchanged token. It also retires
 `docs/adr/0023`'s *nothing in this tree exchanges a token at all now* for the tree; it stays true of

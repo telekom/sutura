@@ -517,3 +517,6 @@ fn a_switching_source_presents_the_declared_principal_and_refuses_an_undeclared_
         Err(NoDeclaredPrincipals::Empty)
     );
 }
+
+/// The same broker's `direct`-mode hook, against a fake identity provider.
+mod delegation;

@@ -40,7 +40,7 @@
 //! POSTs `URL` verbatim with no scheme, host or shape check of any kind, and
 //! `externalaccount.Options::validate` checks only that it is non-empty - so the only thing
 //! standing between a declared value and an arbitrary request target is this workspace's own
-//! narrowing (`crate::principal::names_a_service_account`, applied at parse AND at send). And the
+//! narrowing (`sutura_config::DeclaredPrincipals::parse` at boot, `super::identity` at send). And the
 //! STS leg is exchanged for `cloud-platform` while the CALLER's scopes go to the impersonation
 //! call (externalaccount.go:256-263), which is why this document still carries no `scopes` member
 //! and why `sources.<alias>.workload_identity.scope` still reaches nothing here.
@@ -142,8 +142,8 @@ const SUBJECT_TOKEN_TYPE: &str = "urn:ietf:params:oauth:token-type:jwt";
 /// deleted HTTP wire built the same way off a bare `&str`; a newtype whose `parse` cannot fail,
 /// with one consumer and one caller, is the builder-with-one-implementor this workspace deletes.
 /// What makes the interpolation safe is the NARROWING on the value, which
-/// `crate::principal::names_a_service_account` performs at both ends - see this function's own
-/// refusal in `super::identity`.
+/// `sutura_config::DeclaredPrincipals::parse` performs at boot and `super::identity` again before
+/// the interpolation.
 const IMPERSONATION_URL_PREFIX: &str = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/";
 
 /// Everything after it: the method the pool's principal calls on that account.

@@ -163,7 +163,7 @@ fn a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys() {
 #[ignore = "needs the keycloak tier; run via `just keycloak-served-test`, which brings it up first"]
 fn a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience() {
     use sutura_domain::identity::Secret;
-    use sutura_exec_bigquery::delegation::{DelegationExchange as _, DelegationFailed, RequestedAudience};
+    use sutura_domain::identity::{DelegationExchange as _, DelegationFailed, RequestedAudience};
 
     let fixture = keycloak_settings("keycloak-delegation");
     let pool = RequestedAudience::parse(&fixture.id_token_audience).expect("the tier's pool audience parses");
