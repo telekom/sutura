@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, OracleChannel, OracleServiceName, SourcePlacement};
+use crate::sources::placement::{HostName, OracleChannel, OracleServiceName, SourcePlacement, TlsServerName};
 use crate::sources::transport::{SourceTransport, TrustAnchors};
 use sutura_domain::model::SourceName;
 
@@ -91,7 +91,13 @@ pub(super) fn parse_placement(
         SourceTransport::Plaintext => OracleChannel::Plaintext,
         SourceTransport::Verified {
             anchors: TrustAnchors::File(anchors),
-        } => OracleChannel::Verified { anchors },
+        } => OracleChannel::Verified {
+            anchors,
+            server_name: TlsServerName::parse(&host).map_err(|cause| InvalidSourceRegistry::TlsServerName {
+                alias: alias.clone(),
+                cause,
+            })?,
+        },
         SourceTransport::Verified {
             anchors: TrustAnchors::System,
         } => return Err(refused("verified with `transport_anchors: system`")),
@@ -215,9 +221,28 @@ mod tests {
         assert_eq!(
             *channel,
             placement::OracleChannel::Verified {
-                anchors: std::path::PathBuf::from("/etc/sutura/ca.pem")
+                anchors: std::path::PathBuf::from("/etc/sutura/ca.pem"),
+                server_name: placement::TlsServerName::parse(
+                    &placement::HostName::parse("db.example.com").expect("a host name parses")
+                )
+                .expect("a DNS name is a TLS server name"),
             }
         );
+    }
+
+    /// A `verified` host that TLS cannot name is refused at parse, naming the key, so the driver is
+    /// never handed it.
+    #[test]
+    fn a_verified_oracle_host_that_tls_cannot_name_is_refused_naming_the_key() {
+        let unnamed = RawSourceEntry {
+            host: Some("db..example.com"),
+            transport_mode: Some("verified"),
+            transport_anchors: Some("/etc/sutura/ca.pem"),
+            ..oracle("warehouse")
+        };
+        let error = SourceRegistry::parse(&[unnamed], Some(&single_user())).expect_err("the host is refused");
+        assert!(matches!(error, InvalidSourceRegistry::TlsServerName { .. }), "{error}");
+        assert!(error.to_string().contains("sources.warehouse.host"), "{error}");
     }
 
     /// **The refusal this kind adds.** The two TLS declarations its driver cannot honour are refused

@@ -273,7 +273,7 @@ fn announce_surface(settings: &Settings) {
             // Declared, as one of the two modes its driver can honour - see `OracleChannel`.
             SourcePlacement::Oracle { channel, .. } => match channel {
                 OracleChannel::Plaintext => (SourceTransport::Plaintext.describe(), None),
-                OracleChannel::Verified { anchors } => ("verified", Some(anchors.display().to_string())),
+                OracleChannel::Verified { anchors, .. } => ("verified", Some(anchors.display().to_string())),
             },
         };
         tracing::info!(

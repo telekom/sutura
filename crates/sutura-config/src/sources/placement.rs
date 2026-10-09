@@ -333,8 +333,42 @@ pub enum OracleChannel {
     /// No transport security. The parse allows it only for a loopback host.
     Plaintext,
     /// TLS, verified against the certificates in the PEM bundle at this absolute path and no
-    /// others: they replace the driver's bundled public certificate authorities.
-    Verified { anchors: PathBuf },
+    /// others: they replace the driver's bundled public certificate authorities. The host is
+    /// dialled as `server_name`, the name the handshake verifies.
+    Verified { anchors: PathBuf, server_name: TlsServerName },
+}
+
+/// The host of a `verified` Oracle source, parsed as the name TLS verifies.
+///
+/// A DNS name or an IP address, by the rule of `rustls-pki-types`' `ServerName`, which the driver
+/// applies to the same text when it opens TLS. A host that fails it is refused at parse, never at
+/// connect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsServerName(String);
+
+/// Why a declared host is not a name TLS can verify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidTlsServerName {
+    /// Neither a DNS name nor an IP address, by the rule `TlsServerName` names.
+    #[error("it is not a DNS name or an IP address that TLS can verify")]
+    NeitherDnsNameNorIp,
+}
+
+impl TlsServerName {
+    /// Parses a declared host as a TLS server name.
+    pub fn parse(host: &HostName) -> Result<Self, InvalidTlsServerName> {
+        if rustls_pki_types::ServerName::try_from(host.as_str()).is_err() {
+            return Err(InvalidTlsServerName::NeitherDnsNameNorIp);
+        }
+        Ok(Self(String::from(host.as_str())))
+    }
+
+    /// The name, for dialling and for the handshake.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Why a declared Oracle service name is not one the driver would read as written.

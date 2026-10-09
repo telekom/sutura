@@ -399,6 +399,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidOracleServiceName,
     },
+    /// A `verified` source's `host` is not a name TLS can verify.
+    #[error("`sources.{alias}.host` is not a host name `transport_mode: verified` can verify")]
+    TlsServerName {
+        alias: SourceName,
+        #[source]
+        cause: crate::sources::placement::InvalidTlsServerName,
+    },
     /// A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
     #[error("`sources.{alias}.host` is not a usable host")]
     Host {

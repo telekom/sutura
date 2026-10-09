@@ -2145,8 +2145,9 @@ jobs:
   # The Oracle docker tier (#127) - the only CI venue that executes a statement against a live
   # Oracle. The `gvenzl/oracle-free` image carries the Oracle Free licence, which permits use for
   # developing and testing an application and is NOT OSI-approved: this job runs Oracle under it on
-  # a fixture corpus, and it reaches no release artifact - `nix/shipped.nix` carries no `oracle`
-  # feature. The image is pinned by digest in `compose.services.yaml`, which says why.
+  # a fixture corpus, and the image reaches no release artifact - a release links the `oracle`
+  # feature's driver, never this image. The image is pinned by digest in `compose.services.yaml`,
+  # which says why.
   #
   # Category-gated on `data_source_oracle` or `catalog_rdbms` (whose Oracle dictionary reader's live
   # cells run here, #972), like `bigquery-driver-check` on its own category, and

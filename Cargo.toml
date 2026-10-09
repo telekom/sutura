@@ -241,7 +241,7 @@ rustls-native-certs = "0.8.4"
 # links this adapter; both are already in `Cargo.lock` via other paths, so this adds no new package,
 # only a new feature activation on the one already there.
 #
-# VENDORED at an unreleased upstream commit plus two local patches - `VENDOR.md` records which,
+# VENDORED at an unreleased upstream commit plus five local patches - `VENDOR.md` records which,
 # and the condition under which this goes back to the registry.
 oracledb = { path = "vendor/rust-oracledb" }
 

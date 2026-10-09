@@ -704,7 +704,7 @@ mod tests {
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{ResultBudget, Value};
 
-    use super::{OracleError, OracleWarehouse, collect_rows, ezconnect, refuse_if_spent};
+    use super::{Channel, Dial, OracleError, OracleWarehouse, collect_rows, ezconnect, refuse_if_spent};
 
     fn result_budget(bytes: usize) -> ResultBudget {
         ResultBudget::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test budget is positive"))
@@ -818,5 +818,13 @@ mod tests {
             "the leg's range is two bound values: {:?}",
             query.params()
         );
+    }
+
+    /// The shipped connect bound, written out rather than read off `DIAL_DEADLINE`, so a change to
+    /// the constant fails here.
+    #[test]
+    fn a_dial_is_bounded_by_ten_seconds() {
+        let dial = Dial::new("127.0.0.1", 1521, "FREEPDB1", Channel::Plaintext);
+        assert_eq!(dial.deadline, Duration::from_secs(10));
     }
 }

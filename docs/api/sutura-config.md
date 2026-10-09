@@ -5801,6 +5801,7 @@ convenience, and nothing needs to clone a startup refusal.
   a configuration nobody can see - see `parse_placement` for the argument in full.
 - `ResourceName` - A declared cloud resource name is not usable.
 - `OracleServiceName` - A declared Oracle `service_name` the driver would not read as written.
+- `TlsServerName` - A `verified` source's `host` is not a name TLS can verify.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `UnixSocket` - A declared `unix_socket` is not one absolute directory.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
@@ -6192,11 +6193,57 @@ How an Oracle listener is reached - the two `SourceTransport` states its driver 
 ##### Variants
 
 - `Plaintext` - No transport security. The parse allows it only for a loopback host.
-- `Verified` - TLS, verified against the certificates in the PEM bundle at this absolute path and no others: they replace the driver's bundled public certificate authorities.
+- `Verified` - TLS, verified against the certificates in the PEM bundle at this absolute path and no others: they replace the driver's bundled public certificate authorities. The host is dialled as `server_name`, the name the handshake verifies.
 
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct TlsServerName`
+
+```rust
+pub struct TlsServerName
+```
+
+The host of a `verified` Oracle source, parsed as the name TLS verifies.
+
+A DNS name or an IP address, by the rule of `rustls-pki-types`' `ServerName`, which the driver
+applies to the same text when it opens TLS. A host that fails it is refused at parse, never at
+connect.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The name, for dialling and for the handshake.
+
+```rust
+pub fn parse(host: &HostName) -> Result<Self, InvalidTlsServerName>
+```
+
+Parses a declared host as a TLS server name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidTlsServerName`
+
+```rust
+pub enum InvalidTlsServerName
+```
+
+Why a declared host is not a name TLS can verify.
+
+##### Variants
+
+- `NeitherDnsNameNorIp` - Neither a DNS name nor an IP address, by the rule `TlsServerName` names.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### `enum InvalidOracleServiceName`
 

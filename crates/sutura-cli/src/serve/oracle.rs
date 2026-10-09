@@ -206,4 +206,47 @@ mod tests {
             "the address the redirect named was dialled"
         );
     }
+
+    /// **A `verified` source opens TLS before the listener reads a TNS packet.** The fake answers
+    /// a CONNECT with packet type 3, which the driver refuses by name. A `plaintext` source reaches
+    /// that refusal; a `verified` one does not, because its first bytes are a TLS handshake that the
+    /// fake cannot answer.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn a_verified_oracle_source_opens_tls_before_any_tns_packet() {
+        let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-verified-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let password = directory.join("password");
+        std::fs::write(&password, "not-a-real-password").expect("the password file writes");
+        let anchors = directory.join("ca.pem");
+        let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let certificate = params.self_signed(&key).expect("a self-signed certificate signs");
+        std::fs::write(&anchors, certificate.pem()).expect("the anchors file writes");
+        let refused_over = |transport: &str| {
+            let port = sutura_dev::tns_listener::answering(3, Vec::new()).expect("the fake listener binds");
+            let entry = format!(
+                "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
+                 service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
+                 {transport}\n    posture: \"shared-service-user\"\n",
+                password.display()
+            );
+            let opened = open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&entry),
+                one_worker(),
+                default_timeout(),
+                None,
+            );
+            refusal(opened, "the fake answers no driver")
+        };
+        let plaintext = refused_over("transport_mode: \"plaintext\"");
+        let verified = refused_over(&format!(
+            "transport_mode: \"verified\"\n    transport_anchors: \"{}\"",
+            anchors.display()
+        ));
+        let _ignored = std::fs::remove_dir_all(&directory);
+        assert!(plaintext.contains("unknown packet type 3"), "{plaintext}");
+        assert!(!verified.contains("unknown packet type 3"), "{verified}");
+    }
 }

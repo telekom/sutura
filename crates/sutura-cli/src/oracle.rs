@@ -90,19 +90,25 @@ pub(crate) fn build(
                   value itself is the payload"
     )]
     let exposed = password.expose_secret();
-    let anchors_pem = match *channel {
-        OracleChannel::Plaintext => None,
-        OracleChannel::Verified { ref anchors } => Some(std::fs::read_to_string(anchors).map_err(|cause| {
-            format!(
-                "`sources.{source}.transport_anchors` ({}) could not be read: {cause}",
-                anchors.display()
-            )
-        })?),
+    let (dialled, anchors_pem) = match *channel {
+        OracleChannel::Plaintext => (host.as_str(), None),
+        OracleChannel::Verified {
+            ref anchors,
+            ref server_name,
+        } => (
+            server_name.as_str(),
+            Some(std::fs::read_to_string(anchors).map_err(|cause| {
+                format!(
+                    "`sources.{source}.transport_anchors` ({}) could not be read: {cause}",
+                    anchors.display()
+                )
+            })?),
+        ),
     };
     let channel = anchors_pem
         .as_deref()
         .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
-    let dial = Dial::new(host.as_str(), port, service_name.as_str(), channel);
+    let dial = Dial::new(dialled, port, service_name.as_str(), channel);
     OracleWarehouse::connect(
         source.clone(),
         identity.posture().clone(),
