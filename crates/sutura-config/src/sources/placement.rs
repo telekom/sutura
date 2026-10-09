@@ -599,6 +599,12 @@ pub enum InvalidImpersonate {
     DuplicateSubject,
     #[error("a declared ClickHouse user is empty")]
     EmptyUser,
+    /// A declared user that is the source's own `user`.
+    #[error(
+        "a declared ClickHouse user is the source's own `user` - map each subject to a different \
+         user, or declare the source `shared-service-user`"
+    )]
+    ServiceUser,
 }
 
 #[cfg(test)]

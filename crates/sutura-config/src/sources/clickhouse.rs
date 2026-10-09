@@ -78,19 +78,21 @@ pub(super) fn parse_placement(
     Ok(SourcePlacement::ClickHouse {
         host,
         port,
-        user,
         password_file,
         transport,
-        impersonate: parse_impersonate(alias, kind, entry)?,
+        impersonate: parse_impersonate(alias, kind, entry, &user)?,
+        user,
     })
 }
 
 /// The subject -> `ClickHouse` user map: required and non-empty on an `impersonation-at-source`
 /// entry and refused on any other, and never beside `workload_identity`, which only `bigquery` reads.
+/// No declared user may be `service`, the source's own `user`.
 fn parse_impersonate(
     alias: &SourceName,
     kind: SourceKind,
     entry: &RawSourceEntry<'_>,
+    service: &str,
 ) -> Result<DeclaredUsers, InvalidSourceRegistry> {
     super::refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
     let invalid = |cause| InvalidSourceRegistry::Impersonate {
@@ -110,6 +112,9 @@ fn parse_impersonate(
         let user = user.trim();
         if user.is_empty() {
             return Err(invalid(InvalidImpersonate::EmptyUser));
+        }
+        if user == service {
+            return Err(invalid(InvalidImpersonate::ServiceUser));
         }
         if parsed.insert(subject, String::from(user)).is_some() {
             return Err(invalid(InvalidImpersonate::DuplicateSubject));
@@ -337,6 +342,24 @@ mod tests {
             assert!(
                 matches!(error, InvalidSourceRegistry::Impersonate { ref cause, .. } if *cause == expected),
                 "{expected:?}: {error}"
+            );
+        }
+    }
+
+    /// A subject mapped to the source's own `user`, padded or not, is refused at load.
+    #[test]
+    fn an_impersonate_entry_naming_the_service_user_is_refused() {
+        for written in ["sutura", " sutura "] {
+            let map = std::collections::BTreeMap::from([
+                (String::from("subject-a"), String::from("analyst_a")),
+                (String::from("subject-b"), String::from(written)),
+            ]);
+            let error = SourceRegistry::parse(&[impersonating(&map)], Some(&single_user()))
+                .expect_err("a declared user equal to the source's own user is refused");
+            assert!(
+                matches!(error, InvalidSourceRegistry::Impersonate { ref cause, .. }
+                    if cause.to_string().contains("the source's own `user`")),
+                "{written:?}: {error:?}"
             );
         }
     }

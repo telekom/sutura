@@ -6331,6 +6331,7 @@ Why a `clickhouse` source's `impersonate` map is not one it can be served under.
 - `Subject`
 - `DuplicateSubject` - Two keys that parse to one subject - the parse trims, so they differ only in whitespace.
 - `EmptyUser`
+- `ServiceUser` - A declared user that is the source's own `user`.
 
 ##### Implements
 

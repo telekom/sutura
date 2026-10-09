@@ -64,7 +64,8 @@ With `posture: impersonation-at-source`, sutura still signs in as `user`, and it
 as the ClickHouse user that `impersonate` declares for the caller:
 `EXECUTE AS "<user>" <statement>`. It never uses the session form of `EXECUTE AS`. A caller that the
 map does not name is refused, and is never run as `user`. A user name can contain only letters,
-digits and `_ . - @`. Unqualified table names still resolve in the default database of `user`.
+digits and `_ . - @`, and it cannot be the user in `user`. Unqualified table names still resolve
+in the default database of `user`.
 
 ```yaml
 posture: "impersonation-at-source"
