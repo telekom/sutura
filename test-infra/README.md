@@ -176,7 +176,7 @@ with `pulumi destroy --preview-only`. Re-create afterwards with `infra-up` then 
   the pool decides the principal and no address predicts it;
 - `workload_audience` (and the pool provider) is the (a) end of a served
   `impersonation-at-source` source: `sutura serve` attaches
-  `sutura_exec_bigquery::DeclaredPrincipalBroker` to one, and the driver federates the asker's own
+  `sutura_config::DeclaredPrincipalBroker` to one, and the driver federates the asker's own
   assertion against that pool.
 
 ## The `bq-test` GitHub environment

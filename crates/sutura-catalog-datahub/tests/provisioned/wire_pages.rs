@@ -170,17 +170,17 @@ fn paged_until(agent: &ureq::Agent, endpoint: &str, path: &str, wanted: &[String
             .collect();
         if found.len() == wanted.len() {
             // A page that signals more results - a `scrollId`, or fewer entities than a stated
-            // `total` - is what `src/http.rs`'s reader refuses as `HttpReaderError::MorePages`.
-            // With the corpus at most two entities, a real last page must NOT signal more; this
-            // is the live side of http.rs's #Paging open question.
+            // `total` - is one `src/http.rs`'s reader follows to the next page. With the corpus at
+            // most two entities, a real last page must NOT signal more; this is the live side of
+            // http.rs's #Paging open question.
             assert!(
                 answer.get("scrollId").and_then(serde_json::Value::as_str).is_none(),
-                "the {path} last page carries a scrollId, which the reader would refuse"
+                "the {path} last page carries a scrollId, which the reader would follow"
             );
             if let Some(total) = answer.get("total").and_then(serde_json::Value::as_u64) {
                 assert!(
                     entities.len() as u64 >= total,
-                    "the {path} page states {total} total but returned {} - the reader would refuse MorePages",
+                    "the {path} page states {total} total but returned {} - the reader would refuse it as short",
                     entities.len()
                 );
             }

@@ -140,3 +140,26 @@ adapters, **one** `broker.mint` over the `SourceSet`, `agreeing_with`, both `dry
 `charge_subject`, `run_leg` sequentially, `Legs::of`, `combine`, the working-set ceiling, `top`, the
 row cap, the response bound. `top`, the row cap, the response bound and the combiner's byte pool read
 no posture and needed no change.
+
+## Amendment, 2026-10-08: ClickHouse runs each statement as a declared user
+
+ClickHouse now declares `PerSubjectCredential`, so the posture cross-check no longer refuses an
+`impersonation-at-source` ClickHouse source. The last bullet of *What this does not buy* has NOT
+happened for it: ClickHouse runs no federated legs (`Warehouse::EXECUTES_LEGS` stays at its `false`
+default), so `federated::answer_federated` refuses a federated question with a ClickHouse leg as
+`federation_not_executable` before the mint, whatever either source's posture.
+
+An `impersonation-at-source` ClickHouse source declares `impersonate`, a map from each verified
+subject to a ClickHouse user - the same shape and the same refusal as BigQuery's map, through the
+same `sutura_config::DeclaredPrincipalBroker`, which presents the declared user as `Presented::SubjectPrincipal`.
+The adapter sends each statement as `EXECUTE AS "<user>" <statement>`, the per-statement form only.
+An undeclared or anonymous caller is refused by the broker, and the deployment's own identity at
+that source is refused by `agrees_with`.
+
+What it does not change: the subject never authenticates to ClickHouse. The deployment's service
+user authenticates, and the server decides which users it may become. The server needs
+`access_control_improvements.allow_impersonate_user = 1` and `GRANT IMPERSONATE ON <user>` to the
+service user for each declared user; the boot probe refuses to start without them. `ALL ON *.*`
+includes `IMPERSONATE` on every user (measured on the 26.8 tier), so a service user with `ALL` can
+become any user, declared or not. ClickHouse Cloud offers neither requirement.
+`where-identity-is-proven.md` records no venue for this claim yet.

@@ -25,8 +25,7 @@ use crate::commands::render;
 /// Why an `impersonation-at-source` `oracle` entry is refused, in terms of what is missing rather
 /// than of what to go and build.
 ///
-/// `crate::clickhouse::IMPERSONATION_DEFERRED`'s shape and reason: `SourcePosture::deliverable_by`
-/// is the mechanism, unchanged, and its generic remedy - *deploy a build whose adapter for that
+/// `SourcePosture::deliverable_by` is the mechanism, unchanged, and its generic remedy - *deploy a build whose adapter for that
 /// source can impersonate* - names a build that does not exist for this kind. Appended to the domain
 /// refusal, and unreachable rather than wrong the day the adapter declares `PerSubjectCredential`.
 /// It names no cargo flag, because no value of one makes this source impersonate
