@@ -1062,7 +1062,7 @@ unconditional `ADBC driver` step as well.
 - `WorkloadIdentityBroker` survived with its ports, its cache, its floor and its claim check, and had
   **no implementor a composition root could reach** - both hops were the wire's. It stopped being what
   a served deployment attaches, and the eighth amendment below deletes it outright.
-- `sutura serve` attaches `sutura_exec_bigquery::DeclaredPrincipalBroker` instead: the declared
+- `sutura serve` attaches `sutura_config::DeclaredPrincipalBroker` instead: the declared
   subject-to-account map, presented as the identity each job runs as, with a startup refusal for a
   declaration naming nobody and for the pool expectations `telekom/sutura#817` added, which described
   an exchange this build does not perform.
@@ -1302,7 +1302,7 @@ owner's decision was to drop it rather than keep artificial scaffolding around a
 has real evidence.
 
 **What the shipping path does instead.** `DeclaredPrincipalBroker`
-(`crates/sutura-exec-bigquery/src/principal.rs`) decides WHETHER a caller may be served at an
+(`crates/sutura-config/src/credentials/declared.rs`) decides WHETHER a caller may be served at an
 impersonating source, from a declared per-source map keyed on the full verified subject; the ADBC
 transport then puts that caller's own assertion behind an `external_account` credential document
 served over a loopback source (`crates/sutura-exec-bigquery/src/adbc/subject.rs`), and Google's token

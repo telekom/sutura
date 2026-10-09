@@ -427,12 +427,19 @@ pub enum InvalidSourceRegistry {
     ///
     /// Of the keys in the block, `audience` is read, `impersonate`'s KEYS decide which callers may be
     /// served at all, and its VALUES name the account each caller's questions execute as - see
-    /// `sutura_exec_bigquery::DeclaredPrincipals::target`. There is no `scope` key: the credential
+    /// [`crate::DeclaredPrincipals::target`]. There is no `scope` key: the credential
     /// document has no `scopes` member, so one would reach nothing.
     #[error(
         "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, and the `impersonate` map naming which subjects may be served here"
     )]
     MissingWorkloadIdentity { alias: SourceName },
+    /// A `clickhouse` source's `impersonate` map is not usable.
+    #[error("`sources.{alias}.impersonate` is not usable")]
+    Impersonate {
+        alias: SourceName,
+        #[source]
+        cause: crate::sources::placement::InvalidImpersonate,
+    },
     /// A workload-identity block was declared on a source that is not impersonating.
     ///
     /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -534,6 +541,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) acknowledged_because: Option<&'raw str>,
     pub(crate) verification_identity: Option<&'raw str>,
     pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
+    pub(crate) impersonate: Option<&'raw std::collections::BTreeMap<String, String>>,
     pub(crate) host: Option<&'raw str>,
     pub(crate) unix_socket: Option<&'raw str>,
     pub(crate) port: Option<u16>,
@@ -680,7 +688,8 @@ fn parse_entry(
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
     let workload_identity = match entry.workload_identity.as_ref() {
-        None if matches!(entry.posture.trim(), "impersonation-at-source") => {
+        // A `clickhouse` source declares its subject map as `impersonate` instead - see its placement.
+        None if matches!(entry.posture.trim(), "impersonation-at-source") && kind != SourceKind::ClickHouse => {
             return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
         }
         None => None,

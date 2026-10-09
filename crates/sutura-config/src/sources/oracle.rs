@@ -162,6 +162,7 @@ mod tests {
             transport_anchors: None,
             client_certificate: None,
             client_key: None,
+            impersonate: None,
         }
     }
 

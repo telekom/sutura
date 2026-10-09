@@ -661,9 +661,9 @@ a scope grants*.
 than at this service: the asking subject has no access there, and this deployment will not read that
 source under its own identity instead. It IS a refusal, so it carries `outcome`, and re-authenticating
 here changes nothing - what is missing is a grant somewhere else. It arrives with the credential port;
-what can produce it today is a `bigquery` source declared `impersonation-at-source`, for a caller
-its declared `impersonate` map does not name - the broker DOES hold a per-subject credential for a
-caller the map covers. A `files` or `postgres` source declared `impersonation-at-source` never
+what can produce it today is a `bigquery` or `clickhouse` source declared
+`impersonation-at-source`, for a caller its declared `impersonate` map does not name - the broker
+DOES hold a per-subject credential for a caller the map covers. A `files` or `postgres` source declared `impersonation-at-source` never
 reaches this refusal at all: the boot check above (*a source this build's adapter cannot
 impersonate*) refuses it before any caller is involved, because the broker that ships mints from
 configuration for those and holds no per-subject credential for either.
@@ -922,7 +922,7 @@ model's `source:` names.**
 | `sources.<alias>.port` | absent | Postgres, ClickHouse and Oracle. Required; no guessed `5432`, `8123` or `1521` |
 | `sources.<alias>.database` | absent | Postgres only. Required. Refused on ClickHouse, which sends no database with its statement - so a key here would be one nothing reads - and on Oracle, which names its database by `service_name` |
 | `sources.<alias>.service_name` | absent | Oracle only. Required: the service the listener resolves, the path of an EZCONNECT `host:port/service_name` - not a SID. ASCII letters, digits, `_` and `.` only: the driver would read anything after another character as something else. Refused on every other kind |
-| `sources.<alias>.user` | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
+| `sources.<alias>.user` | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as - except on an `impersonation-at-source` ClickHouse source, where it is the service user that runs each statement as the caller's declared user |
 | `sources.<alias>.password_file` | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
 | `sources.<alias>.transport_mode` | absent | Postgres, ClickHouse and Oracle. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on all three. Oracle accepts `plaintext` only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so `verified` and `mutual` are refused rather than half-honoured |
 | `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. An absolute PEM bundle path, or `system` as an explicit choice - which a Postgres source refuses at startup. Not accepted on Oracle - see `transport_mode` |

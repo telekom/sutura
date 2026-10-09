@@ -21,9 +21,9 @@ use crate::sources::OpenedWith;
 ///
 /// # Errors
 ///
-/// Everything [`crate::clickhouse::build`] refuses: a placement the dispatcher should have sent
-/// elsewhere, a source with no declared identity, the `impersonation-at-source` posture, an
-/// unreadable or empty password file, and unusable TLS material.
+/// The `impersonation-at-source` posture, which this command attaches no broker for; then everything
+/// [`crate::clickhouse::build`] refuses: a placement the dispatcher should have sent elsewhere, a
+/// source with no declared identity, an unreadable or empty password file, and unusable TLS material.
 #[cfg(feature = "clickhouse")]
 pub(super) fn open(
     source: &SourceName,
@@ -31,6 +31,18 @@ pub(super) fn open(
     registry: &sutura_config::SourceRegistry,
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
+    // `sutura serve` attaches the declared-map broker; this command attaches only the static one,
+    // which mints nothing for an impersonating source. Refused before anything is dialled.
+    if matches!(
+        configured.posture(),
+        Some(sutura_domain::source::SourcePosture::ImpersonationAtSource)
+    ) {
+        return Err(format!(
+            "`sources.{source}` is `impersonation-at-source`, and the `sutura` command attaches no \
+             broker that names the user a subject executes as - refusing rather than reading every \
+             row as this process; no fallback. `sutura serve` is the root that attaches one"
+        ));
+    }
     let engine = crate::clickhouse::build(source, configured, working_set)?;
     Ok(Opened::ClickHouse(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
@@ -155,61 +167,35 @@ mod tests {
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     }
 
-    /// The `workload_identity` block an `impersonation-at-source` entry must carry to get PAST the
-    /// settings parse, so the refusal this cell is about is the composition's and not the tree's.
-    #[cfg(feature = "clickhouse")]
-    fn wif_for_clickhouse() -> String {
-        String::from(
-            "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
-             workloadIdentityPools/p/providers/sso\"\n",
-        )
-    }
-
-    /// **The refusal this change is careful about, and it has its own cell rather than only a
-    /// predicate.** `ClickHouseWarehouse::IMPERSONATION` is `NoPlaceForASubject`, so an
-    /// `impersonation-at-source` entry fails `SourcePosture::deliverable_by`'s capability half -
-    /// before the password file is read and before anything is dialled, so it is reachable with no
-    /// server listening and no secret on disk.
-    ///
-    /// It also asserts the sentence `crate::clickhouse::IMPERSONATION_DEFERRED` adds, because the
-    /// domain refusal's own remedy (*deploy a build whose adapter for that source can impersonate*)
-    /// names a build that does not exist for this kind. Neutralise the `deliverable_by` call - or
-    /// drop the appended sentence - and this cell fails; `dead_code` would catch neither.
+    /// **The refusal, with its own cell.** This command mints through the static broker, which has
+    /// nothing for an impersonating source, so the entry is refused before the password file is read
+    /// or anything is dialled. Neutralise the posture check and the password-file refusal appears
+    /// instead.
     #[test]
     #[cfg(feature = "clickhouse")]
     fn a_declared_clickhouse_source_configured_to_impersonate_refuses_at_composition() {
         let error = open_engine(
             &bundle_naming("warehouse"),
-            &declaring_clickhouse("impersonation-at-source", &wif_for_clickhouse()),
+            &declaring_clickhouse("impersonation-at-source", "    impersonate:\n      subject-a: analyst_a\n"),
             runtime(),
             timeout(),
             None,
             None,
         )
         .map(|_| ())
-        .expect_err("an impersonating posture with nowhere for a subject's credential to arrive must not open");
+        .expect_err("this command attaches no broker for an impersonating source");
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-        assert!(
-            error.contains("per-subject credential"),
-            "the refusal must say what the adapter cannot do: {error}"
-        );
         assert!(
             error.contains("no fallback"),
             "the refusal must say there is no fallback: {error}"
         );
         assert!(
-            error.contains("no per-subject path in this repository yet"),
-            "the refusal must say the adapter cannot YET deliver it, not that another build can: {error}"
-        );
-        // NOT the neighbouring arms: the entry is declared, the build DOES link the adapter, and the
-        // cross-check fires before the credential step would name the unreadable password file.
-        assert!(
-            !error.contains("--features clickhouse"),
-            "this build DID link the adapter: {error}"
+            error.contains("`sutura serve`"),
+            "the refusal must name the root that serves it: {error}"
         );
         assert!(
             !error.contains("password_file"),
-            "the capability cross-check fires before the password file is read: {error}"
+            "the posture check fires before the password file is read: {error}"
         );
     }
 }

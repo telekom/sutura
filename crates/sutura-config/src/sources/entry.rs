@@ -34,6 +34,10 @@ pub(super) fn parse_placement(
     if kind != SourceKind::Duckdb {
         refuse_foreign_keys(alias, kind, [("database_file", written(entry.database_file))])?;
     }
+    // `clickhouse`'s subject map, refused on every other kind for the same reason.
+    if kind != SourceKind::ClickHouse {
+        refuse_foreign_keys(alias, kind, [("impersonate", entry.impersonate.is_some())])?;
+    }
     match kind {
         SourceKind::Files => {
             refuse_foreign_keys(
