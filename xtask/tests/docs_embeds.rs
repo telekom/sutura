@@ -83,9 +83,55 @@ fn a_markdown_image_over_a_missing_file_is_refused_naming_the_page_and_the_src()
     let text = said(&output);
     assert_eq!(output.status.code(), Some(1), "{text}");
     assert!(text.contains("docs/architecture.md"), "{text}");
-    assert!(text.contains("assets/diagram.png"), "{text}");
+    assert!(text.contains("embeds `assets/diagram.png`"), "{text}");
     let present = site("image-present", page, Some("diagram.png"));
     assert!(check_docs(&present).status.success(), "{}", said(&check_docs(&present)));
+}
+
+#[test]
+fn a_host_absolute_src_is_refused_even_when_that_file_exists_naming_the_page_and_the_src() {
+    let page = "# Architecture\n\n<img src=\"/assets/diagram.png\" alt=\"d\">\n\n[home](index.md)\n";
+    let root = site("host-absolute", page, Some("diagram.png"));
+    let output = check_docs(&root);
+    let text = said(&output);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("docs/architecture.md"), "{text}");
+    assert!(text.contains("/assets/diagram.png"), "{text}");
+    assert!(text.contains("relative to the host"), "{text}");
+}
+
+#[test]
+fn a_missing_image_on_a_page_in_a_subdirectory_is_refused_naming_the_page_and_the_src() {
+    let root = site("nested-image", "# Architecture\n\n[home](index.md)\n", None);
+    std::fs::create_dir_all(root.join("docs/sub")).expect("the fixture subdirectory");
+    std::fs::write(
+        root.join("docs/sub/page.md"),
+        "# Page\n\n![x](missing.png)\n\n[home](../index.md)\n",
+    )
+    .expect("a fixture file");
+    let nav = root.join("mkdocs.yml");
+    let mut text = std::fs::read_to_string(&nav).expect("the fixture nav");
+    text.push_str("  - Sub: sub/page.md\n");
+    std::fs::write(&nav, text).expect("the fixture nav");
+    let output = check_docs(&root);
+    let text = said(&output);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("docs/sub/page.md"), "{text}");
+    assert!(text.contains("missing.png"), "{text}");
+    std::fs::write(root.join("docs/sub/missing.png"), "x").expect("the asset");
+    let present = check_docs(&root);
+    assert!(present.status.success(), "{}", said(&present));
+}
+
+#[test]
+fn a_directory_as_src_is_refused_naming_the_page_and_the_src() {
+    let page = "# Architecture\n\n<img src=\"../assets/\" alt=\"d\">\n\n[home](index.md)\n";
+    let root = site("directory-src", page, None);
+    let output = check_docs(&root);
+    let text = said(&output);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("docs/architecture.md"), "{text}");
+    assert!(text.contains("../assets/"), "{text}");
 }
 
 #[test]
