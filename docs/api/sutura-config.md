@@ -113,7 +113,7 @@ Whether the generated documentation surface is served.
 
 ## `use AudienceMapping`
 
-Maps a verified caller's `groups` claim values onto `docs/adr/0028` audience identifiers.
+Maps a verified caller's `groups` claim values onto the architecture decision audience identifiers.
 
 **Absence is the safe default.** An unconfigured mapping grants nothing to anyone, which reads a
 restricted metric as invisible rather than open - the fail-closed direction this workspace
@@ -151,7 +151,7 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Six variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
 `#970` added the three declaring adapters that had a crate and no composition root.
@@ -282,7 +282,7 @@ this caller's questions should run as, and a broker that presented only the asse
 declared caller as one pool principal whatever the map said.
 
 **Both maps, because one plan may read one of each and a broker is per answer rather than per
-source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
+source** - the reason the architecture decision gives for a broker being per answer at all.
 
 ## `use DeclaredPrincipals`
 
@@ -320,7 +320,7 @@ witness. A source declared `impersonation-at-source` is deliberately **absent**:
 static credential that could execute as an asking subject, and an entry that pretended otherwise
 would be the fallback this port exists to remove.
 
-**Built from the DECLARATION and never from an adapter.** `docs/adr/0008` part 4 requires that a
+**Built from the DECLARATION and never from an adapter.** The architecture decision requires that a
 broker produce the shared shape only for a source configured shared, and the check that catches a
 broker which did not is the adapter's own exhaustive match on what it received. Those two are only
 an independent pair if they read different things: this reads the settings tree, and the adapter
@@ -413,7 +413,7 @@ Where the signing keys are read from.
 
 **A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
 endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - `docs/adr/0014` says plainly that the authorization server becomes a hard
+its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
 runtime dependency and that an outage there must stay distinguishable from a dead data system.
 None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
 when a key id is not in it, and that refetch is rate limited - and every one of those properties
@@ -441,7 +441,7 @@ the same header rather than a lookup that silently misses.
 The longest lifetime a transit proof may declare.
 
 **A server-chosen ceiling on somebody else's token**, and the reason it exists is that
-`docs/adr/0014` calls a transit proof *short-lived* while the lifetime is entirely the fronting
+the architecture decision calls a transit proof *short-lived* while the lifetime is entirely the fronting
 component's to choose. Review demonstrated a proof with `exp` ten years out being accepted, and
 accepted again on a replay of the identical token. So the deployment declares what it will call
 short-lived, and a proof claiming more is refused.
@@ -460,7 +460,7 @@ So `Self::Exactly` is the default in the `direct` mode - RFC 9068's `at+jwt` - a
 is a value an operator writes, `any`, which the startup log prints at `WARN`. In `direct` it does
 not start without `accept_any_token_type: true` beside it.
 
-There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
+There is no `Option<TokenType>` here, for the reason the architecture decision gives about `mode`: an absent
 value reads as "not configured yet" at every call site, and the one thing that has to be legible is
 whether a deployment decided to accept every class of token.
 
@@ -468,7 +468,7 @@ whether a deployment decided to accept every class of token.
 
 What this deployment calls itself when it validates an audience.
 
-**This is the security decision in `docs/adr/0014` given a type.** A token is accepted only if
+**This is the security decision in the architecture decision given a type.** A token is accepted only if
 its audience matches this value. A client may also *ask* its authorization server for a token
 scoped to this resource - RFC 8707's resource indicator - and that is welcome and is an
 optimisation: it makes the token narrower before it ever arrives. It is never what makes the
@@ -689,7 +689,7 @@ state, a sort - and nothing else. **Not** what a driver buffers before conversio
 domain rows. So this is not a bound on the process's memory and must not be read as one: a
 question large enough to end the process on one of those paths still ends it. The bound that
 reaches those is a byte budget applied as rows are converted, which
-`docs/adr/0009-the-plan-from-one-source-to-many.md` puts with the execution boundary rather than
+the architecture decision puts with the execution boundary rather than
 here.
 
 # Global, and no per-source override
@@ -714,7 +714,7 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in the architecture decision observed only
 a small in-process workload and cannot see driver buffers, collected batches or domain-row
 conversion, so it did not justify changing the starting point. The default remains provisional.
 
@@ -797,9 +797,8 @@ of what changed, so a deployment that flips it and has acknowledged nothing does
 # The variant names are not the configured words, and that is deliberate
 
 A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
-spellings, and they are the vocabulary
-[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-5a names. The variants are named for the *property each mode decides* instead, because
+spellings, and they are the vocabulary the credential-per-leg decision (5a) names. The variants
+are named for the *property each mode decides* instead, because
 `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
 that survived that say more: what changes between the two is whether credentials are static
 configuration or a subject arrives per request.
@@ -824,7 +823,7 @@ The deployment-wide outbound trust declaration - `security.outbound`.
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
 (`crate::sources::refuse_foreign_keys` on `files`/`bigquery`). A deployment-wide declaration is
-the shape a fixed-host client has something to attach to. See `docs/adr/0010`'s amendment.
+the shape a fixed-host client has something to attach to. See the architecture decision's amendment.
 
 **What reads it today is the `DataHub` reader, and NOT the `BigQuery` transport.** The HTTP wire
 and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
@@ -1448,13 +1447,13 @@ pub const fn new(docs_enabled: bool, docs_were_explicit: bool) -> Self
 
 ## Module `audience`
 
-The deployment's own mapping from a verified group claim to `docs/adr/0028`'s audience
+The deployment's own mapping from a verified group claim to the architecture decision's audience
 identifiers.
 
 **Deliberately deployment policy and not part of the pinned bundle.** The catalog author
 classifies metadata under portable audience identifiers; a deployer separately decides which of
 their identity provider's groups map onto each one. Changing this mapping does not move the
-definition digest - `docs/adr/0028`'s "the catalog declaration moves the digest; the deployment
+definition digest - the architecture decision's "the catalog declaration moves the digest; the deployment
 mapping does not" - and it is not a scope: a scope is part of the deployed authorization-server
 contract, and adding a metric must not require adding one.
 
@@ -1480,7 +1479,7 @@ Why a mapping this operator wrote is not a usable one.
 pub struct AudienceMapping
 ```
 
-Maps a verified caller's `groups` claim values onto `docs/adr/0028` audience identifiers.
+Maps a verified caller's `groups` claim values onto the architecture decision audience identifiers.
 
 **Absence is the safe default.** An unconfigured mapping grants nothing to anyone, which reads a
 restricted metric as invisible rather than open - the fail-closed direction this workspace
@@ -1498,7 +1497,7 @@ Every audience this deployment grants a caller whose verified `groups` claim nam
 `claimed`.
 
 **A group this mapping does not name contributes nothing and vetoes nothing** -
-`docs/adr/0028`'s table: any mapped group among several is sufficient, and an unmapped group
+the architecture decision's table: any mapped group among several is sufficient, and an unmapped group
 in a mixed claim neither grants nor cancels a mapped one. Union rather than intersection is
 what makes that true: each claimed group is looked up independently and its audiences (if
 any) are added to the result.
@@ -1538,7 +1537,7 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Six variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
 `#970` added the three declaring adapters that had a crate and no composition root.
@@ -1550,7 +1549,7 @@ that exists in a record rather than in a linked crate is still a word an operato
   The only kind either composition root can OPEN in this build: the markdown adapter is
   linked by `sutura serve` and, since issue #970, by `sutura mcp` over the same `catalogs:`
   declaration; `sutura query` still puts it behind its own directory argument.
-- `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
+- `Datahub` - A metadata service, read through the adapter the architecture decision specifies and #114 builds.
 
   **Openable behind `sutura-cli`'s default-off `datahub` feature; a build without it refuses
   this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an operator
@@ -2357,7 +2356,7 @@ The credential broker a deployment gets when its credentials are configuration.
 **The first implementor of `sutura_domain::identity::CredentialBroker`, and it is a shipping
 deployment mode rather than test scaffolding.** `AGENTS.md`'s rule is that a port trait arrives
 with its first implementor, because a trait with no implementor is a guess at a signature - and the
-calling-subject floor this port answers to is `docs/adr/0008` part 6. What arrives with
+calling-subject floor this port answers to is the architecture decision. What arrives with
 it here is the static-credential broker single-user mode already needs: credentials as
 configuration, one user, one host.
 
@@ -2367,7 +2366,7 @@ Because the identity provider this broker talks to *is* the settings tree. It op
 reads no clock and holds no secret of its own: what it hands back for a shared source is the
 operator's own acknowledgement witness, which this crate is the only place that can parse. A
 broker that exchanges a token belongs in a crate that can make a network call, and that crate does
-not exist yet - `docs/adr/0014` Decision 3 says why, and `sutura_domain::identity`'s own header
+not exist yet - the architecture decision says why, and `sutura_domain::identity`'s own header
 records what the port cannot express until it does.
 
 # What it refuses, and why that is the interesting half
@@ -2378,7 +2377,7 @@ identity. That is the whole point of the port: the fallback is not forbidden by 
 absent from every signature, and a broker with nothing to present has to say so.
 
 It is also what makes the refusal provokable **without a network and without a fake** - by the
-real implementor, from a real configuration - which is what `docs/adr/0008` part 6 asks of the one
+real implementor, from a real configuration - which is what the architecture decision asks of the one
 refusal variant this design adds.
 
 ### `enum StaticCredentialsUnusable`
@@ -2418,7 +2417,7 @@ witness. A source declared `impersonation-at-source` is deliberately **absent**:
 static credential that could execute as an asking subject, and an entry that pretended otherwise
 would be the fallback this port exists to remove.
 
-**Built from the DECLARATION and never from an adapter.** `docs/adr/0008` part 4 requires that a
+**Built from the DECLARATION and never from an adapter.** The architecture decision requires that a
 broker produce the shared shape only for a source configured shared, and the check that catches a
 broker which did not is the adapter's own exhaustive match on what it received. Those two are only
 an independent pair if they read different things: this reads the settings tree, and the adapter
@@ -2492,13 +2491,13 @@ through it without linking another adapter.
 `sts::WorkloadIdentityBroker`, which handed the caller's own assertion to a token service and
 presented what came back as the leg's bearer. Its two HTTP hops went away with the `wire`
 transport, leaving a 2,571-line tree no composition root could reach and whose every exchange
-was a test fake, so `docs/adr/0018`'s eighth amendment deleted it. What the ADBC transport needs
+was a test fake, so the architecture decision's eighth amendment deleted it. What the ADBC transport needs
 is narrower and different in kind: not a token to exchange, but the asking subject's OWN
 assertion for the driver to federate against the pool this source declares. No socket and no
 cache - Google's token service performs the exchange - but an EXPIRY, because what this presents
 is credential material and credential material ages out.
 
-One broker with one answer to *what does this leg present* is the shape `docs/adr/0008` part 4
+One broker with one answer to *what does this leg present* is the shape the architecture decision
 already assumes: a composition root picks one.
 
 **A switching source is the second thing it presents** (`DeclaredPrincipalBroker::switching`):
@@ -2512,7 +2511,7 @@ is the key, and an anonymous or undeclared caller is refused exactly as below.
 - **A source it holds neither half for** - refused as `credential_unavailable`, so a forgotten
   attachment cannot read every row as the deployment.
 - **A caller the source's declaration does not name** - refused, never widened to a bare
-  deployment identity. `docs/adr/0032` states the same rule for the exchanging broker's own
+  deployment identity. The architecture decision states the same rule for the exchanging broker's own
   second hop: absent from the map is refused, not defaulted.
 - **An anonymous caller at an impersonating source** - a request with no verified subject has no
   key to look up, and there is nothing to fall back to.
@@ -2688,7 +2687,7 @@ this caller's questions should run as, and a broker that presented only the asse
 declared caller as one pool principal whatever the map said.
 
 **Both maps, because one plan may read one of each and a broker is per answer rather than per
-source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
+source** - the reason the architecture decision gives for a broker being per answer at all.
 
 ##### Methods
 
@@ -2831,7 +2830,7 @@ pub fn found(&self) -> &str
 
 What one replica will spend on one subject before it refuses them until a window resets.
 
-`docs/adr/0030-where-a-budget-lives.md` decides the shape this key carries and names its own
+The architecture decision decides the shape this key carries and names its own
 limit; this module is only the parsing. Read the ADR before changing either half.
 
 **The settings key says what this is, on purpose.** `governance.per_replica_spend_ceiling` and
@@ -2918,7 +2917,7 @@ The window half of `SpendBudget`: how long a subject's spend accumulates before 
 
 How the identity of a caller reaches this deployment - leg 1, and the one fact that decides it.
 
-`docs/adr/0014` decides two inbound modes and says plainly that **neither of them is a default**.
+The architecture decision decides two inbound modes and says plainly that **neither of them is a default**.
 A deployment either *is* the resource server and validates the caller's token itself, or it sits
 behind a component that already authenticated the caller and validates a short-lived **identity
 assertion that component signed**. Both defaults are wrong in opposite directions: defaulting to
@@ -2931,7 +2930,7 @@ optional. Those are two different absences and the difference matters:
 
 | Written | What it means |
 | --- | --- |
-| no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. `docs/adr/0008` part 5a calls that a first-class shape rather than a degraded one |
+| no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. The architecture decisiona calls that a first-class shape rather than a degraded one |
 | a block with no `mode` | a deployment that meant to establish identity and did not say how. It does not start |
 
 **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
@@ -2968,13 +2967,13 @@ are now bounded - `ProofLifetime` caps `exp - iat` and an `iat` is required, so 
 is a number this deployment chose rather than one it was handed. **Binding an assertion to a
 particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
 body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
-this module and `docs/adr/0014` now call it a *gateway-issued identity assertion* rather than a
+this module and the architecture decision now call it a *gateway-issued identity assertion* rather than a
 proof that the request transited anything, and why the trusted transport boundary - the hop between
 the component and this process - is load-bearing rather than incidental.
 
 # One derived view, two named modes
 
-`docs/adr/0014` says the difference between the modes is "one fact rather than two code paths".
+The architecture decision says the difference between the modes is "one fact rather than two code paths".
 `InboundIdentity::requirement` is that sentence made mechanical: the enum keeps the two names an
 operator writes and a reviewer reads, and the validator downstream consumes a single
 `TokenRequirement` borrowed out of whichever variant is configured. There is one validator, so
@@ -2995,7 +2994,7 @@ So `Self::Exactly` is the default in the `direct` mode - RFC 9068's `at+jwt` - a
 is a value an operator writes, `any`, which the startup log prints at `WARN`. In `direct` it does
 not start without `accept_any_token_type: true` beside it.
 
-There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
+There is no `Option<TokenType>` here, for the reason the architecture decision gives about `mode`: an absent
 value reads as "not configured yet" at every call site, and the one thing that has to be legible is
 whether a deployment decided to accept every class of token.
 
@@ -3127,7 +3126,7 @@ posture must not be satisfiable by silence.
   **The wording used to say "a short-lived proof that the request transited that component", and
   review showed the code did not deliver either half.** The lifetime was the component's to choose
   and nothing capped it, and nothing bound an assertion to a request - so replaying the identical
-  token worked for as long as its `exp` allowed. `docs/adr/0014` now says the same thing this doc
+  token worked for as long as its `exp` allowed. The architecture decision now says the same thing this doc
   comment does; the lifetime half is fixed by `ProofLifetime`, and the binding half is a stated
   limit rather than a claim.
 
@@ -3186,7 +3185,7 @@ pub const fn what_it_does_not_do() -> &'static str
 
 The sentence that keeps leg 1 from being read as leg 2.
 
-The same for both modes, deliberately: `docs/adr/0014`'s table says the mode changes who
+The same for both modes, deliberately: the architecture decision's table says the mode changes who
 authenticates the caller and changes **nothing** about who is responsible for the chain or for
 leg 2. A constant rather than a `match` would have said that less clearly than a function
 whose whole body is one string does.
@@ -3232,7 +3231,7 @@ pub const fn audience(&self) -> &'inbound ResourceIdentifier
 
 The value the `aud` claim must contain, byte for byte.
 
-**Unconditional, and that is the security decision in `docs/adr/0014`.** A client may send a
+**Unconditional, and that is the security decision in the architecture decision.** A client may send a
 resource indicator asking its authorization server for a narrower token; that is welcome and
 it is an optimisation. It is never what makes the token safe, and this check is not skippable
 when the indicator is absent.
@@ -3312,7 +3311,7 @@ Where the signing keys are read from.
 
 **A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
 endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - `docs/adr/0014` says plainly that the authorization server becomes a hard
+its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
 runtime dependency and that an outage there must stay distinguishable from a dead data system.
 None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
 when a key id is not in it, and that refetch is rate limited - and every one of those properties
@@ -3340,7 +3339,7 @@ the same header rather than a lookup that silently misses.
 The longest lifetime a transit proof may declare.
 
 **A server-chosen ceiling on somebody else's token**, and the reason it exists is that
-`docs/adr/0014` calls a transit proof *short-lived* while the lifetime is entirely the fronting
+the architecture decision calls a transit proof *short-lived* while the lifetime is entirely the fronting
 component's to choose. Review demonstrated a proof with `exp` ten years out being accepted, and
 accepted again on a replay of the identical token. So the deployment declares what it will call
 short-lived, and a proof claiming more is refused.
@@ -3352,7 +3351,7 @@ zero would refuse every proof - a way of turning the mode off that reads like a 
 
 What this deployment calls itself when it validates an audience.
 
-**This is the security decision in `docs/adr/0014` given a type.** A token is accepted only if
+**This is the security decision in the architecture decision given a type.** A token is accepted only if
 its audience matches this value. A client may also *ask* its authorization server for a token
 scoped to this resource - RFC 8707's resource indicator - and that is welcome and is an
 optimisation: it makes the token narrower before it ever arrives. It is never what makes the
@@ -4053,7 +4052,7 @@ outgrow the machine is the process ending for every caller in flight rather than
 one who asked. It is a **query-wide** value with no per-source override, and the reason it is not
 symmetric with the deadline is on the type - one combiner leaves a per-source ceiling nothing to
 bound, so none could exist, whereas the deadline's no override is a later decision
-(`docs/adr/0029-where-a-deadline-lives.md` declined what this record's plan predicted for it):
+(the architecture decision declined what this record's plan predicted for it):
 impossible here, decided there.
 
 `ShutdownGrace` is the budget for stopping, and it covers the whole of stopping rather than
@@ -4193,7 +4192,7 @@ state, a sort - and nothing else. **Not** what a driver buffers before conversio
 domain rows. So this is not a bound on the process's memory and must not be read as one: a
 question large enough to end the process on one of those paths still ends it. The bound that
 reaches those is a byte budget applied as rows are converted, which
-`docs/adr/0009-the-plan-from-one-source-to-many.md` puts with the execution boundary rather than
+the architecture decision puts with the execution boundary rather than
 here.
 
 # Global, and no per-source override
@@ -4218,7 +4217,7 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in the architecture decision observed only
 a small in-process workload and cannot see driver buffers, collected batches or domain-row
 conversion, so it did not justify changing the starting point. The default remains provisional.
 
@@ -4432,7 +4431,7 @@ Whether this token is the same as another configured token.
 `PartialEq` would be.** Both sides are already digests of at-rest configuration, so neither
 is an attacker-presented value arriving at a timing-sensitive boundary; comparing them at
 boot with `subtle`'s constant-time equality keeps even that much out. It exists because
-`docs/adr/0015` Decision 1 refuses a metrics token equal to the API token, and the refusal
+the architecture decision refuses a metrics token equal to the API token, and the refusal
 needs the two digests compared once, at startup.
 
 ```rust
@@ -4643,7 +4642,7 @@ The configured token, if there is one.
 pub const fn audience_mapping(&self) -> &crate::audience::AudienceMapping
 ```
 
-`docs/adr/0028`'s deployment mapping: which audiences a verified caller's group claim grants.
+The architecture decision's deployment mapping: which audiences a verified caller's group claim grants.
 
 ```rust
 pub const fn describes_identity(&self) -> bool
@@ -4651,7 +4650,7 @@ pub const fn describes_identity(&self) -> bool
 
 Does anything here establish who the caller is?
 
-**This stopped being a constant, which is the change `docs/adr/0014` predicted.** It was an
+**This stopped being a constant, which is the change the architecture decision predicted.** It was an
 associated function that always answered `false`, with a comment saying it would change when a
 request context and an inbound credential existed. They exist, so it reads a value: `true`
 exactly when an inbound declaration is configured, and `false` for the deployment token alone -
@@ -4708,7 +4707,7 @@ Assembles the group from parts that have each already been parsed.
 
 The inbound declaration is an `Option` because its absence is a posture rather than a gap: a
 deployment that establishes no per-caller identity is a single-player deployment, which
-`docs/adr/0008` part 5a calls a first-class shape. What is *not* optional is saying which mode,
+the architecture decisiona calls a first-class shape. What is *not* optional is saying which mode,
 once a block exists at all - and that refusal lives in `crate::settings::parse_inbound`,
 because the shape here cannot hold "a mode nobody named".
 
@@ -4730,7 +4729,7 @@ material to each outbound client rather than letting every call site read settin
 itself - today that is the `DataHub` catalog reader's own agent, and nothing else.
 
 **The `BigQuery` consumer this used to name is gone.** It said the material goes to
-`WireAgent::secured`; that type went with the HTTP transport (`docs/adr/0018`, fifth
+`WireAgent::secured`; that type went with the HTTP transport (the architecture decision, fifth
 amendment), and the ADBC driver verifies its own TLS against roots nothing here reads. So a
 deployment declaring anchors gets them for `Postgres` and `DataHub` and **not** for
 `BigQuery` -
@@ -4807,9 +4806,8 @@ of what changed, so a deployment that flips it and has acknowledged nothing does
 # The variant names are not the configured words, and that is deliberate
 
 A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
-spellings, and they are the vocabulary
-[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-5a names. The variants are named for the *property each mode decides* instead, because
+spellings, and they are the vocabulary the credential-per-leg decision (5a) names. The variants
+are named for the *property each mode decides* instead, because
 `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
 that survived that say more: what changes between the two is whether credentials are static
 configuration or a subject arrives per request.
@@ -4834,7 +4832,7 @@ The deployment-wide outbound trust declaration - `security.outbound`.
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
 (`crate::sources::refuse_foreign_keys` on `files`/`bigquery`). A deployment-wide declaration is
-the shape a fixed-host client has something to attach to. See `docs/adr/0010`'s amendment.
+the shape a fixed-host client has something to attach to. See the architecture decision's amendment.
 
 **What reads it today is the `DataHub` reader, and NOT the `BigQuery` transport.** The HTTP wire
 and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
@@ -4928,9 +4926,8 @@ of what changed, so a deployment that flips it and has acknowledged nothing does
 # The variant names are not the configured words, and that is deliberate
 
 A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
-spellings, and they are the vocabulary
-[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-5a names. The variants are named for the *property each mode decides* instead, because
+spellings, and they are the vocabulary the credential-per-leg decision (5a) names. The variants
+are named for the *property each mode decides* instead, because
 `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
 that survived that say more: what changes between the two is whether credentials are static
 configuration or a subject arrives per request.
@@ -5040,7 +5037,7 @@ The deployment-wide outbound trust declaration - `security.outbound`.
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
 (`crate::sources::refuse_foreign_keys` on `files`/`bigquery`). A deployment-wide declaration is
-the shape a fixed-host client has something to attach to. See `docs/adr/0010`'s amendment.
+the shape a fixed-host client has something to attach to. See the architecture decision's amendment.
 
 **What reads it today is the `DataHub` reader, and NOT the `BigQuery` transport.** The HTTP wire
 and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
@@ -5340,7 +5337,7 @@ Why a bound is not a bound.
 
   **Its own variant rather than `Self::Zero`, because the arithmetic that fails is not "this
   is zero" - one second parses today - it is "this cannot afford what is reserved out of it".**
-  `docs/adr/0029` is the record: the margin covers the cancellation reaching back through the
+  the architecture decision is the record: the margin covers the cancellation reaching back through the
   driver, the audit write and the response, and it stays where the transport's own give-up
   already is - so a timeout that cannot afford it would leave the port with nothing to open a
   `Budget` from.
@@ -6266,7 +6263,7 @@ be skipped" look like the same sentence and are not.
   `BillingProject` makes for existing. `location` is the same question one size smaller: a
   dataset outside the two multi-regions needs it on the endpoint's result-paging call. Neither a
   `project` nor a `location` field is added yet because this seam has no transport consuming
-  them; the limit is also stated in `docs/adr/0017`, and the change that adds the wire is the one
+  them; the limit is also stated in the architecture decision, and the change that adds the wire is the one
   that decides the fields.
 - `Postgres` - A `PostgreSQL` database, reached over a connection the deployment declares.
 
@@ -6346,7 +6343,7 @@ A `clickhouse` source's declared subject -> `ClickHouse` user map.
 How the channel to a source is secured, per source and never globally.
 How sutura secures the channel to one source, per source and never globally.
 
-**This module is `docs/adr/0010`'s configuration half, and it exists because a source
+**This module is the architecture decision's configuration half, and it exists because a source
 connection is the first thing in this repository that must VERIFY a peer's chain.** The serving
 side presents a chain and verifies none, so `sutura-http` deliberately pulls in neither
 `webpki-roots` nor `rustls-native-certs`; a source verifies, so which anchors are trusted
@@ -6363,7 +6360,7 @@ Mutual    { anchors, identity }                - TLS, verified, and sutura prese
 ```
 
 There is deliberately no `Verified`-without-anchors shape: a source asking for TLS and naming no
-trust store is a refusal at load, naming the source (ADR 0010 rule 2). `TrustAnchors` has no
+trust store is a refusal at load, naming the source (the architecture decision). `TrustAnchors` has no
 default, so there is no value the loader could have filled in on the operator's behalf.
 
 And `Verified` deliberately has no client identity either, which makes a written one a refusal
@@ -6400,7 +6397,7 @@ pub enum TrustAnchors
 
 The trust anchors a source chain may be verified against.
 
-**No `Default`, and the field is named here rather than filled in.** Rule 2 of `docs/adr/0010`
+**No `Default`, and the field is named here rather than filled in.** Rule 2 of the architecture decision
 is that the trust store is stated, not inherited - defaulting to whatever the host happens to
 trust is how a source is silently accepted from the wrong issuer. So there is no value this type
 could hold on the operator's behalf, and a `Default` impl would be a value that never passed a
@@ -6512,7 +6509,7 @@ value that would be cloned is a path, which is fine to own here.
   is what a message reading *names `transport_anchors` or a client certificate* could not do.
 - `TlsWithoutAnchors` - A source declared TLS and named no trust anchors.
 
-  Rule 2 of `docs/adr/0010`: the trust store is stated, not inherited, so there is no value to
+  Rule 2 of the architecture decision: the trust store is stated, not inherited, so there is no value to
   fall back to. `TrustAnchors` has no `Default` for exactly this refusal's sake.
 - `MissingHalf` - A client certificate was written without its key, or the reverse.
 - `MutualWithoutIdentity` - A `mutual` channel declared no client identity at all.
@@ -6553,7 +6550,7 @@ Each caller maps it into its own refusal, which names its own key path.
 pub fn parse(alias: &sutura_domain::model::SourceName, mode: &str, anchors: Option<&str>, client_certificate: Option<&str>, client_key: Option<&str>) -> Result<SourceTransport, InvalidTransport>
 ```
 
-Reads one source's transport from its written fields, refusing the combinations ADR 0010 says
+Reads one source's transport from its written fields, refusing the combinations the architecture decision says
 a closed type must refuse.
 
 `mode` is the `transport_mode` word. `anchors` is the written `transport_anchors` value (a path or
@@ -6605,7 +6602,7 @@ one exchange this process can run is a declared
 `crate::sources::workload_identity::DelegationDeclared`, at the caller's own identity provider,
 before that. A source that
 executes as the asking subject has to say *which* pool receives that assertion, and that is the
-source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
+source's declaration rather than this process's guess. See the architecture decision and the architecture decision's
 sixth amendment.
 
 **What each declared value actually reaches.** `audience` is sent. `scope` is parsed and sent
@@ -6617,7 +6614,7 @@ account each of those subjects executes as - sent as the credential document's
 run as.
 `expected_issuer`/`expected_audience` are REFUSED at boot by
 `sutura_cli::serve::broker` - the RFC 8693 hop that checked them is deleted
-(`docs/adr/0034`, both amendments), and a declaration nothing reads is a control that reads as
+(the architecture decision, both amendments), and a declaration nothing reads is a control that reads as
 being in place.
 
 The two newtypes are declared here, in the settings tree that owns the value, and the adapter
@@ -6709,10 +6706,10 @@ can become a startup failure, by `DeclaredPrincipals::parse`.
 **`expected_issuer` and `expected_audience` are refused at boot.** They named what the pool
 itself trusts, so that a document leg 1 accepts could not be one the pool declines -
 telekom/sutura#817's seam. The mechanism that compared them was the RFC 8693 hop and its claim
-check, both deleted (`docs/adr/0034`, both amendments), so `sutura_cli::serve::broker` refuses a
+check, both deleted (the architecture decision, both amendments), so `sutura_cli::serve::broker` refuses a
 source declaring either, naming both keys. They stay parsed and refusable rather than dropped so
 that a deployment which once declared them fails loudly; whether the settings tree should keep
-them at all is an owner decision `docs/adr/0034` does not take.
+them at all is an owner decision the architecture decision does not take.
 
 **Both are still `Option` and a PAIR**, refused unless both or neither are present - a lone
 value would be half a comparison even once something compares them again.
@@ -6817,7 +6814,7 @@ pub struct DelegationDeclared
 
 The delegation exchange a `direct` deployment runs before the pool will accept its caller.
 
-`docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
+The architecture decision's fourth amendment: the caller's inbound token is exchanged at
 `token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
 
 **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
@@ -7126,7 +7123,7 @@ pub const fn service_name(&self) -> &ServiceName
 The tool surface's own settings: which of the capabilities beside the certified one this
 deployment turned on.
 
-One tool exists here today - `docs/adr/0013`'s raw SQL tool - and this module is where a second
+One tool exists here today - the architecture decision's raw SQL tool - and this module is where a second
 one's own key would arrive, per tool, off by default: there is deliberately no group-wide switch,
 because a tool this deployment never turns on should never be a line item in an operator's
 decision about a different one.
@@ -7154,7 +7151,7 @@ pub const fn new(run_sql_enabled: bool) -> Self
 pub const fn run_sql_enabled(self) -> bool
 ```
 
-Whether `docs/adr/0013`'s raw SQL tool is turned on. Off unless an operator wrote
+Whether the architecture decision's raw SQL tool is turned on. Off unless an operator wrote
 `tools.run_sql.enabled: true`.
 
 #### Implements

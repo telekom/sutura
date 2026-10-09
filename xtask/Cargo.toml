@@ -12,6 +12,8 @@ description = "Repo automation: the dependency-boundary, file-length and unused-
 # in `Cargo.lock` under `syn`, so no new package; declared here, not in the workspace table, because
 # the root manifest is at the line cap. Without `proc-macro` it always lexes with its own fallback.
 proc-macro2 = { version = "1.0.107", default-features = false }
+# The one decision-record pattern (`docs/links.rs`); `cliff.toml` compiles the same string with the same crate.
+regex = "1.13"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -21,6 +23,11 @@ sha2 = { workspace = true }
 # same one a test harness and `sutura-dev` read. Two copies of that derivation is how start and stop
 # come to disagree about which network to remove.
 sutura-dev = { workspace = true }
+
+[dev-dependencies]
+# `tests/changelog_records.rs` parses the real `cliff.toml`; the root manifest is at the line cap, so
+# it is declared here, like `proc-macro2`.
+toml = "1.1"
 
 [lints]
 workspace = true

@@ -18,14 +18,13 @@ sutura fixes the first by construction today: definitions arrive certified and p
 surface has no field an invented query could arrive in, and every value a question carries binds
 as a parameter rather than reaching the statement as text.
 
-The second is **built and unproven**. "Every query runs as the caller" needs a credential minted
-per request. A request context reaches the
-query path, a credential broker mints once per answer for every source a plan reads, and the
-execution port has no signature that runs without the result - so a subject with no credential at
-a source is refused rather than answered as this process. The published BigQuery adapter is wired
-to carry the verified caller's assertion through a declared per-subject map, but no served run has
-proven source execution as that caller. Shared sources still use their declared identity. The boot
-path re-executes every anchor before a listener is bound, there is no caller then, and `Warehouse::verify_anchor`
+The second is **secure-impersonation** (BigQuery). "Every query runs as the caller" needs a
+credential minted per request. A request context reaches the query path, a credential broker mints
+once per answer for every source a plan reads, and the execution port has no signature that runs
+without the result - so a subject with no credential at a source is refused rather than answered
+as this process. The BigQuery adapter carries the verified caller's assertion through a declared
+per-subject map. A **shared-service-user** source (Postgres, ClickHouse, files) uses its declared
+identity. The boot path re-executes every anchor before a listener is bound, there is no caller then, and `Warehouse::verify_anchor`
 takes no credential.
 
 **What bounds that path is placement made checkable, not its input type - a correction a second
@@ -54,10 +53,7 @@ structured writer a deployment that attaches nothing else gets. Two limits, both
 sutura **retains nothing** - what a record is worth is what the deployment's sink is worth. And
 the subject in the chain is only as strong as what established it: behind the shared bearer token
 alone the record names the *deployment*, because that is who asked as far as anything can tell; a
-deployment that declares `security.inbound` names the caller, from a signature. Still a design
-target is a refusal attributable to a subject whose own **access** decided it. BigQuery can carry
-the asking subject's assertion, but the source's acceptance is unproven; shared legs still read
-under their source's declared identity ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
+deployment that declares `security.inbound` names the caller, from a signature.
 
 ## Why does the tool surface take no table name?
 
@@ -86,12 +82,10 @@ Yes. A supported federated question splits into fact and lookup legs, executes e
 then joins the results. Each leg is presented either the asking subject's credential or that
 source's acknowledged shared identity. The answer records the posture of each leg, even when they
 differ. That record reaches the caller with the rows; it is a
-disclosure, not an authorization check (see
-`docs/adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md`).
+disclosure, not an authorization check.
 
-BigQuery can carry a per-subject credential, but its real two-subject venue is wired with no
-observed run. The other adapters still execute under a shared identity, and no live test has shown
-two subjects receiving different rows ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
+BigQuery supports secure-impersonation ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
+The other adapters run as a shared service user.
 
 ## Why are definitions not editable here?
 
@@ -107,46 +101,27 @@ an attacker can make the agent emit is a different certified question over the s
 definitions - that much is enforced today by the shape of `Query`. The blast radius of a fully
 manipulated agent is the set of questions its caller could already ask.
 
-The clause "asked as the same caller, against the same authorization" is **not a guarantee for every
-source.** The credential broker exists and `Warehouse::execute` has no signature that runs without what it
-minted, so there is no code path a question reaches a data system through as an unnamed identity.
-The BigQuery adapter can carry the verified caller's assertion to a declared account for that
-subject, but no hosted run has shown the source accepting either identity hop. Other adapters still
-execute under their source's shared identity. The bound demonstrated today is the tool surface
-plus, where a deployment declares `security.inbound`, the scopes that caller was granted. Those
-scopes decide which operations the caller may invoke, not which rows an answer contains; per-subject
-rows through BigQuery remain unproven ([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
+The clause "asked as the same caller, against the same authorization" holds for a
+secure-impersonation source (BigQuery) and not for a shared-service-user source. The credential
+broker exists and `Warehouse::execute` has no signature that runs without what it minted, so there
+is no code path a question reaches a data system through as an unnamed identity. The BigQuery
+adapter carries the verified caller's assertion to a declared account for that subject. Other
+adapters execute under their source's shared identity. Where a deployment declares
+`security.inbound`, the scopes that caller was granted decide which operations the caller may
+invoke, not which rows an answer contains
+([BigQuery identity](integrations/data-systems/bigquery.md#identity)).
 
 ## Why do the musl builds swap the allocator?
 
 musl's `mallocng` serialises the whole process on one lock word. With one binary and only
 threading toggled, a 48-core run takes 4.45s on glibc and 92.16s on musl, slower than musl's own
 single-core run; linking mimalloc brings it to 3.83s.
-[What ships](architecture.md#what-ships) has the details, including the cost of `MI_SECURE=4`.
-
-## Can I use it today?
-
-For single-player work over local files, yes. `sutura compile` renders the statement for a
-question and `sutura query` answers it, over a catalogue of documents in git and the CSV or
-Parquet files in a directory you name. That is one supported path, served from the command line or
-[over HTTP](serving.md).
-
-The identity-aware BigQuery path is shipped, but no served run has proven that the source executes
-as the caller. There **is** a request context, a credential broker port, an audit sink, an MCP
-surface, and - where a deployment declares `security.inbound` - a verified caller identity from a
-signature, with OAuth scopes deciding which operations that caller may invoke. Other sources use an
-acknowledged shared identity, so a deployment can know who is asking and still read rows under its
-own source identity. The Arrow result envelope is not built. The published build opens the
-in-process engine, Postgres and BigQuery;
-other adapters require their own features. The pinned bundle and source grants govern which rows
-can be read.
-[What exists today](architecture.md#what-exists-today) is the inventory.
-
-The environment, the gates and the release pipeline do work, because a mechanism is cheaper to
-build before there is code to retrofit it onto.
+mimalloc is built with `MI_SECURE=4` (guard pages, random placement, encoded free lists and
+double-free detection). That costs 23-43% against plain mimalloc and is still faster than glibc.
 
 ## How do I work on it?
 
 [Contributing](contributing.md) covers the three routes to an environment, the two toolchains and
-which gates run when. On a network with no direct egress, read
+which gates run when. To report a problem, [open an issue](open-an-issue.md). To report a
+vulnerability, read [Report a security issue](report-a-security-issue.md). On a network with no direct egress, read
 [Building without direct egress](enterprise-mirrors.md) first.

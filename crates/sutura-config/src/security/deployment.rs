@@ -47,9 +47,8 @@ use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
 /// # The variant names are not the configured words, and that is deliberate
 ///
 /// A deployment writes `single-user` or `multi-user` - [`Self::as_str`] and [`Self::NAMES`] own those
-/// spellings, and they are the vocabulary
-/// [a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-/// 5a names. The variants are named for the *property each mode decides* instead, because
+/// spellings, and they are the vocabulary the credential-per-leg decision (5a) names. The variants
+/// are named for the *property each mode decides* instead, because
 /// `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
 /// that survived that say more: what changes between the two is whether credentials are static
 /// configuration or a subject arrives per request.

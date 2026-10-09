@@ -12,7 +12,7 @@ A `SemanticCatalog` over a directory of markdown documents with YAML frontmatter
 One document per model, relationship and metric: the frontmatter is the definition and the prose
 is the description that travels with an answer. It is the catalog for the case where there is no
 upstream semantic layer to take a rendered statement from, which is the case a person is in the
-first time they try this. `docs/adr/0001-first-party-semantic-models.md` is the decision.
+first time they try this. The architecture decision is the decision.
 
 Three properties of the load are worth stating, because each is a mechanism rather than an
 intention:
@@ -123,7 +123,7 @@ finer split is a cheap change if a caller ever needs the branch.
   domain's own hashing, and neither is a fact about reading a directory. The chain still says
   which one happened.
 - `SecondDeclaration` - A second `kind: declaration` document. A tree states one declaration; two would need a rule for which one wins, and a silent winner is the failure a declaration exists to prevent.
-- `DeclarationWithoutStructure` - A `kind: declaration` document whose `definitions:` does not list `structure` as always carried. A tree with no models is an empty bundle, and one with notes alone would render them deployment-wide, which `docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md` rules out: knowledge speaks through a metric.
+- `DeclarationWithoutStructure` - A `kind: declaration` document whose `definitions:` does not list `structure` as always carried. A tree with no models is an empty bundle, and one with notes alone would render them deployment-wide, which the architecture decision rules out: knowledge speaks through a metric.
 
 ### Implements
 
@@ -249,7 +249,7 @@ tree with one is held to it when it composes, in both directions, like any decla
 
 `definitions:` must list `structure` and not under `may_provide:`: a tree always carries models,
 and one that did not would be an empty bundle, or notes rendered deployment-wide against
-`docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`. A load without it is refused
+the architecture decision. A load without it is refused
 as `LocalCatalogError::DeclarationWithoutStructure`.
 
 The knowledge half is also the bundle's own `sutura_domain::knowledge::Knowledge` declaration,
@@ -605,7 +605,7 @@ happened.
   `sutura_domain::pinned::NotValidated::AnchorNotExecuted` already uses: this variant says
   which document to open, and whoever renders it walks the chain for which character to look
   for. Reported per metric rather than per field because a metric document declares one anchor.
-- `Audience` - The `audience:` declaration is not a usable one - `docs/adr/0028`.
+- `Audience` - The `audience:` declaration is not a usable one - the architecture decision.
 - `EmptyChain` - A dimension's `via:` chain names nothing.
 
   The domain's `ViaChain::of` refuses the empty chain; this is where the refusal learns which
@@ -619,7 +619,7 @@ happened.
 
 ### Module `audience`
 
-The on-disk shape of a metric's audience declaration - `docs/adr/0028-who-may-see-a-metric.md`.
+The on-disk shape of a metric's audience declaration - the architecture decision.
 
 Its own file for the reason `document.rs`'s own header gives for `knowledge`: that file is
 already near `cargo xtask max-lines`'s thousand-line cap, and this is a separate concern from the
@@ -630,7 +630,7 @@ asking.
 `AudienceDoc::Open` is a unit variant; `audience: { restricted: [finance] }` names a non-empty
 list. No `#[serde(default)]` on the field this type parses into
 (`crate::document::MetricDoc::audience`) - a missing declaration is a parse error naming the
-metric, never a silent *open*, which is the property `docs/adr/0028` states as non-negotiable.
+metric, never a silent *open*, which is the property the architecture decision states as non-negotiable.
 
 #### `enum AudienceDoc`
 

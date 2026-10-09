@@ -24,6 +24,10 @@
 //! relative target inside an included file against the INCLUDING page, which is what mkdocs does
 //! and what `docs/contributing.md`'s own comment warns about.
 //!
+//! **Any text that names the decision-record directory is the same defect, and is refused too.**
+//! A plain mention is read from the raw text of every page and everything it includes, fenced code
+//! and comments included, so it is a finding wherever it sits.
+//!
 //! **The limits, next to the claim.** This reads inline markdown links, `](target)`, in the prose
 //! [`crate::markdown`] leaves after removing fenced code blocks, HTML comments and inline code
 //! spans. Angle-bracket destinations, `](<a b.md>)`, percent-encoded paths and a case difference
@@ -45,13 +49,41 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::markdown::{self, Unlexable};
 
 use super::CONFIG;
+use super::embeds::{self, Embed, Reach};
 
 /// The `pymdownx.snippets` marker.
 const INCLUDE_MARKER: &str = "--8<--";
+
+/// The decision-record directory. `exclude_docs` keeps the records off the site, so a path into it
+/// on a published page - a link or a plain mention - names a file the reader cannot open.
+const ADR_DIRECTORY: &str = "docs/adr/";
+
+/// Whether `text` names a decision record, by path or by number. The one reading that the docs gate
+/// and the commit subject gate share.
+pub(crate) fn names_a_decision_record(text: &str) -> bool {
+    text.contains(ADR_DIRECTORY) || names_a_decision_number(text).is_some()
+}
+
+/// The ONE pattern for a decision record cited by number: `ADR`, any run of whitespace and hyphens,
+/// four digits, in any case (`ADR 0011`, `ADR-0015`, `adr0011`). `cliff.toml` carries the same string in
+/// every rule that names a record, and `xtask/tests/changelog_records.rs` holds the two equal. The
+/// records are off the site, so the number points at a page the reader cannot open. A word that
+/// merely ends in `ADR` is not a citation. A pattern that fails to compile matches nothing, and that
+/// cell is what turns it red.
+const DECISION_NUMBER: &str = r"(?i)\bADR[\s-]*\d{4}\b";
+
+/// The first citation of a decision record by number in `text`.
+fn names_a_decision_number(text: &str) -> Option<&str> {
+    static PATTERN: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISION_NUMBER).ok());
+    PATTERN.as_ref()?.find(text).map(|found| found.as_str())
+}
 
 /// How many distinct files one page may pull in before this refuses to keep following.
 ///
@@ -101,6 +133,8 @@ pub(super) struct Scan {
     read: usize,
     /// What this text pulls in with `--8<--`.
     includes: Vec<Include>,
+    /// The `src` of every iframe and image in it.
+    embeds: Vec<Embed>,
 }
 
 /// Every inline link target in the prose, as written.
@@ -214,6 +248,7 @@ fn scan(written: &Written<'_>, text: &str, excluded: &BTreeSet<String>) -> Resul
         problems: Vec::new(),
         read: 0,
         includes: Vec::new(),
+        embeds: embeds::of(&lines),
     };
     for line in &lines {
         out.includes.extend(include(line));
@@ -257,6 +292,29 @@ pub(super) struct Sweep {
     /// page, exit 0, 51 of 52 pages unscanned - because the other pages supply the count and a
     /// per-tree quantifier defends nothing about WHICH page.
     pub(super) scanned: usize,
+    /// How many iframe and image sources resolved to a file in the docs directory.
+    pub(super) embeds: usize,
+}
+
+/// Whether each embed in one file reaches a file in the docs directory.
+///
+/// A `src` in an included file resolves against the including page, the same as a link does.
+fn embed_problems(root: &Path, docs_dir: &str, written: &Written<'_>, found: &[Embed], out: &mut Sweep) {
+    for embed in found {
+        let shown = &embed.src;
+        match embeds::reached(written.page, embed) {
+            Reach::Elsewhere => {}
+            Reach::Unresolvable(why) => out.problems.push(format!(
+                "`{}` embeds `{shown}`, which cannot be checked: {why}",
+                written.file
+            )),
+            Reach::Docs(path) if root.join(docs_dir).join(&path).is_file() => out.embeds = out.embeds.saturating_add(1),
+            Reach::Docs(path) => out.problems.push(format!(
+                "`{}` embeds `{shown}`, which is `{docs_dir}/{path}`, and no such file exists - mkdocs copies what it finds and says nothing about the rest, so the reader gets an empty frame or a broken image",
+                written.file
+            )),
+        }
+    }
 }
 
 /// One published page and everything it pulls in. `true` when it was scanned end to end.
@@ -266,6 +324,7 @@ fn scan_page(
     text: String,
     excluded: &BTreeSet<String>,
     snippets: Snippets,
+    docs_dir: &str,
     out: &mut Sweep,
 ) -> bool {
     let mut pending = vec![(String::from(written.file), text)];
@@ -285,6 +344,18 @@ fn scan_page(
                 continue;
             }
         };
+        if body.contains(ADR_DIRECTORY) {
+            out.problems.push(format!(
+                "`{file}` names `{ADR_DIRECTORY}`, which is not part of the site - the decision records are kept off it, so a published page carries no path into them. Say what the decision is instead"
+            ));
+        }
+        if let Some(cited) = names_a_decision_number(&body) {
+            let cited = cited.replace('\n', " ");
+            out.problems.push(format!(
+                "`{file}` cites a decision record by number (`{cited}`), and the records are not part of the site. Say what the decision is instead"
+            ));
+        }
+        embed_problems(root, docs_dir, &here, &scanned.embeds, out);
         out.problems.extend(scanned.problems);
         out.read = out.read.saturating_add(scanned.read);
         for named in scanned.includes {
@@ -342,6 +413,7 @@ pub(super) fn sweep(
         problems: Vec::new(),
         read: 0,
         scanned: 0,
+        embeds: 0,
     };
     for page in published {
         let published_as = format!("{docs_dir}/{page}");
@@ -361,7 +433,7 @@ pub(super) fn sweep(
             file: &published_as,
             published: &published_as,
         };
-        if scan_page(root, &written, text, excluded, snippets, &mut out) {
+        if scan_page(root, &written, text, excluded, snippets, docs_dir, &mut out) {
             out.scanned = out.scanned.saturating_add(1);
         }
     }
