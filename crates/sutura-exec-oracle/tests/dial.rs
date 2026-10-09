@@ -152,13 +152,15 @@ mod dial {
         assert!(cause.contains("native network encryption"), "{cause}");
     }
 
-    /// The driver's own message for a connect to `port` that must come back as a typed refusal. The
-    /// connect runs inside `catch_unwind`, so one that does not return fails this assertion.
-    fn refused_without_unwinding(port: u16) -> String {
-        let returned = std::panic::catch_unwind(|| connect(port, Channel::Plaintext, Duration::from_secs(5)).map(drop));
-        let error = returned
-            .expect("the connect returns rather than unwinding")
-            .expect_err("the connect is refused");
+    /// A connect to `port` inside `catch_unwind`, so a cell asserts on a connect that does not
+    /// return in its own body.
+    fn connect_catching(port: u16) -> std::thread::Result<Result<(), OracleError>> {
+        std::panic::catch_unwind(|| connect(port, Channel::Plaintext, Duration::from_secs(5)).map(drop))
+    }
+
+    /// The driver's own message for a connect that must come back as a typed refusal.
+    fn driver_cause(returned: Result<(), OracleError>) -> String {
+        let error = returned.expect_err("the connect is refused");
         assert!(matches!(error, OracleError::Connect { .. }), "{error:?}");
         std::error::Error::source(&error)
             .expect("the refusal carries the driver's cause")
@@ -169,7 +171,8 @@ mod dial {
     #[test]
     fn a_packet_shorter_than_its_header_is_refused_typed() {
         let port = sutura_dev::tns_listener::sending(vec![0, 8, 0, 0, 6, 0, 0, 0]).expect("the fake listener binds");
-        let cause = refused_without_unwinding(port);
+        let returned = connect_catching(port).expect("the connect returns rather than unwinding");
+        let cause = driver_cause(returned);
         assert!(cause.contains("shorter than its header"), "{cause}");
     }
 
@@ -178,7 +181,8 @@ mod dial {
     #[test]
     fn a_marker_too_short_to_name_its_type_is_refused_typed() {
         let port = sutura_dev::tns_listener::marking().expect("the fake listener binds");
-        let cause = refused_without_unwinding(port);
+        let returned = connect_catching(port).expect("the connect returns rather than unwinding");
+        let cause = driver_cause(returned);
         assert!(cause.contains("unable to recover"), "{cause}");
     }
 
@@ -189,17 +193,14 @@ mod dial {
     fn an_iteration_count_above_the_cap_is_refused_at_once() {
         let session = [("AUTH_PBKDF2_VGEN_COUNT", "4294967295"), ("AUTH_VFR_DATA", "00")];
         let port = sutura_dev::tns_listener::authenticating(&session).expect("the fake listener binds");
-        let (told, returned) = mpsc::channel();
+        let (told, answered) = mpsc::channel();
         drop(std::thread::spawn(move || {
             let _ignored = told.send(connect(port, Channel::Plaintext, Duration::from_secs(5)).map(drop));
         }));
-        let error = returned
+        let returned = answered
             .recv_timeout(Duration::from_secs(20))
-            .expect("the connect returns at once for an iteration count above the cap")
-            .expect_err("the connect is refused");
-        let cause = std::error::Error::source(&error)
-            .expect("the refusal carries the driver's cause")
-            .to_string();
+            .expect("the connect returns at once for an iteration count above the cap");
+        let cause = driver_cause(returned);
         assert!(cause.contains("more than the 1048576"), "{cause}");
     }
 
