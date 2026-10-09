@@ -3,6 +3,7 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "sutura: ports and adapters",
+    "subtitle": "sutura crates: transports, the service, the domain ports and the adapters behind them.",
     "output": "architecture.html",
     "quality_profile": "showcase",
     "locale": "en",
@@ -10,10 +11,10 @@
   },
   "components": [
     { "id": "agent", "type": "external", "label": "AI agent", "sublabel": "MCP client", "pos": [40, 40], "size": [130, 60] },
-    { "id": "client", "type": "external", "label": "HTTP client", "sublabel": "app or script", "pos": [40, 170], "size": [130, 60] },
-    { "id": "idp", "type": "security", "label": "Identity provider", "sublabel": "issues access tokens", "pos": [40, 300], "size": [130, 64] },
+    { "id": "client", "type": "external", "label": "HTTP client", "sublabel": "app or script", "pos": [40, 224], "size": [130, 60] },
+    { "id": "idp", "type": "security", "label": "Identity provider", "sublabel": "issues access tokens", "pos": [40, 130], "size": [130, 64] },
     { "id": "mcp", "type": "frontend", "label": "sutura-mcp", "sublabel": "tool surface", "pos": [250, 40], "size": [140, 60], "sources": [{ "path": "crates/sutura-mcp/src/server.rs", "label": "MCP server" }] },
-    { "id": "http", "type": "frontend", "label": "sutura-http", "sublabel": "/v1 API, OpenAPI", "pos": [250, 170], "size": [140, 60], "sources": [{ "path": "crates/sutura-http/Cargo.toml", "label": "HTTP transport" }] },
+    { "id": "http", "type": "frontend", "label": "sutura-http", "sublabel": "/v1 API, OpenAPI", "pos": [250, 224], "size": [140, 60], "sources": [{ "path": "crates/sutura-http/Cargo.toml", "label": "HTTP transport" }] },
     { "id": "app", "type": "backend", "label": "sutura-app", "sublabel": "service, Surface port", "pos": [470, 105], "size": [150, 60], "sources": [{ "path": "crates/sutura-app/src/surface.rs", "line": 98, "label": "Surface trait" }] },
     { "id": "semantic", "type": "backend", "label": "sutura-semantic", "sublabel": "question to plan", "pos": [700, 105], "size": [150, 60], "sources": [{ "path": "crates/sutura-semantic/src/lib.rs", "line": 195, "label": "compile" }] },
     { "id": "domain", "type": "backend", "label": "sutura-domain", "sublabel": "SemanticCatalog, Warehouse, CredentialBroker", "pos": [330, 300], "size": [300, 64], "tag": "ports", "sources": [{ "path": "crates/sutura-domain/src/pinned.rs", "line": 880, "label": "SemanticCatalog" }, { "path": "crates/sutura-domain/src/warehouse.rs", "line": 323, "label": "Warehouse" }, { "path": "crates/sutura-domain/src/identity/credential.rs", "line": 890, "label": "CredentialBroker" }] },
@@ -29,7 +30,8 @@
   "connections": [
     { "id": "agent-mcp", "from": "agent", "to": "mcp", "label": "MCP", "variant": "emphasis" },
     { "id": "client-http", "from": "client", "to": "http", "label": "HTTPS", "variant": "emphasis" },
-    { "id": "idp-http", "from": "idp", "to": "http", "label": "key set", "variant": "security", "fromSide": "right", "toSide": "bottom" },
+    { "id": "idp-http", "from": "idp", "to": "http", "label": "key set", "variant": "security", "fromSide": "right", "toSide": "top", "labelAt": [320, 198] },
+    { "id": "idp-mcp", "from": "idp", "to": "mcp", "label": "key set", "variant": "security", "fromSide": "right", "toSide": "bottom", "labelAt": [320, 128] },
     { "id": "mcp-app", "from": "mcp", "to": "app", "label": "question" },
     { "id": "http-app", "from": "http", "to": "app", "label": "question" },
     { "id": "app-semantic", "from": "app", "to": "semantic", "label": "compile" },
