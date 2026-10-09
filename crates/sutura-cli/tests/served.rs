@@ -651,6 +651,35 @@ mod tests {
     }
 
     #[test]
+    fn a_configured_federated_row_ceiling_refuses_a_two_source_answer_over_it() {
+        // `telekom/sutura#828`, end to end: the key the operator wrote reaches the answer, through
+        // settings, the composition root and the service. The same deployment and question answer
+        // six rows above, so a ceiling of five is crossed by exactly one row, and the refusal names
+        // the written number rather than the compiled one.
+        let settings = format!(
+            "{}\ngovernance:\n  federated_row_ceiling: 5\n",
+            settings_spanning_two_sources("two-sources-ceiling")
+        );
+        let served = start_configured("two-sources-ceiling", &settings);
+        let reply = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            &recurring_revenue_by_region(),
+        );
+        assert_eq!(reply.status, 413, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body["outcome"], "refusal", "{}", reply.body);
+        assert_eq!(body["reason"]["code"], "result_too_large", "{}", reply.body);
+        assert!(
+            body["reason"]["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("cap of 5 rows")),
+            "the refusal does not name the configured ceiling: {}",
+            reply.body
+        );
+    }
+
+    #[test]
     fn the_catalog_route_describes_the_bundle_this_deployment_serves() {
         // The second governed operation, over the same composition. It is here rather than folded
         // into the answer test because the two routes are two capabilities, and a route that stopped

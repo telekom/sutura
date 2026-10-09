@@ -29,6 +29,7 @@ use crate::warehouse::ParamValue;
 use crate::nonempty::NonEmpty;
 mod anchor;
 pub mod bindings;
+mod ceiling;
 pub mod federated;
 pub mod label;
 pub mod leg;
@@ -39,6 +40,7 @@ mod anchor_tests;
 
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
+pub use crate::plan::ceiling::{FederatedRowCeiling, InvalidFederatedRowCeiling, RowCeilings};
 pub use crate::plan::federated::{
     AnswerKey, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner, InternalLabel, LegResult, LegSide,
     Legs, LegsAreNotOneOfEach, labels,
@@ -96,9 +98,10 @@ pub const MAX_ROWS: u32 = 10_000;
 /// *"ask your operator to raise this"* has to be true rather than aspirational. A deployment
 /// configures one in its settings; absent, [`Self::DEFAULT`] is what every deployment already got.
 ///
-/// **The limit, next to the claim.** Nothing here makes the ORDINARY row cap configurable - a
+/// **The limit, next to the claim.** Nothing here makes the single-source row cap configurable - a
 /// question with no `top` is still refused against the compiled [`MAX_ROWS`]. Only the two `top`
-/// refusals this type feeds read a configured value.
+/// refusals this type feeds read a configured value; a federated answer's own bound is
+/// [`FederatedRowCeiling`], which has a maximum this type does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowCeiling(u32);
 

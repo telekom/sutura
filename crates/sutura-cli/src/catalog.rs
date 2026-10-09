@@ -264,7 +264,7 @@ where
     .map(|service| {
         service
             .with_spend_ledger(spend_ledger)
-            .with_row_ceiling(settings.row_ceiling())
+            .with_row_ceilings(settings.row_ceilings())
     });
     service.map_err(|cause| flatten(&cause))
 }
