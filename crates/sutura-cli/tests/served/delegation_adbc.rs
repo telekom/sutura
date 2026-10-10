@@ -11,10 +11,9 @@
 //! reaches no source because the proxy saw no request at all.
 //!
 //! **What this does not show.** Leg 2 against a real pool: nothing reaches Google. Which token the
-//! driver carried to the token service, or which account its second hop names - the proxy sees a
-//! host, not a body - so a source handed the caller's own token instead of the exchanged one passes
-//! here; `delegation_served.rs` and `adbc/subject.rs`'s own cells hold that. Name lookups the
-//! driver makes are not observed.
+//! driver carried to the token service - the proxy sees a host, not a body - so a source handed the
+//! caller's own token instead of the exchanged one passes here; `delegation_served.rs` and
+//! `adbc/subject.rs`'s own cells hold that. Name lookups the driver makes are not observed.
 //!
 //! `#[ignore]`d because the venue needs the driver at `SUTURA_BIGQUERY_ADBC_DRIVER`, which no nix
 //! check carries; the `e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`) selects both.
@@ -41,8 +40,8 @@ mod tests {
     /// identity and not about a plan crossing data systems.
     const MOVED_MODEL: &str = "daily_usage.md";
 
-    /// A caller leg 1 verifies and the source does not declare.
-    const UNDECLARED: &str = "analyst-b@example.com";
+    /// A second caller leg 1 verifies, exchanged as [`DELEGATED`] is.
+    const SECOND: &str = "analyst-b@example.com";
 
     /// The inherited variables a cloud client reads an ambient credential or project from.
     const AMBIENT_CLOUD: [&str; 3] = ["GOOGLE_", "CLOUDSDK_", "GCE_"];
@@ -224,43 +223,51 @@ mod tests {
     #[test]
     #[ignore = "needs the ADBC BigQuery driver at SUTURA_BIGQUERY_ADBC_DRIVER; run by `just e2e-datahub-adbc`"]
     fn a_spawned_deployment_exchanges_the_declared_callers_own_token_and_no_one_elses() {
-        let subject = DELEGATED;
-        let mut deployed = deployed("delegation-adbc-exchanges", vec![Scripted::ok(&issued(&exchanged(subject)))]);
+        let callers = [DELEGATED, SECOND];
+        let mut deployed = deployed(
+            "delegation-adbc-exchanges",
+            callers.map(|subject| Scripted::ok(&issued(&exchanged(subject)))).into(),
+        );
 
-        let (_, refused) = ask(&deployed, UNDECLARED);
-        assert_eq!(refused.status, 403, "{}", refused.body);
-        assert_eq!(refused.json()["reason"]["code"], "credential_unavailable", "{}", refused.body);
-
-        let (token, answer) = ask(&deployed, subject);
-        // Past the exchange the driver asks Google's token service, and the proxy refuses it: the
-        // data system's failure, not the broker's.
-        assert_eq!(answer.status, 503, "{}", answer.body);
-        assert_eq!(
-            answer.json()["code"],
-            "unavailable",
-            "the exchange must have succeeded: {}",
-            answer.body
-        );
-        let dialled = deployed.proxy.seen();
-        assert!(
-            dialled.iter().any(|line| line.starts_with(TOKEN_SERVICE)),
-            "the driver must have taken the workload-identity path to the token service: {dialled:?}"
-        );
-        assert!(
-            !dialled.iter().any(|line| line.contains(DEPLOYMENT_TOKEN_HOST)),
-            "the driver must not have authenticated as the deployment: {dialled:?}"
-        );
+        let tokens = callers.map(|subject| {
+            let (token, answer) = ask(&deployed, subject);
+            // Past the exchange the driver asks Google's token service, and the proxy refuses it: the
+            // data system's failure, not the broker's.
+            assert_eq!(answer.status, 503, "{subject}: {}", answer.body);
+            assert_eq!(
+                answer.json()["code"],
+                "unavailable",
+                "{subject}'s exchange must have succeeded: {}",
+                answer.body
+            );
+            let dialled = deployed.proxy.seen();
+            assert!(
+                dialled.iter().any(|line| line.starts_with(TOKEN_SERVICE)),
+                "{subject}'s question must have taken the workload-identity path to the token service: {dialled:?}"
+            );
+            assert!(
+                !dialled.iter().any(|line| line.contains(DEPLOYMENT_TOKEN_HOST)),
+                "{subject}'s question must not have authenticated as the deployment: {dialled:?}"
+            );
+            token
+        });
         deployed.served.terminate();
 
-        // One offer is also the proof that the undeclared caller's token reached no identity provider.
         let offered = offered(deployed.idp);
-        let [offer] = offered.as_slice() else {
-            panic!("one declared question is one exchange, the undeclared one none: {offered:?}");
+        let [first, second] = offered.as_slice() else {
+            panic!("two callers' questions are two exchanges: {offered:?}");
         };
-        assert!(
-            offer.contains(&format!("subject_token={token}")),
-            "the exchange must offer the declared caller's own verified token: {offer}"
-        );
+        let [first_token, second_token] = &tokens;
+        for (offer, own, other) in [(first, first_token, second_token), (second, second_token, first_token)] {
+            assert!(
+                offer.contains(&format!("subject_token={own}")),
+                "each exchange must offer its own caller's verified token: {offer}"
+            );
+            assert!(
+                !offer.contains(other),
+                "an exchange must carry no other caller's token: {offer}"
+            );
+        }
     }
 
     #[test]
