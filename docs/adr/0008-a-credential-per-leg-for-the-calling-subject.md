@@ -2271,3 +2271,43 @@ change has landed: `execute` and `dry_run` both take `&Presented` and a `Deadlin
 default body returns `PreFlight::NotAsked` rather than `Ok(())`
 (`crates/sutura-domain/src/warehouse.rs:471`). The argument those two sentences make is why the
 signature changed, so they stay as written.
+
+## Sixth amendment, 2026-10-10: an Oracle source opens each question's session with the caller's own token
+
+The third amendment's *an Oracle source declared for impersonation is refused at startup* and *the
+adapter has no path for a caller's credential* are now false. `OracleWarehouse::IMPERSONATION` is
+`PerSubjectCredential`, and an `impersonation-at-source` `oracle` source opens a session of its own
+for each question, authenticated with the asker's token. This block records the three decisions
+that took.
+
+**The token is the document leg 1 verified, sent as the session's OAuth 2.0 access token.** The
+vendored driver's token authentication (`VENDOR.md`, local patch 7) sends one token in the login and
+no user name or password. The database's own configuration decides what it accepts - the issuer and
+audience it trusts, and the database user it maps the token to - so this deployment decides only
+WHETHER a caller may be asked at the source: `sources.<alias>.subjects` lists the verified subjects
+`DeclaredPrincipalBroker::authenticating` admits, and a caller absent from it, an anonymous caller,
+or a declared caller with no verified token is refused as `credential_unavailable`. No principal is
+named beside the token, because the database resolves it; the adapter refuses a leg that names one.
+The deployment assumes the operator configured the database to accept that issuer. **No exchange is
+composed for this kind.** The one exchange a served build runs, `workload_identity.delegation`, is
+built by the BigQuery adapter's own client, and an `oracle` entry that writes `workload_identity` is
+refused as a key that kind does not read.
+
+**The limit of that choice, beside it.** The database receives a token this deployment also accepts,
+so it could present that token back to this deployment until it expires. A per-source exchange for a
+token whose audience is the database alone would remove that, and is not built for Oracle.
+
+**The session lifecycle, and the bound on sessions.** The boot connection under the declared `user`
+stays, for the boot path's own probes (`verify_anchor`, `declared_key`) only; a question never runs on
+it at an impersonating source, and a shared leg handed to one is refused by `Presented::agrees_with`.
+A question's session is opened under the adapter's one execution lock, the statement runs on it, and
+it is closed before the lock is released - so a source holds at most one caller's session at a time
+beside its boot connection, and no session outlives its question or serves a second caller. Every
+connect path is the same driver connect, so the length and count validations of local patch 6 apply
+to each of them. The dial bound covers each session's TCP connect; the handshake and the close are
+not bounded, so a database that stops answering there holds the source.
+
+**TLS is required for a token.** The settings parse refuses an impersonating `oracle` source declared
+`plaintext`, and the driver refuses token authentication over anything but `tcps`, at the declared
+address and at any address a redirect names - and the adapter refuses every redirect before it logs
+in.
