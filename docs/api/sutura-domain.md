@@ -986,11 +986,11 @@ field and describe none. `nullable` is likewise a source's own claim, read and s
 derived from anything else here.
 
 **`data_type` is descriptive text.** It is a quote of what the source called the column -
-`"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. At HEAD
-nothing branches on it - `sutura_sql` has its own closed vocabulary for what a statement may
-execute - but that is an absence rather than a mechanism: `ColumnType`'s own doc names review
-as what holds "never a cast", not the type system, because nothing here stops a future reader of
-`Self::data_type` from treating it as one.
+`"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
+branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
+kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+`ColumnType`'s own doc names review as what holds "never a cast", not the type system, because
+nothing here stops another reader of `Self::data_type` from treating it as one.
 
 **Column prose is parsed and pinned.** The opt-in physical-schema listing quotes it under
 `prompt.catalog_prose`; a deployment omitting catalog prose omits it on both prompt and tool.
@@ -1784,9 +1784,10 @@ string measure.
 A `super::Column`'s data type, as a source's own dictionary spells it: `"STRING"`,
 `"character varying"`, `"NUMERIC(38,9)"`.
 
-**Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** Nothing in this crate branches
-on it, and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that
-is an absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
+**Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** The one branch on it is
+`LinkKind::declared`, which reads it to REFUSE a federated join across kinds and nothing else,
+and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that is an
+absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
 treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
 rather than asserted, per this repository's own rule that an overstated control is itself the
 defect.
@@ -1795,10 +1796,10 @@ defect.
 A run of whitespace - including a newline, however the source pretty-printed a nested type -
 collapses to one plain space before anything else is checked. Two spellings that differ only in
 that whitespace are the same type, and a source's own formatting choice must not move the digest.
-This is safe here specifically because there is no rendering surface for it to disagree with:
+This is safe here specifically because no rendering surface reads anything but the stored text:
 `Description`'s "refuse at load, never alter at render" rule exists because a renderer and a
-digest could see two different texts; a value nothing renders cannot have that defect, so
-normalising it is not the mistake normalising a description would be.
+digest could see two different texts, and the one refusal that quotes a type reads this
+normalised text itself, so the two cannot differ.
 
 ### `use Description`
 
@@ -1925,10 +1926,11 @@ defect, found in review.** A real composite type - a `STRUCT` or `ARRAY` with se
 fields - routinely runs past a dimension value's 64 characters: a `DataHub` field measured in
 review, `STRUCT<street STRING, city STRING, postal_code STRING, country STRING>`, is 70. Reusing
 the dimension bound meant that one legal type spelling refused the WHOLE catalog load, for text
-nothing in this crate branches on. 512 is deliberately far past the 70 observed rather than tight
-around it: unlike a dimension value, nothing renders a column type into a document a person or an
-agent reads today (`super::Column`'s own doc states that), so generosity here costs
-store-and-forget bytes rather than prompt real estate.
+the load itself never branches on. 512 is deliberately far past the 70 observed rather than tight
+around it: unlike a dimension value, no document a person or an agent reads carries a column
+type except one refusal, a federated join across kinds, which quotes it as
+`QuotedColumnType` - so generosity here costs store-and-forget bytes and, in that one refusal, text
+of at most this many characters BEFORE escaping (the quoted form is longer by its escapes).
 
 ### `use MAX_DESCRIPTION_BYTES`
 
@@ -7519,6 +7521,38 @@ Unreachable through `sutura_app`'s federated path, which builds one `LegResult` 
 `FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
 `Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
+### `use LinkKind`
+
+What equality over a link column means, once a type that cannot carry one exactly is refused.
+
+**Kinds rather than types, and the reason is that the interior's own row builder may give two
+legs different types for one logical column.** A leg whose link values all fit an `i64` comes
+back `Int64`; one whose column mixes a fitting value with exact integral text comes back
+`Decimal128(38, 0)`. Both are exact integers and `DataFusion`'s comparison coercion joins them
+correctly, so requiring the two types to be EQUAL would refuse a legal pair.
+
+What it must still refuse is a join across kinds - `telekom/sutura#138`: an integer column
+against a text column misses on every row by construction, and the hand-written combine returned
+that silently as an empty inner answer or a left answer whose every fact row had a null remote
+side.
+
+### `use QuotedColumnType`
+
+A declared column type, quoted and escaped so a refusal may carry it.
+
+**A source's own dictionary supplied the text**, a catalog adapter read it off a platform nobody
+here controls, and a refusal reaches a log, a person and an agent's context. So it is never
+carried raw: the only way to build one is `From<&ColumnType>`, which writes it as a quoted
+literal with every quote, backslash and non-printing character escaped, and the field cannot be
+reached any other way. The quoting is the standard library's `{:?}` over a string, the one
+`InvalidColumnType` already gives a value in its own
+messages.
+
+**What this does and does not bound.** A quoted type cannot close its own quotes or break a line,
+so it stays one delimited span inside a sentence. It does not make the words inside it benign: a
+type may still read like an instruction to a model, and is at most
+`MAX_COLUMN_TYPE_CHARS` characters before escaping.
+
 ### `use labels`
 
 The one definition of what a carried leaf is projected under.
@@ -8680,6 +8714,38 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+#### `use LinkKind`
+
+What equality over a link column means, once a type that cannot carry one exactly is refused.
+
+**Kinds rather than types, and the reason is that the interior's own row builder may give two
+legs different types for one logical column.** A leg whose link values all fit an `i64` comes
+back `Int64`; one whose column mixes a fitting value with exact integral text comes back
+`Decimal128(38, 0)`. Both are exact integers and `DataFusion`'s comparison coercion joins them
+correctly, so requiring the two types to be EQUAL would refuse a legal pair.
+
+What it must still refuse is a join across kinds - `telekom/sutura#138`: an integer column
+against a text column misses on every row by construction, and the hand-written combine returned
+that silently as an empty inner answer or a left answer whose every fact row had a null remote
+side.
+
+#### `use QuotedColumnType`
+
+A declared column type, quoted and escaped so a refusal may carry it.
+
+**A source's own dictionary supplied the text**, a catalog adapter read it off a platform nobody
+here controls, and a refusal reaches a log, a person and an agent's context. So it is never
+carried raw: the only way to build one is `From<&ColumnType>`, which writes it as a quoted
+literal with every quote, backslash and non-printing character escaped, and the field cannot be
+reached any other way. The quoting is the standard library's `{:?}` over a string, the one
+`InvalidColumnType` already gives a value in its own
+messages.
+
+**What this does and does not bound.** A quoted type cannot close its own quotes or break a line,
+so it stays one delimited span inside a sentence. It does not make the words inside it benign: a
+type may still read like an instruction to a model, and is at most
+`MAX_COLUMN_TYPE_CHARS` characters before escaping.
 
 #### Module `combiner`
 
@@ -10134,6 +10200,14 @@ somebody else's input.
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+- `FederationLinkTypeMismatch` - The two columns the crossing relationship joins are declared as different kinds of value.
+
+  Decided from the catalog before either leg runs, and only when BOTH types are declared and
+  BOTH are known: an integer against text can never match, so every row would miss. A type
+  this does not know, or one a catalog leaves undeclared, defers to the combiner's own check
+  over the legs' real schemas (`FederatedAnswerNotWellFormed`). The types are quoted and
+  escaped, never raw: a source's dictionary supplied them. Not narrowable by the caller: the
+  declared types are the catalog's.
 - `FederatedAnswerNotWellFormed` - The combiner could not compute the answer as asked, deterministically.
 
   **D19 + A4: this used to have no refusal at all.** A non-finite ratio and a link value

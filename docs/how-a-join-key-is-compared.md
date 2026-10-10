@@ -11,9 +11,9 @@ refused.
 ADR 0007's *What is explicitly not decided* carried *"How a cross-source join key is
 declared and compared"* as an open question
 (`docs/adr/0007-federating-across-different-data-systems.md:1040-1042`). This page
-closes the comparison half: the runtime refusal. The declaration half - a catalog
-field saying two columns are comparable before either leg runs - is still open, and
-the last section says so.
+closes the comparison half: the plan-time refusal from the catalog's declared types and
+the runtime refusal from the legs' schemas. The declaration half - a catalog field
+saying two columns are comparable - is still open, and the last section says so.
 
 ## What is compared, and where
 
@@ -21,17 +21,28 @@ The combiner is `sutura-exec-datafusion`'s `DataFusionCombiner`, the only
 implementor of `sutura_domain::plan::FederationCombiner` a published build links
 (`sutura-domain`'s `RefusingCombiner` also implements it, behind `cfg(any(test, feature =
 "fixtures"))`). The comparison happens
-in two places, and the split is the whole of the design:
+in three places over one vocabulary of kinds, `sutura_domain::plan::LinkKind`, and the
+split is the whole of the design:
+
+0. **Before either leg runs, the two key columns' declared types are classified to a
+   kind and compared**, in `federated_plan`
+   (`crates/sutura-semantic/src/plan/federated.rs`, `link_types_agree`). The
+   classifier is `LinkKind::declared`
+   (`crates/sutura-domain/src/plan/federated/link.rs`): it reads a column's
+   `ColumnType` text, case-folded and before any parameter list, and answers a kind
+   or nothing. For a type it does not know, or a column that declares no type, it
+   answers nothing. The plan then does not refuse, and steps 1 and 2 below decide.
+   Only two known and different kinds are refused.
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before
    either leg's rows are read
-   (`crates/sutura-exec-datafusion/src/combine/schema.rs:162-180`, `link_kind`).
+   (`crates/sutura-exec-datafusion/src/combine/schema.rs:117-135`, `link_kind`).
    The kind is one of five - `ExactInteger`, `ExactDecimal`, `Text`, `Date`,
    `Boolean` - and anything else is refused (see below).
 
 2. **The two legs' link kinds are compared to each other**, and a mismatch is
    refused
-   (`crates/sutura-exec-datafusion/src/combine/schema.rs:150-158`, `agreeing_link`).
+   (`crates/sutura-exec-datafusion/src/combine/schema.rs:105-113`, `agreeing_link`).
    The check is `fact == lookup`: the two kinds must be the same variant. There is
    no coercion, no widening, and no fallback. `ExactInteger` against `Text` is
    refused; `ExactInteger` against `ExactDecimal` is refused; `Date` against `Text`
@@ -74,12 +85,12 @@ read, for every input including an empty one
 ### A link column whose Arrow type maps to no kind
 
 `link_kind` returns `None` for any Arrow type outside the five kinds
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:162-180`). The refusal is
+(`crates/sutura-exec-datafusion/src/combine/schema.rs:117-135`). The refusal is
 split by what the type is:
 
 - **A floating-point type** (`Float16`, `Float32`, `Float64`) is refused as
   `CombineError::FloatLinkKey`
-  (`crates/sutura-exec-datafusion/src/combine/schema.rs:193-196`,
+  (`crates/sutura-exec-datafusion/src/combine/schema.rs:148-151`,
   `classify_unjoinable`), which reaches a caller as
   `FederatedAnswerRefusal::FloatLinkKey`
   (`crates/sutura-domain/src/plan/federated/failure.rs:56-58`).
@@ -88,17 +99,32 @@ split by what the type is:
   DATA, and a caller is told.
 
 - **Any other unmapped type** is refused as `CombineError::LinkTypeNotMapped`
-  (`crates/sutura-exec-datafusion/src/combine/schema.rs:197-200`), which stays
+  (`crates/sutura-exec-datafusion/src/combine/schema.rs:152-155`), which stays
   this workspace's own wiring defect and reaches a caller as nothing - it is not
   a `FederatedAnswerRefusal`. A question naming such a column would have failed
   at the presentation edge whatever the combine did.
 
+### Two key columns declared as different kinds
+
+`federated_plan` refuses the question as `RefusalReason::FederationLinkTypeMismatch`
+(HTTP `409`, code `federation_link_type_mismatch`) when the crossing relationship's
+two key columns both declare a type, both types classify, and the two kinds differ:
+`BIGINT` against `VARCHAR`, `DATE` against `BIGINT`, `NUMERIC(38,9)` against an
+integer. `INT64`, `bigint` and `integer` are one kind, a `NUMERIC` written with scale
+`0` is an integer, and a decimal is told apart only when its scale is written. A
+float, a timestamp, a nested type and a bare `NUMERIC` classify as nothing and defer.
+
+The refusal names the relationship and carries each declared type **quoted and
+escaped** (`sutura_domain::plan::QuotedColumnType`), never raw: a source's own
+dictionary supplied the text. It is a claim about the catalog and not about the data,
+so a catalog that mis-declares a key refuses a join that would have matched.
+
 ### Two legs whose link kinds disagree
 
 `agreeing_link` refuses a mismatch as `CombineError::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:154-157`), carrying both
+(`crates/sutura-exec-datafusion/src/combine/schema.rs:109-112`), carrying both
 sides' kind as a prose word - *an exact integer*, *text*, *a date* - via
-`LinkKind::word` (`schema.rs:58-66`). The combiner maps that to
+`LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The combiner maps that to
 `FederatedAnswerRefusal::LinkTypeMismatch`
 (`crates/sutura-exec-datafusion/src/combine.rs:445`,
 `crates/sutura-domain/src/plan/federated/failure.rs:62-65`), and it reaches a
@@ -124,17 +150,13 @@ half.
 
 ## What is NOT covered
 
-### No plan-time or catalog-time check
+### What the plan-time check does not decide
 
-The runtime check fires after both legs have executed. Nothing at the catalog or
-plan stage compares the two declared key columns: `Column::data_type` is
-descriptive text - a quote of what the source called the column, and nothing
-branches on it (`crates/sutura-domain/src/catalog.rs:114-119`). So both legs run
-before the refusal, which is the cost of deciding from the schema rather than from
-a declaration. A plan-time refusal in `federated_plan`, which holds the
-relationship and both models, is the smallest design that would move the check
-earlier - and it needs a classifier from `ColumnType` text to a kind, which does
-not exist today.
+It decides only from declared types, and only for the crossing relationship's key:
+a type it cannot classify, a column with no declared type, and the link of a
+cross-model ratio's second fact leg are decided by the runtime check after both legs
+have executed. `Column::data_type` is otherwise descriptive text - a quote of what
+the source called the column - and `LinkKind::declared` reads it only to refuse.
 
 ### No comparability declaration on a relationship
 

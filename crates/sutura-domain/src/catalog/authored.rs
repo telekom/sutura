@@ -286,18 +286,20 @@ impl TryFrom<String> for AnchorValue {
 /// fields - routinely runs past a dimension value's 64 characters: a `DataHub` field measured in
 /// review, `STRUCT<street STRING, city STRING, postal_code STRING, country STRING>`, is 70. Reusing
 /// the dimension bound meant that one legal type spelling refused the WHOLE catalog load, for text
-/// nothing in this crate branches on. 512 is deliberately far past the 70 observed rather than tight
-/// around it: unlike a dimension value, nothing renders a column type into a document a person or an
-/// agent reads today (`super::Column`'s own doc states that), so generosity here costs
-/// store-and-forget bytes rather than prompt real estate.
+/// the load itself never branches on. 512 is deliberately far past the 70 observed rather than tight
+/// around it: unlike a dimension value, no document a person or an agent reads carries a column
+/// type except one refusal, a federated join across kinds, which quotes it as
+/// `QuotedColumnType` - so generosity here costs store-and-forget bytes and, in that one refusal, text
+/// of at most this many characters BEFORE escaping (the quoted form is longer by its escapes).
 pub const MAX_COLUMN_TYPE_CHARS: usize = 512;
 
 /// A [`super::Column`]'s data type, as a source's own dictionary spells it: `"STRING"`,
 /// `"character varying"`, `"NUMERIC(38,9)"`.
 ///
-/// **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** Nothing in this crate branches
-/// on it, and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that
-/// is an absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
+/// **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** The one branch on it is
+/// `LinkKind::declared`, which reads it to REFUSE a federated join across kinds and nothing else,
+/// and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that is an
+/// absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
 /// treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
 /// rather than asserted, per this repository's own rule that an overstated control is itself the
 /// defect.
@@ -306,10 +308,10 @@ pub const MAX_COLUMN_TYPE_CHARS: usize = 512;
 /// A run of whitespace - including a newline, however the source pretty-printed a nested type -
 /// collapses to one plain space before anything else is checked. Two spellings that differ only in
 /// that whitespace are the same type, and a source's own formatting choice must not move the digest.
-/// This is safe here specifically because there is no rendering surface for it to disagree with:
+/// This is safe here specifically because no rendering surface reads anything but the stored text:
 /// [`Description`]'s "refuse at load, never alter at render" rule exists because a renderer and a
-/// digest could see two different texts; a value nothing renders cannot have that defect, so
-/// normalising it is not the mistake normalising a description would be.
+/// digest could see two different texts, and the one refusal that quotes a type reads this
+/// normalised text itself, so the two cannot differ.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String")]
 pub struct ColumnType(String);

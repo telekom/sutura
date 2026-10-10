@@ -24,6 +24,7 @@ use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilt
 use crate::{CompileFailure, Compiled};
 
 mod corpus;
+mod link_types;
 mod two_sources;
 use corpus::{Corpus, federated_by, join_tables, pair, read_from};
 use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, federated, refusal, revenue_beside_a_ratio, two_facts};

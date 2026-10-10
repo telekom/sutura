@@ -345,6 +345,55 @@ fn two_sources_of_two_kinds_answer_the_same_rows_as_one_source_over_the_same_dat
     harness::differential(&one, &two, "two kinds: duckdb and the engine");
 }
 
+/// **Two kinds whose catalog declares the one join key as two different kinds of value are refused
+/// before either leg runs, and the same question over the same data answers when it does not**
+/// (`telekom/sutura#138`).
+///
+/// The control is the question this file's two-kinds differential already compares, asked of the
+/// unedited catalog. The case edits ONE declaration - the lookup side's `customer_key`, `BIGINT` to
+/// `VARCHAR` - while the data stays integers, so the refusal is the catalog's claim and not a
+/// reading of the rows: what fires is the splitter, not the combiner's schema check, and no leg
+/// has run to tell the two apart. `remote_products` is used here only to mint an owned corpus
+/// directory (its edit rewrites the products source to the line it already holds).
+#[test]
+fn two_sources_of_two_kinds_declaring_a_join_key_two_ways_are_refused_before_either_runs() {
+    let name = "recurring-revenue-by-region";
+    let (_, query) = corpus::every_question()
+        .into_iter()
+        .find(|(at, _)| at == name)
+        .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+
+    let agreeing = two_kinds(harness::bundle(&derived().two_source));
+    let answered = harness::answered(&agreeing, &query, name, &combiner).unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        matches!(answered, ToolOutcome::Answer { .. }),
+        "the control declares the key one way and must answer, not {answered:?}"
+    );
+
+    let corpus = corpus::remote_products("federation-link-type-mismatch", "source: local");
+    let customers = corpus.two_source.join("models/customers.md");
+    let text = std::fs::read_to_string(&customers).expect("the derived catalog has a customers model");
+    let declared = "  - name: customer_key\n    type: BIGINT\n";
+    assert_eq!(
+        text.matches(declared).count(),
+        1,
+        "customers.md no longer declares customer_key as BIGINT exactly once, so this case would derive nothing"
+    );
+    std::fs::write(
+        &customers,
+        text.replace(declared, "  - name: customer_key\n    type: VARCHAR\n"),
+    )
+    .expect("the derived catalog is writable");
+
+    let mismatched = two_kinds(harness::bundle(&corpus.two_source));
+    let outcome = harness::answered(&mismatched, &query, name, &combiner).unwrap_or_else(|e| panic!("{e}"));
+    let ToolOutcome::Refusal { reason } = outcome else {
+        panic!("a join key declared as two kinds is refused, not answered: {outcome:?}");
+    };
+    assert_eq!(reason.code(), "federation_link_type_mismatch", "{reason:?}");
+}
+
 /// **A zero denominator in ONE subgroup, and the neighbours it must not reach.**
 ///
 /// The differential above proves the two sides AGREE on this answer; without this, the agreement

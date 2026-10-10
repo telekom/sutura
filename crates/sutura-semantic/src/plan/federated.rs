@@ -9,11 +9,14 @@
 //! Nothing here decides which plan SHAPE a question gets - `super::plan` does that, and calls
 //! [`federated_plan`] only once it has already decided there is exactly one remote source.
 
+use sutura_domain::catalog::{ColumnType, Model, Relationship};
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
+use sutura_domain::model::ColumnName;
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
+    FederatedPlan, InternalLabel, LegPlan, LinkKind, PlanBucket, PlanColumn, PlanKey, PlanTerm, QuotedColumnType, ResultLabel,
+    StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
 
@@ -65,7 +68,8 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // The fact leg's table that holds the link's origin column: the one the crossing hop starts at,
     // which is the metric's own table when the chain crosses at its first hop. Every dimension
     // crossing through this relationship starts it from the same model, so one table serves them all.
-    let link_table = first.before.last().map_or(own_table, |hop| hop.model.table_name());
+    let link_model = first.before.last().map_or(model, |hop| hop.model);
+    let link_table = link_model.table_name();
     for dim in every_remote_dimension(resolution) {
         let Some(cut) = dim.join.as_ref().and_then(|hops| crossing(hops, model.source())) else {
             continue;
@@ -97,6 +101,9 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         }));
     }
     let crossing_key = relationship.keys().first();
+    // Decided from the catalog's declared types before either leg runs, which is what makes the
+    // refusal free: the combiner's own check needs both legs' schemas, which means running them.
+    link_types_agree(relationship, link_model, first_join.model)?;
 
     // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
     // joined to it above.
@@ -284,6 +291,38 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         Some(top) => plan.with_top(top),
         None => plan,
     })
+}
+
+/// A column's declared type, when its model declares the column and a type for it.
+fn declared_type<'m>(model: &'m Model, column: &ColumnName) -> Option<&'m ColumnType> {
+    model.column(column)?.data_type()
+}
+
+/// Refuses a crossing whose two key columns are declared as different kinds of value.
+///
+/// **Only when both types are declared and both are known, and everything else defers.** A column
+/// with no declared type, or a type [`LinkKind::declared`] does not classify, says nothing about
+/// whether the keys can match, so the combiner's check over the legs' real schemas decides it
+/// later exactly as before. A refusal here is a claim about the catalog and not about the data: a
+/// catalog that mis-declares a key refuses a join that would have matched.
+fn link_types_agree(relationship: &Relationship, fact_side: &Model, lookup_side: &Model) -> Result<(), PlanError> {
+    let key = relationship.keys().first();
+    let (Some(fact), Some(lookup)) = (
+        declared_type(fact_side, key.origin()),
+        declared_type(lookup_side, key.target()),
+    ) else {
+        return Ok(());
+    };
+    match (LinkKind::declared(fact), LinkKind::declared(lookup)) {
+        (Some(on_fact), Some(on_lookup)) if on_fact != on_lookup => {
+            Err(PlanError::Refused(RefusalReason::FederationLinkTypeMismatch {
+                relationship: relationship.name().clone(),
+                fact_type: QuotedColumnType::from(fact),
+                lookup_type: QuotedColumnType::from(lookup),
+            }))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// The second fact leg of a cross-model ratio (`telekom/sutura#780`): its OWN statement over the

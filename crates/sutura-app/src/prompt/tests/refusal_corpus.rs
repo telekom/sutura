@@ -92,6 +92,16 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
             relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                 .expect("a test relationship is a relationship"),
         },
+        RefusalReason::FederationLinkTypeMismatch {
+            relationship: sutura_domain::model::RelationshipName::parse("orders_customer")
+                .expect("a test relationship is a relationship"),
+            fact_type: sutura_domain::plan::QuotedColumnType::from(
+                &sutura_domain::catalog::ColumnType::parse("DATE").expect("a test type is a type"),
+            ),
+            lookup_type: sutura_domain::plan::QuotedColumnType::from(
+                &sutura_domain::catalog::ColumnType::parse("BIGINT").expect("a test type is a type"),
+            ),
+        },
         RefusalReason::FederatedAnswerNotWellFormed {
             federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
         },
@@ -172,6 +182,7 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::FederationNotExecutable
             | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::FederationLinkCompound { .. }
+            | RefusalReason::FederationLinkTypeMismatch { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }
             | RefusalReason::SourceUnavailable { .. }

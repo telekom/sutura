@@ -112,11 +112,11 @@ pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 /// derived from anything else here.
 ///
 /// **`data_type` is descriptive text.** It is a quote of what the source called the column -
-/// `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. At HEAD
-/// nothing branches on it - `sutura_sql` has its own closed vocabulary for what a statement may
-/// execute - but that is an absence rather than a mechanism: [`ColumnType`]'s own doc names review
-/// as what holds "never a cast", not the type system, because nothing here stops a future reader of
-/// [`Self::data_type`] from treating it as one.
+/// `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
+/// branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
+/// kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+/// [`ColumnType`]'s own doc names review as what holds "never a cast", not the type system, because
+/// nothing here stops another reader of [`Self::data_type`] from treating it as one.
 ///
 /// **Column prose is parsed and pinned.** The opt-in physical-schema listing quotes it under
 /// `prompt.catalog_prose`; a deployment omitting catalog prose omits it on both prompt and tool.

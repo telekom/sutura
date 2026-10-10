@@ -10,13 +10,14 @@
 //! Beside the implementation, and the reason is the causality gate - see `crate::plan::federated`'s
 //! own header.
 
+use crate::catalog::ColumnType;
 use crate::federation::Federation;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings, PlanBucket, PlanColumn, ResultLabel,
-    StatementTables,
+    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LinkKind, PlanBindings, PlanBucket, PlanColumn,
+    QuotedColumnType, ResultLabel, StatementTables,
 };
 
 mod fixtures;
@@ -471,4 +472,68 @@ fn a_two_fact_plan_legs_lists_the_second_fact_under_its_own_source() {
         "the second fact leg is a Fact, not a Lookup: {:?}",
         legs[1]
     );
+}
+
+fn declared(spelling: &str) -> Option<LinkKind> {
+    LinkKind::declared(&ColumnType::parse(spelling).expect("a test spelling is a column type"))
+}
+
+#[test]
+fn a_declared_spelling_reads_as_its_link_kind_and_an_unknown_one_reads_as_none() {
+    use LinkKind::{Boolean, Date, ExactDecimal, ExactInteger, Text};
+    let cells = [
+        ("smallint", Some(ExactInteger)),
+        ("INT", Some(ExactInteger)),
+        ("Integer", Some(ExactInteger)),
+        ("BIGINT", Some(ExactInteger)),
+        ("int64", Some(ExactInteger)),
+        ("UInt32", Some(ExactInteger)),
+        ("VARCHAR(255)", Some(Text)),
+        ("varchar(max)", Some(Text)),
+        ("VARCHAR2(10 BYTE)", Some(Text)),
+        ("character varying", Some(Text)),
+        ("STRING", Some(Text)),
+        ("DATE", Some(Date)),
+        ("BOOLEAN", Some(Boolean)),
+        ("bool", Some(Boolean)),
+        ("NUMERIC(38,0)", Some(ExactInteger)),
+        ("decimal(18, 0)", Some(ExactInteger)),
+        ("NUMERIC(38,9)", Some(ExactDecimal)),
+        ("numeric (38, 9)", Some(ExactDecimal)),
+        ("NUMERIC", None),
+        ("NUMERIC(38)", None),
+        ("NUMERIC(38,x)", None),
+        ("VARCHAR(10", None),
+        ("DOUBLE", None),
+        ("TIMESTAMP", None),
+        ("ARRAY<STRING>", None),
+        ("Nullable(Int64)", None),
+        ("GEOGRAPHY", None),
+    ];
+    let wrong: Vec<_> = cells
+        .into_iter()
+        .filter(|&(spelling, kind)| declared(spelling) != kind)
+        .map(|(spelling, kind)| format!("{spelling}: expected {kind:?}, got {:?}", declared(spelling)))
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn every_link_kind_reads_as_its_own_word() {
+    let words = [
+        (LinkKind::ExactInteger, "an exact integer"),
+        (LinkKind::ExactDecimal, "an exact decimal"),
+        (LinkKind::Text, "text"),
+        (LinkKind::Date, "a date"),
+        (LinkKind::Boolean, "a boolean"),
+    ];
+    for (kind, word) in words {
+        assert_eq!(kind.word(), word);
+    }
+}
+
+#[test]
+fn a_quoted_column_type_escapes_its_quotes_and_backslashes() {
+    let hostile = ColumnType::parse(r#"VARCHAR(") a \" b")"#).expect("a hostile type still parses");
+    assert_eq!(QuotedColumnType::from(&hostile).to_string(), r#""VARCHAR(\") a \\\" b\")""#);
 }

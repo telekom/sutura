@@ -238,6 +238,11 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref source,
             ref relationship,
         } => (StatusCode::CONFLICT, federation_link_compound(source, relationship)),
+        RefusalReason::FederationLinkTypeMismatch {
+            ref relationship,
+            fact_type: ref fact,
+            lookup_type: ref lookup,
+        } => (StatusCode::CONFLICT, link_type_mismatch(relationship, fact, lookup)),
         RefusalReason::FederatedAnswerNotWellFormed { .. } => (StatusCode::CONFLICT, federated_answer_not_well_formed()),
         RefusalReason::PlanTablesShareAnIdentifier { .. } => (StatusCode::CONFLICT, plan_tables_share_an_identifier()),
         // 409, with the federation group above - a shape this build does not execute.
@@ -393,7 +398,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     )
 }
 
-// The six sentences for the federation/plan-shape 409 group above, one function each - split out
+// The sentences for the federation/plan-shape 409 group above, one function each - split out
 // of [`refused`] once `github.com/telekom/sutura#967`'s `FederationLinkCompound` pushed that match
 // over `clippy::too_many_lines`. Each is well formed and cannot be expressed as one statement yet,
 // which is a conflict between what was asked and what this deployment can build rather than a
@@ -428,6 +433,17 @@ fn federation_link_compound(
     relationship: &sutura_domain::model::RelationshipName,
 ) -> String {
     format!("`{relationship}` crossing into `{source}` declares more than one join key")
+}
+
+fn link_type_mismatch(
+    relationship: &sutura_domain::model::RelationshipName,
+    fact: &sutura_domain::plan::QuotedColumnType,
+    lookup: &sutura_domain::plan::QuotedColumnType,
+) -> String {
+    format!(
+        "`{relationship}` joins a column declared {fact} to one declared {lookup}, two kinds of value \
+         that can never match; report it to a person"
+    )
 }
 
 /// D19 + A4's own reason: a non-finite ratio or an ambiguous join is the SAME plan against the
@@ -516,6 +532,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
+        | RefusalReason::FederationLinkTypeMismatch { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }
         | RefusalReason::SourceUnavailable { .. }

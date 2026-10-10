@@ -98,6 +98,7 @@ const REFUSAL_REASONS: &[Label] = &[
     label("federated_answer_not_well_formed"),
     label("federation_link_ambiguous"),
     label("federation_link_compound"),
+    label("federation_link_type_mismatch"),
     label("federation_not_executable"),
     label("grain_not_supported"),
     label("metric_unknown"),
