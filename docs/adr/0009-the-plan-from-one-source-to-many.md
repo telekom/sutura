@@ -1035,3 +1035,70 @@ What this does not show:
   only. A float distinct column was not run through the catalog and the two-engine differential: the
   corpus has none.
 - The sixth amendment said the pull-up is still refused before execution. That is no longer true.
+
+## Eighth amendment, 2026-10-10: the distinct-key peak is measured, and it leaves both numbers alone
+
+The seventh amendment lifted the refusal of a distinct count across two sources, so the peak of that
+leg can now be observed. The sixth amendment said that this peak could not be taken until the
+refusal lifted. This amendment records the measurement, which until now lived only in
+[the last comment on issue 140](https://github.com/telekom/sutura/issues/140#issuecomment-6071151687).
+
+**Conditions, stated before the numbers.**
+
+- Tree: `main` at `1a3f23ef0`, after the distinct-key pull-up began to execute (#1313). Corpus: 56
+  questions, each in a one-source and a two-source topology, so 112 records.
+- Host: Apple M5 Pro, 15 cores, 48 GiB, macOS 26.7.1, rustc 1.101.0-nightly (2026-09-26). One
+  developer host, with other build and test steps running on it.
+- Working-set harness (`just measure-bounds`, one fresh child process per question and topology):
+  load average 3.23 at the start and 22.42 at the end. The end value includes this step's own build
+  and test run. One other build or test step was running at the start.
+- Bench run A (`just bench`): the bench printed load average 33.2 over 15 cores and its contention
+  warning. The run stays as a noise envelope.
+- Bench run B (`cargo bench -p sutura-app --bench answer_path --bench federated_answer
+  --all-features`, build already warm): load average 17.8 at the start and 18.4 at the end. This is
+  still above one runnable task per core, and the contention warning fired again.
+
+**Peak: the largest per-source operator reservation, not process memory.** The ceiling is
+`WorkingSetCeiling::DEFAULT_BYTES`, 1,073,741,824 bytes.
+
+| Question                                                                    | Outcome  | Two-source peak (bytes) | Share of ceiling | One-source peak (bytes) |
+| --------------------------------------------------------------------------- | -------- | ----------------------- | ---------------- | ----------------------- |
+| `two-source-a-distinct-value-spanning-join-keys`                            | answered | 2,461,920               | 0.229%           | 3,220,536 (0.300%)      |
+| `two-source-a-distinct-count-of-the-link-column`                            | answered | 1,477,440               | 0.138%           | 2,303,032 (0.214%)      |
+| `two-source-an-average-decomposed-above-the-legs` (largest two-source peak) | answered | 3,446,400               | 0.321%           | 3,451,987 (0.321%)      |
+
+The largest peak of all 112 records is 4,137,923 bytes (0.385%): one-source,
+`recurring-revenue-by-region-and-family`. The distinct-key peak is 71.4% of the largest two-source
+peak. Before #1313 this case was refused before execution and recorded a zero peak. Of the 112
+records, 73 answered, 36 were refused before execution and 3 failed.
+
+**Wall clock: the median of 100 samples of 100 iterations, as a share of the 29 s execution
+budget.** The budget is the sixth amendment's: the 30 s default less the 1 s reply margin.
+
+| Case (two-source)                            | Run B median | Share   | Run A median (load 33.2) | Share   |
+| -------------------------------------------- | ------------ | ------- | ------------------------ | ------- |
+| `distinct_key_pull_up`                       | 2.007 ms     | 0.0069% | 3.440 ms                 | 0.0119% |
+| `distinct_count_of_the_link_column`          | 1.977 ms     | 0.0068% | 2.967 ms                 | 0.0102% |
+| `widest_two_source_answer` (widest question) | 2.440 ms     | 0.0084% | 3.493 ms                 | 0.0120% |
+
+A distinct-key question costs about one part in 14,000 of the budget in run B, and it is not the
+widest question.
+
+**What it decides.** Nothing moves. The working-set ceiling stays at 1 GiB and the request deadline
+stays at 30 seconds.
+
+**What it does not decide.**
+
+- **No network.** The legs are in-process DataFusion over local CSV files, a few hundred rows, on one
+  host. Both legs run as the deployment itself. The wall clock of the networked federated answer and
+  of each data-system adapter is still unmeasured and needs a live venue.
+- **The RSS column.** The working-set harness is Linux-only, because its RSS reading comes from
+  `/proc`. Two of its cells ran on macOS with a local, uncommitted change that reads RSS with `ps`.
+  The RSS column is therefore not comparable and is not quoted. The peak comes from the engine's pool
+  recorder, which that change does not touch.
+- **Partition count.** A peak can depend on DataFusion's partition count, which defaults to the core
+  count (15 here). Do not compare these peaks with the 2026-09-14 peak (14,704,640 bytes, 64-thread
+  host, older corpus revision). The harness ran once and was not repeated.
+- **The bench.** The committed bench has no distinct-key case. The two distinct-key rows come from an
+  uncommitted local copy of the bench that adds the two metric files from the differential corpus.
+- **A loaded host.** The wall-clock figures are an envelope, not a default.
