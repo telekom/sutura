@@ -271,7 +271,7 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
     assert_eq!(surface.digest(), pinned, "the pinned bundle stays");
     let log = sink.contents();
     assert!(
-        log.contains("keeping the bundle already pinned") && log.contains("AUTH_PBKDF2_VGEN_COUNT"),
+        log.contains("keeping the bundle already served") && log.contains("AUTH_PBKDF2_VGEN_COUNT"),
         "{log}"
     );
 }
