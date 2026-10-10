@@ -79,7 +79,7 @@
 //! so `sutura_domain::warehouse::Warehouse` is unchanged, and it is a `std` marker rather than a
 //! framework type - a requirement a transport states, satisfied here.
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::definitions::DefinitionDigest;
@@ -101,9 +101,9 @@ use crate::{ServiceError, Validated, verify_and_validate};
 pub trait Surface: Send + Sync + 'static {
     /// The bundle this process is serving right now.
     ///
-    /// **A snapshot, not a view into the service**: an implementation may replace its bundle when a
-    /// refresh [adopts](Self::adopt) a newer one, so the value returned is the one that was current at
-    /// this call and stays the same however long the caller holds it. A caller that reads more than once
+    /// **A snapshot, not a view into the service**: the service replaces its bundle when a refresh
+    /// [adopts](Self::adopt) a newer one, so the value returned is the one that was current at this
+    /// call and stays the same however long the caller holds it. A caller that reads more than once
     /// for one request may see two bundles; one that needs a single bundle takes this once and
     /// passes it down. [`Self::answer`] does exactly that for itself.
     ///
@@ -111,11 +111,16 @@ pub trait Surface: Send + Sync + 'static {
     /// [`Surface`] cannot be built from one and [`Self::adopt`] stores only a validated one.
     fn definitions(&self) -> Arc<PinnedDefinitions>;
 
-    /// Offers the service a freshly loaded bundle, and says what became of it.
+    /// Replaces the served bundle with a freshly loaded one, or says why it did not.
     ///
-    /// [`Adopted::Rotated`] means the next question reads it; [`Adopted::Unchanged`] means the
-    /// bundle served is the one served before. A refusal leaves the bundle already served in place.
-    /// [`LocalService`] keeps the bundle it started with and answers `Unchanged`.
+    /// A bundle with the digest already served is [`Adopted::Unchanged`] and costs nothing. Any other
+    /// is held to what boot holds the first one to - every anchor, every declared key, and the
+    /// deployment's own pre-flight - and only a bundle that passed all of it is stored, **whole**.
+    /// A refusal leaves the bundle already served in place: a question never sees a partial or an
+    /// unvalidated one.
+    ///
+    /// A question that is already running keeps the bundle it started with; the next one reads the
+    /// new bundle.
     ///
     /// # Errors
     ///
@@ -307,7 +312,7 @@ pub enum SurfaceFailure {
 /// What a refresh did to the served bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Adopted {
-    /// The bundle served is the one served before this call.
+    /// The bundle read has the digest already served; nothing was checked and nothing changed.
     Unchanged,
     /// A different bundle passed every check and is what the next question reads.
     Rotated {
@@ -420,10 +425,15 @@ pub enum ServiceNotStarted {
 /// here: those are what a service cannot exist without, and an unbounded ledger is a real, working
 /// default rather than an omission this type should refuse to start without.
 pub struct LocalService<W, S, B, C> {
-    definitions: Validated<PinnedDefinitions>,
+    /// The bundle being served. Replaced whole by [`Surface::adopt`] and read only to clone out the
+    /// `Arc` ([`Self::snapshot`]), so the lock is never held across a question.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the read lock only clones one `Arc` and the write lock only stores one, and neither is held across an await point, so it cannot deadlock an executor - the argument `SpendLedger`'s std Mutex makes"
+    )]
+    definitions: std::sync::RwLock<Validated<PinnedDefinitions>>,
     warehouses: Warehouses<W>,
-    /// The pre-flight a refreshed bundle is to pass; `None` where boot ran no pre-flight. Held and
-    /// not run: this service's [`Surface::adopt`] keeps the bundle it started with.
+    /// Run over a refreshed bundle before its anchors; `None` where boot ran no pre-flight.
     adoption_gate: Option<AdoptionGate<W>>,
     sink: S,
     broker: B,
@@ -519,6 +529,8 @@ where
         // mint one for. `docs/adr/0008` part 1 decides it, and `sutura_domain::warehouse` records
         // where this is narrower than that record asked for.
         let definitions = verify_and_validate(pinned, &warehouses).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
+        #[expect(clippy::disallowed_types, reason = "see the field's own note")]
+        let definitions = std::sync::RwLock::new(definitions);
         Ok(Self {
             definitions,
             warehouses,
@@ -556,8 +568,9 @@ where
         self
     }
 
-    /// Sets the pre-flight a refreshed bundle is to pass - the one the composition root ran over the
-    /// bundle it booted with. Held, not run: this service's [`Surface::adopt`] keeps the boot bundle.
+    /// Sets the pre-flight a refreshed bundle must pass before [`Surface::adopt`] validates it - the
+    /// one the composition root ran over the bundle it booted with, so a refresh is held to what boot
+    /// was.
     #[must_use]
     pub fn with_adoption_gate(mut self, gate: AdoptionGate<W>) -> Self {
         self.adoption_gate = Some(gate);
@@ -576,17 +589,34 @@ where
     C::Error: Send + Sync,
 {
     fn definitions(&self) -> Arc<PinnedDefinitions> {
-        self.definitions.share()
+        self.snapshot().share()
     }
 
-    /// Keeps the bundle this service started with, so every question answers from it as before.
-    fn adopt(&self, _next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
-        Ok(Adopted::Unchanged)
+    fn adopt(&self, next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
+        let current = self.snapshot();
+        if next.digest() == current.get().digest() {
+            return Ok(Adopted::Unchanged);
+        }
+        if let Some(gate) = &self.adoption_gate {
+            gate(&next, &self.warehouses).map_err(|cause| NotAdopted::Preflight { cause })?;
+        }
+        let validated = verify_and_validate(next, &self.warehouses).map_err(|cause| NotAdopted::NotValidated { cause })?;
+        let digest = validated.get().digest().clone();
+        // One poller calls this; a second concurrent caller would at worst store a bundle that is
+        // itself fully validated, last writer winning - never a partial one.
+        *self.definitions.write().unwrap_or_else(PoisonError::into_inner) = validated;
+        Ok(Adopted::Rotated {
+            previous: current.get().digest().clone(),
+            digest,
+        })
     }
 
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
+        // ONE snapshot for the whole question: taken here, passed down, never read again, so a
+        // refresh that lands mid-question cannot give it a second bundle.
+        let snapshot = self.snapshot();
         let answered = crate::answer(
-            &self.definitions,
+            &snapshot,
             query,
             context,
             &self.broker,
@@ -693,13 +723,26 @@ where
     }
 }
 
+impl<W, S, B, C> LocalService<W, S, B, C> {
+    /// The bundle being served at this instant, as the proof that it was validated.
+    ///
+    /// The read lock covers one `Arc` clone and is released before this returns, so no caller holds
+    /// it across a question or an `.await`. A poisoned lock is still read: the only code that runs
+    /// under the write lock is one assignment of an already-built value, so what it guards is always
+    /// a whole bundle whether or not a writer panicked.
+    fn snapshot(&self) -> Validated<PinnedDefinitions> {
+        self.definitions.read().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
 impl<W, S, B, C> core::fmt::Debug for LocalService<W, S, B, C> {
     /// Hand-written because a warehouse adapter need not be `Debug`, and because printing a bundle
     /// into a log is a page of definitions for no benefit. The digest identifies it.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let snapshot = self.snapshot();
         f.debug_struct("LocalService")
-            .field("definition_version", &self.definitions.get().version())
-            .field("definition_digest", &self.definitions.get().digest())
+            .field("definition_version", &snapshot.get().version())
+            .field("definition_digest", &snapshot.get().digest())
             .finish_non_exhaustive()
     }
 }
