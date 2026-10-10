@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Short answers to the questions this design provokes first.">
+        <meta name="description" content="Short answers to the first questions about the design.">
       
       
       
@@ -696,10 +696,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" class="md-nav__link">
+  <a href="#why-not-give-the-agent-a-database-connection-and-let-it-write-sql" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why not just give the agent a database connection and let it write SQL?
+        Why not give the agent a database connection and let it write SQL?
       
     </span>
   </a>
@@ -751,10 +751,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-are-definitions-not-editable-here" class="md-nav__link">
+  <a href="#why-can-i-not-edit-definitions-here" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why are definitions not editable here?
+        Why can I not edit definitions here?
       
     </span>
   </a>
@@ -762,10 +762,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-happens-if-the-agent-asking-is-manipulated" class="md-nav__link">
+  <a href="#what-happens-if-someone-manipulates-the-agent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What happens if the agent asking is manipulated?
+        What happens if someone manipulates the agent?
       
     </span>
   </a>
@@ -773,10 +773,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-do-the-musl-builds-swap-the-allocator" class="md-nav__link">
+  <a href="#why-do-the-musl-builds-use-a-different-allocator" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why do the musl builds swap the allocator?
+        Why do the musl builds use a different allocator?
       
     </span>
   </a>
@@ -784,10 +784,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-do-i-work-on-it" class="md-nav__link">
+  <a href="#how-do-i-work-on-sutura" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How do I work on it?
+        How do I work on sutura?
       
     </span>
   </a>
@@ -3313,10 +3313,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" class="md-nav__link">
+  <a href="#why-not-give-the-agent-a-database-connection-and-let-it-write-sql" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why not just give the agent a database connection and let it write SQL?
+        Why not give the agent a database connection and let it write SQL?
       
     </span>
   </a>
@@ -3368,10 +3368,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-are-definitions-not-editable-here" class="md-nav__link">
+  <a href="#why-can-i-not-edit-definitions-here" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why are definitions not editable here?
+        Why can I not edit definitions here?
       
     </span>
   </a>
@@ -3379,10 +3379,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-happens-if-the-agent-asking-is-manipulated" class="md-nav__link">
+  <a href="#what-happens-if-someone-manipulates-the-agent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What happens if the agent asking is manipulated?
+        What happens if someone manipulates the agent?
       
     </span>
   </a>
@@ -3390,10 +3390,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-do-the-musl-builds-swap-the-allocator" class="md-nav__link">
+  <a href="#why-do-the-musl-builds-use-a-different-allocator" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why do the musl builds swap the allocator?
+        Why do the musl builds use a different allocator?
       
     </span>
   </a>
@@ -3401,10 +3401,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-do-i-work-on-it" class="md-nav__link">
+  <a href="#how-do-i-work-on-sutura" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How do I work on it?
+        How do I work on sutura?
       
     </span>
   </a>
@@ -3432,100 +3432,40 @@
 
 
 <h1 id="questions-and-answers">Questions and answers<a class="headerlink" href="#questions-and-answers" title="Permanent link">&para;</a></h1>
-<p>Where another page says it better, this one links rather than restates.</p>
-<h2 id="why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql">Why not just give the agent a database connection and let it write SQL?<a class="headerlink" href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" title="Permanent link">&para;</a></h2>
-<p>Two things go wrong at once, and only one of them is obvious. An agent that invents SQL invents a
-definition with it, so nobody can say whether "revenue" means what finance means by it. The rows
-come back according to what the <em>service</em> may read rather than what the <em>caller</em> may read, which
-is how a row-level security policy becomes decorative.</p>
-<p>sutura fixes the first by construction today: definitions arrive certified and pinned, the tool
-surface has no field an invented query could arrive in, and every value a question carries binds
-as a parameter rather than reaching the statement as text.</p>
-<p>The second is <strong>secure-impersonation</strong> (BigQuery). "Every query runs as the caller" needs a
-credential minted per request. A request context reaches the query path, a credential broker mints
-once per answer for every source a plan reads, and the execution port has no signature that runs
-without the result - so a subject with no credential at a source is refused rather than answered
-as this process. The BigQuery adapter carries the verified caller's assertion through a declared
-per-subject map. A <strong>shared-service-user</strong> source (Postgres, ClickHouse, files) uses its declared
-identity. The boot path re-executes every anchor before a listener is bound, there is no caller then, and <code>Warehouse::verify_anchor</code>
-takes no credential.</p>
-<p><strong>What bounds that path is placement made checkable, not its input type - a correction a second
-review forced.</strong> <code>verify_anchor</code> takes an <code>AnchorPlan</code>, a plan the pinned bundle itself agrees is
-a declared anchor's own: the metric must be defined and anchored, the range the one the bundle
-certifies, the grain the coarsest that metric declares, and there may be no group-by key and no
-predicate a question asked for. Every one of those facts is read off the bundle, so the check
-catches a boot path that compiled the wrong question. It does <strong>not</strong> stop code that wants to
-reach the method: the constructor is public, every value it reads is publicly constructible, and
-Rust has no cross-crate friend visibility. So the mechanism that makes the credential-free path
-boot-only is a lint - <code>clippy.toml</code> bans the method and the boot path holds the single
-expectation, so a second call site is a build error until somebody writes a second one a reviewer
-sees. A lint reaches this workspace and not a crate outside it; that is the limit, and it is
-stated on the type as well.</p>
+<h2 id="why-not-give-the-agent-a-database-connection-and-let-it-write-sql">Why not give the agent a database connection and let it write SQL?<a class="headerlink" href="#why-not-give-the-agent-a-database-connection-and-let-it-write-sql" title="Permanent link">&para;</a></h2>
+<p>Two things go wrong. First, an agent that writes SQL also invents the definition, so nobody can say if its "revenue" is
+the finance definition. Second, the rows come back as the service account can read them, not as the caller can read them,
+so row-level security has no effect.</p>
+<p>sutura prevents both. The agent can ask only for certified definitions, and every value binds as a parameter. With
+secure-impersonation (BigQuery, ClickHouse), the data system runs the query as the caller. A <code>shared-service-user</code>
+source runs it as the one identity that the operator declares.</p>
 <h2 id="why-is-a-refusal-not-an-error">Why is a refusal not an error?<a class="headerlink" href="#why-is-a-refusal-not-an-error" title="Permanent link">&para;</a></h2>
-<p>An error invites a retry. A refusal is a variant of the result type with a typed reason, so a
-caller cannot mistake "you may not ask this" for a transport hiccup and loop until something
-answers. That part is enforced today, and the golden suite provokes every variant a question can
-reach.</p>
-<p>Recording each refusal with the whole principal chain is <strong>built</strong>: an <code>AuditSink</code> takes every
-outcome, refusal and answer alike, before it is returned, and <code>sutura-runtime</code> ships the
-structured writer a deployment that attaches nothing else gets. Two limits, both deliberate.
-sutura <strong>retains nothing</strong> - what a record is worth is what the deployment's sink is worth. And
-the subject in the chain is only as strong as what established it: behind the shared bearer token
-alone the record names the <em>deployment</em>, because that is who asked as far as anything can tell; a
-deployment that declares <code>security.inbound</code> names the caller, from a signature.</p>
+<p>An error invites a retry. A refusal is a typed result with a reason, so a caller cannot mistake "you may not ask this" for
+a network problem. sutura writes one audit record, with the caller, for every answer and every refusal.</p>
 <h2 id="why-does-the-tool-surface-take-no-table-name">Why does the tool surface take no table name?<a class="headerlink" href="#why-does-the-tool-surface-take-no-table-name" title="Permanent link">&para;</a></h2>
-<p>Because a refusal can be retried, reworded and eventually satisfied, and an absent field cannot.
-<code>Query</code> carries no SQL, no table, no filter expression and no row ids, so an uncertified question
-does not compile. That is enforced today, and <code>deny_unknown_fields</code> means a question carrying
-<code>sql:</code> is an error naming the field rather than one silently dropped.</p>
-<p>The MCP wire type generates a committed schema snapshot, so widening its input changes a
-byte-compare a reviewer must accept. There is no equivalent OpenAPI dump for HTTP, and a snapshot
-cannot decide whether a new field should exist; review still owns that decision.</p>
+<p>A refused field can be reworded and retried until it passes. A field that does not exist cannot. <code>Query</code> has no SQL, no
+table, no filter expression and no row ids, so an uncertified question cannot be expressed. A filter names a dimension
+and values that the catalog allows. A question with an unknown field, such as <code>sql:</code>, is an error that names the field.</p>
 <h2 id="why-is-there-no-result-cache">Why is there no result cache?<a class="headerlink" href="#why-is-there-no-result-cache" title="Permanent link">&para;</a></h2>
-<p>Under row-level security, two callers asking the same question are entitled to different rows. A
-cache keyed on the query text serves the first caller's rows to the second: a cross-user leak with
-a hit rate. The same reasoning rules out a materialised copy refreshed on a schedule, which is
-read under whoever refreshed it.</p>
-<p>No mechanism can prove an absence, so this one is written down as a decision. Adding any cache of
-rows is an architecture change, keyed on subject first or not at all.</p>
+<p>Under row-level security, two callers who ask the same question can see different rows. A cache keyed on the question
+would send the first caller's rows to the second caller. For the same reason, sutura keeps no scheduled copy of the data.</p>
 <h2 id="can-a-question-span-two-data-systems">Can a question span two data systems?<a class="headerlink" href="#can-a-question-span-two-data-systems" title="Permanent link">&para;</a></h2>
-<p>Yes. A supported federated question splits into fact and lookup legs, executes each at its source,
-then joins the results. Each leg is presented either the asking subject's credential or that
-source's acknowledged shared identity. The answer records the posture of each leg, even when they
-differ. That record reaches the caller with the rows; it is a
-disclosure, not an authorization check.</p>
-<p>BigQuery supports secure-impersonation (<a href="../integrations/data-systems/bigquery/#identity">BigQuery identity</a>).
-The other adapters run as a shared service user.</p>
-<h2 id="why-are-definitions-not-editable-here">Why are definitions not editable here?<a class="headerlink" href="#why-are-definitions-not-editable-here" title="Permanent link">&para;</a></h2>
-<p>Editing a certified statement forks the definition from the number it certifies, which was the
-only thing certifying it bought. Definitions are authored in the semantic layer that renders them
-and arrive pinned and hashed. A wrong definition is wrong upstream.</p>
-<h2 id="what-happens-if-the-agent-asking-is-manipulated">What happens if the agent asking is manipulated?<a class="headerlink" href="#what-happens-if-the-agent-asking-is-manipulated" title="Permanent link">&para;</a></h2>
-<p>For a system whose input is natural language from wherever the user found it, a manipulated agent
-is the expected case rather than the disaster case, and the defence is not detecting it. The most
-an attacker can make the agent emit is a different certified question over the same pinned
-definitions - that much is enforced today by the shape of <code>Query</code>. The blast radius of a fully
-manipulated agent is the set of questions its caller could already ask.</p>
-<p>The clause "asked as the same caller, against the same authorization" holds for a
-secure-impersonation source (BigQuery) and not for a shared-service-user source. The credential
-broker exists and <code>Warehouse::execute</code> has no signature that runs without what it minted, so there
-is no code path a question reaches a data system through as an unnamed identity. The BigQuery
-adapter carries the verified caller's assertion to a declared account for that subject. Other
-adapters execute under their source's shared identity. Where a deployment declares
-<code>security.inbound</code>, the scopes that caller was granted decide which operations the caller may
-invoke, not which rows an answer contains
-(<a href="../integrations/data-systems/bigquery/#identity">BigQuery identity</a>).</p>
-<h2 id="why-do-the-musl-builds-swap-the-allocator">Why do the musl builds swap the allocator?<a class="headerlink" href="#why-do-the-musl-builds-swap-the-allocator" title="Permanent link">&para;</a></h2>
-<p>musl's <code>mallocng</code> serialises the whole process on one lock word. With one binary and only
-threading toggled, a 48-core run takes 4.45s on glibc and 92.16s on musl, slower than musl's own
-single-core run; linking mimalloc brings it to 3.83s.
-mimalloc is built with <code>MI_SECURE=4</code> (guard pages, random placement, encoded free lists and
-double-free detection). That costs 23-43% against plain mimalloc and is still faster than glibc.</p>
-<h2 id="how-do-i-work-on-it">How do I work on it?<a class="headerlink" href="#how-do-i-work-on-it" title="Permanent link">&para;</a></h2>
-<p><a href="../contributing/">Contributing</a> covers the three routes to an environment, the two toolchains and
-which gates run when. To report a problem, <a href="../open-an-issue/">open an issue</a>. To report a
-vulnerability, read <a href="../report-a-security-issue/">Report a security issue</a>. On a network with no direct egress, read
-<a href="../enterprise-mirrors/">Building without direct egress</a> first.</p>
+<p>Yes. sutura splits the question into a fact leg and a lookup leg, runs each leg at its source and joins the results. Each
+leg runs in the identity mode of its source, and the answer records the mode of each leg.</p>
+<h2 id="why-can-i-not-edit-definitions-here">Why can I not edit definitions here?<a class="headerlink" href="#why-can-i-not-edit-definitions-here" title="Permanent link">&para;</a></h2>
+<p>A definition is certified where it is written, in the semantic layer. An edit here would separate the definition from the
+number it certifies. Fix a wrong definition at its source.</p>
+<h2 id="what-happens-if-someone-manipulates-the-agent">What happens if someone manipulates the agent?<a class="headerlink" href="#what-happens-if-someone-manipulates-the-agent" title="Permanent link">&para;</a></h2>
+<p>sutura expects it. The agent can ask only certified questions over the same pinned definitions, so a manipulated agent can
+ask only what its caller can already ask. With secure-impersonation, the data system also applies the caller's own grants.
+With <code>security.inbound</code>, the caller's scopes decide which operations the caller can use.</p>
+<h2 id="why-do-the-musl-builds-use-a-different-allocator">Why do the musl builds use a different allocator?<a class="headerlink" href="#why-do-the-musl-builds-use-a-different-allocator" title="Permanent link">&para;</a></h2>
+<p>The musl allocator serialises all threads on one lock. In a published benchmark of one binary on 48 cores, a run takes
+92 s with it and 4 s with mimalloc. sutura builds mimalloc in its secure mode (<code>MI_SECURE=4</code>: guard pages, random
+placement, encoded free lists and double-free detection).</p>
+<h2 id="how-do-i-work-on-sutura">How do I work on sutura?<a class="headerlink" href="#how-do-i-work-on-sutura" title="Permanent link">&para;</a></h2>
+<p>Read <a href="../contributing/">Contributing</a>. To report a problem, <a href="../open-an-issue/">open an issue</a>. To report a vulnerability,
+read <a href="../report-a-security-issue/">Report a security issue</a>.</p>
 
 
 
