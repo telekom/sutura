@@ -61,6 +61,8 @@ mod tests {
     use crate::serve::ENGINE_SOURCE;
     use crate::serve::open_engine;
     #[cfg(feature = "oracle")]
+    use crate::serve::tests::direct_registry;
+    #[cfg(feature = "oracle")]
     use crate::serve::tests::entry;
     use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
 
@@ -129,7 +131,7 @@ mod tests {
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(entry),
+                &direct_registry(entry),
                 one_worker(),
                 default_timeout(),
                 None,

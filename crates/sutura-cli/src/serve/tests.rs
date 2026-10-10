@@ -100,9 +100,25 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
 /// acknowledgement refusal is `sutura-config`'s own test, and repeating it would be asserting the
 /// same mechanism in the wrong crate.
 pub(super) fn registry(entries: &str) -> sutura_config::SourceRegistry {
+    registry_under("", entries)
+}
+
+/// [`registry`] on a deployment that verifies callers `direct`ly, which a declared `delegation`
+/// needs.
+#[cfg(feature = "oracle")]
+pub(super) fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
+    registry_under(
+        "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+         authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/nonexistent/keys.json\"\n    \
+         algorithms: [\"RS256\"]\n",
+        entries,
+    )
+}
+
+fn registry_under(inbound: &str, entries: &str) -> sutura_config::SourceRegistry {
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
-             files\"\nsources:\n{entries}"
+             files\"\n{inbound}sources:\n{entries}"
     );
     sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
