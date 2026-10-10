@@ -580,5 +580,37 @@ fn an_authenticating_source_refuses_an_anonymous_caller() {
     );
 }
 
+/// An authenticating source's leg is usable for as long as the asker's own assertion is, the same
+/// lifetime `the_minted_expiry_is_the_asking_assertions_own` holds for a federated leg.
+#[test]
+fn an_authenticating_sources_leg_lapses_with_the_askers_own_assertion() {
+    let lapses_at = 1_700_000_000;
+    let asked = SourceSet::of(source("ledger"));
+    let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    let mint = || {
+        authenticating()
+            .mint(&caller_expiring_at("analyst-a@example.com", lapses_at), &asked)
+            .expect("a declared caller is minted for")
+    };
+    let refused = mint()
+        .agreeing_with(&asked_by, &asked, lapses_at + 1)
+        .expect_err("a lapsed assertion is not one a leg may present");
+    assert!(
+        matches!(
+            refused,
+            sutura_domain::identity::CredentialsDoNotFitTheRequest::Expired {
+                deadline_unix_seconds,
+                ..
+            } if deadline_unix_seconds == lapses_at
+        ),
+        "the refusal names the assertion's own deadline: {refused:?}"
+    );
+    drop(
+        mint()
+            .agreeing_with(&asked_by, &asked, lapses_at - 1)
+            .expect("an assertion still in date is one a leg may present"),
+    );
+}
+
 /// The same broker's `direct`-mode hook, against a fake identity provider.
 mod delegation;

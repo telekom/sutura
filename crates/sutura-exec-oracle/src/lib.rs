@@ -176,8 +176,7 @@ pub enum OracleError {
 
 /// An Oracle connection, behind the [`Warehouse`] port.
 pub struct OracleWarehouse {
-    source: sutura_domain::model::SourceName,
-    posture: sutura_domain::source::SourcePosture,
+    routing: Routing,
     /// The materialisation budget this adapter bounds every collected result with, derived by the
     /// composition root from the same working-set ceiling that sizes the in-process engine. There
     /// is no unset state: every constructor requires one, so a call site with no budget does not
@@ -185,16 +184,35 @@ pub struct OracleWarehouse {
     result_budget: sutura_domain::warehouse::ResultBudget,
     /// The boot connection, under the declared user. A question runs on it only at a shared source.
     connection: oracledb::Connection,
-    /// Where each question's own session is opened, for an `impersonation-at-source` source alone.
-    per_caller: Option<TokenSessions>,
     /// Serializes every call - see the module header for why.
     execution_lock: Mutex<()>,
+}
+
+/// The source, how it was declared, and where each question's own session is opened - for an
+/// `impersonation-at-source` source alone.
+struct Routing {
+    source: sutura_domain::model::SourceName,
+    posture: sutura_domain::source::SourcePosture,
+    per_caller: Option<TokenSessions>,
+}
+
+impl Routing {
+    /// Picks the session a leg can be answered on, then checks the presented leg against how this
+    /// source was DECLARED - `docs/adr/0008` part 4's two questions, the same split
+    /// `sutura_exec_postgres::deliverable` draws.
+    fn deliverable<'leg>(&'leg self, presented: &'leg Presented) -> Result<Session<'leg>, OracleError> {
+        let session = session_for(&self.source, self.per_caller.as_ref(), presented)?;
+        presented
+            .agrees_with(&self.posture, &self.source)
+            .map_err(|cause| OracleError::PresentedDisagreesWithPosture { cause })?;
+        Ok(session)
+    }
 }
 
 impl core::fmt::Debug for OracleWarehouse {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("OracleWarehouse")
-            .field("source", &self.source)
+            .field("source", &self.routing.source)
             .finish_non_exhaustive()
     }
 }
@@ -365,11 +383,13 @@ impl OracleWarehouse {
         let connection = oracledb::connect(dialled.0.clone().set_credentials(user, password)).map_err(connect_err)?;
         let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
         Ok(Self {
-            source,
-            posture,
+            routing: Routing {
+                source,
+                posture,
+                per_caller,
+            },
             result_budget,
             connection,
-            per_caller,
             execution_lock: Mutex::new(()),
         })
     }
@@ -400,17 +420,6 @@ impl OracleWarehouse {
             credential.password().expose_secret(),
             result_budget,
         )
-    }
-
-    /// Picks the session a leg can be answered on, then checks the presented leg against how this
-    /// source was DECLARED - `docs/adr/0008` part 4's two questions, the same split
-    /// `sutura_exec_postgres::deliverable` draws.
-    fn deliverable<'leg>(&'leg self, presented: &'leg Presented) -> Result<Session<'leg>, OracleError> {
-        let session = session_for(&self.source, self.per_caller.as_ref(), presented)?;
-        presented
-            .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| OracleError::PresentedDisagreesWithPosture { cause })?;
-        Ok(session)
     }
 
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, OracleError> {
@@ -741,11 +750,11 @@ impl Warehouse for OracleWarehouse {
     const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &sutura_domain::model::SourceName {
-        &self.source
+        &self.routing.source
     }
 
     fn posture(&self) -> &sutura_domain::source::SourcePosture {
-        &self.posture
+        &self.routing.posture
     }
 
     /// **Takes the trait's own default** (`Ok(PreFlight::NotAsked)`) rather than an override.
@@ -763,7 +772,7 @@ impl Warehouse for OracleWarehouse {
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        let session = self.deliverable(presented)?;
+        let session = self.routing.deliverable(presented)?;
         let query = Self::render(executable)?;
         let rows = self.run_with_deadline(session, &query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
@@ -817,6 +826,8 @@ mod tests {
         Channel, Dial, OracleError, OracleWarehouse, Session, TokenSessions, collect_rows, ezconnect, refuse_if_spent,
         session_for,
     };
+
+    mod routing;
 
     fn result_budget(bytes: usize) -> ResultBudget {
         ResultBudget::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test budget is positive"))
