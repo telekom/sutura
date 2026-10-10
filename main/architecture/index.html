@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="How sutura is built - the crates, the ports between them, and the path of one question.">
+        <meta name="description" content="How sutura is built: the ports, the adapters and identity.">
       
       
       
@@ -612,46 +612,41 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-crates" class="md-nav__link">
+  <a href="#deployments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The crates
+        Deployments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#direct" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#the-path-of-a-question" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#through-an-ai-gateway" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The path of a question
+        Through an AI gateway
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#the-question-surface-is-closed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The question surface is closed
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#catalogs-are-pinned-snapshots" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Catalogs are pinned snapshots
-      
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -660,28 +655,6 @@
     <span class="md-ellipsis">
       
         Identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-ships" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What ships
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-exists-today" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What exists today
       
     </span>
   </a>
@@ -2971,46 +2944,41 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-crates" class="md-nav__link">
+  <a href="#deployments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The crates
+        Deployments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#direct" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#the-path-of-a-question" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#through-an-ai-gateway" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The path of a question
+        Through an AI gateway
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#the-question-surface-is-closed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The question surface is closed
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#catalogs-are-pinned-snapshots" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Catalogs are pinned snapshots
-      
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3019,28 +2987,6 @@
     <span class="md-ellipsis">
       
         Identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-ships" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What ships
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-exists-today" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What exists today
       
     </span>
   </a>
@@ -3080,175 +3026,49 @@ metadata source or one data system.</p>
 </p>
 <p><a href="../assets/architecture.html">Open the diagram on its own page</a>. The diagram works without
 JavaScript; the script only highlights the connections of the crate you point at.</p>
-<h2 id="the-crates">The crates<a class="headerlink" href="#the-crates" title="Permanent link">&para;</a></h2>
-<p>The crate name prefix tells you the role of the crate.</p>
-<table>
-<thead>
-<tr>
-<th>Crate</th>
-<th>Role</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>sutura-domain</code></td>
-<td>The interior. Domain types and the three ports <code>SemanticCatalog</code>, <code>Warehouse</code> and <code>CredentialBroker</code>.</td>
-</tr>
-<tr>
-<td><code>sutura-semantic</code></td>
-<td>Compiles a question into a plan.</td>
-</tr>
-<tr>
-<td><code>sutura-sql</code></td>
-<td>Renders a plan as one SQL statement in one dialect.</td>
-</tr>
-<tr>
-<td><code>sutura-app</code></td>
-<td>The service. It answers a question through the ports, and defines the <code>Surface</code> driving port.</td>
-</tr>
-<tr>
-<td><code>sutura-http</code></td>
-<td>The HTTP transport: the <code>/v1</code> API, the OpenAPI description, and the agent surface at <code>/mcp</code>.</td>
-</tr>
-<tr>
-<td><code>sutura-mcp</code></td>
-<td>The MCP tool surface, over standard input and output or over HTTP.</td>
-</tr>
-<tr>
-<td><code>sutura-catalog-*</code></td>
-<td>Metadata adapters. Each one reads definitions from one kind of catalog.</td>
-</tr>
-<tr>
-<td><code>sutura-exec-*</code></td>
-<td>Data-system adapters. Each one runs a plan on one kind of data system.</td>
-</tr>
-<tr>
-<td><code>sutura-config</code></td>
-<td>Reads the settings, and refuses to start on an unsafe or incomplete configuration.</td>
-</tr>
-<tr>
-<td><code>sutura-runtime</code></td>
-<td>Process-wide parts: admission control, the blocking pool, metrics.</td>
-</tr>
-<tr>
-<td><code>sutura-cli</code></td>
-<td>The composition root. It links the adapters and connects them to the ports.</td>
-</tr>
-</tbody>
-</table>
-<p>The dependencies point inward. <code>sutura-domain</code> depends on no other sutura crate and on no
-framework. Only <code>sutura-cli</code> links the catalog and data-system adapters, and no adapter depends on
-another adapter of its kind. <code>cargo xtask check-boundaries</code> fails when one of these rules breaks.
-<a href="../integrations/">Integrations</a> has one page for each adapter.</p>
-<h2 id="the-path-of-a-question">The path of a question<a class="headerlink" href="#the-path-of-a-question" title="Permanent link">&para;</a></h2>
-<ol>
-<li>A caller sends a question to <code>sutura-http</code> or <code>sutura-mcp</code>. A question names metrics,
-   dimensions, a time grain and a bounded time range.</li>
-<li>The transport passes the question to <code>sutura-app</code> through the <code>Surface</code> port.</li>
-<li><code>sutura-semantic</code> resolves every name against the pinned catalog snapshot and makes a plan. The
-   plan names the data system, the columns, the grouping, the date bounds and the bind parameters.</li>
-<li><code>sutura-app</code> gets one credential for each data system that the plan reads, from the
-   <code>CredentialBroker</code> port.</li>
-<li>The <code>Warehouse</code> adapter for that data system runs the plan. A SQL adapter renders the plan
-   through <code>sutura-sql</code>. The DataFusion adapter runs the plan directly and renders no SQL.</li>
-<li>The rows return as Arrow record batches. The transport converts them to rows. The answer
-   includes the digest of the catalog snapshot. A federated answer also reports the identity
-   posture of each leg.</li>
-</ol>
-<p>A plan reads one or two data systems. A plan that reads two is a federated plan: each data system
-runs its part (a leg), and DataFusion joins the legs. sutura refuses a leg on a data system whose
-adapter cannot run one.</p>
-<h2 id="the-question-surface-is-closed">The question surface is closed<a class="headerlink" href="#the-question-surface-is-closed" title="Permanent link">&para;</a></h2>
-<p>No tool and no endpoint takes SQL, a table name, a filter expression or a list of row IDs. The
-question type has no field for them, and <code>deny_unknown_fields</code> refuses a question that carries
-one. Every value in a question becomes a bind parameter. A golden test checks that no value from
-a question appears as text in the statement that sutura generates for it.</p>
-<p>So an agent that is manipulated can only ask a different certified question over the same
-definitions. It cannot make sutura run arbitrary SQL. The raw SQL tool is an exception that is
-off by default; <a href="../serving/#the-raw-sql-tool-over-a-duckdb-source">Serving over HTTP</a> describes
-it.</p>
-<p>The tool schemas come from the Rust types. A snapshot test fails when a field is added or changed,
-so a change to the surface shows in review.</p>
-<h2 id="catalogs-are-pinned-snapshots">Catalogs are pinned snapshots<a class="headerlink" href="#catalogs-are-pinned-snapshots" title="Permanent link">&para;</a></h2>
-<p>A metadata adapter implements <code>SemanticCatalog</code>. It loads the definitions once, as a pinned and
-hashed snapshot. Two rules follow:</p>
-<ul>
-<li><code>load</code> takes no request context. A catalog cannot see who asks, so it cannot give different
-  definitions to different callers.</li>
-<li>sutura checks a question against the snapshot, not against a live read. A catalog edit changes
-  the digest, and the digest goes with every answer.</li>
-</ul>
-<p>Each adapter declares which kinds of definition it can supply: structure, descriptions,
-relationships, cardinality, metrics, filters, grains, value allowlists, anchors, column types and
-column descriptions. The declaration is required. A catalog that supplies part of the model
-declares the rest as absent. The conformance test checks that an adapter produces exactly what it
-declares.</p>
+<h2 id="deployments">Deployments<a class="headerlink" href="#deployments" title="Permanent link">&para;</a></h2>
+<p>Two deployments show how the parts connect. In both, the agent reaches sutura over MCP, and the key
+set of the identity provider lets sutura verify the caller's token.</p>
+<h3 id="direct">Direct<a class="headerlink" href="#direct" title="Permanent link">&para;</a></h3>
+<p><iframe
+  src="../assets/deployment-direct.html"
+  title="sutura with an agent that calls it directly"
+  loading="lazy"
+  style="width: 100%; height: 540px; border: 0;"
+></iframe>
+</p>
+<p><a href="../assets/deployment-direct.html">Open the diagram on its own page</a>. The agent calls sutura over MCP
+with the caller's token.</p>
+<h3 id="through-an-ai-gateway">Through an AI gateway<a class="headerlink" href="#through-an-ai-gateway" title="Permanent link">&para;</a></h3>
+<p><iframe
+  src="../assets/deployment-gateway.html"
+  title="sutura behind an AI gateway"
+  loading="lazy"
+  style="width: 100%; height: 540px; border: 0;"
+></iframe>
+</p>
+<p><a href="../assets/deployment-gateway.html">Open the diagram on its own page</a>. The gateway routes the model
+calls and the MCP calls. It passes the caller's token to sutura. The token must name sutura as its
+audience.</p>
+<p>In both deployments, sutura verifies the token, reads the definitions from DataHub and runs each
+query in the data system.</p>
+<p>Users ask the access request portal for access. The portal grants roles in the identity provider and
+grants in the data system. sutura keeps no copy of the grants.</p>
+<p>DataHub holds each metric definition once. The metrics serving layer serves it to BI tools and APIs,
+and sutura serves it to agents, so every consumer gets the same number.</p>
+<p>Each part can change: another catalog (OpenMetadata, RDBMS, files), another data system (DuckDB,
+Oracle, files), another OIDC issuer, direct or through a gateway.</p>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
-<p>sutura separates two claims about identity:</p>
+<p>sutura separates two parts of identity:</p>
 <ul>
-<li><strong>Leg 1: sutura knows who asks.</strong> This is built. With <code>security.inbound</code>, sutura verifies the
-  caller's token before it answers. <a href="../integrations/identity/">Inbound identity</a> has the settings.</li>
-<li><strong>Leg 2: a data system runs the query as the caller.</strong> This is built for BigQuery
-  (secure-impersonation). The BigQuery adapter sends the caller's verified assertion through the
-  account that the source maps for that caller. sutura refuses a caller that the map does not
-  declare.</li>
+<li><strong>Leg 1: sutura knows who asks.</strong> sutura verifies the caller's token before it answers, on HTTP and on MCP
+  (<code>security.inbound</code>). <a href="../integrations/identity/">Inbound identity</a> has the settings.</li>
+<li><strong>Leg 2: the data system runs the query as the caller.</strong> BigQuery and ClickHouse do this (secure-impersonation). sutura
+  refuses a caller that the source does not declare. Every other data system runs each query as one identity that the
+  operator declares for that source (<code>shared-service-user</code>).</li>
 </ul>
-<p>Every other data system runs as one identity that the deployment declares for that source. An
-operator acknowledges that shared identity in the configuration, and the answer reports it.</p>
-<p>sutura keeps no copy of who may see which rows. Grants, row policies and masking stay in the data
-system. For this reason there is no result cache: under row-level security, a cache keyed on the
+<p>Grants, row policies and masking stay in the data system. sutura keeps no result cache, because a cache keyed on the
 question would leak rows between callers.</p>
-<h2 id="what-ships">What ships<a class="headerlink" href="#what-ships" title="Permanent link">&para;</a></h2>
-<p>Each release has four artifacts: musl and glibc builds for x86_64 and aarch64. Each artifact is
-a distroless image that holds only the binary. The release binary links the features that
-<code>nix/shipped.nix</code> lists, and <code>sutura doctor</code> shows which adapters a binary links. The Oracle
-adapter is built with the <code>oracle</code> feature. <code>just build-release</code> builds the release binary, and
-Nix compiles and links the ADBC drivers into it.</p>
-<p>In the development shell, a <code>cargo</code> build can select one feature:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
-</span></code></pre></div>
-<p>That build links no driver. It loads the driver from the file that <code>SUTURA_BIGQUERY_ADBC_DRIVER</code>
-names.</p>
-<p>The musl artifacts use mimalloc instead of the musl allocator. The musl allocator puts the whole
-process behind one lock, which makes a threaded program slow. Measured with one binary on 48
-threads:</p>
-<table>
-<thead>
-<tr>
-<th>Build</th>
-<th>48 threads</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>glibc</td>
-<td>4.45s</td>
-</tr>
-<tr>
-<td>musl, mallocng</td>
-<td>92.16s</td>
-</tr>
-<tr>
-<td>musl, mimalloc</td>
-<td>3.83s</td>
-</tr>
-</tbody>
-</table>
-<p>mimalloc is built with <code>MI_SECURE=4</code>: guard pages, random placement, encoded free lists and
-double-free detection. This costs 23-43% against plain mimalloc, and it is still faster than glibc.</p>
-<h2 id="what-exists-today">What exists today<a class="headerlink" href="#what-exists-today" title="Permanent link">&para;</a></h2>
-<ul>
-<li>The shipped binary serves HTTP and MCP, compiles questions and runs local files through
-  DataFusion. It links the adapters that <code>nix/shipped.nix</code> lists, and
-  <a href="../integrations/">Integrations</a> describes each adapter.</li>
-<li><code>security.inbound</code> verifies a caller (leg 1). On BigQuery, a query can run as the caller's mapped
-  account (leg 2). Every other source runs as its declared identity.</li>
-<li>Results leave the process as rows, not as Arrow. Arrow is used inside the process only.</li>
-<li>A metric is a computation over a model. sutura cannot take a SQL statement from a catalog and
-  splice it into its query: the metric type has no field for a statement.</li>
-<li>A source entry says where the data is. It does not prove that the data matches what the catalog
-  certifies. Only an anchor checks this, and a metric without an anchor gets no check.</li>
-</ul>
 
 
 
