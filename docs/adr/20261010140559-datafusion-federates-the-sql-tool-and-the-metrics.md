@@ -10,11 +10,14 @@ any build starts. It replaces #828's M1 with the staged plan in decision 5. Thre
 the owner, and each one is marked *Open question for the owner*, with options and a
 recommendation.
 
-It amends three records where it names them: [ADR 0007](0007-federating-across-different-data-systems.md)
-(how a leg reaches its source), [ADR 0013](0013-a-raw-sql-tool-off-by-default.md) (a second SQL
-tool), and [ADR 0039](0039-arrow-and-datafusion-override-the-hand-written-combiner.md) step 4 (the
-caller of `datafusion-federation`). The amendments are proposed with this record. They are not yet
-written into those files.
+It amends three records where it names them.
+[ADR 0007](0007-federating-across-different-data-systems.md): how a leg reaches its source, and its
+sentence that DataFusion's unparser *stays declined for the statement that reaches a data system*.
+Decision 2 amends that sentence for the SQL tool, whatever Q3 decides.
+[ADR 0013](0013-a-raw-sql-tool-off-by-default.md): a federated SQL tool.
+[ADR 0039](0039-arrow-and-datafusion-override-the-hand-written-combiner.md) step 4: the caller of
+`datafusion-federation`. The amendments are proposed with this record. They are not yet written
+into those files.
 
 ## The facts this record starts from
 
@@ -32,10 +35,12 @@ Each fact was read on `origin/main` at `6f4eb2460`, or in the cached crate sourc
 Four more facts, measured for this record:
 
 - `datafusion-federation 0.5.7` declares `sql = ["datafusion/sql"]` and no default feature. The
-  provider, the analyzer, `FederatedPlanNode` and `FederationPlanner` build without datafusion's
+  provider, the optimizer rule, `FederatedPlanNode` and `FederationPlanner` build without datafusion's
   `sql` feature. #828's M1 spike measured the same.
 - `FederationPlanner::plan_federation(&self, node: &FederatedPlanNode, ..)` gets the cut
   `LogicalPlan` subtree. The implementor decides how that subtree runs.
+- The cut is `FederationOptimizerRule`, an `OptimizerRule`, and not an analyzer. DataFusion runs the
+  optimizer again in `SessionState::create_physical_plan` (`datafusion 55.1.0`).
 - The `datafusion-sql 55.1.0` unparser has these dialects: default, PostgreSQL, DuckDB, MySQL,
   SQLite, BigQuery, Snowflake and custom. It has no Oracle and no ClickHouse dialect.
 - `sutura_domain::catalog::Column::data_type` is descriptive text and never a cast. So the catalog
@@ -47,8 +52,8 @@ This record uses the posture names of the code: `shared-service-user` and
 ## Decision 1: a table provider comes from the data system's own schema, pinned to the bundle
 
 **One provider for each source and each subject.** The provider's `name()` is the source alias.
-Its `compute_context()` is `ComputeContext::of(subject)`, the digest ADR 0039 step 5 built for this
-use. So the optimizer cannot fuse two subjects' scans into one node. Each request builds its own
+Its `compute_context()` is `ComputeContext::of(source, subject)`, the digest ADR 0039 step 5 built
+for this use. It covers the source and the subject. So the optimizer cannot fuse two subjects' scans into one node. Each request builds its own
 session. So two subjects never share a session either.
 
 **Two kinds of metadata build a provider, and each has one job.**
@@ -62,10 +67,16 @@ session. So two subjects never share a session either.
   same family as the anchor check. A column that the data system returns and the bundle does not
   name is not registered.
 - **Pinning.** The adapter reads the schemas when the catalog loads and at each refresh. It reads
-  them under the deployment's configured identity, for `verify_anchor`'s reason: no caller exists
-  at load. The set is held beside the `PinnedDefinitions` of the same load, keyed by its
-  `DefinitionDigest`. A question plans against the set of the digest its `Provenance` names. A
-  refresh makes a new set. A question that is in flight keeps the set it started with.
+  them under the deployment's configured identity, because no caller exists at load or at a
+  refresh. The set carries its own digest. It is held in one snapshot with the `PinnedDefinitions`
+  of the same load. `DefinitionDigest` is a content hash, so an unchanged bundle over a changed
+  schema keeps its `DefinitionDigest`. So the snapshot key is both digests, and `Provenance` names
+  both. A question holds its snapshot from the start, so a question in flight keeps its set.
+- **The schema method reads with no caller credential.** So it gets a `disallowed-methods` row in
+  `clippy.toml`, as `verify_anchor` and `declared_key` have, and one `#[expect]` at each call site:
+  the load and the refresh. `verify_anchor` runs at boot only, so this method has one more call
+  site. **Limit.** `clippy.toml` says that nothing gates the completeness of that list, so review
+  holds that the row exists.
 - **Limit.** A type change at the source between two refreshes is not seen at planning. It is seen
   at execution, where `Accumulating::push` refuses a batch whose schema does not agree.
 - **Limit.** The load reads what the deployment identity can see. Under `impersonation-at-source` a
@@ -79,9 +90,10 @@ session. So two subjects never share a session either.
 ## Decision 2: the SQL tool federates across sources, under the raw tool's guards per leg
 
 **What changes.** DataFusion's SQL frontend parses the caller's statement. It plans the statement
-over the providers of decision 1. `datafusion-federation` cuts the plan into one subtree for each
-source, and its `sql` module writes each subtree as one statement. Each source runs its own
-statement. DataFusion joins the results locally.
+over the providers of decision 1. `datafusion-federation` cuts the plan into its largest
+one-provider subtrees, and its `sql` module writes each subtree as one statement. One source can
+give more than one subtree: in `a1 JOIN b JOIN a2`, with `a1` and `a2` on source A, A gives two.
+Each subtree runs at its own source. DataFusion joins the results locally.
 
 **Who may run it.** A caller that holds the tool's capability scope. A caller without the scope
 does not see the tool advertised, as ADR 0013 decides for `run_sql`. The session registers only
@@ -97,11 +109,12 @@ whole:
 | `multi-user`  | **Startup refusal**, one for each source.   | Allowed. The source authorizes the subject.    |
 
 - The tool runs over the sources that `tools` lists for it by alias. Nothing is inferred. A list
-  with no source is a startup refusal. This replaces *the sole registered data system*.
+  with no source is a startup refusal. Under Q1 (a) the list belongs to the new tool, and `run_sql`
+  keeps one source. Under Q1 (b) the list replaces `run_sql`'s *sole registered data system*.
 - **Limit.** Today no linked adapter both accepts a raw statement and carries a per-subject
   credential (the `RunSqlEnabledInMultiUserMode` doc says so). Postgres and DuckDB accept raw
-  statements and run as the deployment. BigQuery runs as the subject and does not accept raw
-  statements. So in `multi-user` mode the tool has no source until an `impersonation-at-source`
+  statements and run as the deployment. BigQuery is built to run as the subject, and no run of that
+  is recorded. It does not accept raw statements. So in `multi-user` mode the tool has no source until an `impersonation-at-source`
   adapter accepts raw statements. BigQuery is the first candidate.
 
 **The guards of ADR 0013 carry over per leg, because each leg goes through the raw port.** The
@@ -110,7 +123,7 @@ whole:
 
 | Guard of `run_sql`                                        | In the federated tool                                                                                 |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Off by default                                            | Its own switch, off by default                                                                        |
+| Off by default                                            | Off by default: under Q1 (a) its own switch, under Q1 (b) `run_sql`'s switch                          |
 | `RunSqlEnabledInMultiUserMode`                            | One startup refusal for each listed `shared-service-user` source in `multi-user` mode                 |
 | `RawStatement::parse`: at most 64 KiB, not empty, no NUL  | On the caller's statement, and again on each leg's statement                                          |
 | Mint once, grant fits, posture agrees                     | One mint for the listed sources that the plan names; posture agreement per leg                        |
@@ -120,7 +133,7 @@ whole:
 | `RawOutcome` has no `Provenance`                          | Unchanged. A federated SQL answer is never certified                                                  |
 | Deadline checked before the call and passed to the port   | One request `Deadline` for the whole statement, checked before each leg                               |
 
-**Two guards are new.**
+**Three guards are new.**
 
 - DataFusion plans with `SQLOptions` that allow no DDL, no DML and no other statement. So `CREATE`,
   `INSERT`, `COPY` and `SET` are refused before a leg exists. **This is not the read-only boundary.**
@@ -128,6 +141,11 @@ whole:
   is the source's grant and the adapter's read-only transaction.
 - The local join runs in a memory pool sized to the working-set ceiling, as the combine does today
   (`pool::environment`).
+- **Cross-posture disclosure.** In `single-user` mode one statement can join a `shared-service-user`
+  leg and an `impersonation-at-source` leg. `RawOutcome` has no `Provenance` and no `executed_as`
+  today. The federated tool adds one `executed_as` entry for each leg to its outcome, outside any
+  `Provenance`. So the answer is disclosed per leg, as ADR 0040 does for a metric, and it still
+  claims no certification.
 
 **Limits.**
 
@@ -141,7 +159,8 @@ whole:
   invariant is about a value from a certified question, and this path has none. The caller already
   writes the whole statement. An unparser fault can change what a leg runs. It cannot give the
   caller more than the leg's identity may do at that source, and the identity table above bounds
-  that.
+  that. **This amends ADR 0007's sentence that DataFusion's unparser stays declined for the
+  statement that reaches a data system**, for the SQL tool, whatever Q3 decides.
 - `insert_into` on `datafusion-federation`'s table adaptor returns *not implemented* when no inner
   provider is given. sutura gives none. `SQLOptions` refuses DML before that point.
 
@@ -166,12 +185,17 @@ parser* a property. That property ends for such a build.
 **Recommendation: (a).** The default artefact keeps the property, and the decision to give it up
 is visible in a diff.
 
+**Limit of (a).** No check holds the default build free of a parser yet. ADR 0013's evidence is that
+neither crate is in `Cargo.lock`. `Cargo.lock` resolves every feature, so that evidence ends under
+(a) too. PR 5 adds a gate over the default build's resolved tree that fails when `sqlparser` or
+`datafusion-sql` is in it.
+
 ## Decision 3: DataFusion plans the certified metric question, and every question value stays a bound parameter
 
 **What changes.** The question stays a domain `FederatedPlan`. The domain names no engine.
 `sutura-exec-datafusion` builds one DataFusion `LogicalPlan` from it over the providers of
-decision 1. `datafusion-federation`'s analyzer cuts each largest one-provider subtree into a
-`FederatedPlanNode`. The rest (the join, the re-aggregation, the `Above` division and the sort) runs
+decision 1. `datafusion-federation`'s optimizer rule cuts each largest one-provider subtree into a
+`FederatedPlanNode`. One source can give more than one node. The rest (the join, the re-aggregation, the `Above` division and the sort) runs
 locally. That rest is today's combine plan. The change is that each leg is now a scan in the same
 plan, and not a `MemTable` of a finished result.
 
@@ -179,9 +203,11 @@ plan, and not a `MemTable` of a finished result.
 `Expr::Placeholder`, never as an `Expr::Literal`. The values stay beside the plan as the domain's
 `ParamValue` list. sutura implements the `FederationPlanner`. It does not use the crate's `sql`
 module on this path, because that module's executor has no parameter list. For each cut node,
-sutura's planner writes the statement for that source with one bind placeholder for each value. It
-gives the statement and its values as a `GeneratedQuery` to the leg runner of decision 4. The
-adapter binds the values, as the Postgres and BigQuery ADBC adapters do today. **So 0007 is not
+sutura's planner gives one leg and its values to the leg runner of decision 4. Under Q3 (a) the leg
+is a domain `LegPlan`, and the adapter writes it with `sutura_sql::generate_leg`, as today (for
+example `crates/sutura-exec-postgres/src/adbc.rs:242`). Under Q3 (b) the planner writes the
+statement and gives a `GeneratedQuery`. In both, each value is one bind placeholder, and the adapter
+binds the values, as the Postgres and BigQuery ADBC adapters do today. **So 0007's invariant is not
 amended.** The invariants row *one bind placeholder per plan value, counted per dialect and
 compared against the plan's parameter list* applies to each pushed statement.
 
@@ -199,14 +225,13 @@ compared against the plan's parameter list* applies to each pushed statement.
 **Open question for the owner (Q3): which generator writes the text around the placeholders?**
 
 - (a) **sutura's own generator.** The planner maps each cut subtree back to a domain `LegPlan`, and
-  `sutura_sql::generate` writes it through `polyglot-sql`, as today. No second parser enters the
+  `sutura_sql::generate_leg` writes it through `polyglot-sql`, as today. No second parser enters the
   closure. Each row of the invariants table stays as it is. Oracle keeps `DateTruncShape`.
   **Cost:** the map accepts only the node shapes that sutura's own plan makes (scan, filter,
   projection, join on declared keys, the closed `Aggregate` set, sort, limit). It refuses any other
   cut by name, and the golden suite shows a refusal that an engine upgrade causes.
 - (b) **DataFusion's unparser,** with placeholders. This needs the `sql` feature in every build,
-  because the metric path is the core. It has no Oracle and no ClickHouse dialect. It amends ADR
-  0007's sentence *the generator is never DataFusion*, and it needs a new per-dialect placeholder
+  because the metric path is the core. It has no Oracle and no ClickHouse dialect. It also amends ADR 0007's sentence *the generator is never DataFusion* for the metric path, and it needs a new per-dialect placeholder
   count cell. A leg is then a statement and not a `LegPlan`, so `Warehouse::dry_run` needs a new
   `Executable` for it.
 
@@ -224,20 +249,28 @@ implementor, in the PR that first calls it.
 **Two calls, so that the ledger still comes first.** The legs exist only after DataFusion's
 optimizer cuts the plan. So the combiner port splits into two calls:
 
-1. `plan` returns the cut: one typed leg for each source, and the local rest. It executes nothing.
+1. `plan` returns the cut: one typed leg for each cut node (one or more for each source), and the
+   local rest. It executes nothing.
 2. `sutura-app` dry-runs each leg and charges the sum, as `preflight_and_charge` does today.
-3. `execute` takes the cut from step 1 and the leg runner. It cannot plan again, because the cut is
-   a value that only `plan` makes and `execute` consumes.
+3. `execute` takes the cut from step 1 and the leg runner. The cut is a value that only `plan` makes
+   and `execute` consumes.
 
-| Guard                        | Today                                                                                       | After the move                                                                                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Spend ledger, all-or-nothing | `preflight_and_charge` dry-runs every leg, then charges, before any leg runs (ADR 0030)     | The same function, on the legs of the cut, between `plan` and `execute`. No leg runs before the charge.                                                    |
-| Credential per leg           | One mint for the plan's `SourceSet`; `presented_for`, `still_usable_at` and posture per leg | The same calls in the same functions. The `SourceSet` comes from the cut's sources.                                                                        |
-| Subjects never fuse          | No provider exists                                                                          | `compute_context()` is the subject's digest, and each request builds its own session.                                                                      |
-| Deadline                     | One request `Deadline`, checked before each leg and passed to `execute`                     | The same. The leg runner checks it before each leg. The local rest must stop at the same deadline.                                                         |
-| Refusal mapping              | `run_leg` maps exhaustion, size, deadline and `SourceRefused` in that order; else `503`     | The same function, the same order. The adapter carries a leg's refusal out unchanged and never maps it again. A leg's refusal wins over a combine failure. |
-| Byte budget                  | The pool for operators; `Accumulating::push` for each leg's result                          | The same two.                                                                                                                                              |
-| Cross-posture disclosure     | One `executed_as` entry for each leg (ADR 0040)                                             | One entry for each leg of the cut.                                                                                                                         |
+**The type holds which value `execute` takes. It does not hold which legs run.** DataFusion runs
+the optimizer again in `SessionState::create_physical_plan`, and `plan_federation` runs at physical
+planning. So the charged cut gives out one token for each leg it charged. The leg runner accepts
+only a leg with a token from the charged cut. It refuses any other leg, as this workspace's own
+defect, before it reads a credential. 0.5.7 skips a node that is already cut, but that is the
+crate's code and not a sutura mechanism. **Limit.** This was read in the crate source, not run.
+
+| Guard                        | Today                                                                                       | After the move                                                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spend ledger, all-or-nothing | `preflight_and_charge` dry-runs every leg, then charges, before any leg runs (ADR 0030)     | The same function, on the legs of the cut, between `plan` and `execute`. No leg runs before the charge. The leg runner refuses a leg that the charged cut did not give out. |
+| Credential per leg           | One mint for the plan's `SourceSet`; `presented_for`, `still_usable_at` and posture per leg | The same calls in the same functions. The `SourceSet` comes from the cut's sources.                                                                                         |
+| Subjects never fuse          | No provider exists                                                                          | `compute_context()` is the digest of the source and the subject, and each request builds its own session.                                                                   |
+| Deadline                     | One request `Deadline`, checked before each leg and passed to `execute`                     | The same. The leg runner checks it before each leg. The local rest must stop at the same deadline.                                                                          |
+| Refusal mapping              | `run_leg` maps exhaustion, size, deadline and `SourceRefused` in that order; else `503`     | The same function, the same order. The adapter carries a leg's refusal out unchanged and never maps it again. A leg's refusal wins over a combine failure.                  |
+| Byte budget                  | The pool for operators; `Accumulating::push` for each leg's result                          | The same two.                                                                                                                                                               |
+| Cross-posture disclosure     | One `executed_as` entry for each leg (ADR 0040)                                             | One entry for each leg of the cut.                                                                                                                                          |
 
 **Limit.** The leg runner is synchronous today and DataFusion executes asynchronously. The planner
 calls the runner on a blocking thread. That the deadline still cancels a leg there is not measured.
@@ -248,20 +281,26 @@ Each PR carries its own cells. A cell runs against a real adapter in a venue tha
 adapter. A new port arrives in one PR with today's behaviour, and the new behaviour follows in the
 next PR, so that `just causality` can build the base.
 
-| PR | Delivers                                                                                                                       | Its cells show                                                                                                                                                                |
-| -- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1  | This record                                                                                                                    | Nothing to run                                                                                                                                                                |
-| 2  | The schema method on `Warehouse` (DuckDB and Postgres first, BigQuery next) and the set pinned by digest                       | A column that the bundle names and the source lacks refuses the load. A refresh swaps the set. A question in flight keeps its set.                                            |
-| 3  | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs | Every federated golden gives the same answer as before. The ledger charges before any leg runs. Two subjects' providers are not equal.                                        |
-| 4  | DataFusion cuts the metric plan (decision 3), after Q3                                                                         | A differential against PR 3's answers on DuckDB and Postgres. One placeholder for each value in each pushed statement. A cut that the map does not accept is refused by name. |
-| 5  | The federated SQL tool (decision 2), after Q1 and Q2                                                                           | Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller.                                                    |
-| 6  | Only if Q3 is (b): the unparser as the generator                                                                               | A differential against (a), per dialect.                                                                                                                                      |
+| PR | Delivers                                                                                                                                       | Its cells show                                                                                                                                                                |
+| -- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1  | This record                                                                                                                                    | Nothing to run                                                                                                                                                                |
+| 2  | The schema method on `Warehouse` (DuckDB and Postgres first, BigQuery next) the set pinned by both digests, and the method's `clippy.toml` row | A column that the bundle names and the source lacks refuses the load. A refresh swaps the set. A question in flight keeps its set.                                            |
+| 3  | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs                 | Every federated golden gives the same answer as before. The ledger charges before any leg runs. Two subjects' providers are not equal. An uncharged leg is refused.           |
+| 4  | DataFusion cuts the metric plan (decision 3), after Q3                                                                                         | A differential against PR 3's answers on DuckDB and Postgres. One placeholder for each value in each pushed statement. A cut that the map does not accept is refused by name. |
+| 5  | The federated SQL tool (decision 2), after Q1 and Q2                                                                                           | Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller.                                                    |
+| 6  | Only if Q3 is (b): the unparser as the generator                                                                                               | A differential against (a), per dialect.                                                                                                                                      |
+
+**How PR 3's cells pass `just causality`.** PR 3 keeps today's behaviour, so two of its cells (*the
+same answer as before*, *the ledger charges before any leg runs*) pass on the base. Each one
+declares `Claim-Cell:` with a killing mutation under `devco/claim-mutations/`. The other two (*two
+subjects' providers are not equal*, *an uncharged leg is refused*) name the new port and cannot
+build on the base. Each one gets a `devco/causality-no-base-exemptions` entry with its reason.
 
 What #828's milestones become:
 
 - **M1** is replaced by PRs 2 to 4.
 - **M2** (CI slice) is unchanged and does not depend on this record.
-- **M3** (plan-time heuristic) reads PR 4's cut (the legs per source and the local rest) and not
+- **M3** (plan-time heuristic) reads PR 4's cut (the legs, one or more for each source, and the local rest) and not
   today's fixed two-leg split.
 - **M4** (elastic multi-node) plugs in where the `FederationPlanner` runs the local rest. A worker
   must call the leg runner, so each guard of decision 4 still runs once per leg. How the subject's
