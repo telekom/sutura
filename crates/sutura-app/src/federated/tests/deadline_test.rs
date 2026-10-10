@@ -33,7 +33,7 @@ fn a_federated_leg_that_times_out_is_refused_not_a_503() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
     .expect("a stopped deadline is a refusal, not an error")
     .into_outcome();
@@ -77,7 +77,7 @@ fn a_federated_legs_pre_flight_that_times_out_is_refused_not_a_503() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
     .expect("a stopped deadline is a refusal, not an error")
     .into_outcome();
@@ -136,7 +136,7 @@ fn a_federated_dry_run_that_spends_the_budget_refuses_both_legs_before_either_ex
         FEDERATED_BUDGET,
         almost_spent,
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();

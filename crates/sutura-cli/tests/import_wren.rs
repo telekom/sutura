@@ -214,7 +214,7 @@ mod tests {
             1 << 30,
             deadline,
             &sutura_app::SpendLedger::no_budget(),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::RowCeilings::DEFAULT,
         )
         .unwrap_or_else(|e| panic!("the converted catalog did not answer its own question: {e}"));
 
