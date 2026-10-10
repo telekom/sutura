@@ -37,10 +37,9 @@
 //!   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
 //!   driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
 //!   source, not observed against a server - so up to one batch is in memory before a cap refuses.
-//! - **The connection is plaintext and confined only at its first dial.** `sutura-config`'s
-//!   `OracleCatalogConnection` refuses TLS and a non-loopback host, because the driver takes no
-//!   caller-built trust store; the driver still follows a listener's TNS redirect to any address
-//!   it names - the limit `sutura-cli`'s `oracle` module holds for the source kind.
+//! - **The connection is plaintext and stays on its declared loopback host.** `sutura-config`'s
+//!   `OracleCatalogConnection` refuses TLS and a non-loopback host, and a listener's redirect is
+//!   refused before authentication as [`RdbmsError::RedirectRefused`].
 //! - **`SharedServiceUser`, not leg 2.** A catalog read has no caller to run as; it is one login
 //!   under the user the deployment declared.
 
@@ -144,7 +143,8 @@ impl OracleReader {
         let config = oracledb::Config::default()
             .set_connect_string(&login.address())
             .map_err(read_err)?
-            .set_credentials(&login.user, password);
+            .set_credentials(&login.user, password)
+            .set_follow_redirects(false);
         oracledb::connect(config).map_err(read_err)
     }
 }
@@ -240,6 +240,9 @@ fn decode(
 }
 
 fn read_err(cause: oracledb::Error) -> RdbmsError {
+    if matches!(cause.kind(), oracledb::ErrorKind::RedirectNotAllowed) {
+        return RdbmsError::RedirectRefused;
+    }
     RdbmsError::Read(Box::new(DriverError(cause)))
 }
 

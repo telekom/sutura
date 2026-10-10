@@ -16,7 +16,8 @@ use crate::sources::OpenedWith;
 ///
 /// # Errors
 ///
-/// Everything [`crate::oracle::build`] refuses.
+/// The `impersonation-at-source` posture, which this command attaches no broker for; then
+/// everything [`crate::oracle::build`] refuses.
 #[cfg(feature = "oracle")]
 pub(super) fn open(
     source: &SourceName,
@@ -24,6 +25,18 @@ pub(super) fn open(
     registry: &sutura_config::SourceRegistry,
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
+    // `clickhouse.rs`'s refusal, for its reason: this command attaches only the static broker, which
+    // mints nothing for an impersonating source. Refused before anything is dialled.
+    if matches!(
+        configured.posture(),
+        Some(sutura_domain::source::SourcePosture::ImpersonationAtSource)
+    ) {
+        return Err(format!(
+            "`sources.{source}` is `impersonation-at-source`, and the `sutura` command attaches no \
+             broker that presents a subject's own token - refusing rather than reading every row as \
+             this process; no fallback. `sutura serve` is the root that attaches one"
+        ));
+    }
     let engine = crate::oracle::build(source, configured, working_set)?;
     Ok(Opened::Oracle(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
@@ -125,5 +138,28 @@ mod tests {
         .expect_err("the declared password file is not there, so this command does not answer");
         assert!(error.contains("password_file"), "the refusal must name the key: {error}");
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    }
+
+    /// **Refused by name, before anything is dialled**: this command attaches only the static
+    /// broker, which mints nothing for an impersonating source.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn an_impersonating_oracle_source_is_refused_by_the_command_that_attaches_no_broker_for_it() {
+        let impersonating = declaring(
+            "warehouse",
+            "    kind: oracle\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"FREEPDB1\"\n    \
+             user: \"sutura\"\n    password_file: \"/nonexistent/sutura-cli-test-oracle-pass\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-cli-test-oracle-ca.pem\"\n    \
+             subjects: [\"analyst-a@example.com\"]\n",
+            "impersonation-at-source",
+        );
+        let error = open_engine(&bundle_naming("warehouse"), &impersonating, runtime(), timeout(), None, None)
+            .map(|_| ())
+            .expect_err("an impersonating source does not open under this command");
+        assert!(error.contains("attaches no broker"), "{error}");
+        assert!(
+            !error.contains("password_file"),
+            "refused before the password file is read: {error}"
+        );
     }
 }

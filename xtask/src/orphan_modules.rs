@@ -69,6 +69,7 @@ const TEST_SUPPORT: &[(&str, &str)] = &[
     ("sutura-dev", "bench_venue"),
     ("sutura-dev", "tolerance"),
     ("sutura-dev", "env_proxy"),
+    ("sutura-dev", "tns_listener"),
     ("sutura-app", "untrusted"),
     ("sutura-exec-datafusion", "measurement"),
 ];

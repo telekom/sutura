@@ -31,6 +31,7 @@ thiserror = { workspace = true }
 # and an async abstraction for a service that reads one format synchronously at startup.
 config = { workspace = true }
 url = { workspace = true }
+rustls-pki-types = { workspace = true }
 # The two halves of the token comparison, and neither is hand-rolled on purpose.
 #
 # `sha2` reduces both sides to a fixed 32 bytes, which is what removes the length oracle: a

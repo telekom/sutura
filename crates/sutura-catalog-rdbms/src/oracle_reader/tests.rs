@@ -4,7 +4,7 @@ use sutura_domain::identity::Secret;
 
 use super::{DriverError, OracleLogin, OracleReader, assemble, decode, flag, statement};
 use crate::postgres_reader::{DEFAULT_MAX_DICTIONARY_BYTES, DEFAULT_MAX_DICTIONARY_ROWS, InvalidReaderConfig, RowPredicate};
-use crate::{ColumnMetadata, Dictionary, DictionaryBounds, RdbmsError, Table, TableAddress};
+use crate::{ColumnMetadata, Dictionary, DictionaryBounds, DictionaryReader as _, RdbmsError, Table, TableAddress};
 
 fn login() -> OracleLogin {
     login_at("127.0.0.1")
@@ -222,4 +222,26 @@ fn the_oracle_assembly_stops_at_the_first_row_the_driver_fails() {
         "{refused:?}"
     );
     assert_eq!(pulled.get(), 2, "the cursor is abandoned at the refused row");
+}
+
+/// A listener that answers the login with a redirect is refused, typed, and the address it named is
+/// never dialled - so no login reaches it.
+#[test]
+fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
+    let listener = sutura_dev::tns_listener::RedirectingListener::start().expect("the fake listener binds");
+    let login = OracleLogin::new(
+        String::from("127.0.0.1"),
+        listener.port(),
+        String::from("FREEPDB1"),
+        String::from("reader"),
+        Secret::new("a-test-password"),
+    );
+    let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
+        .expect("a valid reader config");
+    let error = reader.read_dictionary().expect_err("a redirecting listener is refused");
+    assert!(matches!(error, RdbmsError::RedirectRefused), "{error:?}");
+    assert!(
+        !listener.target_was_dialled(std::time::Duration::from_secs(2)),
+        "the address the redirect named was dialled"
+    );
 }

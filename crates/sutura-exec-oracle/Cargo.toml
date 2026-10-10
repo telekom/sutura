@@ -33,6 +33,12 @@ parking_lot = { workspace = true }
 # `xtask check-boundaries` holds (the harness reaches no adapter) is untouched.
 sutura-conformance = { workspace = true }
 sutura-dev = { workspace = true }
+# `tests/dial.rs`: an `rcgen`-issued leaf behind a real `rustls` server, the anchor cells' listener;
+# and `rustix`'s `listen` to shrink a loopback backlog to nothing, the unanswered-connect cell's.
+# All three are already in `Cargo.lock`; `net` is a new feature on `rustix`, in this dev graph only.
+rcgen = { workspace = true }
+rustls = { workspace = true }
+rustix = { workspace = true, features = ["net"] }
 
 [features]
 # THE FIXTURE-TIER CREDENTIAL AND THE CONNECTION CONFIG OVER IT - `sutura-exec-postgres`'s own

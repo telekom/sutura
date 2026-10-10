@@ -9,41 +9,42 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, OracleServiceName, SourcePlacement};
-use crate::sources::transport::SourceTransport;
+use crate::sources::placement::{
+    HostName, InvalidOracleSubjects, OracleChannel, OracleServiceName, OracleSubjects, SourcePlacement, TlsServerName,
+};
+use crate::sources::transport::{SourceTransport, TrustAnchors};
+use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
 ///
 /// **Every value the driver's connection needs is declared and nothing else is accepted**: the
 /// listener's host and port, the service name it resolves, the user and the file its password is
-/// read from. `transport_mode` is required and must be `plaintext`, so the channel is still a word
-/// an operator wrote rather than a default - and the parent's remote-plaintext rule then confines
-/// the DECLARED `host` to a loopback literal.
+/// read from. `transport_mode` is required, so the channel is a word an operator wrote rather than
+/// a default: `plaintext`, which the parent's remote-plaintext rule confines to a loopback `host`,
+/// or `verified` with `transport_anchors` naming a PEM bundle - the only anchors the server is
+/// verified against.
 ///
-/// **The limit, next to that claim: it confines the first dial, not the connection.** The pinned
-/// driver follows a listener's TNS REDIRECT to whatever address the listener names - unchecked,
-/// with no option to refuse, still plaintext - and authenticates there. So a loopback listener
-/// that redirects (a port-forward to a SCAN listener or a connection manager does, routinely) sends
-/// the password and every row across the network in the clear. Held by `sutura-cli`'s
-/// `a_listener_redirect_is_followed_to_an_address_nobody_declared`, which goes red the day the
-/// driver stops following.
+/// The connection stays on that host: a listener's redirect is refused before authentication, held
+/// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
 ///
-/// # Why TLS is refused rather than wired
+/// An `impersonation-at-source` entry also names its `subjects`, whose own verified token opens each
+/// of their sessions, and must be `verified`: a token is never sent over `plaintext`.
 ///
-/// The driver builds its own TLS configuration and takes no caller-built one: its trust store is a
-/// bundled public-CA set, and a wallet's certificates are ADDED to that set rather than replacing it
-/// (measured by reading the pinned driver's `transport.rs`). So a declared `transport_anchors` could
-/// never be the store an Oracle source verifies against - accepting `verified` would be the
-/// *reads as done and is not* defect `docs/adr/0010`'s declared-trust-store rule exists to name.
-/// Refused, with the reason, until the driver can be handed a root store.
+/// # Why `mutual` and `transport_anchors: system` are refused
+///
+/// The driver builds its own TLS configuration from the PEM certificates it is handed: it reads no
+/// host store and presents a client certificate only from a wallet, which no key here declares.
+/// Accepting either would be the *reads as done and is not* defect `docs/adr/0010`'s
+/// declared-trust-store rule exists to name.
 ///
 /// # Errors
 ///
 /// A key that belongs to another kind; a missing `host`, `port`, `service_name`, `user`,
 /// `password_file` or `transport_mode`; a `host` that is not a usable host; a relative
-/// `password_file`; a transport declaration that is not usable, or not `plaintext`; and a
-/// non-loopback host.
+/// `password_file`; a transport declaration that is not usable, `mutual`, or `verified` against the
+/// host store; a non-loopback host declared `plaintext`; and `subjects` that are missing on an
+/// impersonating entry, written on any other, unparsable, or declared over `plaintext`.
 pub(super) fn parse_placement(
     alias: &SourceName,
     kind: SourceKind,
@@ -87,21 +88,67 @@ pub(super) fn parse_placement(
         alias: alias.clone(),
         cause,
     })?;
-    if transport != SourceTransport::Plaintext {
-        return Err(InvalidSourceRegistry::TlsNotDeliverable {
-            alias: alias.clone(),
-            kind,
-            mode: transport.describe(),
-        });
-    }
     super::refuse_remote_plaintext(alias, &host, &transport)?;
+    let refused = |mode| InvalidSourceRegistry::TlsNotDeliverable {
+        alias: alias.clone(),
+        kind,
+        mode,
+    };
+    let channel = match transport {
+        SourceTransport::Plaintext => OracleChannel::Plaintext,
+        SourceTransport::Verified {
+            anchors: TrustAnchors::File(anchors),
+        } => OracleChannel::Verified {
+            anchors,
+            server_name: TlsServerName::parse(&host).map_err(|cause| InvalidSourceRegistry::TlsServerName {
+                alias: alias.clone(),
+                cause,
+            })?,
+        },
+        SourceTransport::Verified {
+            anchors: TrustAnchors::System,
+        } => return Err(refused("verified with `transport_anchors: system`")),
+        SourceTransport::Mutual { .. } => return Err(refused("mutual")),
+    };
+    let subjects = parse_subjects(alias, kind, entry, &channel)?;
     Ok(SourcePlacement::Oracle {
         host,
         port,
         service_name,
         user,
         password_file,
+        channel,
+        subjects,
     })
+}
+
+/// The subjects whose own token opens a session: required and non-empty on an
+/// `impersonation-at-source` entry, which must be `verified`, and refused on any other - and never
+/// beside `workload_identity`, which only `bigquery` reads.
+fn parse_subjects(
+    alias: &SourceName,
+    kind: SourceKind,
+    entry: &RawSourceEntry<'_>,
+    channel: &OracleChannel,
+) -> Result<OracleSubjects, InvalidSourceRegistry> {
+    super::refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
+    let invalid = |cause| InvalidSourceRegistry::OracleSubjects {
+        alias: alias.clone(),
+        cause,
+    };
+    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.subjects) {
+        (false, None) => return Ok(OracleSubjects::new()),
+        (false, Some(_)) => return Err(invalid(InvalidOracleSubjects::NotImpersonating)),
+        (true, None | Some([])) => return Err(invalid(InvalidOracleSubjects::Missing)),
+        (true, Some(declared)) => declared,
+    };
+    if *channel == OracleChannel::Plaintext {
+        return Err(invalid(InvalidOracleSubjects::Plaintext));
+    }
+    declared
+        .iter()
+        .map(|subject| SubjectKey::parse(subject).map_err(|cause| invalid(InvalidOracleSubjects::Subject { cause })))
+        .collect()
 }
 
 /// The six keys an `oracle` entry has no use for, paired with whether this entry wrote each.
@@ -163,6 +210,7 @@ mod tests {
             client_certificate: None,
             client_key: None,
             impersonate: None,
+            subjects: None,
         }
     }
 
@@ -179,7 +227,11 @@ mod tests {
                 service_name,
                 user,
                 password_file,
+                channel,
+                subjects,
             } => {
+                assert_eq!(*channel, placement::OracleChannel::Plaintext);
+                assert!(subjects.is_empty(), "a shared source declares no subjects");
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 1521);
                 assert_eq!(service_name.as_str(), "FREEPDB1");
@@ -190,24 +242,67 @@ mod tests {
         }
     }
 
-    /// **The refusal this kind adds.** A TLS mode is refused naming the kind and the mode, for both
-    /// TLS modes - a remote host WITH anchors is exactly what every other dialled kind accepts.
+    /// A remote host is declarable over `verified`, and the bundle it names is the channel's whole
+    /// trust: the placement carries that path and nothing that could widen it.
     #[test]
-    fn a_tls_transport_on_an_oracle_source_is_refused_naming_the_mode() {
+    fn a_verified_oracle_source_carries_the_bundle_it_declares() {
         let verified = RawSourceEntry {
             host: Some("db.example.com"),
             transport_mode: Some("verified"),
             transport_anchors: Some("/etc/sutura/ca.pem"),
             ..oracle("warehouse")
         };
+        let registry = SourceRegistry::parse(&[verified], Some(&single_user())).expect("a verified oracle entry parses");
+        let configured = registry.get(&alias("warehouse")).expect("the entry is there");
+        let placement::SourcePlacement::Oracle { channel, .. } = configured.placement() else {
+            panic!("expected an oracle placement, got {:?}", configured.placement());
+        };
+        assert_eq!(
+            *channel,
+            placement::OracleChannel::Verified {
+                anchors: std::path::PathBuf::from("/etc/sutura/ca.pem"),
+                server_name: placement::TlsServerName::parse(
+                    &placement::HostName::parse("db.example.com").expect("a host name parses")
+                )
+                .expect("a DNS name is a TLS server name"),
+            }
+        );
+    }
+
+    /// A `verified` host that TLS cannot name is refused at parse, naming the key, so the driver is
+    /// never handed it.
+    #[test]
+    fn a_verified_oracle_host_that_tls_cannot_name_is_refused_naming_the_key() {
+        let unnamed = RawSourceEntry {
+            host: Some("db..example.com"),
+            transport_mode: Some("verified"),
+            transport_anchors: Some("/etc/sutura/ca.pem"),
+            ..oracle("warehouse")
+        };
+        let error = SourceRegistry::parse(&[unnamed], Some(&single_user())).expect_err("the host is refused");
+        assert!(matches!(error, InvalidSourceRegistry::TlsServerName { .. }), "{error}");
+        assert!(error.to_string().contains("sources.warehouse.host"), "{error}");
+    }
+
+    /// **The refusal this kind adds.** The two TLS declarations its driver cannot honour are refused
+    /// naming the kind and the declaration: a client certificate, and the host's own store.
+    #[test]
+    fn mutual_or_the_host_store_on_an_oracle_source_is_refused_naming_the_declaration() {
+        let system = RawSourceEntry {
+            host: Some("db.example.com"),
+            transport_mode: Some("verified"),
+            transport_anchors: Some("system"),
+            ..oracle("warehouse")
+        };
         let mutual = RawSourceEntry {
+            transport_anchors: Some("/etc/sutura/ca.pem"),
             client_certificate: Some("/etc/sutura/client.pem"),
             client_key: Some("/etc/sutura/client.key"),
             transport_mode: Some("mutual"),
-            ..verified.clone()
+            ..system.clone()
         };
-        for (mode, entry) in [("verified", verified), ("mutual", mutual)] {
-            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("a TLS oracle source is refused");
+        for (mode, entry) in [("verified with `transport_anchors: system`", system), ("mutual", mutual)] {
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the declaration is refused");
             assert!(
                 matches!(
                     error,
@@ -404,5 +499,128 @@ mod tests {
             Some(&single_user()),
         )
         .expect("letters, digits, `_` and `.` are a service name");
+    }
+
+    /// An impersonating entry over `verified`, naming `subjects`. A test changes one field at a time.
+    fn impersonating(subjects: &[String]) -> RawSourceEntry<'_> {
+        RawSourceEntry {
+            host: Some("db.example.com"),
+            transport_mode: Some("verified"),
+            transport_anchors: Some("/etc/sutura/ca.pem"),
+            posture: "impersonation-at-source",
+            acknowledged_because: None,
+            subjects: Some(subjects),
+            ..oracle("warehouse")
+        }
+    }
+
+    /// An impersonating source names the subjects whose own token opens a session, and the
+    /// placement carries exactly those.
+    #[test]
+    fn an_impersonating_oracle_source_declares_the_subjects_whose_token_opens_a_session() {
+        let declared = [String::from("analyst-a@example.com")];
+        let registry = SourceRegistry::parse(&[impersonating(&declared)], Some(&single_user()))
+            .expect("an impersonating oracle entry parses");
+        let configured = registry.get(&alias("warehouse")).expect("the entry is there");
+        let placement::SourcePlacement::Oracle { subjects, .. } = configured.placement() else {
+            panic!("expected an oracle placement, got {:?}", configured.placement());
+        };
+        let analyst = sutura_domain::identity::SubjectKey::parse("analyst-a@example.com").expect("a test subject is a key");
+        assert_eq!(subjects.iter().collect::<Vec<_>>(), vec![&analyst]);
+    }
+
+    /// **Each way `subjects` is refused**: missing or empty on an impersonating entry, written on a
+    /// shared one, over `plaintext`, not a subject, and beside a `workload_identity` block.
+    #[test]
+    fn oracle_subjects_are_refused_unless_an_impersonating_verified_source_declares_them() {
+        use placement::InvalidOracleSubjects;
+
+        let none: [String; 0] = [];
+        let one = [String::from("analyst-a@example.com")];
+        let blank = [String::from(" ")];
+        let cases = [
+            (
+                RawSourceEntry {
+                    subjects: None,
+                    ..impersonating(&one)
+                },
+                InvalidOracleSubjects::Missing,
+            ),
+            (impersonating(&none), InvalidOracleSubjects::Missing),
+            (
+                RawSourceEntry {
+                    subjects: Some(&one),
+                    ..oracle("warehouse")
+                },
+                InvalidOracleSubjects::NotImpersonating,
+            ),
+            (
+                RawSourceEntry {
+                    host: Some("127.0.0.1"),
+                    transport_mode: Some("plaintext"),
+                    transport_anchors: None,
+                    ..impersonating(&one)
+                },
+                InvalidOracleSubjects::Plaintext,
+            ),
+        ];
+        for (entry, expected) in cases {
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the subjects are refused");
+            assert!(
+                matches!(error, InvalidSourceRegistry::OracleSubjects { ref cause, .. } if *cause == expected),
+                "{expected:?}: {error}"
+            );
+        }
+        let error =
+            SourceRegistry::parse(&[impersonating(&blank)], Some(&single_user())).expect_err("a blank subject is refused");
+        assert!(
+            matches!(
+                error,
+                InvalidSourceRegistry::OracleSubjects {
+                    cause: InvalidOracleSubjects::Subject { .. },
+                    ..
+                }
+            ),
+            "{error}"
+        );
+        let with_a_pool = RawSourceEntry {
+            workload_identity: Some(crate::raw::RawWorkloadIdentity {
+                audience: String::from("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q"),
+                impersonate: std::collections::BTreeMap::new(),
+                expected_issuer: None,
+                expected_audience: None,
+                delegation: None,
+            }),
+            ..impersonating(&one)
+        };
+        let error = SourceRegistry::parse(&[with_a_pool], Some(&single_user())).expect_err("a pool is not an oracle key");
+        assert!(
+            matches!(
+                error,
+                InvalidSourceRegistry::KeyNotForKind {
+                    key: "workload_identity",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+    }
+
+    /// `subjects` is `oracle`'s alone: written on any other kind it is refused, not read.
+    #[test]
+    fn subjects_on_any_other_kind_are_refused() {
+        let one = [String::from("analyst-a@example.com")];
+        let entry = RawSourceEntry {
+            kind: "postgres",
+            database: Some("sutura"),
+            service_name: None,
+            subjects: Some(&one),
+            ..oracle("warehouse")
+        };
+        let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("subjects are refused here");
+        assert!(
+            matches!(error, InvalidSourceRegistry::KeyNotForKind { key: "subjects", .. }),
+            "{error}"
+        );
     }
 }

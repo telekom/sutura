@@ -53,16 +53,16 @@ pub(crate) fn open_oracle(
 
 /// `sutura serve`'s own `oracle` cells: the refusal for a build that did not link the adapter, the
 /// posture refusal, the furthest a fixture with no server reaches - the declared password file,
-/// alone and beside a `files` source - and the listener that redirects, proving the driver follows
-/// it to an address nobody declared.
+/// alone and beside a `files` source - and the listener that redirects, refused before
+/// authentication.
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "oracle")]
     use crate::serve::ENGINE_SOURCE;
     use crate::serve::open_engine;
-    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
     #[cfg(feature = "oracle")]
-    use crate::serve::tests::{entry, wif};
+    use crate::serve::tests::entry;
+    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
 
     /// One `oracle` entry whose password file is not there, so a refusal naming that key is proof
     /// the composition reached the credential step - and dialled nothing.
@@ -113,36 +113,27 @@ mod tests {
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
-    /// **The refusal `github.com/telekom/sutura#127` names as having no cell.** `OracleWarehouse::
-    /// IMPERSONATION` is `NoPlaceForASubject`, so an `impersonation-at-source` entry fails
-    /// `SourcePosture::deliverable_by` - before the password file is read and before anything is
-    /// dialled - and the refusal carries `crate::oracle`'s own sentence saying no build delivers it.
+    /// **An impersonating source passes the posture cross-check.** Declared with its `subjects`
+    /// over `verified`, it stops at its own password file - before anything is dialled.
     #[test]
     #[cfg(feature = "oracle")]
-    fn an_oracle_source_declared_to_impersonate_does_not_boot() {
+    fn an_impersonating_oracle_source_reaches_the_password_file_the_deployment_declared() {
+        let entry = "  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+                     service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    \
+                     password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
+                     transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
+                     posture: \"impersonation-at-source\"\n    subjects: [\"analyst-a@example.com\"]\n";
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(&oracle_entry("warehouse", "impersonation-at-source", wif())),
+                &registry(entry),
                 one_worker(),
                 default_timeout(),
                 None,
             ),
-            "an impersonating posture with nowhere for a subject's credential to arrive must not start",
+            "the declared password file is not there, so this deployment does not start",
         );
-        assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-        assert!(
-            error.contains("no per-subject path in this repository yet"),
-            "the refusal must say no build delivers it, not that another build can: {error}"
-        );
-        assert!(
-            !error.contains("--features oracle"),
-            "this build DID link the adapter: {error}"
-        );
-        assert!(
-            !error.contains("password_file"),
-            "the capability cross-check fires before the password file is read: {error}"
-        );
+        assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
     /// The mixed registry's `oracle` group: the `files` half opens, then the Oracle half is refused
@@ -171,73 +162,24 @@ mod tests {
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
-    /// One TNS packet in the pre-negotiation framing the driver reads first: a 16-bit length, two
-    /// zero bytes, the type, a zero flags byte, two zero bytes - and, for a DATA packet, two zero
-    /// data-flag bytes - then the body.
-    #[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
-    #[cfg(feature = "oracle")]
-    fn tns_packet(packet_type: u8, body: &[u8]) -> Vec<u8> {
-        let header = if packet_type == 6 { 10 } else { 8 };
-        let length = u16::try_from(header + body.len()).expect("a test packet fits a 16-bit length");
-        let mut packet = length.to_be_bytes().to_vec();
-        packet.extend([0, 0, packet_type, 0, 0, 0]);
-        if packet_type == 6 {
-            packet.extend([0, 0]);
-        }
-        packet.extend(body);
-        packet
-    }
-
-    /// **The limit this kind's loopback rule does NOT reach.** `sutura-config` confines the DECLARED `host` to a loopback
-    /// literal; the pinned driver, on a listener's TNS REDIRECT, dials whatever address the listener
-    /// names - no check, no option to refuse, still plaintext - and authenticates there.
-    ///
-    /// The fake listener on the declared address answers the driver's CONNECT with a REDIRECT to a
-    /// second listener; the cell asserts the second one was dialled. It redirects to another loopback
-    /// PORT rather than off the machine, so it runs in a sandbox with no other address - the driver
-    /// checks neither, which is the property. If a driver release starts refusing redirects this goes
-    /// red, and the limit sentences in `crate::oracle`, `sutura-config` and the docs can be narrowed.
+    /// **Refused before authentication, and the redirect's address is never dialled.** The fake
+    /// listener on the declared address answers the driver's CONNECT with a REDIRECT to a second
+    /// loopback listener no source declares. It redirects to another loopback PORT rather than off
+    /// the machine, so it runs in a sandbox with no other address; the refusal does not depend on
+    /// where the redirect points.
     #[test]
-    #[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
     #[cfg(feature = "oracle")]
-    fn a_listener_redirect_is_followed_to_an_address_nobody_declared() {
-        use std::io::{Read as _, Write as _};
-
-        let redirected = std::net::TcpListener::bind("127.0.0.1:0").expect("a second listener binds");
-        let redirected_port = redirected.local_addr().expect("it has an address").port();
-        let declared = std::net::TcpListener::bind("127.0.0.1:0").expect("the declared listener binds");
-        let declared_port = declared.local_addr().expect("it has an address").port();
-
-        let (dialled, told) = std::sync::mpsc::channel();
-        drop(std::thread::spawn(move || {
-            // Accepted and closed at once: that the driver arrived is the whole measurement.
-            if let Ok((stream, _)) = redirected.accept() {
-                drop(stream);
-                let _ignored = dialled.send(());
-            }
-        }));
-        drop(std::thread::spawn(move || {
-            let Ok((mut stream, _)) = declared.accept() else { return };
-            let _ignored = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
-            let mut connect = [0_u8; 4096];
-            let _ignored = stream.read(&mut connect);
-            let address = format!("(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT={redirected_port}))");
-            let data = format!("{address}\u{0}(DESCRIPTION=(CONNECT_DATA=(SERVICE_NAME=FREEPDB1)))");
-            let length = u16::try_from(data.len()).expect("the redirect fits").to_be_bytes();
-            let mut reply = tns_packet(5, &length);
-            reply.extend(tns_packet(6, data.as_bytes()));
-            // Closed once written: the driver has the bytes, and nothing here can then hold it open.
-            let _ignored = stream.write_all(&reply);
-        }));
-
+    fn a_listener_redirect_to_an_address_nobody_declared_is_refused() {
+        let listener = sutura_dev::tns_listener::RedirectingListener::start().expect("the fake listener binds");
         let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-redirect-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
         let password = directory.join("password");
         std::fs::write(&password, "not-a-real-password").expect("the password file writes");
         let entry = format!(
-            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {declared_port}\n    \
+            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {}\n    \
              service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
              transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
+            listener.port(),
             password.display()
         );
         let opened = open_engine(
@@ -248,10 +190,136 @@ mod tests {
             None,
         );
         let _ignored = std::fs::remove_dir_all(&directory);
-        let _refused = refusal(opened, "the redirected listener closes before any authentication completes");
+        let error = refusal(opened, "a listener that redirects is refused");
+        assert!(error.contains("redirected the connection"), "{error}");
         assert!(
-            told.recv_timeout(std::time::Duration::from_secs(10)).is_ok(),
-            "the driver did not dial the address the listener redirected it to"
+            !listener.target_was_dialled(std::time::Duration::from_secs(2)),
+            "the address the redirect named was dialled"
+        );
+    }
+
+    /// **A malformed authentication response refuses the source, and the process keeps running.**
+    /// The fake accepts the CONNECT and answers the first authentication message with session
+    /// data that has none of the verifier fields. The open runs inside `catch_unwind`, so an open
+    /// that does not return fails this cell's first assertion rather than the test harness.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn a_malformed_authentication_response_refuses_the_oracle_source() {
+        let port = sutura_dev::tns_listener::authenticating(&[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
+        let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-auth-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let password = directory.join("password");
+        std::fs::write(&password, "not-a-real-password").expect("the password file writes");
+        let entry = format!(
+            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
+             service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
+             transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
+            password.display()
+        );
+        let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&entry),
+                one_worker(),
+                default_timeout(),
+                None,
+            )
+        }));
+        let _ignored = std::fs::remove_dir_all(&directory);
+        let opened = opened.expect("the open returns for a malformed authentication response");
+        let error = refusal(opened, "a malformed authentication response is refused");
+        assert!(error.contains("AUTH_PBKDF2_VGEN_COUNT"), "{error}");
+    }
+
+    /// **A `verified` source opens TLS before the listener reads a TNS packet.** The fake answers
+    /// a CONNECT with packet type 3, which the driver refuses by name. A `plaintext` source reaches
+    /// that refusal; a `verified` one does not, because its first bytes are a TLS handshake that the
+    /// fake cannot answer.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn a_verified_oracle_source_opens_tls_before_any_tns_packet() {
+        let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-verified-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let password = directory.join("password");
+        std::fs::write(&password, "not-a-real-password").expect("the password file writes");
+        let anchors = directory.join("ca.pem");
+        let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let certificate = params.self_signed(&key).expect("a self-signed certificate signs");
+        std::fs::write(&anchors, certificate.pem()).expect("the anchors file writes");
+        let refused_over = |transport: &str| {
+            let port = sutura_dev::tns_listener::answering(3, Vec::new()).expect("the fake listener binds");
+            let entry = format!(
+                "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
+                 service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
+                 {transport}\n    posture: \"shared-service-user\"\n",
+                password.display()
+            );
+            let opened = open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&entry),
+                one_worker(),
+                default_timeout(),
+                None,
+            );
+            refusal(opened, "the fake answers no driver")
+        };
+        let plaintext = refused_over("transport_mode: \"plaintext\"");
+        let verified = refused_over(&format!(
+            "transport_mode: \"verified\"\n    transport_anchors: \"{}\"",
+            anchors.display()
+        ));
+        let _ignored = std::fs::remove_dir_all(&directory);
+        assert!(plaintext.contains("unknown packet type 3"), "{plaintext}");
+        assert!(!verified.contains("unknown packet type 3"), "{verified}");
+    }
+
+    /// **The broker serves an impersonating source through its declared subjects**: a declared
+    /// subject is presented their own assertion, with no principal beside it, and anyone else is
+    /// refused rather than answered on the boot session.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn the_broker_presents_a_declared_subjects_own_token_and_refuses_an_undeclared_one() {
+        use sutura_domain::identity::{
+            Agreed, CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+        };
+
+        let entry = "  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+                     service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    \
+                     password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
+                     transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
+                     posture: \"impersonation-at-source\"\n    subjects: [\"analyst-a@example.com\"]\n";
+        let broker = crate::serve::broker::build_broker(&registry(entry), None).expect("the declared subjects build a broker");
+        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let asked = SourceSet::of(at.clone());
+        let ask = |subject: &str| {
+            let chain = PrincipalChain::of(Subject::verified(subject).expect("a test subject"));
+            broker
+                .mint(
+                    &RequestContext::with_assertion(chain, Secret::new(format!("token.for.{subject}")), u64::MAX),
+                    &asked,
+                )
+                .expect("a mint answers")
+        };
+        let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject");
+        let Ok(Agreed::Granted { credentials }) = ask("analyst-a@example.com").agreeing_with(&asked_by, &asked, 0) else {
+            panic!("the declared subject is served");
+        };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a cell asserting WHOSE token the leg carries needs its text"
+        )]
+        let presented = match credentials.presented_for(&at) {
+            Ok(Presented::SubjectToken {
+                material,
+                impersonate: None,
+            }) => String::from(material.expose_secret()),
+            other => panic!("expected the asker's own token and no principal, got {other:?}"),
+        };
+        assert_eq!(presented, "token.for.analyst-a@example.com");
+        assert!(
+            matches!(ask("someone-else@example.com"), Minted::Refused { ref source } if *source == at),
+            "an undeclared subject is refused"
         );
     }
 }

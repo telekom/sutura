@@ -55,9 +55,9 @@ sutura separates two parts of identity:
 
 - **Leg 1: sutura knows who asks.** sutura verifies the caller's token before it answers, on HTTP and on MCP
   (`security.inbound`). [Inbound identity](integrations/identity.md) has the settings.
-- **Leg 2: the data system runs the query as the caller.** BigQuery and ClickHouse do this (secure-impersonation). sutura
-  refuses a caller that the source does not declare. Every other data system runs each query as one identity that the
-  operator declares for that source (`shared-service-user`).
+- **Leg 2: the data system runs the query as the caller.** BigQuery, ClickHouse and Oracle do this
+  (secure-impersonation). sutura refuses a caller that the source does not declare. Every other data system runs each
+  query as one identity that the operator declares for that source (`shared-service-user`).
 
 Grants, row policies and masking stay in the data system. sutura keeps no result cache, because a cache keyed on the
 question would leak rows between callers.

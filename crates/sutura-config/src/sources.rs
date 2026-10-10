@@ -135,7 +135,7 @@ pub enum SourceKind {
     /// An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
     ///
     /// Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
-    /// included. [`SourcePlacement::Oracle`] carries what the driver cannot be told about TLS.
+    /// included. [`SourcePlacement::Oracle`] carries the two channels its driver can honour.
     Oracle,
     /// A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
     ///
@@ -399,6 +399,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidOracleServiceName,
     },
+    /// A `verified` source's `host` is not a name TLS can verify.
+    #[error("`sources.{alias}.host` is not a host name `transport_mode: verified` can verify")]
+    TlsServerName {
+        alias: SourceName,
+        #[source]
+        cause: crate::sources::placement::InvalidTlsServerName,
+    },
     /// A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
     #[error("`sources.{alias}.host` is not a usable host")]
     Host {
@@ -439,6 +446,13 @@ pub enum InvalidSourceRegistry {
         alias: SourceName,
         #[source]
         cause: crate::sources::placement::InvalidImpersonate,
+    },
+    /// An `oracle` source's `subjects` are not usable.
+    #[error("`sources.{alias}.subjects` is not usable")]
+    OracleSubjects {
+        alias: SourceName,
+        #[source]
+        cause: crate::sources::placement::InvalidOracleSubjects,
     },
     /// A workload-identity block was declared on a source that is not impersonating.
     ///
@@ -492,12 +506,12 @@ pub enum InvalidSourceRegistry {
          or dial over `host` instead of `unix_socket`"
     )]
     TlsOverUnixSocket { alias: SourceName, mode: &'static str },
-    /// A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see
-    /// `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
+    /// A TLS declaration a kind's driver cannot honour (`oracle` - see `SourcePlacement::Oracle`):
+    /// it verifies only against a declared PEM bundle and presents no client certificate.
     #[error(
-        "`sources.{alias}` is `kind: {}` and `sources.{alias}.transport_mode` is `{mode}` - its driver \
-         trusts the public certificate authorities compiled into it, and no declared \
-         `transport_anchors` can replace them. Write `transport_mode: plaintext` with a loopback `host`",
+        "`sources.{alias}` is `kind: {}` and declares `{mode}` - its driver verifies a server only \
+         against a PEM bundle and presents no client certificate. Write `transport_mode: verified` \
+         with `transport_anchors` naming a PEM bundle",
         kind.as_str()
     )]
     TlsNotDeliverable {
@@ -542,6 +556,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) verification_identity: Option<&'raw str>,
     pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
     pub(crate) impersonate: Option<&'raw std::collections::BTreeMap<String, String>>,
+    pub(crate) subjects: Option<&'raw [String]>,
     pub(crate) host: Option<&'raw str>,
     pub(crate) unix_socket: Option<&'raw str>,
     pub(crate) port: Option<u16>,
@@ -688,8 +703,11 @@ fn parse_entry(
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
     let workload_identity = match entry.workload_identity.as_ref() {
-        // A `clickhouse` source declares its subject map as `impersonate` instead - see its placement.
-        None if matches!(entry.posture.trim(), "impersonation-at-source") && kind != SourceKind::ClickHouse => {
+        // A `clickhouse` source declares its subject map as `impersonate` and an `oracle` source its
+        // `subjects` instead - see their placements.
+        None if matches!(entry.posture.trim(), "impersonation-at-source")
+            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle) =>
+        {
             return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
         }
         None => None,

@@ -63,6 +63,9 @@ binaries printing the same probe is exactly that clone - `github.com/telekom/sut
 agent proves it dials a plaintext or loopback target directly under an environment proxy, and
 the harness re-running a test under one is written once.
 
+`tns_listener` is the same argument for the crates that dial Oracle: they prove what a
+listener's answer to the CONNECT is refused for, against one fake.
+
 ## Module `bench_venue`
 
 Whether the host was too busy for a benchmark's number to mean anything.
@@ -1417,6 +1420,163 @@ listening on a port I expected" is not an identity, and neither is "whatever hol
 file names": a PID is reused. The check is the process's own working directory, resolved and
 compared against this repository's root, because that is the one property a colliding stranger
 cannot accidentally have.
+
+## Module `tns_listener`
+
+Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with
+bytes a test chooses, or with an ACCEPT and then an authentication response the driver cannot
+use.
+
+Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
+`sutura-cli`, and the RDBMS catalog's Oracle reader - and both prove the same refusal. `cargo
+xtask check-jscpd` refuses a clone under `crates/`, so the fake is written once.
+
+Limit: `RedirectingListener`, `answering` and `sending` speak only the pre-negotiation
+framing the driver reads first, so a driver that follows the redirect reaches
+`RedirectingListener::target` and is closed there, before any authentication.
+`authenticating` and `marking` go one step further and no more: neither completes a login.
+
+Each speaks over the accepted TCP stream itself, or, through the `_over` forms, over a session a
+test opens on it - TLS, for a driver that sends a token only over `tcps`. This crate
+links no TLS library, so the test brings the session.
+
+### `struct RedirectingListener`
+
+```rust
+pub struct RedirectingListener
+```
+
+A listener that redirects every client to a second loopback listener, and records whether that
+second listener was dialled.
+
+#### Methods
+
+```rust
+pub const fn port(&self) -> u16
+```
+
+The port a source declares: the listener that redirects.
+
+```rust
+pub fn start() -> std::io::Result<Self>
+```
+
+Binds both listeners on `127.0.0.1` and answers ONE client.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+```rust
+pub fn start_over<S>(open: impl FnOnce(TcpStream) -> Option<S> + Send + 'static) -> std::io::Result<Self>
+```
+
+`Self::start`, with the declared listener speaking over the session `open` opens on the
+accepted connection. The redirect still names a plaintext `TCP` address.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+```rust
+pub const fn target(&self) -> u16
+```
+
+The port the redirect names, which no source declares.
+
+```rust
+pub fn target_was_dialled(&self, wait: Duration) -> bool
+```
+
+Whether a client reached `Self::target`, waiting up to `wait` for the accept to land.
+
+Call it after the client returned: a dial it made is then already in the target's backlog.
+
+### `fn answering`
+
+```rust
+pub fn answering(packet_type: u8, body: Vec<u8>) -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with a single packet of
+`packet_type` carrying `body`, then closes, and returns its port.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn sending`
+
+```rust
+pub fn sending(bytes: Vec<u8>) -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that answers ONE client's CONNECT with `bytes` as they are,
+framed or not, then closes, and returns its port.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn authenticating`
+
+```rust
+pub fn authenticating(session: &[(&str, &str)]) -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+
+It offers fast authentication, then answers the first authentication message with `session`,
+the key and value pairs of the session data the driver reads its verifier fields from.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn authenticating_over`
+
+```rust
+pub fn authenticating_over<S>(open: impl FnOnce(std::net::TcpStream) -> Option<S> + Send + 'static, session: &[(&str, &str)]) -> std::io::Result<Listening>
+```
+
+`authenticating`, over the session `open` opens on the accepted connection.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn marking`
+
+```rust
+pub fn marking() -> std::io::Result<u16>
+```
+
+Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
+
+It offers fast authentication, then answers the first authentication message with a BREAK
+marker, which makes the driver reset the connection, and then with a marker whose body ends
+before its type.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `fn marking_then_data`
+
+```rust
+pub fn marking_then_data() -> std::io::Result<u16>
+```
+
+`marking`, with a DATA packet after the short marker, so the connection stays open past it.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+### `type_alias Listening`
+
+A listener's port, and what the client sent it after the ACCEPT: its first authentication
+message, and the message after the answer if it sent one before it closed.
 
 ## Module `tolerance`
 

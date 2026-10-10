@@ -238,10 +238,9 @@ loopback literal through `crate::sources::transport::refuse_remote_plaintext`. T
 names the database by `service_name` rather than `database`, so there is no `database` field.
 **No password is held here:** `password_file` is a path the composition root reads at boot.
 
-**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+The connection stays on that host: the reader refuses a listener's redirect before
+authentication, held by `sutura-catalog-rdbms`'s
+`the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 
 ## `use PostgresCatalogConnection`
 
@@ -302,6 +301,13 @@ Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s re
 thing minting can fail on is a credential set that does not cover the sources it was asked
 about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
 here would be process death under `panic = "abort"` for a case a type already describes.
+
+## `use DeclaredSubjects`
+
+The subjects one authenticating source may be asked as - `DeclaredPrincipalBroker::authenticating`.
+
+A set and not a `DeclaredPrincipals`, because the source names no principal: the database
+resolves the asker's own token to a user itself. Never empty, for `DeclaredPrincipals`' reason.
 
 ## `use NoDeclaredPrincipals`
 
@@ -1909,10 +1915,9 @@ loopback literal through `crate::sources::transport::refuse_remote_plaintext`. T
 names the database by `service_name` rather than `database`, so there is no `database` field.
 **No password is held here:** `password_file` is a path the composition root reads at boot.
 
-**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+The connection stays on that host: the reader refuses a listener's redirect before
+authentication, held by `sutura-catalog-rdbms`'s
+`the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 
 ### `use PostgresCatalogConnection`
 
@@ -2262,10 +2267,9 @@ loopback literal through `crate::sources::transport::refuse_remote_plaintext`. T
 names the database by `service_name` rather than `database`, so there is no `database` field.
 **No password is held here:** `password_file` is a path the composition root reads at boot.
 
-**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
-driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
-no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
-there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+The connection stays on that host: the reader refuses a listener's redirect before
+authentication, held by `sutura-catalog-rdbms`'s
+`the_oracle_reader_refuses_a_listener_redirect_before_authentication`.
 
 ##### Methods
 
@@ -2506,6 +2510,11 @@ the same map and the same refusals, but the leg carries the declared principal a
 statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
 is the key, and an anonymous or undeclared caller is refused exactly as below.
 
+**An authenticating source is the third** (`DeclaredPrincipalBroker::authenticating`): a set
+of subjects rather than a map, for a source that opens each request's session with the asker's
+own verified assertion and resolves who that is itself - Oracle's token authentication. The leg
+carries the assertion with no principal beside it; the same refusals apply.
+
 # What it refuses, which is the half that matters
 
 - **A source it holds neither half for** - refused as `credential_unavailable`, so a forgotten
@@ -2647,6 +2656,39 @@ arrangement of this signature in which the value is unread and the caller still 
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `struct DeclaredSubjects`
+
+```rust
+pub struct DeclaredSubjects
+```
+
+The subjects one authenticating source may be asked as - `DeclaredPrincipalBroker::authenticating`.
+
+A set and not a `DeclaredPrincipals`, because the source names no principal: the database
+resolves the asker's own token to a user itself. Never empty, for `DeclaredPrincipals`' reason.
+
+##### Methods
+
+```rust
+pub fn admits(&self, subject: &SubjectKey) -> bool
+```
+
+Whether this source may be asked as `subject`.
+
+```rust
+pub fn parse(declared: BTreeSet<SubjectKey>) -> Result<Self, NoDeclaredPrincipals>
+```
+
+Parses one source's declared subjects.
+
+# Errors
+
+`NoDeclaredPrincipals::Empty` for a declaration naming nobody.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 #### `enum DeclaredPrincipalsUnusable`
 
 ```rust
@@ -2690,6 +2732,14 @@ declared caller as one pool principal whatever the map said.
 source** - the reason the architecture decision gives for a broker being per answer at all.
 
 ##### Methods
+
+```rust
+pub fn authenticating(self, at: SourceName, declared: DeclaredSubjects) -> Self
+```
+
+Declares one impersonating source that opens each request's session with the asker's own
+verified assertion, for the subjects it declares. No principal is named: the source resolves
+the token itself.
 
 ```rust
 pub fn count(&self) -> usize
@@ -5627,7 +5677,7 @@ legitimate one.
 - `Oracle` - An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
 
   Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
-  included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
+  included. `SourcePlacement::Oracle` carries the two channels its driver can honour.
 - `Duckdb` - A local `DuckDB` database file, opened read-only, and the one kind with no server at all.
 
   Declarable and openable behind the `duckdb` feature, `Postgres`'s shape. One process holds the
@@ -5802,6 +5852,7 @@ convenience, and nothing needs to clone a startup refusal.
   a configuration nobody can see - see `parse_placement` for the argument in full.
 - `ResourceName` - A declared cloud resource name is not usable.
 - `OracleServiceName` - A declared Oracle `service_name` the driver would not read as written.
+- `TlsServerName` - A `verified` source's `host` is not a name TLS can verify.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `UnixSocket` - A declared `unix_socket` is not one absolute directory.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
@@ -5821,6 +5872,7 @@ convenience, and nothing needs to clone a startup refusal.
   `crate::DeclaredPrincipals::target`. There is no `scope` key: the credential
   document has no `scopes` member, so one would reach nothing.
 - `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
+- `OracleSubjects` - An `oracle` source's `subjects` are not usable.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -5844,7 +5896,7 @@ convenience, and nothing needs to clone a startup refusal.
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the
   driver has no TLS handshake to perform over a local socket, so the failure it produces there
   is a confusing one that names neither key. Refusing here says which two keys disagree.
-- `TlsNotDeliverable` - A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
+- `TlsNotDeliverable` - A TLS declaration a kind's driver cannot honour (`oracle` - see `SourcePlacement::Oracle`): it verifies only against a declared PEM bundle and presents no client certificate.
 
 #### Implements
 
@@ -6178,6 +6230,69 @@ Parses a declared service name.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `enum OracleChannel`
+
+```rust
+pub enum OracleChannel
+```
+
+How an Oracle listener is reached - the two `SourceTransport` states its driver can honour.
+
+##### Variants
+
+- `Plaintext` - No transport security. The parse allows it only for a loopback host.
+- `Verified` - TLS, verified against the certificates in the PEM bundle at this absolute path and no others: they replace the driver's bundled public certificate authorities. The host is dialled as `server_name`, the name the handshake verifies.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct TlsServerName`
+
+```rust
+pub struct TlsServerName
+```
+
+The host of a `verified` Oracle source, parsed as the name TLS verifies.
+
+A DNS name or an IP address, by the rule of `rustls-pki-types`' `ServerName`, which the driver
+applies to the same text when it opens TLS. A host that fails it is refused at parse, never at
+connect.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The name, for dialling and for the handshake.
+
+```rust
+pub fn parse(host: &HostName) -> Result<Self, InvalidTlsServerName>
+```
+
+Parses a declared host as a TLS server name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidTlsServerName`
+
+```rust
+pub enum InvalidTlsServerName
+```
+
+Why a declared host is not a name TLS can verify.
+
+##### Variants
+
+- `NeitherDnsNameNorIp` - Neither a DNS name nor an IP address, by the rule `TlsServerName` names.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### `enum InvalidOracleServiceName`
 
 ```rust
@@ -6284,14 +6399,11 @@ be skipped" look like the same sentence and are not.
   exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
 - `Oracle` - An Oracle Database, reached over its TCP listener.
 
-  **The static-credential half, in `Self::ClickHouse`'s shape - with no transport field, and
-  that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
-  shared rule confines the DECLARED host to a loopback literal - not the connection: the driver
-  follows a listener's redirect to any address, in plaintext (`crate::sources`' `oracle` parse
-  states it and names the cell that holds it). Plaintext only, because the driver takes no
-  caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
-  widens, so no declared `transport_anchors` could be what the source verifies against. A field
-  here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+  **The static-credential half, in `Self::ClickHouse`'s shape - with an `OracleChannel`
+  rather than a `SourceTransport`**, because the driver verifies against a PEM bundle and
+  presents no client certificate: `mutual` and `transport_anchors: system` are refused at parse
+  rather than carried here. A listener's redirect is refused, so the connection stays on the
+  declared host (`crate::sources`' `oracle` parse names the cell that holds it).
 - `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
 
 ##### Methods
@@ -6309,6 +6421,25 @@ then on the variant is the answer.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidOracleSubjects`
+
+```rust
+pub enum InvalidOracleSubjects
+```
+
+Why an `oracle` source's `subjects` are not ones it can be served under.
+
+##### Variants
+
+- `Missing` - An impersonating source declared no subject, so no caller could ever be served there.
+- `NotImpersonating` - Subjects on a source that is not impersonating, which nothing would read.
+- `Subject`
+- `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### `enum InvalidImpersonate`
 
@@ -6334,6 +6465,10 @@ Why a `clickhouse` source's `impersonate` map is not one it can be served under.
 #### `type_alias DeclaredUsers`
 
 A `clickhouse` source's declared subject -> `ClickHouse` user map.
+
+#### `type_alias OracleSubjects`
+
+An `oracle` source's declared subjects.
 
 ### Module `transport`
 

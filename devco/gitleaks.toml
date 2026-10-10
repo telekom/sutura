@@ -67,6 +67,19 @@ regexes = [
   '''^\s*(?:EBEAN_DATASOURCE_PASSWORD|CLICKHOUSE_PASSWORD|KC_BOOTSTRAP_ADMIN_PASSWORD|MYSQL_PASSWORD|MYSQL_ROOT_PASSWORD|ORACLE_PASSWORD|APP_USER_PASSWORD): \*fixture-password\s*$''',
 ]
 
+# The vendored Oracle driver names the PEM armour lines it parses a wallet with. The rule's match
+# runs from one constant's header string to the next constant's footer string, so the constant's
+# own name inside the match is what this narrows on: no key body can carry it.
+[[allowlists]]
+description = "PEM armour constants in the vendored Oracle driver"
+condition = "AND"
+targetRules = ["private-key"]
+paths = ['''^vendor/rust-oracledb/src/transport\.rs$''']
+regexTarget = "match"
+regexes = [
+  '''^-----BEGIN ENCRYPTED PRIVATE KEY-----";\s+const PEM_ENCRYPTED_PRIVATE_KEY_FOOTER: &str =\s+"-----END ENCRYPTED PRIVATE KEY-----$''',
+]
+
 # These malformed authority strings probe the userinfo parser with an IPv6 literal.
 [[allowlists]]
 description = "Malformed loopback authority parser examples"

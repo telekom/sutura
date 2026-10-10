@@ -56,9 +56,8 @@ members = [
   # a real ClickHouse, reached over HTTP (`compose.services.yaml`'s `clickhouse` service).
   "crates/sutura-exec-clickhouse",
   # A network data system over an existing `Dialect::Oracle` rendering (`github.com/telekom/
-  # sutura#127` PR 2). THE DATA SOURCE, not an engine, and not shipped: it sits behind the
-  # default-off `oracle` feature of `sutura-cli`, which `nix/shipped.nix` does not list. Producing
-  # goldens against a real Oracle is what it exists to prove.
+  # sutura#127` PR 2). THE DATA SOURCE, not an engine. Shipped: `nix/shipped.nix` lists the
+  # `oracle` feature of `sutura-cli`.
   "crates/sutura-exec-oracle",
   "crates/sutura-adbc",
   # The PostgreSQL ADBC connector, held off `sutura-sql` so a catalog reader can share it.
@@ -108,7 +107,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/mimalloc_rust"]
+exclude = ["vendor/mimalloc_rust", "vendor/rust-oracledb"]
 
 [workspace.package]
 version = "0.6.1"
@@ -241,7 +240,10 @@ rustls-native-certs = "0.8.4"
 # depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys` into any build that also
 # links this adapter; both are already in `Cargo.lock` via other paths, so this adds no new package,
 # only a new feature activation on the one already there.
-oracledb = "26.0.0-beta.4"
+#
+# VENDORED at an unreleased upstream commit plus six local patches - `VENDOR.md` records which,
+# and the condition under which this goes back to the registry.
+oracledb = { path = "vendor/rust-oracledb" }
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly

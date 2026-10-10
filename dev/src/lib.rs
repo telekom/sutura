@@ -55,6 +55,9 @@
 //! [`env_proxy`] is the same argument for an outbound client's cell: every crate that builds an
 //! agent proves it dials a plaintext or loopback target directly under an environment proxy, and
 //! the harness re-running a test under one is written once.
+//!
+//! [`tns_listener`] is the same argument for the crates that dial Oracle: they prove what a
+//! listener's answer to the CONNECT is refused for, against one fake.
 
 pub mod bench_venue;
 pub mod discovery;
@@ -64,4 +67,5 @@ pub mod issuer;
 pub mod provisioned;
 pub mod requirement;
 pub mod scope;
+pub mod tns_listener;
 pub mod tolerance;

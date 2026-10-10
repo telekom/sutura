@@ -192,7 +192,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::rc::Rc;
@@ -353,7 +353,7 @@ mod tests {
     }
 
     /// The gauge a refresher moves, and the registry that renders it.
-    fn coverage() -> (sutura_runtime::Gauge, sutura_runtime::Registry) {
+    pub(crate) fn coverage() -> (sutura_runtime::Gauge, sutura_runtime::Registry) {
         let mut builder = sutura_runtime::RegistryBuilder::default();
         let gauge = builder.gauge("sutura_catalog_metrics");
         (gauge, builder.build())
@@ -403,7 +403,7 @@ mod tests {
         clippy::disallowed_types,
         reason = "a test fake behind an Arc: the lock only clones or stores one `Arc`, never across an await point, the license `sutura_mcp`'s RecordingSurface already holds"
     )]
-    struct FakeSurface {
+    pub(crate) struct FakeSurface {
         served: RwLock<Arc<PinnedDefinitions>>,
         offered: AtomicUsize,
         refuses: bool,
@@ -411,7 +411,7 @@ mod tests {
 
     impl FakeSurface {
         #[expect(clippy::disallowed_types, reason = "see the struct's own note")]
-        fn serving(initial: PinnedDefinitions, refuses: bool) -> Arc<Self> {
+        pub(crate) fn serving(initial: PinnedDefinitions, refuses: bool) -> Arc<Self> {
             Arc::new(Self {
                 served: RwLock::new(Arc::new(initial)),
                 offered: AtomicUsize::new(0),
@@ -419,7 +419,7 @@ mod tests {
             })
         }
 
-        fn digest(&self) -> String {
+        pub(crate) fn digest(&self) -> String {
             self.definitions().digest().as_str().to_owned()
         }
     }

@@ -11,7 +11,7 @@
 //! argument that is **ours rather than the provider's format rules restated** - see
 //! [`BillingProject`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use sutura_domain::identity::{InvalidPrincipalId, SubjectKey};
@@ -327,6 +327,50 @@ impl SocketDirectory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OracleServiceName(String);
 
+/// How an Oracle listener is reached - the two [`SourceTransport`] states its driver can honour.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OracleChannel {
+    /// No transport security. The parse allows it only for a loopback host.
+    Plaintext,
+    /// TLS, verified against the certificates in the PEM bundle at this absolute path and no
+    /// others: they replace the driver's bundled public certificate authorities. The host is
+    /// dialled as `server_name`, the name the handshake verifies.
+    Verified { anchors: PathBuf, server_name: TlsServerName },
+}
+
+/// The host of a `verified` Oracle source, parsed as the name TLS verifies.
+///
+/// A DNS name or an IP address, by the rule of `rustls-pki-types`' `ServerName`, which the driver
+/// applies to the same text when it opens TLS. A host that fails it is refused at parse, never at
+/// connect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsServerName(String);
+
+/// Why a declared host is not a name TLS can verify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidTlsServerName {
+    /// Neither a DNS name nor an IP address, by the rule `TlsServerName` names.
+    #[error("it is not a DNS name or an IP address that TLS can verify")]
+    NeitherDnsNameNorIp,
+}
+
+impl TlsServerName {
+    /// Parses a declared host as a TLS server name.
+    pub fn parse(host: &HostName) -> Result<Self, InvalidTlsServerName> {
+        if rustls_pki_types::ServerName::try_from(host.as_str()).is_err() {
+            return Err(InvalidTlsServerName::NeitherDnsNameNorIp);
+        }
+        Ok(Self(String::from(host.as_str())))
+    }
+
+    /// The name, for dialling and for the handshake.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Why a declared Oracle service name is not one the driver would read as written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidOracleServiceName {
@@ -505,17 +549,14 @@ pub enum SourcePlacement {
     },
     /// An Oracle Database, reached over its TCP listener.
     ///
-    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with no transport field, and
-    /// that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
-    /// shared rule confines the DECLARED host to a loopback literal - not the connection: the driver
-    /// follows a listener's redirect to any address, in plaintext (`crate::sources`' `oracle` parse
-    /// states it and names the cell that holds it). Plaintext only, because the driver takes no
-    /// caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
-    /// widens, so no declared `transport_anchors` could be what the source verifies against. A field
-    /// here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with an [`OracleChannel`]
+    /// rather than a [`SourceTransport`]**, because the driver verifies against a PEM bundle and
+    /// presents no client certificate: `mutual` and `transport_anchors: system` are refused at parse
+    /// rather than carried here. A listener's redirect is refused, so the connection stays on the
+    /// declared host (`crate::sources`' `oracle` parse names the cell that holds it).
     Oracle {
-        /// The listener's host - a loopback literal, by the parse's own refusal. The first dial only:
-        /// a listener's redirect is followed wherever it points.
+        /// The listener's host. A loopback literal when the channel is plaintext, by the parse's
+        /// own refusal.
         host: HostName,
         /// The listener's port. `1521` by convention, declared rather than defaulted.
         port: u16,
@@ -525,6 +566,11 @@ pub enum SourcePlacement {
         user: String,
         /// The file that user's password is read from at boot.
         password_file: PathBuf,
+        /// How the channel to this source is secured.
+        channel: OracleChannel,
+        /// The subjects whose own verified token opens each of their sessions. Non-empty exactly
+        /// when the source is `impersonation-at-source`, which also requires a `verified` channel.
+        subjects: OracleSubjects,
     },
     /// A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in
     /// this process, read-only, under the process's own operating-system identity.
@@ -558,6 +604,36 @@ impl SourcePlacement {
 
 /// A `clickhouse` source's declared subject -> `ClickHouse` user map.
 pub type DeclaredUsers = BTreeMap<SubjectKey, String>;
+
+/// An `oracle` source's declared subjects.
+pub type OracleSubjects = BTreeSet<SubjectKey>;
+
+/// Why an `oracle` source's `subjects` are not ones it can be served under.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidOracleSubjects {
+    /// An impersonating source declared no subject, so no caller could ever be served there.
+    #[error(
+        "the source is `impersonation-at-source` and declares no `subjects` - name each subject whose \
+         own token may open a session here"
+    )]
+    Missing,
+    /// Subjects on a source that is not impersonating, which nothing would read.
+    #[error(
+        "`subjects` is declared on a source that is not `impersonation-at-source` - remove it, or write the posture you meant"
+    )]
+    NotImpersonating,
+    #[error("a declared subject is not usable")]
+    Subject {
+        #[source]
+        cause: InvalidPrincipalId,
+    },
+    /// An impersonating source over `plaintext`: each session sends its caller's token.
+    #[error(
+        "the source is `impersonation-at-source`, so each session sends its caller's token - declare \
+         `transport_mode: verified`"
+    )]
+    Plaintext,
+}
 
 /// Why a `clickhouse` source's `impersonate` map is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

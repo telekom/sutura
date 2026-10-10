@@ -66,18 +66,9 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 # reader (`sutura-catalog-rdbms/live-oracle`): a build without this feature refuses an Oracle
 # dictionary connection by name.
 #
-# **Default-off for the ARTEFACT reason `bigquery` above states**: `optional` keeps the driver and
-# its own `rustls` stack ABSENT from a build that did not ask for it.
-#
-# **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for the kind of
-# reason `clickhouse` was once held back - measured, not feared.** Asked against
-# `compose.services.yaml`'s real `oracle`
-# image, every whole-plan question this repository rendered for `Dialect::Oracle` ended in
-# `LIMIT n`, which the server refuses (`ORA-03049`; `github.com/telekom/sutura#127` carries the
-# measurement). It now ends in `FETCH FIRST n ROWS ONLY` - rendered and golden-pinned, and NOT yet
-# executed against an Oracle server by any committed cell, so no whole-plan answer from an Oracle
-# source is proven. Reachable by `--features oracle` and `--all-features`, which is what every gate
-# passes, and by no release.
+# Default-off for a source build, and in `nix/shipped.nix`'s `features`, so every release carries
+# it. `optional` keeps the driver and its own `rustls` stack out of a source build that did not ask
+# for it.
 oracle = ["dep:sutura-exec-oracle", "sutura-catalog-rdbms?/live-oracle"]
 
 # A local DuckDB database file, opened read-only - the zero-infrastructure source, raw SQL included.

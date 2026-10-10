@@ -234,9 +234,9 @@ executable. The obvious way to produce this list is the wrong one:
   the binary. The two can drift (a rebuild, a re-tag, a file swapped in a mirror), and neither the
   binary nor the document says so.
 - It is also the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the linker
-  *kept*. `sutura-exec-oracle` sits behind a default-off feature that no release enables, so the
-  Oracle adapter is in the resolve graph and never in the binary. A workspace-wide document names it
-  anyway, and so lists a crate that is not in the binary.
+  *kept*. `xtask`, the repository's own gate tool, is a workspace member, so it is in the resolve
+  graph and never in the binary. A workspace-wide document names it anyway, and so lists a crate
+  that is not in the binary.
 - There is one SBOM per image, not one per release.
 
 So the list is put **inside the artefact at build time** and read back out of the bytes that the

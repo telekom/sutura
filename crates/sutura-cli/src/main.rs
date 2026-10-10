@@ -283,6 +283,12 @@ enum Requested<'a> {
 }
 
 fn main() -> ExitCode {
+    // Before any command, so no composition root opens an Oracle connection with the trace on.
+    #[cfg(feature = "oracle")]
+    if let Err(refused) = sutura_exec_oracle::refuse_packet_trace() {
+        eprintln!("sutura: {}", commands::render(&refused));
+        return ExitCode::FAILURE;
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     // Every command but `serve` prints a result. `serve` keeps std's hook: with its standard output
     // gone its banner panics, the deployment did not start, and a supervisor must see a failure

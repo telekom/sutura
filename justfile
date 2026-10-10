@@ -244,7 +244,8 @@ ci:
     # adbc-driver-postgresql and adbc-driver-duckdb are in it for the same reason, over their C++ builds.
     # postgres-linked-driver runs the adapter's tier cells through the LINKED static musl driver; only
     # an x86_64-linux host executes it, and anywhere else the check is a stub that says so.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb postgres-linked-driver; do
+    # vendored-oracledb runs the vendored driver's own unit tests, which the workspace excludes.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb postgres-linked-driver vendored-oracledb; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done

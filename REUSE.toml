@@ -86,6 +86,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2018-2025 Microsoft Corporation, Daan Leijen"
 SPDX-License-Identifier = "MIT"
 
+# The vendored Oracle driver. `VENDOR.md` records the upstream commit, the subset and the local
+# patches. Dual-licensed upstream; the copyright line is upstream's own from `LICENSE.txt`.
+[[annotations]]
+path = "vendor/rust-oracledb/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Oracle and/or its affiliates"
+SPDX-License-Identifier = "UPL-1.0 OR Apache-2.0"
+
 # The mirrored skill library: 20 skills imported as-is under the non-discoverable tier, each with
 # its own `## Provenance` block that `cargo xtask check-skills` requires. MIT, per `VENDOR.md`.
 #

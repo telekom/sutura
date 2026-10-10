@@ -139,6 +139,10 @@ pub(crate) struct RawSource {
     /// `impersonation-at-source`, refused otherwise - see `crate::sources::clickhouse`.
     #[serde(default)]
     pub(crate) impersonate: Option<std::collections::BTreeMap<String, String>>,
+    /// An `oracle` source's subjects, whose own verified token opens each of their sessions: required
+    /// when it is `impersonation-at-source`, refused otherwise - see `crate::sources::oracle`.
+    #[serde(default)]
+    pub(crate) subjects: Option<Vec<String>>,
     /// The host a `postgres` source dials over TCP. Mutual with `unix_socket`.
     #[serde(default)]
     pub(crate) host: Option<String>,

@@ -52,9 +52,9 @@ use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
-/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the two
-/// adapters that can impersonate: a build that links neither has no `DeclaredPrincipalBroker`.
-#[cfg(any(feature = "bigquery", feature = "clickhouse"))]
+/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the three
+/// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle"))]
 mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
@@ -308,8 +308,11 @@ pub(crate) fn run() -> Result<(), String> {
         #[cfg(feature = "oracle")]
         OpenedSources::Oracle(engines) => {
             // No pre-flight, for the `Postgres` arm's reason exactly: `OracleWarehouse` takes the
-            // port's default `preflight`, so there is nothing for the table check to read.
-            (shared_identity_service(&catalogs, engines, None, &settings)?, None)
+            // port's default `preflight`, so there is nothing for the table check to read. The
+            // declared-subject broker, because an `impersonation-at-source` source opens each
+            // question's session with the asker's own token.
+            let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
+            (started(&catalogs, engines, broker, None, &settings)?, None)
         }
         #[cfg(feature = "duckdb")]
         OpenedSources::Duckdb(engines) => {
@@ -330,7 +333,7 @@ pub(crate) fn run() -> Result<(), String> {
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
             let gate = adoption_gate(mixed.attached.clone(), true);
-            #[cfg(any(feature = "bigquery", feature = "clickhouse"))]
+            #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle"))]
             let served = started(
                 &catalogs,
                 mixed.engines,
@@ -342,7 +345,7 @@ pub(crate) fn run() -> Result<(), String> {
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
             // source served as itself, and nothing else mintable.
-            #[cfg(not(any(feature = "bigquery", feature = "clickhouse")))]
+            #[cfg(not(any(feature = "bigquery", feature = "clickhouse", feature = "oracle")))]
             let served = shared_identity_service(&catalogs, mixed.engines, gate, &settings)?;
             (served, mixed.attached)
         }
@@ -658,9 +661,9 @@ pub(crate) enum OpenedSources {
     /// process before the listener binds.
     #[cfg(feature = "clickhouse")]
     ClickHouse(sutura_app::Warehouses<ClickHouseSource>),
-    /// An Oracle database per source, dialled in the clear on a declared loopback host - the only
-    /// channel `sutura_config` lets this kind declare - and followed in the clear wherever that
-    /// listener redirects (see `crate::oracle`). Nothing is attached.
+    /// An Oracle database per source, dialled over the channel its entry declares - in the clear on
+    /// a loopback host, or TLS verified against the declared anchors - with a listener redirect
+    /// refused (see `crate::oracle`). Nothing is attached.
     #[cfg(feature = "oracle")]
     Oracle(sutura_app::Warehouses<OracleSource>),
     /// A local `DuckDB` database file per source, opened read-only. Nothing is attached.
@@ -749,8 +752,8 @@ where
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
 ///
 /// **One function rather than the same four lines in five arms**, and the argument is one sentence
-/// for all of them: `DataFusionWarehouse`, `AdbcPostgres`, `ClickHouseWarehouse` and
-/// `OracleWarehouse` each declare `ImpersonationCapability::NoPlaceForASubject`, each composition
+/// for all of them: `DataFusionWarehouse`, `AdbcPostgres` and `DuckDbWarehouse` each declare
+/// `ImpersonationCapability::NoPlaceForASubject`, each composition
 /// root refuses an `impersonation-at-source` entry at the posture cross-check before opening one,
 /// and so the only identity a question is answered under is the one this process holds.
 /// `sutura_config::StaticCredentialBroker` is exactly that: it reads the `sources:` tree this root

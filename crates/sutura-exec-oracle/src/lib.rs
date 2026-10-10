@@ -1,7 +1,13 @@
 #![forbid(unsafe_code)]
-//! A [`Warehouse`] adapter over Oracle Database - one connection under the deployment's declared
-//! identity (`SharedServiceUser`). `github.com/telekom/sutura#127` PR 2, over PR 1's
+//! A [`Warehouse`] adapter over Oracle Database. `github.com/telekom/sutura#127` PR 2, over PR 1's
 //! `Dialect::Oracle` rendering.
+//!
+//! **Two postures.** A `shared-service-user` source answers every question on one connection under
+//! the deployment's declared user. An `impersonation-at-source` source opens a session of its own
+//! for each question, with the asker's own verified token ([`TokenSessions`]), so the database
+//! authenticates the asker and runs the statement as the user it maps that token to. The boot
+//! connection under the declared user stays, for the boot path's own probes only
+//! ([`Warehouse::verify_anchor`], [`Warehouse::declared_key`]); a question never runs on it.
 //!
 //! **Synchronous.** `oracledb::Connection`'s own
 //! methods (`execute`, `query`, `set_call_timeout`) are plain blocking `fn`s over a
@@ -27,45 +33,31 @@
 //!
 //! ## Limits
 //!
-//! - **No transport of its own, and less than `sutura_exec_postgres` carries.** ADR 0010's
-//!   declared-trust-store rule (a bundle path, or the host store, resolved once by a composition
-//!   root and handed to the adapter as a `rustls::ClientConfig`) has NOWHERE to attach here:
-//!   `oracledb::Connection` builds its OWN `rustls::ClientConfig` internally, from a wallet
-//!   directory's `ewallet.pem` when one is configured and from the bundled `webpki-roots` set when
-//!   one is not (measured by reading `oracle/rust-oracledb/src/transport.rs`) - there is no
-//!   constructor that takes an external root store or a caller-built `ClientConfig` at all. So
-//!   [`OracleWarehouse::connect_secured`] takes a wallet directory rather than a caller-built
-//!   `rustls::ClientConfig`, and
-//!   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
-//!   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
-//!   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
-//!   a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
-//!   The connection is not confined: `oracledb::connect` follows a listener's TNS REDIRECT to any
-//!   address it names, in plaintext, with no option to refuse.
-//!   [`OracleWarehouse::connect_secured`] therefore has no composition-root caller.
-//! - **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
-//!   links this crate into both composition roots through [`OracleWarehouse::connect`];
-//!   `nix/shipped.nix` does not carry that feature - see its entry in `sutura-cli`'s manifest.
-//! - **Every mapping below is reasoned from the driver's documented wire types, not measured
-//!   against a live Oracle** - no docker socket was available while this adapter was written. The
-//!   golden matrix's `oracle` cells (`crates/sutura-app/tests/adapters/adapters.rs`) skip rather
-//!   than run wherever that is still true - that file's own `DataSystemUnderTest::available`
-//!   decides which venues those are.
-//! - **No venue that runs `just validate` can reach a live Oracle.** `compose.services.yaml`'s
-//!   `oracle` service is a docker-compose tier brought up by hand (`just dev-up-oracle`); the nix
-//!   sandbox has no docker socket and no `oracle-tier.nix` exists, so a gate leg cannot
-//!   provision one - and Oracle Database is proprietary, so no nix-native tier could take
-//!   `nix/postgres-tier.nix`'s shape even in principle. The render goldens this suite pins for
-//!   Oracle therefore assert what `sutura-sql` emitted and nothing a data system said back; that
-//!   is what `crates/sutura-app/tests/golden/dialects.rs`'s `Venue::ByHandOnly` arm declares. The
-//!   check there holds this path, never this prose - a header that stops arguing this stays green.
+//! - **TLS verifies against the declared anchors only.** [`Channel::Verified`] hands the driver
+//!   PEM certificates that REPLACE its bundled public certificate authorities, so a server is
+//!   admitted only under a certificate those anchors issue. The driver still builds its own
+//!   `rustls::ClientConfig`, so ADR 0010's host store (`transport_anchors: system`) and a client
+//!   certificate (`mutual`) have nothing here to reach, and `sutura-config` refuses both on a
+//!   `kind: oracle` source.
+//! - **A listener's redirect is refused before authentication**, as
+//!   [`OracleError::RedirectRefused`]: the driver is told not to follow one, so the connection
+//!   stays on the address the source declared. A clustered listener that redirects every client is
+//!   therefore refused too; declare the address that answers.
 //! - **One [`parking_lot::Mutex`] serializes every call**, and for good reason:
 //!   `Connection`'s own methods
 //!   take `&self`, so the port's shared reference alone does not prove the driver tolerates two
 //!   overlapping calls - and nothing here measured that it does.
+//! - **The session lifecycle, and the bound on sessions.** A question at an impersonating source
+//!   opens its session under that lock, runs on it, and closes it before the lock is released, so a
+//!   source holds at most one asker's session at a time beside its boot connection, and no session
+//!   outlives the question or serves a second asker. The dial bound covers each session's TCP
+//!   connect; the handshake and the close after it are not bounded, so a database that stops
+//!   answering there holds the source.
+//! - **The token is copied once, into the driver's configuration**, as an ordinary `String` the
+//!   driver keeps masked; nothing here zeroes that copy.
 
 use parking_lot::Mutex;
-use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
+use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
@@ -79,12 +71,27 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 /// Behind the default-off `fixtures` feature - see that module's own header for why.
 #[cfg(feature = "fixtures")]
 pub mod fixture;
+mod trace;
+pub use trace::refuse_packet_trace;
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
 pub enum OracleError {
+    /// The declared trust anchors are not PEM certificates the driver can verify a server against.
+    #[error("the declared trust anchors are not usable certificates")]
+    TrustAnchors {
+        #[source]
+        cause: DriverError,
+    },
     #[error("could not connect to Oracle")]
     Connect {
+        #[source]
+        cause: DriverError,
+    },
+    /// The listener answered with a redirect. Every redirect is refused before authentication: the
+    /// address it names is one no source declared, so no declared transport governs it.
+    #[error("the listener redirected the connection to an address this source does not declare")]
+    RedirectRefused {
         #[source]
         cause: DriverError,
     },
@@ -145,13 +152,13 @@ pub enum OracleError {
         #[source]
         cause: GenerateError,
     },
-    /// The credential broker handed this adapter subject material it has nowhere to put.
+    /// The credential broker handed this adapter a leg it cannot open a session for.
     #[error(
-        "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
-         credential to arrive: it is one connection under the deployment's declared identity. This is \
-         a wiring defect between the credential broker and the source declaration"
+        "source `{at}` was handed {presented}, and this adapter opens a session only with the \
+         asker's own token at an impersonating source, and names no principal to become. This is a \
+         wiring defect between the credential broker and the source declaration"
     )]
-    NoPlaceForASubject { at: String, presented: &'static str },
+    Undeliverable { at: String, presented: &'static str },
     #[error("the credential broker presented a leg that disagrees with how this source is declared")]
     PresentedDisagreesWithPosture {
         #[source]
@@ -167,113 +174,226 @@ pub enum OracleError {
         #[source]
         cause: DriverError,
     },
+    /// The driver's packet trace is switched on - see [`refuse_packet_trace`].
+    #[error("`{variable}` is set, which switches the Oracle driver's packet trace on")]
+    PacketTraceOn { variable: &'static str },
 }
 
 /// An Oracle connection, behind the [`Warehouse`] port.
 pub struct OracleWarehouse {
-    source: sutura_domain::model::SourceName,
-    posture: sutura_domain::source::SourcePosture,
+    routing: Routing,
     /// The materialisation budget this adapter bounds every collected result with, derived by the
     /// composition root from the same working-set ceiling that sizes the in-process engine. There
     /// is no unset state: every constructor requires one, so a call site with no budget does not
     /// compile.
     result_budget: sutura_domain::warehouse::ResultBudget,
+    /// The boot connection, under the declared user. A question runs on it only at a shared source.
     connection: oracledb::Connection,
     /// Serializes every call - see the module header for why.
     execution_lock: Mutex<()>,
 }
 
+/// The source, how it was declared, and where each question's own session is opened - for an
+/// `impersonation-at-source` source alone.
+struct Routing {
+    source: sutura_domain::model::SourceName,
+    posture: sutura_domain::source::SourcePosture,
+    per_caller: Option<TokenSessions>,
+}
+
+impl Routing {
+    /// Picks the session a leg can be answered on, then checks the presented leg against how this
+    /// source was DECLARED - `docs/adr/0008` part 4's two questions, the same split
+    /// `sutura_exec_postgres::deliverable` draws.
+    fn deliverable<'leg>(&'leg self, presented: &'leg Presented) -> Result<Session<'leg>, OracleError> {
+        let session = session_for(&self.source, self.per_caller.as_ref(), presented)?;
+        presented
+            .agrees_with(&self.posture, &self.source)
+            .map_err(|cause| OracleError::PresentedDisagreesWithPosture { cause })?;
+        Ok(session)
+    }
+}
+
 impl core::fmt::Debug for OracleWarehouse {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("OracleWarehouse")
-            .field("source", &self.source)
+            .field("source", &self.routing.source)
             .finish_non_exhaustive()
     }
 }
 
+/// How long the TCP connect to the listener may take before the dial is refused.
+///
+/// The bound covers the connect only: a listener that accepts and then never answers is not bounded
+/// by it, because the driver reads its handshake with no timeout.
+pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How the connection to the listener is secured.
+#[derive(Debug, Clone, Copy)]
+pub enum Channel<'pem> {
+    /// No transport security. A composition root reaches this only for a loopback host.
+    Plaintext,
+    /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
+    /// public certificate authorities rather than adding to them.
+    Verified { anchors_pem: &'pem str },
+}
+
+/// Where one connection goes and how it is secured: an EZCONNECT `host:port/service_name`.
+#[derive(Debug, Clone, Copy)]
+pub struct Dial<'dial> {
+    host: &'dial str,
+    port: u16,
+    service_name: &'dial str,
+    channel: Channel<'dial>,
+    deadline: std::time::Duration,
+}
+
+impl<'dial> Dial<'dial> {
+    /// A dial bounded by [`DIAL_DEADLINE`].
+    #[must_use]
+    pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel: Channel<'dial>) -> Self {
+        Self {
+            host,
+            port,
+            service_name,
+            channel,
+            deadline: DIAL_DEADLINE,
+        }
+    }
+
+    /// The same dial with its TCP connect bounded by `deadline` instead.
+    #[must_use]
+    pub const fn within(self, deadline: std::time::Duration) -> Self {
+        Self { deadline, ..self }
+    }
+}
+
+/// The declared dial with no user or password: where each question's own session is opened, with
+/// the asker's own token, at an `impersonation-at-source` source.
+///
+/// The driver refuses a token over anything but TLS, so a [`Channel::Plaintext`] dial opens no
+/// session; the settings parse refuses that declaration before a dial exists.
+#[derive(Clone)]
+pub struct TokenSessions(oracledb::Config);
+
+impl core::fmt::Debug for TokenSessions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TokenSessions").finish_non_exhaustive()
+    }
+}
+
+impl TokenSessions {
+    /// The driver's configuration for `dial`: its address, its channel and anchors, the dial bound, and a refused redirect.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::PacketTraceOn`] while the driver's packet trace is switched on,
+    /// [`OracleError::TrustAnchors`] for anchors that are not usable certificates, and
+    /// [`OracleError::Connect`] for an address the driver cannot parse.
+    pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
+        refuse_packet_trace()?;
+        let address = ezconnect(dial.host, dial.port, dial.service_name);
+        let connect_string = match dial.channel {
+            Channel::Plaintext => address,
+            Channel::Verified { .. } => format!("tcps://{address}"),
+        };
+        let mut config = oracledb::Config::default()
+            .set_connect_string(&connect_string)
+            .map_err(connect_err)?
+            .set_follow_redirects(false)
+            .set_transport_connect_timeout(Some(dial.deadline));
+        if let Channel::Verified { anchors_pem } = dial.channel {
+            config = config
+                .set_trust_anchors_pem(anchors_pem)
+                .map_err(|cause| OracleError::TrustAnchors { cause: cause.into() })?;
+        }
+        Ok(Self(config))
+    }
+
+    /// Opens one session that authenticates with `token`. Dropping it closes the session.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::RedirectRefused`] for a listener that redirects, and [`OracleError::Connect`]
+    /// for every other refused dial or login. Neither carries the token.
+    pub fn open(&self, token: &Secret) -> Result<oracledb::Connection, OracleError> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the asker's token is what this session authenticates with, so it is handed to the \
+                      driver once, here; nothing on this path logs or formats it"
+        )]
+        let token = String::from(token.expose_secret());
+        let config = self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token));
+        oracledb::connect(config).map_err(connect_err)
+    }
+}
+
+/// Which session a question runs on.
+#[derive(Debug, Clone, Copy)]
+enum Session<'leg> {
+    /// The boot connection, under the declared user.
+    Boot,
+    /// A session of its own, opened with the asker's token.
+    Caller {
+        sessions: &'leg TokenSessions,
+        token: &'leg Secret,
+    },
+}
+
+/// Which session `presented` is answered on: the boot connection for a shared leg, or a session
+/// of its own for the asker's own token - and only where the source opens one.
+///
+/// Whether the leg agrees with the source's declared posture is the next question, and
+/// [`Presented::agrees_with`]'s: a shared leg at an impersonating source passes here and is refused
+/// there.
+fn session_for<'leg>(
+    at: &sutura_domain::model::SourceName,
+    per_caller: Option<&'leg TokenSessions>,
+    presented: &'leg Presented,
+) -> Result<Session<'leg>, OracleError> {
+    match (presented, per_caller) {
+        (&Presented::SharedServiceUser { .. }, _) => Ok(Session::Boot),
+        (
+            &Presented::SubjectToken {
+                ref material,
+                impersonate: None,
+            },
+            Some(sessions),
+        ) => Ok(Session::Caller {
+            sessions,
+            token: material,
+        }),
+        _ => Err(OracleError::Undeliverable {
+            at: String::from(at.as_str()),
+            presented: presented.as_str(),
+        }),
+    }
+}
+
 impl OracleWarehouse {
-    /// Opens one connection over a plain TCP EZCONNECT string (`host:port/service_name`), with no
-    /// transport security at all.
+    /// Opens one connection to the listener `dial` names, under the declared user.
+    ///
+    /// A redirect from the listener is refused before authentication as
+    /// [`OracleError::RedirectRefused`], so the connection stays on the declared address. For an
+    /// `impersonation-at-source` `posture` the same dial, with no user or password, is kept to open
+    /// each question's own session.
     pub fn connect(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
-        host: &str,
-        port: u16,
-        service_name: &str,
+        dial: Dial<'_>,
         user: &str,
         password: &str,
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
-        Self::connect_string(
-            source,
-            posture,
-            &ezconnect(host, port, service_name),
-            user,
-            password,
-            result_budget,
-        )
-    }
-
-    /// Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based
-    /// TLS - see the module header's limit on how far this reaches ADR 0010's declared-trust-store
-    /// rule. `wallet` is a directory containing an `ewallet.pem`; `None` verifies against the
-    /// driver's bundled `webpki-roots` set rather than against a declared anchor.
-    pub fn connect_secured(
-        source: sutura_domain::model::SourceName,
-        posture: sutura_domain::source::SourcePosture,
-        host: &str,
-        port: u16,
-        service_name: &str,
-        user: &str,
-        password: &str,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-        wallet: Option<&OracleWallet>,
-    ) -> Result<Self, OracleError> {
-        let connect_string = format!("tcps://{}", ezconnect(host, port, service_name));
-        let mut config = oracledb::Config::default()
-            .set_connect_string(&connect_string)
-            .map_err(|cause| OracleError::Connect { cause: cause.into() })?
-            .set_credentials(user, password);
-        if let Some(wallet) = wallet {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the wallet password's destination is a connection handshake, which is the one \
-                          place the value itself is the payload"
-            )]
-            let password = wallet.password.expose_secret();
-            config = config
-                .set_wallet_location(wallet.location.clone())
-                .set_wallet_password(password);
-        }
-        Self::open(source, posture, config, result_budget)
-    }
-
-    /// The shared entry point both constructors above reduce to.
-    fn connect_string(
-        source: sutura_domain::model::SourceName,
-        posture: sutura_domain::source::SourcePosture,
-        connect_string: &str,
-        user: &str,
-        password: &str,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-    ) -> Result<Self, OracleError> {
-        let config = oracledb::Config::default()
-            .set_connect_string(connect_string)
-            .map_err(|cause| OracleError::Connect { cause: cause.into() })?
-            .set_credentials(user, password);
-        Self::open(source, posture, config, result_budget)
-    }
-
-    fn open(
-        source: sutura_domain::model::SourceName,
-        posture: sutura_domain::source::SourcePosture,
-        config: oracledb::Config,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-    ) -> Result<Self, OracleError> {
-        let connection = oracledb::connect(config).map_err(|cause| OracleError::Connect { cause: cause.into() })?;
+        let dialled = TokenSessions::new(dial)?;
+        let connection = oracledb::connect(dialled.0.clone().set_credentials(user, password)).map_err(connect_err)?;
+        let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
         Ok(Self {
-            source,
-            posture,
+            routing: Routing {
+                source,
+                posture,
+                per_caller,
+            },
             result_budget,
             connection,
             execution_lock: Mutex::new(()),
@@ -301,31 +421,11 @@ impl OracleWarehouse {
         Self::connect(
             source,
             posture,
-            host,
-            port,
-            "FREEPDB1",
+            Dial::new(host, port, "FREEPDB1", Channel::Plaintext),
             credential.user(),
             credential.password().expose_secret(),
             result_budget,
         )
-    }
-
-    /// Refuses credential material this adapter has nowhere to put, then checks the presented leg
-    /// against how this source was DECLARED - `docs/adr/0008` part 4's two questions, the same split
-    /// `sutura_exec_postgres::deliverable` draws.
-    fn deliverable(&self, presented: &Presented) -> Result<(), OracleError> {
-        match *presented {
-            Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
-                return Err(OracleError::NoPlaceForASubject {
-                    at: String::from(self.source.as_str()),
-                    presented: presented.as_str(),
-                });
-            }
-        }
-        presented
-            .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| OracleError::PresentedDisagreesWithPosture { cause })
     }
 
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, OracleError> {
@@ -346,23 +446,34 @@ impl OracleWarehouse {
             .collect()
     }
 
-    /// One round trip: set the connection's call timeout to what `deadline` has left (never
-    /// forwarding an expired one - see [`refuse_if_spent`]), run the statement, and read every row
-    /// through [`Self::cell`].
+    /// One round trip on `session`: set the connection's call timeout to what `deadline` has left
+    /// (never forwarding an expired one - see [`refuse_if_spent`]), run the statement, and read
+    /// every row through [`Self::cell`]. An asker's session is opened first and closed on return,
+    /// both under the lock.
     fn run_with_deadline(
         &self,
+        session: Session<'_>,
         query: &GeneratedQuery,
         deadline: Deadline,
         most_rows: Option<usize>,
     ) -> Result<RowSet, OracleError> {
         let _guard = self.execution_lock.lock();
+        refuse_if_spent(deadline)?;
+        let opened;
+        let connection = match session {
+            Session::Boot => &self.connection,
+            Session::Caller { sessions, token } => {
+                opened = sessions.open(token)?;
+                &opened
+            }
+        };
         let remaining = refuse_if_spent(deadline)?;
-        self.connection
+        connection
             .set_call_timeout(Some(remaining))
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
         let bound = Self::bind(query.params());
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
-        let cursor = self.connection.query(query.sql(), &refs).map_err(execute_err_mapped)?;
+        let cursor = connection.query(query.sql(), &refs).map_err(execute_err_mapped)?;
         rows_from_cursor(cursor, self.result_budget, most_rows)
     }
 
@@ -489,23 +600,6 @@ impl DriverError {
     }
 }
 
-/// A wallet directory for [`OracleWarehouse::connect_secured`] - a path to a directory containing
-/// `ewallet.pem`, and the password protecting the private key inside it (if any).
-pub struct OracleWallet {
-    location: String,
-    password: sutura_domain::identity::Secret,
-}
-
-impl OracleWallet {
-    #[must_use]
-    pub fn at(location: impl Into<String>, password: impl Into<String>) -> Self {
-        Self {
-            location: location.into(),
-            password: sutura_domain::identity::Secret::new(password.into()),
-        }
-    }
-}
-
 /// A bound parameter, kept owned so the borrows it turns into can outlive the query call.
 ///
 /// `oracledb::ToDbValue`'s supertrait `ToBuf` lives in a private module of that crate, so no type
@@ -595,6 +689,16 @@ fn collect_rows(
     collected.finish(labels).map_err(|cause| OracleError::Shape { cause })
 }
 
+/// The error from opening the connection, with a refused redirect as its own variant.
+fn connect_err(cause: oracledb::Error) -> OracleError {
+    let cause = DriverError::from(cause);
+    if matches!(cause.0.kind(), oracledb::ErrorKind::RedirectNotAllowed) {
+        OracleError::RedirectRefused { cause }
+    } else {
+        OracleError::Connect { cause }
+    }
+}
+
 /// The error from the RUN of a statement, with the one server refusal this adapter refuses to
 /// re-render as a generic `Execute`: `ORA-01476: divisor is equal to zero` is how Oracle honors
 /// `zero_denominator: fails`, the same split the Postgres adapter's `DivisionByZero` draws for
@@ -628,11 +732,10 @@ pub(crate) fn refuse_if_spent(deadline: Deadline) -> Result<std::time::Duration,
 impl Warehouse for OracleWarehouse {
     type Error = OracleError;
 
-    /// **One connection under the deployment's declared identity.** Oracle support is decided to
-    /// declare `SharedServiceUser` for this issue - `#923` is where a per-subject path would live -
-    /// so there is nowhere for a subject's own credential to arrive.
+    /// **A subject's own token arrives here**, at an `impersonation-at-source` source: each
+    /// question opens its own session with it (`#923`).
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
-        sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
+        sutura_domain::source::ImpersonationCapability::PerSubjectCredential;
 
     /// A [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` at
     /// [`Dialect::Oracle`] and is handed to [`Self::execute`] as any other statement.
@@ -649,17 +752,15 @@ impl Warehouse for OracleWarehouse {
     /// `crates/sutura-app/tests/golden/dialects.rs` declares as `Evidence::RenderOnly` for this
     /// dialect and that declaration is unchanged by this constant.
     ///
-    /// Identity is untouched: [`Self::IMPERSONATION`] stays `NoPlaceForASubject`. No release build
-    /// enables `sutura-cli`'s `oracle` feature (see the module header), so no Oracle leg is served
-    /// there; if one ever is, `shared-service-user` is the posture it will present.
+    /// A leg is answered on the session its presented credential selects, as any other statement.
     const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &sutura_domain::model::SourceName {
-        &self.source
+        &self.routing.source
     }
 
     fn posture(&self) -> &sutura_domain::source::SourcePosture {
-        &self.posture
+        &self.routing.posture
     }
 
     /// **Takes the trait's own default** (`Ok(PreFlight::NotAsked)`) rather than an override.
@@ -677,9 +778,9 @@ impl Warehouse for OracleWarehouse {
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        self.deliverable(presented)?;
+        let session = self.routing.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let rows = self.run_with_deadline(&query, deadline, executable.row_limit())?;
+        let rows = self.run_with_deadline(session, &query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
@@ -727,7 +828,12 @@ mod tests {
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{ResultBudget, Value};
 
-    use super::{OracleError, OracleWarehouse, collect_rows, ezconnect, refuse_if_spent};
+    use super::{
+        Channel, Dial, OracleError, OracleWarehouse, Session, TokenSessions, collect_rows, ezconnect, refuse_if_spent,
+        session_for,
+    };
+
+    mod routing;
 
     fn result_budget(bytes: usize) -> ResultBudget {
         ResultBudget::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test budget is positive"))
@@ -841,5 +947,54 @@ mod tests {
             "the leg's range is two bound values: {:?}",
             query.params()
         );
+    }
+
+    /// The shipped connect bound, written out rather than read off `DIAL_DEADLINE`, so a change to
+    /// the constant fails here.
+    #[test]
+    fn a_dial_is_bounded_by_ten_seconds() {
+        let dial = Dial::new("127.0.0.1", 1521, "FREEPDB1", Channel::Plaintext);
+        assert_eq!(dial.deadline, Duration::from_secs(10));
+    }
+
+    /// **An asker's token selects a session of its own, and nothing else does.** Only a source that
+    /// opens per-caller sessions takes the token, and it is the asker's own token the session gets;
+    /// a shared leg runs on the boot connection, and a principal to become is refused.
+    #[test]
+    fn an_askers_token_selects_a_session_of_its_own_and_nothing_else_does() {
+        use sutura_domain::identity::{Presented, PrincipalName, Secret};
+
+        let at = sutura_conformance::corpus::source();
+        let sessions =
+            TokenSessions::new(Dial::new("127.0.0.1", 2484, "FREEPDB1", Channel::Plaintext)).expect("a dial is usable unopened");
+        let token = Presented::SubjectToken {
+            material: Secret::new("the-askers-token"),
+            impersonate: None,
+        };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a cell asserting WHOSE token a session gets needs its text"
+        )]
+        let selected = match session_for(&at, Some(&sessions), &token) {
+            Ok(Session::Caller { token, .. }) => String::from(token.expose_secret()),
+            other => panic!("the asker's token must select a session of its own: {other:?}"),
+        };
+        assert_eq!(selected, "the-askers-token");
+        let name = PrincipalName::parse("analyst_a").expect("a test principal is a principal");
+        let with_a_hop = Presented::SubjectToken {
+            material: Secret::new("the-askers-token"),
+            impersonate: Some(name.clone()),
+        };
+        for (per_caller, presented) in [
+            (None, &token),
+            (Some(&sessions), &with_a_hop),
+            (Some(&sessions), &Presented::SubjectPrincipal { name }),
+        ] {
+            let refused = session_for(&at, per_caller, presented);
+            assert!(matches!(refused, Err(OracleError::Undeliverable { .. })), "{refused:?}");
+        }
+        let shared = sutura_conformance::corpus::presented();
+        assert!(matches!(shared, Presented::SharedServiceUser { .. }), "{shared:?}");
+        assert!(matches!(session_for(&at, Some(&sessions), &shared), Ok(Session::Boot)));
     }
 }

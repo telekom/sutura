@@ -1,0 +1,717 @@
+//-----------------------------------------------------------------------------
+// Copyright (c) 2026, Oracle and/or its affiliates.
+//
+// This software is dual-licensed to you under the Universal Permissive License
+// (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl and Apache License
+// 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose
+// either license.
+//
+// If you elect to accept the software under the Apache License, Version 2.0,
+// the following applies:
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// db_value.rs
+//
+// Defines the structures and enumeration containing database values.
+//-----------------------------------------------------------------------------
+
+use crate::client::Client;
+use crate::client::ClientRef;
+use crate::constants;
+use crate::cursor::Cursor;
+use crate::db_type::DbType;
+use crate::error::Error;
+use crate::json::JsonValue;
+use crate::lob::Lob;
+use crate::lob::PendingLobData;
+use crate::metadata::Metadata;
+use crate::ora_type::OracleIntervalDS;
+use crate::ora_type::OracleIntervalYM;
+use crate::ora_type::OracleNumber;
+use crate::ora_type::OracleTimestamp;
+use crate::response::Response;
+use crate::row::ColumnData;
+use crate::row::DbRow;
+use crate::rowid::Rowid;
+use crate::statement::CachedStatement;
+use crate::statement::Statement;
+use crate::utils;
+use crate::vector::Vector;
+use crate::write_buffer::ToBuf;
+use crate::write_buffer::WriteBuffer;
+
+pub enum DbValue {
+    Array(DbRow),
+    BinaryDouble(f64),
+    BinaryFloat(f32),
+    Boolean(bool),
+    Bytes(Vec<u8>),
+    Cursor(Box<Cursor>),
+    IntervalDS(OracleIntervalDS),
+    IntervalYM(OracleIntervalYM),
+    Json(JsonValue),
+    Number(OracleNumber),
+    Rowid(Rowid),
+    String(String),
+    Timestamp(OracleTimestamp),
+    Vector(Vector),
+    Lob(Lob),
+}
+
+/// Contains LOB and cursor data until a client reference can be added.
+pub(crate) enum PendingDbValue {
+    Cursor(CachedStatement),
+    Lob(PendingLobData),
+}
+
+impl PendingDbValue {
+    /// Converts pending data into a public value with a client reference.
+    pub(crate) fn into_db_value(self, client_ref: &ClientRef) -> DbValue {
+        match self {
+            PendingDbValue::Cursor(statement) => DbValue::Cursor(Box::new(
+                Cursor::new(Statement::new(client_ref.clone(), statement)),
+            )),
+            PendingDbValue::Lob(data) => {
+                DbValue::Lob(Lob::new(client_ref.clone(), data))
+            }
+        }
+    }
+}
+
+impl DbValue {
+    fn array_from_response(
+        resp: &mut Response,
+        client: &Client,
+        statement: &CachedStatement,
+        db_type: &'static DbType,
+    ) -> Result<Option<DbValue>, Error> {
+        let num_elements = resp.read_ub4()? as usize;
+        let mut array: Vec<Option<DbValue>> = Vec::with_capacity(num_elements);
+        for _ in 0..num_elements {
+            array.push(DbValue::scalar_from_response(
+                resp, client, statement, db_type, false,
+            )?);
+        }
+        Ok(Some(DbValue::Array(DbRow::new(array))))
+    }
+
+    fn scalar_from_response(
+        resp: &mut Response,
+        client: &Client,
+        statement: &CachedStatement,
+        db_type: &'static DbType,
+        in_fetch: bool,
+    ) -> Result<Option<DbValue>, Error> {
+        let mut value = match db_type.ora_type_num {
+            constants::ORA_TYPE_NUM_BINARY_DOUBLE => {
+                Ok(resp.read_value::<f64>()?.map(DbValue::BinaryDouble))
+            }
+            constants::ORA_TYPE_NUM_VECTOR => {
+                Ok(resp.read_value_lob::<Vector>()?.map(DbValue::Vector))
+            }
+            constants::ORA_TYPE_NUM_BINARY_FLOAT => {
+                Ok(resp.read_value::<f32>()?.map(DbValue::BinaryFloat))
+            }
+            constants::ORA_TYPE_NUM_BOOLEAN => {
+                Ok(resp.read_value::<bool>()?.map(DbValue::Boolean))
+            }
+            constants::ORA_TYPE_NUM_DATE
+            | constants::ORA_TYPE_NUM_TIMESTAMP
+            | constants::ORA_TYPE_NUM_TIMESTAMP_LTZ
+            | constants::ORA_TYPE_NUM_TIMESTAMP_TZ => {
+                let bytes = resp.read_bytes_with_length()?;
+                if bytes.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(DbValue::Timestamp(
+                        OracleTimestamp::try_from_buf(&bytes)?,
+                    )))
+                }
+            }
+            constants::ORA_TYPE_NUM_INTERVAL_DS => Ok(resp
+                .read_value::<OracleIntervalDS>()?
+                .map(DbValue::IntervalDS)),
+            constants::ORA_TYPE_NUM_INTERVAL_YM => Ok(resp
+                .read_value::<OracleIntervalYM>()?
+                .map(DbValue::IntervalYM)),
+            constants::ORA_TYPE_NUM_NUMBER => {
+                Ok(resp.read_value::<OracleNumber>()?.map(DbValue::Number))
+            }
+            constants::ORA_TYPE_NUM_CHAR
+            | constants::ORA_TYPE_NUM_LONG
+            | constants::ORA_TYPE_NUM_VARCHAR => {
+                let bytes = resp.read_bytes_with_length()?;
+                if bytes.is_empty() {
+                    Ok(None)
+                } else if db_type.csfrm == constants::CS_FORM_NCHAR {
+                    let value = utils::utf16be_bytes_to_string(&bytes)?;
+                    Ok(Some(DbValue::String(value)))
+                } else {
+                    let value = std::str::from_utf8(&bytes)?;
+                    Ok(Some(DbValue::String(value.to_string())))
+                }
+            }
+            constants::ORA_TYPE_NUM_RAW | constants::ORA_TYPE_NUM_LONG_RAW => {
+                let bytes = resp.read_bytes_with_length()?;
+                if bytes.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(DbValue::Bytes(bytes.to_vec())))
+                }
+            }
+            constants::ORA_TYPE_NUM_ROWID => {
+                match resp.read_short_length()? {
+                    0 => Ok(None),
+                    _ => Ok(Some(DbValue::Rowid(Rowid::deserialize(resp)?))),
+                }
+            }
+            constants::ORA_TYPE_NUM_UROWID => {
+                if in_fetch {
+                    Ok(resp.deserialize_urowid()?.map(DbValue::String))
+                } else {
+                    Ok(Some(DbValue::String(
+                        resp.read_utf8_with_length()?.into(),
+                    )))
+                }
+            }
+            constants::ORA_TYPE_NUM_JSON => {
+                Ok(resp.read_value_lob::<JsonValue>()?.map(DbValue::Json))
+            }
+            constants::ORA_TYPE_NUM_CLOB | constants::ORA_TYPE_NUM_BLOB => {
+                let data = PendingLobData::from_resp(resp, db_type)?;
+                resp.add_pending_db_value(data.map(PendingDbValue::Lob));
+                Ok(None)
+            }
+            constants::ORA_TYPE_NUM_CURSOR => {
+                let statement = CachedStatement::from_cursor_response(
+                    resp,
+                    client,
+                    in_fetch,
+                    statement.options(),
+                )?;
+                resp.add_pending_db_value(Some(PendingDbValue::Cursor(
+                    statement,
+                )));
+                Ok(None)
+            }
+            _ => Err(Error::unsupported_db_type(db_type)),
+        }?;
+        if !in_fetch {
+            let max_num_bytes = resp.read_sb4()? as isize;
+            if max_num_bytes < 0
+                && db_type.ora_type_num == constants::ORA_TYPE_NUM_BOOLEAN
+            {
+                value = None;
+            } else if max_num_bytes != 0
+                && let Some(ref internal_value) = value
+            {
+                let actual_num_bytes = match internal_value {
+                    DbValue::String(v) => v.len(),
+                    DbValue::Bytes(v) => v.len(),
+                    _ => 0,
+                };
+                return Err(Error::column_truncated(
+                    actual_num_bytes,
+                    max_num_bytes as usize,
+                ));
+            }
+        } else if db_type.ora_type_num == constants::ORA_TYPE_NUM_LONG
+            || db_type.ora_type_num == constants::ORA_TYPE_NUM_LONG_RAW
+        {
+            let _null_indicator = resp.read_sb4()?;
+            let _return_code = resp.read_ub4()?;
+        }
+        Ok(value)
+    }
+
+    /// Creates a database value from the response.
+    pub(crate) fn from_response(
+        resp: &mut Response,
+        client: &Client,
+        statement: &CachedStatement,
+        metadata: &Metadata,
+        in_fetch: bool,
+        column_num: usize,
+    ) -> Result<Option<DbValue>, Error> {
+        if in_fetch && metadata.is_null_by_describe() {
+            return Ok(None);
+        } else if resp.is_duplicate_data(column_num) {
+            let last_row = resp.get_last_row_fetched();
+            return Ok(last_row.clone_column(column_num));
+        }
+
+        if metadata.is_array() {
+            DbValue::array_from_response(
+                resp,
+                client,
+                statement,
+                metadata.db_type(),
+            )
+        } else {
+            DbValue::scalar_from_response(
+                resp,
+                client,
+                statement,
+                metadata.db_type(),
+                in_fetch,
+            )
+        }
+    }
+
+    /// Returns the type of the stored value.
+    pub(crate) fn type_name(&self) -> &str {
+        match self {
+            DbValue::Array(_) => "array",
+            DbValue::BinaryDouble(_) => "binary_double",
+            DbValue::BinaryFloat(_) => "binary_float",
+            DbValue::Boolean(_) => "boolean",
+            DbValue::Bytes(_) => "raw",
+            DbValue::Cursor(_) => "cursor",
+            DbValue::IntervalDS(_) => "interval day to second",
+            DbValue::IntervalYM(_) => "interval year to month",
+            DbValue::Json(_) => "json",
+            DbValue::Number(_) => "number",
+            DbValue::Rowid(_) => "rowid",
+            DbValue::String(_) => "string",
+            DbValue::Timestamp(_) => "timestamp",
+            DbValue::Vector(_) => "vector",
+            DbValue::Lob(_) => "lob",
+        }
+    }
+}
+
+/// Trait which transforms database values from the format required by the
+/// database to ones usable by applications.
+pub trait FromDbValue<'a> {
+    /// Converts the data from the internal database format to the desired
+    /// type, if possible.
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Converts the data from an internal database array format to a vector
+    /// of the desired type, if possible.
+    fn from_db_value_array(
+        column_data: ColumnData<'a>,
+    ) -> Result<Vec<Self>, Error>
+    where
+        Self: Sized,
+    {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Array(db_array))) => {
+                db_array.transform_ref::<Self>()
+            }
+            ColumnData::Owned(Some(DbValue::Array(db_array))) => {
+                db_array.transform_owned::<Self>()
+            }
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+
+    /// Helper function that returns an unsupported conversion error.
+    fn unsupported_conversion(column_data: ColumnData<'a>) -> Error {
+        let to_type_name =
+            std::any::type_name::<Self>().split("::").last().unwrap();
+        match column_data {
+            ColumnData::Borrowed(None) | ColumnData::Owned(None) => {
+                Error::value_was_null()
+            }
+            ColumnData::Borrowed(Some(db_value)) => {
+                Error::unsupported_conversion(
+                    db_value.type_name(),
+                    to_type_name,
+                )
+            }
+            ColumnData::Owned(Some(db_value)) => {
+                Error::unsupported_conversion(
+                    db_value.type_name(),
+                    to_type_name,
+                )
+            }
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for bool {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Boolean(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::Boolean(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for f32 {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::BinaryFloat(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::BinaryFloat(v))) => Ok(v),
+            ColumnData::Borrowed(Some(DbValue::Number(v))) => v
+                .to_string()
+                .parse::<Self>()
+                .map_err(|e| Error::unexpected_error(Box::new(e))),
+            ColumnData::Owned(Some(DbValue::Number(v))) => v
+                .to_string()
+                .parse::<Self>()
+                .map_err(|e| Error::unexpected_error(Box::new(e))),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for f64 {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::BinaryDouble(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::BinaryDouble(v))) => Ok(v),
+            ColumnData::Borrowed(Some(DbValue::Number(v))) => v
+                .to_string()
+                .parse::<Self>()
+                .map_err(|e| Error::unexpected_error(Box::new(e))),
+            ColumnData::Owned(Some(DbValue::Number(v))) => v
+                .to_string()
+                .parse::<Self>()
+                .map_err(|e| Error::unexpected_error(Box::new(e))),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for Cursor {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Owned(Some(DbValue::Cursor(c))) => Ok(*c),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for JsonValue {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Json(v))) => Ok(v.clone()),
+            ColumnData::Owned(Some(DbValue::Json(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for OracleIntervalDS {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::IntervalDS(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::IntervalDS(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for OracleIntervalYM {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::IntervalYM(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::IntervalYM(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for OracleNumber {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Number(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::Number(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for OracleTimestamp {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Timestamp(v))) => Ok(*v),
+            ColumnData::Owned(Some(DbValue::Timestamp(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for String {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::String(v))) => Ok(v.into()),
+            ColumnData::Owned(Some(DbValue::String(v))) => Ok(v),
+            ColumnData::Borrowed(Some(DbValue::Rowid(v))) => Ok(v.to_string()),
+            ColumnData::Owned(Some(DbValue::Rowid(v))) => Ok(v.to_string()),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for &'a str {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::String(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for Vec<u8> {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Bytes(v))) => Ok(v.to_vec()),
+            ColumnData::Owned(Some(DbValue::Bytes(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for &'a [u8] {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Bytes(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for Lob {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Owned(Some(DbValue::Lob(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a> FromDbValue<'a> for Vector {
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(Some(DbValue::Vector(v))) => Ok(v.clone()),
+            ColumnData::Owned(Some(DbValue::Vector(v))) => Ok(v),
+            _ => Err(Self::unsupported_conversion(column_data)),
+        }
+    }
+}
+
+impl<'a, T> FromDbValue<'a> for Option<T>
+where
+    T: FromDbValue<'a>,
+{
+    fn from_db_value(column_data: ColumnData<'a>) -> Result<Self, Error> {
+        match column_data {
+            ColumnData::Borrowed(None) | ColumnData::Owned(None) => Ok(None),
+            _ => {
+                let result = <T>::from_db_value(column_data)?;
+                Ok(Some(result))
+            }
+        }
+    }
+}
+
+/// Trait which transforms values used by applications into the format required
+/// by the database.
+pub trait ToDbValue: ToBuf {
+    fn db_type(&self) -> &'static DbType;
+    fn max_size(&self) -> usize {
+        0
+    }
+}
+
+impl ToDbValue for String {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_VARCHAR
+    }
+
+    fn max_size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl ToDbValue for &str {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_VARCHAR
+    }
+
+    fn max_size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl ToDbValue for Vec<u8> {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_RAW
+    }
+
+    fn max_size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl ToDbValue for &[u8] {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_RAW
+    }
+
+    fn max_size(&self) -> usize {
+        self.len()
+    }
+}
+
+impl ToDbValue for bool {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_BOOLEAN
+    }
+}
+
+impl ToDbValue for f32 {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_BINARY_FLOAT
+    }
+}
+
+impl ToDbValue for f64 {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_BINARY_DOUBLE
+    }
+}
+
+macro_rules! impl_traits_for_integers {
+    ($($t:ty), *) => {
+        $(
+            impl From<$t> for OracleNumber {
+                fn from(value: $t) -> Self {
+                    value.to_string().parse().unwrap()
+                }
+            }
+            impl<'a> FromDbValue<'a> for $t {
+                fn from_db_value(
+                    column_data: ColumnData<'a>
+                ) -> Result<Self, Error> {
+                    match column_data {
+                        ColumnData::Borrowed(Some(DbValue::Number(v))) => {
+                            let str_val = v.to_string();
+                            match str_val.parse::<$t>() {
+                                Ok(num) => Ok(num),
+                                Err(_) => Err(
+                                    Self::unsupported_conversion(column_data)
+                                ),
+                            }
+                        }
+                        ColumnData::Owned(Some(DbValue::Number(v))) => {
+                            let str_val = v.to_string();
+                            match str_val.parse::<$t>() {
+                                Ok(num) => Ok(num),
+                                Err(_) => Err(
+                                    Self::unsupported_conversion(column_data)
+                                ),
+                            }
+                        }
+                        _ => Err(Self::unsupported_conversion(column_data)),
+                    }
+                }
+            }
+            impl ToBuf for $t {
+                fn to_buf(
+                    &self,
+                    buf: &mut WriteBuffer,
+                    db_type: &'static DbType,
+                    write_length: bool,
+                ) {
+                    OracleNumber::from(*self).to_buf(buf, db_type, write_length)
+                }
+            }
+            impl ToDbValue for $t {
+                fn db_type(&self) -> &'static DbType {
+                    crate::DB_TYPE_NUMBER
+                }
+            }
+        )*
+    };
+}
+
+impl_traits_for_integers!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
+);
+
+impl ToDbValue for JsonValue {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_JSON
+    }
+}
+
+impl ToDbValue for OracleIntervalDS {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_INTERVAL_DS
+    }
+}
+
+impl ToDbValue for OracleIntervalYM {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_INTERVAL_YM
+    }
+}
+
+impl ToDbValue for OracleNumber {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_NUMBER
+    }
+}
+
+impl ToDbValue for OracleTimestamp {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_TIMESTAMP
+    }
+}
+
+impl ToDbValue for Vector {
+    fn db_type(&self) -> &'static DbType {
+        crate::DB_TYPE_VECTOR
+    }
+}
+
+impl<T> ToDbValue for Option<T>
+where
+    T: ToDbValue + Default,
+{
+    fn db_type(&self) -> &'static DbType {
+        if let Some(value) = self {
+            value.db_type()
+        } else {
+            <T>::default().db_type()
+        }
+    }
+
+    fn max_size(&self) -> usize {
+        if let Some(value) = self {
+            <T>::max_size(value)
+        } else {
+            0
+        }
+    }
+}
+
+impl ToDbValue for &'static DbType {
+    fn db_type(&self) -> &'static DbType {
+        self
+    }
+
+    fn max_size(&self) -> usize {
+        self.default_size as usize
+    }
+}

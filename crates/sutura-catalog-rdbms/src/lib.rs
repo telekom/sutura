@@ -193,6 +193,10 @@ pub enum RdbmsError {
     /// The reader could not fetch the dictionary.
     #[error("reading the dictionary failed: {0}")]
     Read(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The listener redirected the login to an address the connection does not declare. Refused
+    /// before authentication.
+    #[error("the listener redirected the login to an address this connection does not declare")]
+    RedirectRefused,
     /// The reader returned no table, so this bundle cannot honour its required `Structure` claim.
     #[error("the dictionary contains no visible table")]
     NoVisibleTables,
