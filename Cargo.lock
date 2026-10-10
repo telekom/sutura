@@ -3790,6 +3790,7 @@ dependencies = [
  "polyglot-sql",
  "serde_json",
  "serde_norway",
+ "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
@@ -3818,6 +3819,21 @@ version = "0.6.1"
 dependencies = [
  "rustix",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sutura-catalog-cube"
+version = "0.6.1"
+dependencies = [
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "sutura-dev",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

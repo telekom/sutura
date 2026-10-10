@@ -299,6 +299,19 @@ impl CatalogUnderTest for sutura_catalog_openmetadata::OpenMetadataCatalog<sutur
     }
 }
 
+/// A metrics serving layer: Cube, opened over its recorded metadata answer.
+///
+/// Its corpus is the answer the `cube` profile's Cube serves for `examples/cube/model`, recorded. It
+/// supplies the physical model and the descriptions; a measure stays in Cube and is reported, not
+/// defined. The universal cells hold because the bundle is measured against the declaration.
+impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader> {
+    const NAME: &'static str = "cube";
+
+    fn open() -> Self {
+        sutura_catalog_cube::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// The narrowest metadata source: `Rdbms`, opened over its recorded dictionary corpus.
 ///
 /// Like `datahub`, its corpus is NOT the example markdown - a database dictionary is not a directory
@@ -846,6 +859,14 @@ macro_rules! registered {
             openmetadata,
             declaring,
             sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
+        );
+        // `sutura-catalog-cube`, a metrics serving layer read as a DECLARING source: the physical
+        // model and the descriptions out of Cube's metadata answer, with every measure reported and
+        // not defined - `github.com/telekom/sutura#1340`. Universal cells only.
+        $cell!(
+            cube,
+            declaring,
+            sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader>
         );
         // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
         // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.

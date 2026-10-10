@@ -224,6 +224,8 @@ nav:
               - Markdown catalog: integrations/catalogs/markdown.md
               - OKF: integrations/catalogs/okf.md
               - Wren: integrations/catalogs/wren.md
+      - Metrics serving layers:
+          - Cube: integrations/serving-layers/cube.md
       - Data:
           - Databases:
               - BigQuery: integrations/data-systems/bigquery.md

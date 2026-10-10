@@ -46,6 +46,9 @@ DataHub and Cube are the single source of truth. DataHub holds the definitions. 
 metrics to BI tools, APIs and sutura. Without Cube, sutura reads the definitions from DataHub and
 runs each metric itself.
 
+The metrics serving layer, for example Cube, is optional. We suggest it when BI tools or REST clients
+also use the metrics. The serving layer can also cache results. sutura keeps no result cache.
+
 Each part can change: another catalog (OpenMetadata, RDBMS, files), another data system (DuckDB,
 Oracle, files), another OIDC issuer, with or without the MCP gateway, with or without Cube.
 

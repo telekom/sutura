@@ -1,0 +1,381 @@
+{
+    "cubes": [
+        {
+            "name": "subscriptions",
+            "type": "cube",
+            "title": "Subscriptions",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per subscription per month - the monthly snapshot of every subscription.",
+            "connectedComponent": 1,
+            "measures": [
+                {
+                    "name": "subscriptions.recurring_revenue",
+                    "title": "Subscriptions Recurring Revenue",
+                    "description": "Recurring revenue from active subscriptions, in minor units.",
+                    "shortTitle": "Recurring Revenue",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "sum",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "subscriptions.active_subscriptions",
+                    "title": "Subscriptions Active Subscriptions",
+                    "description": "Distinct subscriptions active at the end of the month.",
+                    "shortTitle": "Active Subscriptions",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "countDistinct",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "subscriptions.subscriptions_churned",
+                    "title": "Subscriptions Subscriptions Churned",
+                    "description": "Subscriptions that churned during the month.",
+                    "shortTitle": "Subscriptions Churned",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "count",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                }
+            ],
+            "dimensions": [
+                {
+                    "name": "subscriptions.subscription_key",
+                    "title": "Subscriptions Subscription Key",
+                    "type": "number",
+                    "description": "The surrogate key daily_usage joins on, through usage_subscription.",
+                    "shortTitle": "Subscription Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "subscriptions.month",
+                    "title": "Subscriptions Month",
+                    "type": "time",
+                    "description": "The first day of the month this snapshot row describes.",
+                    "shortTitle": "Month",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "subscriptions.status",
+                    "title": "Subscriptions Status",
+                    "type": "string",
+                    "description": "The subscription's state at the end of the month - active or terminated.",
+                    "shortTitle": "Status",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "subscriptions.churned_in_month",
+                    "title": "Subscriptions Churned in Month",
+                    "type": "boolean",
+                    "description": "Whether this subscription churned during the month, independent of its end-of-month status.",
+                    "shortTitle": "Churned in Month",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "subscriptions.contract_term",
+                    "title": "Subscriptions Contract Term",
+                    "type": "string",
+                    "description": "The subscription's own contract length - annual or monthly.",
+                    "shortTitle": "Contract Term",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [
+                {
+                    "name": "subscriptions.active",
+                    "title": "Subscriptions Active",
+                    "shortTitle": "Active",
+                    "description": "Subscriptions active at the end of the month.",
+                    "isVisible": true,
+                    "public": true
+                }
+            ],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "customers",
+            "type": "cube",
+            "title": "Customers",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per customer, holding the attributes an answer may be grouped by.",
+            "connectedComponent": 1,
+            "measures": [],
+            "dimensions": [
+                {
+                    "name": "customers.customer_key",
+                    "title": "Customers Customer Key",
+                    "type": "number",
+                    "description": "The surrogate key every fact table joins on.",
+                    "shortTitle": "Customer Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "customers.segment",
+                    "title": "Customers Segment",
+                    "type": "string",
+                    "description": "The commercial segment of the customer - business, consumer or wholesale.",
+                    "shortTitle": "Segment",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "customers.region",
+                    "title": "Customers Region",
+                    "type": "string",
+                    "description": "Which of the five regions this customer is in.",
+                    "shortTitle": "Region",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "products",
+            "type": "cube",
+            "title": "Products",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per tariff.",
+            "connectedComponent": 1,
+            "measures": [],
+            "dimensions": [
+                {
+                    "name": "products.product_key",
+                    "title": "Products Product Key",
+                    "type": "number",
+                    "description": "The surrogate key subscriptions join on.",
+                    "shortTitle": "Product Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "products.product_name",
+                    "title": "Products Product Name",
+                    "type": "string",
+                    "description": "The tariff's own name.",
+                    "shortTitle": "Product Name",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "products.product_family",
+                    "title": "Products Product Family",
+                    "type": "string",
+                    "description": "Which of the four product families this tariff belongs to.",
+                    "shortTitle": "Product Family",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "regions",
+            "type": "cube",
+            "title": "Regions",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per region, and the sales area it rolls up into.",
+            "connectedComponent": 1,
+            "measures": [],
+            "dimensions": [
+                {
+                    "name": "regions.region",
+                    "title": "Regions Region",
+                    "type": "string",
+                    "description": "The join key, the same text customers.region holds.",
+                    "shortTitle": "Region",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "regions.sales_area",
+                    "title": "Regions Sales Area",
+                    "type": "string",
+                    "description": "The sales area this region rolls up into.",
+                    "shortTitle": "Sales Area",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "daily_usage",
+            "type": "cube",
+            "title": "Daily Usage",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per subscription per day on which it used anything.",
+            "connectedComponent": 1,
+            "measures": [
+                {
+                    "name": "daily_usage.voice_minutes",
+                    "title": "Daily Usage Voice Minutes",
+                    "description": "Voice minutes used.",
+                    "shortTitle": "Voice Minutes",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "sum",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "daily_usage.data_gb",
+                    "title": "Daily Usage Data Gb",
+                    "description": "Data used, in gigabytes.",
+                    "shortTitle": "Data Gb",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "sum",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                }
+            ],
+            "dimensions": [
+                {
+                    "name": "daily_usage.subscription_key",
+                    "title": "Daily Usage Subscription Key",
+                    "type": "number",
+                    "description": "The subscription this usage belongs to.",
+                    "shortTitle": "Subscription Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "daily_usage.usage_date",
+                    "title": "Daily Usage Usage Date",
+                    "type": "time",
+                    "description": "The day this row of usage was recorded on.",
+                    "shortTitle": "Usage Date",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        }
+    ]
+}
