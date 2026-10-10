@@ -2,8 +2,8 @@
 //!
 //! # It is a boundary, not a pass-through
 //!
-//! This module owns the transport's half of `docs/adr/0015`'s series table: the outcome counters,
-//! the duration histogram, the admission series, the rate-limit visibility, the unauthorized
+//! This module owns the transport's half of `docs/adr/0015`'s series table: the outcome counters
+//! (questions by `code`, refusals by `reason`), the duration histogram, the admission series, the rate-limit visibility, the unauthorized
 //! counter and the answer-rows histogram. The registry lives in `sutura-runtime`; this type holds
 //! the handles and names the series. Every labeled registration and update accepts
 //! `sutura_runtime::metrics::Label`; the values are chosen here from the transport's own fixed code
@@ -75,6 +75,48 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     label("unavailable"),
 ];
 
+/// The closed set of `reason` labels for `sutura_refusals_total`: exactly `RefusalReason::code`'s
+/// vocabulary, and nothing a caller wrote.
+///
+/// The value a refusal is counted under is the `&'static str` the wire body already carries, so the
+/// transport spells no second mapping; this is only the registration list, which the registry needs
+/// whole at boot. `every_refusal_code_is_a_declared_reason_label` holds it equal to the wire table's
+/// codes in both directions, so a variant added without a label here fails a test rather than
+/// counting nowhere (the registry ignores an unregistered key).
+pub(crate) const REFUSAL_REASONS: &[Label] = &[
+    label("budget_exhausted"),
+    label("credential_unavailable"),
+    label("cross_model_ratio_spans_sources"),
+    label("cross_model_ratio_without_shared_calendar"),
+    label("cross_model_ratio_without_shared_dimension"),
+    label("deadline_exceeded"),
+    label("dimension_not_filterable"),
+    label("dimension_not_permitted"),
+    label("dimension_value_not_allowed"),
+    label("duplicate_dimension"),
+    label("duplicate_metric_name"),
+    label("federated_answer_not_well_formed"),
+    label("federation_link_ambiguous"),
+    label("federation_link_compound"),
+    label("federation_not_executable"),
+    label("grain_not_supported"),
+    label("metric_unknown"),
+    label("metrics_span_different_models"),
+    label("multi_metric_federation_not_executable"),
+    label("multi_metric_top_not_executable"),
+    label("plan_spans_too_many_sources"),
+    label("plan_tables_share_an_identifier"),
+    label("resources_exhausted"),
+    label("result_too_large"),
+    label("source_refused"),
+    label("source_unavailable"),
+    label("time_range_too_long"),
+    label("too_many_dimensions"),
+    label("too_many_filters"),
+    label("too_many_metrics"),
+    label("top_over_uncertified_rows"),
+];
+
 const ANSWER: Label = label("answer");
 const BUDGET_EXHAUSTED: Label = label("budget_exhausted");
 const REFUSED: Label = label("refused");
@@ -97,6 +139,9 @@ pub(crate) const TIERS: &[Label] = &[PUBLIC_TIER, GENERAL_TIER, METRICS_TIER];
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct QuestionOutcome {
     code: Label,
+    /// The refusal's own code, for `sutura_refusals_total`; `None` for everything that is not a
+    /// refusal.
+    reason: Option<Label>,
     rows: Option<usize>,
 }
 
@@ -104,6 +149,7 @@ impl QuestionOutcome {
     pub(crate) const fn failed(failure: &Failure) -> Self {
         Self {
             code: label(failure.code()),
+            reason: None,
             rows: None,
         }
     }
@@ -111,6 +157,7 @@ impl QuestionOutcome {
     pub(crate) const fn answered(rows: usize) -> Self {
         Self {
             code: ANSWER,
+            reason: None,
             rows: Some(rows),
         }
     }
@@ -119,10 +166,11 @@ impl QuestionOutcome {
     /// read back off the rendered wire body rather than re-derived from the reason, so this
     /// series cannot name a code the wire body disagrees with.
     ///
-    /// Every code but `budget_exhausted` counts under the generic `refused` bucket, unchanged
-    /// from before this distinction existed: a series per `RefusalReason` variant is not this
-    /// registry's job (`QUESTION_CODES`'s own doc), and spend is the one refusal a deployment
-    /// needs to watch approach rather than merely discover once it fires - see `docs/adr/0030`.
+    /// Every code but `budget_exhausted` counts under the generic `refused` bucket of
+    /// `sutura_questions_total`, and spend is the one refusal a deployment needs to watch approach
+    /// rather than merely discover once it fires - see `docs/adr/0030`. Every code, that one
+    /// included, is also counted under its own `reason` in `sutura_refusals_total`, so a refusal
+    /// rate is readable per reason without widening the `code` family.
     pub(crate) fn refused(code: &'static str) -> Self {
         Self {
             code: if code == "budget_exhausted" {
@@ -130,6 +178,7 @@ impl QuestionOutcome {
             } else {
                 REFUSED
             },
+            reason: Some(label(code)),
             rows: None,
         }
     }
@@ -137,6 +186,7 @@ impl QuestionOutcome {
     const fn internal() -> Self {
         Self {
             code: label("internal"),
+            reason: None,
             rows: None,
         }
     }
@@ -154,6 +204,8 @@ impl QuestionOutcome {
 pub struct Metrics {
     /// `sutura_questions_total{code}`.
     questions: LabeledCounter,
+    /// `sutura_refusals_total{reason}`.
+    refusals: LabeledCounter,
     /// `sutura_question_duration_seconds`.
     duration: Histogram,
     /// `sutura_execution_slots` - the capacity denominator.
@@ -183,6 +235,7 @@ impl Metrics {
     #[must_use]
     pub fn install(builder: &mut RegistryBuilder) -> Self {
         let questions = builder.labeled_counter("sutura_questions_total", "code", QUESTION_CODES);
+        let refusals = builder.labeled_counter("sutura_refusals_total", "reason", REFUSAL_REASONS);
         let duration = builder.histogram("sutura_question_duration_seconds", buckets::DURATION);
         let slots = builder.gauge("sutura_execution_slots");
         let slots_in_use = builder.gauge("sutura_execution_slots_in_use");
@@ -194,6 +247,7 @@ impl Metrics {
         let answer_rows = builder.histogram("sutura_answer_rows", buckets::ANSWER_ROWS);
         Self {
             questions,
+            refusals,
             duration,
             slots,
             slots_in_use,
@@ -250,6 +304,9 @@ impl Metrics {
             QuestionOutcome::internal()
         });
         self.questions.inc(outcome.code);
+        if let Some(reason) = outcome.reason {
+            self.refusals.inc(reason);
+        }
         self.duration.observe(elapsed.as_secs_f64());
         if let Some(rows) = outcome.rows {
             // Answer rows are bounded by the domain contract. Metrics must remain non-panicking if
@@ -390,5 +447,41 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("sutura_questions_total{code=\"refused\"} 2"), "{rendered}");
+    }
+
+    /// A refusal is counted under its own reason, beside the coarse `code` it already moved.
+    ///
+    /// The control inside the cell: an answer and a code the family was not registered with move no
+    /// reason, and the unregistered one mints no series - the closed set is what keeps a label
+    /// bounded.
+    #[test]
+    fn a_refusal_is_counted_under_its_own_reason() {
+        let mut builder = RegistryBuilder::default();
+        let metrics = Metrics::install(&mut builder);
+        let elapsed = std::time::Duration::ZERO;
+        for code in [
+            "result_too_large",
+            "result_too_large",
+            "metric_unknown",
+            "budget_exhausted",
+            "not_a_reason",
+        ] {
+            metrics.completed_question(Some(QuestionOutcome::refused(code)), elapsed);
+        }
+        metrics.completed_question(Some(QuestionOutcome::answered(1)), elapsed);
+        let rendered = builder.build().render();
+        for expected in [
+            "sutura_refusals_total{reason=\"result_too_large\"} 2",
+            "sutura_refusals_total{reason=\"metric_unknown\"} 1",
+            "sutura_refusals_total{reason=\"budget_exhausted\"} 1",
+            "sutura_refusals_total{reason=\"source_refused\"} 0",
+            "sutura_questions_total{code=\"refused\"} 4",
+        ] {
+            assert!(rendered.contains(expected), "{expected} is not in {rendered}");
+        }
+        assert!(
+            !rendered.contains("not_a_reason"),
+            "an unregistered reason minted a series: {rendered}"
+        );
     }
 }

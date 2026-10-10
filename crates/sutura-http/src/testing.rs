@@ -372,7 +372,7 @@ pub(crate) struct WouldNotReturnAtOnce;
 mod deadline;
 pub(crate) use deadline::{Probed, RawDeadlineProbe, WarehouseThatOutranItsDeadline};
 mod federation; // `telekom/sutura#112`'s fixture, split out: this file is at the `max-lines` cap.
-pub(crate) use federation::two_source_fake_warehouse;
+pub(crate) use federation::{CombinesTo, two_source_fake_warehouse, two_source_leg_warehouses};
 /// A data system that will not return the whole result at once.
 ///
 /// **The instrument for the second half of `result_too_large`, reached past a `dry_run` that

@@ -23,8 +23,9 @@ use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Val
 
 use super::{app, metrics_settings, over};
 use crate::testing::{
-    A_QUESTION, ANCHORED_VALUE, WarehouseThatFailsToExecute, broker, bundle, call, catalog_of, request, sink, source, state_over,
-    unanchored_bundle, warehouse_that_can_be_held,
+    A_QUESTION, ANCHORED_VALUE, CombinesTo, WarehouseThatFailsToExecute, broker, bundle, call, catalog_of, request, sink, source,
+    state_over, two_source_bundle, two_source_leg_warehouses, unanchored_bundle, warehouse_that_answers_past_the_row_cap,
+    warehouse_that_can_be_held,
 };
 
 /// The metrics credential, distinct from the API token, for the cases that configure one.
@@ -95,6 +96,38 @@ sutura_questions_total{code="too_large"} 0
 sutura_questions_total{code="tool_not_enabled"} 0
 sutura_questions_total{code="unauthorized"} 0
 sutura_questions_total{code="unavailable"} 0
+# TYPE sutura_refusals_total counter
+sutura_refusals_total{reason="budget_exhausted"} 0
+sutura_refusals_total{reason="credential_unavailable"} 0
+sutura_refusals_total{reason="cross_model_ratio_spans_sources"} 0
+sutura_refusals_total{reason="cross_model_ratio_without_shared_calendar"} 0
+sutura_refusals_total{reason="cross_model_ratio_without_shared_dimension"} 0
+sutura_refusals_total{reason="deadline_exceeded"} 0
+sutura_refusals_total{reason="dimension_not_filterable"} 0
+sutura_refusals_total{reason="dimension_not_permitted"} 0
+sutura_refusals_total{reason="dimension_value_not_allowed"} 0
+sutura_refusals_total{reason="duplicate_dimension"} 0
+sutura_refusals_total{reason="duplicate_metric_name"} 0
+sutura_refusals_total{reason="federated_answer_not_well_formed"} 0
+sutura_refusals_total{reason="federation_link_ambiguous"} 0
+sutura_refusals_total{reason="federation_link_compound"} 0
+sutura_refusals_total{reason="federation_not_executable"} 0
+sutura_refusals_total{reason="grain_not_supported"} 0
+sutura_refusals_total{reason="metric_unknown"} 0
+sutura_refusals_total{reason="metrics_span_different_models"} 0
+sutura_refusals_total{reason="multi_metric_federation_not_executable"} 0
+sutura_refusals_total{reason="multi_metric_top_not_executable"} 0
+sutura_refusals_total{reason="plan_spans_too_many_sources"} 0
+sutura_refusals_total{reason="plan_tables_share_an_identifier"} 0
+sutura_refusals_total{reason="resources_exhausted"} 0
+sutura_refusals_total{reason="result_too_large"} 0
+sutura_refusals_total{reason="source_refused"} 0
+sutura_refusals_total{reason="source_unavailable"} 0
+sutura_refusals_total{reason="time_range_too_long"} 0
+sutura_refusals_total{reason="too_many_dimensions"} 0
+sutura_refusals_total{reason="too_many_filters"} 0
+sutura_refusals_total{reason="too_many_metrics"} 0
+sutura_refusals_total{reason="top_over_uncertified_rows"} 0
 # TYPE sutura_question_duration_seconds histogram
 sutura_question_duration_seconds_bucket{le="0.01"} 0
 sutura_question_duration_seconds_bucket{le="0.05"} 0
@@ -444,6 +477,62 @@ async fn a_refusal_and_a_fault_are_different_series() {
     let (_, body) = call(&faulting, request("GET", "/metrics", Some(METRICS_TOKEN), Body::empty())).await;
     assert!(body.contains(r#"sutura_questions_total{code="unavailable"} 1"#), "{body}");
     assert!(body.contains(r#"sutura_questions_total{code="refused"} 0"#), "{body}");
+}
+
+/// Reads one `sutura_refusals_total{reason}` sample, and fails loudly on a reason the family was not
+/// registered with rather than reading it as zero.
+fn refusals(exposition: &str, reason: &str) -> u64 {
+    sample(exposition, &format!(r#"sutura_refusals_total{{reason="{reason}"}}"#))
+}
+
+#[tokio::test]
+async fn an_answer_past_the_row_cap_is_counted_under_result_too_large() {
+    // The rate `docs/adr/0015`'s `refused` bucket could not give: how often the row cap refuses,
+    // separate from every other governance refusal. One question over the single-source path.
+    let app = over(
+        unanchored_bundle(),
+        warehouse_that_answers_past_the_row_cap(),
+        metrics_settings(Environment::Development),
+    );
+    let (status, body) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION))).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+
+    let exposition = scrape(&app).await;
+    assert_eq!(refusals(&exposition, "result_too_large"), 1, "{exposition}");
+    assert_eq!(refusals(&exposition, "metric_unknown"), 0, "{exposition}");
+    assert_eq!(
+        sample(&exposition, r#"sutura_questions_total{code="refused"}"#),
+        1,
+        "the coarse family still counts the same refusal once: {exposition}"
+    );
+}
+
+#[tokio::test]
+async fn a_combined_answer_past_the_federated_row_cap_is_counted_under_result_too_large() {
+    // The same refusal reached on the federated path: both legs run, the combiner assembles one row
+    // more than the cap, and `answer_federated` refuses the combined set. `federation_not_executable`
+    // staying at zero is what shows the question got past the per-leg gate to the combine.
+    let rows = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the row cap fits a usize") + 1;
+    let service = crate::surface::LocalService::start(
+        &catalog_of(two_source_bundle()),
+        two_source_leg_warehouses(),
+        sink(),
+        broker(),
+        CombinesTo(rows),
+        1 << 30,
+    )
+    .expect("the two-source test bundle validates");
+    let app = crate::router(&state_over(Arc::new(service), metrics_settings(Environment::Development)))
+        .expect("the test router assembles");
+    let asked =
+        r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#;
+    let (status, body) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(asked))).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    assert!(body.contains(r#""code":"result_too_large""#), "{body}");
+
+    let exposition = scrape(&app).await;
+    assert_eq!(refusals(&exposition, "result_too_large"), 1, "{exposition}");
+    assert_eq!(refusals(&exposition, "federation_not_executable"), 0, "{exposition}");
 }
 
 #[tokio::test]

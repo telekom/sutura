@@ -763,6 +763,25 @@ mod tests {
     }
 
     #[test]
+    fn every_refusal_code_is_a_declared_reason_label() {
+        // `sutura_refusals_total{reason}` counts each refusal under the code this module gives it, so
+        // its registered set has to be this table's codes - no code missing (it would count nowhere)
+        // and none extra (a series that renders zero forever).
+        let reasons = crate::metrics::REFUSAL_REASONS;
+        let mut codes: Vec<&str> = every_reason().into_iter().map(|(_, _, code)| code).collect();
+        for code in &codes {
+            assert!(
+                reasons.contains(&sutura_runtime::metrics::label(code)),
+                "{code} is a refusal code with no `reason` label"
+            );
+        }
+        let mut labelled: Vec<&str> = reasons.iter().map(|label| label.as_str()).collect();
+        codes.sort_unstable();
+        labelled.sort_unstable();
+        assert_eq!(labelled, codes, "the `reason` labels are not exactly the refusal codes");
+    }
+
+    #[test]
     fn the_row_cap_refusal_says_what_happened_and_what_to_do_about_it() {
         // The case the change was asked for. A caller whose answer was declined for being too large
         // must be able to tell that from the sentence alone: what happened, that nothing was
