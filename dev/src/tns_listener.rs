@@ -70,6 +70,9 @@ impl RedirectingListener {
             let data = format!("{address}\u{0}(DESCRIPTION=(CONNECT_DATA=(SERVICE_NAME=FREEPDB1)))");
             let _ignored = stream.write_all(&redirect(data.as_bytes()));
             let _ignored = stream.flush();
+            // Held open until the client closes: a close with the client's bytes still unread resets
+            // the connection, and the client can then read the reset instead of the redirect.
+            let _ignored = std::io::copy(&mut stream, &mut std::io::sink());
         }));
         Ok(Self {
             port,

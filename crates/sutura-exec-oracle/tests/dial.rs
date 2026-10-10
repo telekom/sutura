@@ -259,7 +259,7 @@ mod dial {
         let key = ("AUTH_SESSKEY", blocks.as_str());
         let sder = ("AUTH_PBKDF2_SDER_COUNT", "1");
         let rows: [(&Fields<'_>, &str); 7] = [
-            (&[], "AUTH_PBKDF2_VGEN_COUNT"),
+            (&[data], "AUTH_PBKDF2_VGEN_COUNT"),
             (&[vgen], "AUTH_VFR_DATA"),
             (&[vgen, ("AUTH_VFR_DATA", "zz")], "AUTH_VFR_DATA"),
             (&[vgen, data], "AUTH_SESSKEY"),
