@@ -2,8 +2,8 @@
 //!
 //! One vocabulary for both halves of the check: the combiner reads a [`LinkKind`] off each leg's
 //! Arrow schema once the legs have run, and the splitter reads one off the catalog's declared
-//! [`ColumnType`] before either leg does. The two agree on what a kind is because they share this
-//! type, so there is no second list of kinds to keep in step.
+//! [`ColumnType`](crate::catalog::ColumnType) before either leg does. The two agree on what a kind
+//! is because they share this type, so there is no second list of kinds to keep in step.
 
 use crate::catalog::ColumnType;
 
