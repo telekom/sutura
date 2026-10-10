@@ -1,0 +1,36 @@
+# Push the chart's Artifact Hub repository metadata to the registry, on request.
+#
+# `release.yml` pushes the same layer with every release. This workflow pushes it alone, so the
+# repository's verified-publisher metadata can be published without a release.
+name: chart-metadata
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  push:
+    # `workflow_dispatch` can start on any ref; only `main` may write to the registry.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: $/.github/actions/publish-chart-metadata
+        with:
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}

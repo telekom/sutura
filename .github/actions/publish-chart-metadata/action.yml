@@ -1,0 +1,40 @@
+name: Publish the chart's Artifact Hub metadata
+description: >
+  Push `charts/sutura/artifacthub-repo.yml` under the chart package's `artifacthub.io` tag, the
+  layer Artifact Hub reads to verify the publisher.
+
+inputs:
+  registry:
+    description: Registry the chart is pushed to.
+    required: false
+    default: ghcr.io
+  registry-username:
+    description: Username for that registry.
+    required: true
+  registry-token:
+    description: Token for that registry.
+    required: true
+
+# The `oras push` invocation and both media types are quoted from
+# https://artifacthub.io/docs/topics/repositories/helm-charts/'s OCI-support section. A wrong key
+# or media type fails silently as a missing listing field, not as an error.
+#
+# Called by `release.yml` after the chart is pushed, and by `chart-metadata.yml` on request, so
+# a registered repository can be verified without cutting a release. The caller needs
+# `packages: write`.
+runs:
+  using: composite
+  steps:
+    - name: Push the Artifact Hub repository metadata
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+      run: |
+        set -eu
+        printf '%s' "$REGISTRY_TOKEN" | nix run .#oras -- login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+        nix run .#oras -- push "${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/charts/sutura:artifacthub.io" \
+          --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+          "charts/sutura/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
+        nix run .#oras -- logout "$REGISTRY"

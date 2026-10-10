@@ -510,10 +510,16 @@ jobs:
           registry-username: ${{ github.actor }}
           registry-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # THE CHART: packaged, pushed as an OCI artefact beside the images, signed the same way,
-      # and its Artifact Hub metadata pushed if registered - see the action's own header.
+      # THE CHART: packaged, pushed as an OCI artefact beside the images and signed the same
+      # way - see the action's own header. Its Artifact Hub metadata follows.
       - name: Package, push and sign the chart
         uses: $/.github/actions/publish-chart
+        with:
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the Artifact Hub repository metadata
+        uses: $/.github/actions/publish-chart-metadata
         with:
           registry-username: ${{ github.actor }}
           registry-token: ${{ secrets.GITHUB_TOKEN }}
