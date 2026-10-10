@@ -151,7 +151,7 @@ const TAG: &str = "query";
         (
             status = 409,
             description = "REFUSED - `outcome: refusal`. The question is answerable in principle \
-                           and this deployment will not answer it, so `code` says which of four \
+                           and this deployment will not answer it, so `code` says which of five \
                            things stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
                            systems. `plan_spans_too_many_sources`: it would read from more data \
@@ -159,7 +159,9 @@ const TAG: &str = "query";
                            dimensions join through more than one relationship. \
                            `federation_link_compound`: the one relationship crossing into the \
                            second data system declares more than one join key, and the combiner \
-                           links two legs on a single column. None is an outage and none is \
+                           links two legs on a single column. `federation_link_type_mismatch`: the \
+                           two columns that relationship joins are declared as different kinds of \
+                           value, so no row can match. None is an outage and none is \
                            worth retrying unchanged; asking without the dimension on the second \
                            data system is what sometimes helps.",
             body = OutcomeBody

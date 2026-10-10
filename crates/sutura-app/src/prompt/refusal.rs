@@ -201,6 +201,12 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
     remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
+const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
+    reason: "federation_link_type_mismatch",
+    meaning: "the crossing relationship joins two columns the catalog declares as different kinds of value",
+    remedy: "Nothing you can change. Report it: it is a fact about how the two columns are declared.",
+};
+
 const SOURCE_UNAVAILABLE: Guide = Guide {
     reason: "source_unavailable",
     meaning: "the data system that metric lives in is not one this deployment opened",
@@ -326,6 +332,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
+    &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
     &FEDERATED_ANSWER_NOT_WELL_FORMED,
@@ -382,6 +389,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
+        RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,

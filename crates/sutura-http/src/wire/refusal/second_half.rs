@@ -32,6 +32,20 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "federation_link_compound",
         ),
         (
+            RefusalReason::FederationLinkTypeMismatch {
+                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                    .expect("a test relationship is a relationship"),
+                fact_type: sutura_domain::plan::QuotedColumnType::from(
+                    &sutura_domain::catalog::ColumnType::parse("BIGINT").expect("a test type is a type"),
+                ),
+                lookup_type: sutura_domain::plan::QuotedColumnType::from(
+                    &sutura_domain::catalog::ColumnType::parse("VARCHAR").expect("a test type is a type"),
+                ),
+            },
+            StatusCode::CONFLICT,
+            "federation_link_type_mismatch",
+        ),
+        (
             RefusalReason::FederatedAnswerNotWellFormed {
                 federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
             },

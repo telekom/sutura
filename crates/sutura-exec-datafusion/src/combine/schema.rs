@@ -11,6 +11,7 @@
 //! schema, and the two share no state.
 
 use datafusion::arrow::datatypes::{DataType, SchemaRef};
+use sutura_domain::plan::LinkKind;
 
 use crate::combine::CombineError;
 
@@ -19,52 +20,6 @@ pub(crate) const FACT: &str = "fact";
 
 /// The lookup leg, as the word a message carries.
 pub(crate) const LOOKUP: &str = "lookup";
-
-/// What equality over a link column means, once a type that cannot carry one exactly is refused.
-///
-/// **Kinds rather than types, and the reason is that the interior's own row builder may give two
-/// legs different types for one logical column.** A leg whose link values all fit an `i64` comes
-/// back `Int64`; one whose column mixes a fitting value with exact integral text comes back
-/// `Decimal128(38, 0)`. Both are exact integers and `DataFusion`'s comparison coercion joins them
-/// correctly, so requiring the two schemas to be EQUAL would refuse a legal pair.
-///
-/// What it must still refuse is a join across kinds - `telekom/sutura#138`: an integer column
-/// against a text column misses on every row by construction, and the hand-written combine returned
-/// that silently as an empty inner answer or a left answer whose every fact row had a null remote
-/// side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LinkKind {
-    /// Any width of integer, or a decimal whose scale is zero. Equality is exact.
-    ExactInteger,
-    /// A decimal with digits after the point. Equality is exact, and a text rendering of the same
-    /// value is NOT this kind - which is the mismatch the pair check refuses.
-    ExactDecimal,
-    /// Text of any Arrow width.
-    Text,
-    /// A day number.
-    Date,
-    /// A boolean.
-    Boolean,
-}
-
-impl LinkKind {
-    /// The word this kind reads as in a refusal a caller sees.
-    ///
-    /// Prose rather than the Arrow type name, for the reason
-    /// `sutura_domain::warehouse::arrow`'s refusals give the opposite way round: an Arrow type is a
-    /// driver's metadata and belongs in this crate's own error, while what reaches a caller through
-    /// [`FederatedAnswerRefusal`](sutura_domain::plan::FederatedAnswerRefusal) is a bare
-    /// discriminant. These words are for the operator reading the typed cause.
-    pub(crate) const fn word(self) -> &'static str {
-        match self {
-            Self::ExactInteger => "an exact integer",
-            Self::ExactDecimal => "an exact decimal",
-            Self::Text => "text",
-            Self::Date => "a date",
-            Self::Boolean => "a boolean",
-        }
-    }
-}
 
 /// How a column may be re-aggregated, once a type no total or comparison is exact over is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -51,6 +51,11 @@ pub mod combiner;
 /// [`FederationCombiner::answer_not_well_formed`].
 mod failure;
 
+/// What equality over a link column means, and the classifier from a declared type.
+///
+/// Declares no test module, for the reason [`label`] gives.
+mod link;
+
 /// The reserved label namespace, and the one function that assigns it.
 ///
 /// Its own module because it is what the splitter, the combiner and the leg goldens all read the
@@ -72,6 +77,7 @@ pub use combiner::{FederationCombiner, LegResult, Legs, LegsAreNotOneOfEach};
 pub use combiner::{NothingCombined, RefusingCombiner};
 pub use failure::FederatedAnswerRefusal;
 pub use label::{InternalLabel, labels};
+pub use link::{LinkKind, QuotedColumnType};
 
 /// The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
 /// another, linked by a single column.

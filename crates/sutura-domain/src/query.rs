@@ -372,6 +372,19 @@ pub enum RefusalReason {
         source: SourceName,
         relationship: RelationshipName,
     },
+    /// The two columns the crossing relationship joins are declared as different kinds of value.
+    ///
+    /// Decided from the catalog before either leg runs, and only when BOTH types are declared and
+    /// BOTH are known: an integer against text can never match, so every row would miss. A type
+    /// this does not know, or one a catalog leaves undeclared, defers to the combiner's own check
+    /// over the legs' real schemas (`FederatedAnswerNotWellFormed`). The types are quoted and
+    /// escaped, never raw: a source's dictionary supplied them. Not narrowable by the caller: the
+    /// declared types are the catalog's.
+    FederationLinkTypeMismatch {
+        relationship: RelationshipName,
+        fact_type: crate::plan::QuotedColumnType,
+        lookup_type: crate::plan::QuotedColumnType,
+    },
     /// The combiner could not compute the answer as asked, deterministically.
     ///
     /// **D19 + A4: this used to have no refusal at all.** A non-finite ratio and a link value
@@ -657,6 +670,7 @@ impl RefusalReason {
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
+            Self::FederationLinkTypeMismatch { .. } => "federation_link_type_mismatch",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
             Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
             Self::SourceUnavailable { .. } => "source_unavailable",
@@ -882,6 +896,15 @@ mod tests {
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
+            },
+            RefusalReason::FederationLinkTypeMismatch {
+                relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
+                fact_type: crate::plan::QuotedColumnType::from(
+                    &crate::catalog::ColumnType::parse("BIGINT").expect("a test type"),
+                ),
+                lookup_type: crate::plan::QuotedColumnType::from(
+                    &crate::catalog::ColumnType::parse("VARCHAR").expect("a test type"),
+                ),
             },
             RefusalReason::FederatedAnswerNotWellFormed {
                 federated: crate::plan::FederatedAnswerRefusal::AmbiguousLink,

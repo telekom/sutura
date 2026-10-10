@@ -150,6 +150,14 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "the relationship `{relationship}` crossing into `{source}` declares more than one join \
              key, and the two legs link on a single column"
         ),
+        RefusalReason::FederationLinkTypeMismatch {
+            ref relationship,
+            ref fact_type,
+            ref lookup_type,
+        } => format!(
+            "the relationship `{relationship}` joins a column declared {fact_type} to one declared \
+             {lookup_type}, two kinds of value that can never match; report it"
+        ),
         // Written for an agent: D19 + A4's own reason applies here too. A non-finite ratio or an
         // ambiguous join is the same plan against the same rows failing again - not an outage - so
         // retrying it will not change the answer.
@@ -330,6 +338,16 @@ mod tests {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                     .expect("a test relationship is a relationship"),
+            },
+            RefusalReason::FederationLinkTypeMismatch {
+                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                    .expect("a test relationship is a relationship"),
+                fact_type: sutura_domain::plan::QuotedColumnType::from(
+                    &sutura_domain::catalog::ColumnType::parse("BIGINT").expect("a test type is a type"),
+                ),
+                lookup_type: sutura_domain::plan::QuotedColumnType::from(
+                    &sutura_domain::catalog::ColumnType::parse("VARCHAR").expect("a test type is a type"),
+                ),
             },
             RefusalReason::FederatedAnswerNotWellFormed {
                 federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
