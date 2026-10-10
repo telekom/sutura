@@ -116,6 +116,63 @@ fn the_request_is_an_rfc_8693_exchange_of_the_callers_token_for_the_requested_au
     assert_eq!(sent, wanted);
 }
 
+/// The form `grant` sends for the caller's token, sorted.
+fn sent_for(grant: Grant) -> Vec<(String, String)> {
+    let server = FakeServer::start(vec![Scripted::ok(&issued(&good_token()))]);
+    let endpoint = format!("{}/token", server.endpoint());
+    drop(
+        exchanging_at(&endpoint, 64 * 1024)
+            .granting(grant)
+            .exchange(&Secret::new(SUBJECT_TOKEN), &audience()),
+    );
+    let requests = server.finish();
+    let [request] = requests.as_slice() else {
+        panic!("expected exactly one request, got {requests:?}");
+    };
+    let mut sent = form(request.body());
+    sent.sort();
+    sent
+}
+
+fn sorted(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = pairs
+        .iter()
+        .map(|&(name, value)| (String::from(name), String::from(value)))
+        .collect();
+    pairs.sort();
+    pairs
+}
+
+#[test]
+fn an_on_behalf_of_request_sends_the_callers_token_as_the_assertion_for_the_audiences_scope() {
+    assert_eq!(
+        sent_for(Grant::OnBehalfOf),
+        sorted(&[
+            ("assertion", SUBJECT_TOKEN),
+            ("client_id", "https://sutura.example.com"),
+            ("client_secret", CLIENT_SECRET),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+            ("requested_token_use", "on_behalf_of"),
+            ("scope", "https://workforce-pool.example.com/.default"),
+        ])
+    );
+}
+
+#[test]
+fn an_on_behalf_of_answer_needs_no_issued_token_type_and_is_held_to_the_audience() {
+    let untyped = serde_json::json!({"access_token": good_token(), "token_type": "Bearer"});
+    drop(
+        answered(Grant::OnBehalfOf, 200, &untyped.to_string(), &audience(), NOW)
+            .expect("an on-behalf-of answer carries no issued_token_type"),
+    );
+    let elsewhere = jwt(&serde_json::json!({"aud": "account", "exp": NOW + 300}));
+    let untyped = serde_json::json!({"access_token": elsewhere, "token_type": "Bearer"});
+    assert!(matches!(
+        answered(Grant::OnBehalfOf, 200, &untyped.to_string(), &audience(), NOW),
+        Err(DelegationFailed::WrongAudience)
+    ));
+}
+
 #[test]
 fn an_unreachable_idp_is_unreachable_and_names_no_token() {
     let server = FakeServer::start(Vec::new());
