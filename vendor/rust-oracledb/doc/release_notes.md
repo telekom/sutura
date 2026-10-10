@@ -32,6 +32,12 @@
     the errors [ErrorKind::PacketTooShort](crate::ErrorKind::PacketTooShort)
     and
     [ErrorKind::IterationCountTooLarge](crate::ErrorKind::IterationCountTooLarge).
+1.  Added support for token based authentication using an OAuth 2.0 token or
+    an Oracle Cloud Infrastructure IAM token via the new enumeration
+    [ExternalAuth](crate::ExternalAuth) and the methods
+    [Config::set_external_auth()](crate::Config::set_external_auth()) and
+    [PoolConfig::set_external_auth()](crate::PoolConfig::set_external_auth())
+    ([issue 3](https://github.com/oracle/rust-oracledb/issues/3)).
 1.  Added support for specifying the transport connect timeout and ensure it is
     actually used when establishing a connection to the database
     ([issue 35](https://github.com/oracle/rust-oracledb/issues/35)).
