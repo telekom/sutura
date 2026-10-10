@@ -136,8 +136,7 @@ mod tests {
     /// other case in this suite (see `served/harness.rs::settings_over`); `catalogs`/`sources` are
     /// this file's own, since no existing helper writes a non-markdown catalog. `dir`/`data_dir` on
     /// the `catalogs` entry are `CatalogSettings::parse`'s two path fields, required non-empty for
-    /// EVERY kind including `datahub` (a stated limit of this PR's settings surface, also carried by
-    /// `docs/serving.md`'s `catalogs[].dir`/`data_dir` rows), and unread by `open_one_datahub_catalog`
+    /// EVERY kind including `datahub` (a stated limit of this PR's settings surface), and unread by `open_one_datahub_catalog`
     /// - hence the obviously-unused placeholder value rather than a real directory.
     fn settings(server: &FakeServer, data: &DataDir) -> String {
         format!(

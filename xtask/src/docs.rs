@@ -36,6 +36,10 @@
 //! A `src` that names no file is the fourth. [`embeds`] holds an `<iframe>`, an `<img>` and a
 //! markdown image to a file under the docs directory, and carries what it does not read.
 //!
+//! An icon that holds more than drawing is the fifth. Material pastes an SVG under `overrides/.icons`
+//! into the page, so [`icons`] refuses an element outside plain SVG drawing, an event attribute, an escape
+//! sequence or a reference that leaves the page.
+//!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:
 //! a stylesheet whose path stopped resolving is a site that renders unstyled behind a green
@@ -59,6 +63,7 @@ use crate::repo;
 
 mod embeds;
 mod exclude;
+mod icons;
 mod links;
 mod site_links;
 
@@ -588,17 +593,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     found.extend(font_problem(&config));
     found.extend(superseded_problems(&root));
     found.extend(site_links::unversioned());
+    let icons = icons::sweep(&root, &config);
+    found.extend(icons.problems);
 
     if found.is_empty() {
         println!(
-            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} iframe and image source(s) resolve, {} asset(s) resolve",
+            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} iframe and image source(s) resolve, {} asset(s) resolve, {} icon(s) hold only allowed SVG elements",
             nav.len(),
             present.len(),
             excluded.len(),
             sweep.scanned,
             published.len(),
             sweep.embeds,
-            declared.len()
+            declared.len(),
+            icons.scanned
         );
         return Verdict::Pass;
     }

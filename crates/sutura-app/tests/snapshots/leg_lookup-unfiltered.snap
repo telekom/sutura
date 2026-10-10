@@ -5,6 +5,7 @@ expression: leg
 lookup:
   source: crm
   table: dim_customer
+  joins: []
   keys:
     - label: 0_link
       column:

@@ -119,3 +119,37 @@ path = ["docs/assets/architecture.html", "docs/assets/deployment-direct.html", "
 precedence = "aggregate"
 SPDX-FileCopyrightText = ["the sutura authors", "2026 tt-a1i (Archify)", "2025 Cocoon AI"]
 SPDX-License-Identifier = "Apache-2.0 AND MIT"
+
+# The brand icons. Each is a product's own logo, copied unchanged, and `SOURCES.md` beside them
+# records where from. The five projects publish theirs under their repository licence.
+# A logo is also a trademark, which no licence here grants: it names the product.
+
+[[annotations]]
+path = "overrides/.icons/brand/datahub.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the DataHub authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "overrides/.icons/brand/openmetadata.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the OpenMetadata authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "overrides/.icons/brand/datafusion.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "overrides/.icons/brand/bitol.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the Bitol authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "overrides/.icons/brand/frictionless.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2020 Open Knowledge Foundation"
+SPDX-License-Identifier = "MIT"

@@ -12,7 +12,7 @@ as PostgreSQL SQL and runs it through the ADBC PostgreSQL driver, which uses lib
 ## When to use it
 
 - Your data is in PostgreSQL, and one database role may read it for all callers.
-- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool-over-the-postgres-source-above)
+- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool)
   over a database. Each raw statement runs in a read-only transaction that sutura rolls back.
 
 ## Settings
@@ -75,3 +75,7 @@ This data system supports `shared-service-user` only.
 sutura signs in as the one role in `user`, with the password or, for `mutual`, with the client
 certificate. Every caller's query runs as that role. The source must use
 `posture: shared-service-user`. Grants and row-level security of that role apply to every answer.
+
+Give the role `CONNECT`, `USAGE` and `SELECT` only. Do not use an owner, a superuser, a role that can create roles or
+databases, or a role with `BYPASSRLS`. One static role is one identity for every caller, so row-level security cannot
+tell callers apart. Make the password file readable by the service account only.

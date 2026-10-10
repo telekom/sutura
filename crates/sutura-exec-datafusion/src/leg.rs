@@ -46,14 +46,10 @@ use crate::translate::{bucket_expression, column, predicate, term_expression};
 
 /// The same-source hops this leg keeps as joins of its own.
 ///
-/// **THE arm split, and a lookup leg has none.** A dimension on another data system is a second leg,
-/// never a join - which is what makes the empty slice here a statement about federation rather than
-/// an omission. Exhaustive, so a third leg shape cannot arrive without saying what it joins.
+/// A dimension on another data system is a second leg, never a join of the first. A lookup leg
+/// joins whatever its own tables carry, read the way a fact leg's are.
 pub(crate) fn joins(leg: &LegPlan) -> &[PlanJoin] {
-    match *leg {
-        LegPlan::Fact { ref tables, .. } => tables.joins(),
-        LegPlan::Lookup { .. } => &[],
-    }
+    leg.tables().joins()
 }
 
 /// One same-source dimension hop, joined - **the one definition BOTH plan shapes use.**

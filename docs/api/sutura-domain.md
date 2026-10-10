@@ -7753,12 +7753,12 @@ check somebody runs:
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBindings};
+use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 
 fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
     LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         bindings: PlanBindings::none(),
         range,
@@ -7768,12 +7768,12 @@ fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPla
 
 ```
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBindings};
+use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 
 fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
     LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         bindings: PlanBindings::none(),
     }
@@ -7788,13 +7788,13 @@ before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
 
 ```compile_fail,E0559
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanFilter};
+use sutura_domain::plan::{LegPlan, PlanFilter, StatementTables};
 use sutura_domain::warehouse::ParamValue;
 
 fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
     LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         filters,
         params,
@@ -7804,7 +7804,7 @@ fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, p
 
 ```
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter};
+use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter, StatementTables};
 use sutura_domain::warehouse::ParamValue;
 
 fn _parsed(
@@ -7815,7 +7815,7 @@ fn _parsed(
 ) -> Result<LegPlan, IncoherentBindings> {
     Ok(LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         bindings: PlanBindings::parse(filters, params)?,
     })
@@ -9408,12 +9408,12 @@ check somebody runs:
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBindings};
+use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 
 fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
     LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         bindings: PlanBindings::none(),
         range,
@@ -9423,12 +9423,12 @@ fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPla
 
 ```
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBindings};
+use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 
 fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
     LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         bindings: PlanBindings::none(),
     }
@@ -9443,13 +9443,13 @@ before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
 
 ```compile_fail,E0559
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanFilter};
+use sutura_domain::plan::{LegPlan, PlanFilter, StatementTables};
 use sutura_domain::warehouse::ParamValue;
 
 fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
     LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         filters,
         params,
@@ -9459,7 +9459,7 @@ fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, p
 
 ```
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter};
+use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter, StatementTables};
 use sutura_domain::warehouse::ParamValue;
 
 fn _parsed(
@@ -9470,7 +9470,7 @@ fn _parsed(
 ) -> Result<LegPlan, IncoherentBindings> {
     Ok(LegPlan::Lookup {
         source,
-        table,
+        table: StatementTables::only(table),
         keys: Vec::new(),
         bindings: PlanBindings::parse(filters, params)?,
     })
@@ -9570,6 +9570,11 @@ fn _checked(
   would be a predicate on a column that is not there; nothing is aggregated, so there is no
   term and no measure label; and the metric belongs to the fact leg.
 
+  **`table` is a checked `StatementTables`, for `Fact`'s reason**: the one
+  type holds a statement's `FROM` table and its joins, and refuses two tables answering to one
+  identifier. It serializes `#[serde(flatten)]` like the fact leg's, so `table` sits beside
+  `joins`. Both renderers read its joins as they read the fact leg's; no builder gives a lookup leg one.
+
   `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
   dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
   splitter and is deliberately not a field here.
@@ -9628,6 +9633,12 @@ pub const fn table_name(&self) -> &TableName
 ```
 
 The table's own name, which is what this leg's columns are qualified by.
+
+```rust
+pub const fn tables(&self) -> &StatementTables
+```
+
+The tables this leg's statement reads: the `FROM` table and one per join.
 
 ```rust
 pub fn terms(&self) -> &[LegTerm]
@@ -9779,11 +9790,10 @@ instead, pinned by a `compile_fail` doctest with a compiling twin, so a second l
 reintroduce it - **a prediction in a doc comment is not a mechanism, which is the lesson worth
 keeping from this.**
 
-What remains is narrow and stated so it is not mistaken for the above. A
-`Lookup` leg reads ONE table and declares no joins, so it has no
-pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
-each leg is its own statement on its own data system, so nothing binds one identifier to two
-tables; what the combiner joins on is a label, and a label that shadowed a table is
+What remains is narrow and stated so it is not mistaken for the above. Two LEGS whose tables
+collide are not this defect: each leg is its own statement on its own data system, so nothing
+binds one identifier to two tables; what the combiner joins on is a label, and a label that
+shadowed a table is
 `LabelShadowsTable`'s refusal at
 load.
 
