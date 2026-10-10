@@ -3,12 +3,12 @@
 //! # It is a boundary, not a pass-through
 //!
 //! This module owns the transport's half of `docs/adr/0015`'s series table: the outcome counters
-//! (questions by `code`, refusals by `reason`), the duration histogram, the admission series, the rate-limit visibility, the unauthorized
-//! counter and the answer-rows histogram. The registry lives in `sutura-runtime`; this type holds
-//! the handles and names the series. Every labeled registration and update accepts
-//! `sutura_runtime::metrics::Label`; the values are chosen here from the transport's own fixed code
-//! vocabulary and the complete set is registered at boot, so an unknown observation cannot mint a
-//! series (Decision 5).
+//! (questions by `code`, refusals by `reason`), the duration histogram, the admission series, the
+//! rate-limit visibility, the unauthorized counter and the answer-rows histogram. The registry
+//! lives in `sutura-runtime`; this type holds the handles and names the series. Every labeled
+//! registration and update accepts `sutura_runtime::metrics::Label`; the values are chosen here
+//! from the transport's own fixed code vocabulary and the complete set is registered at boot, so an
+//! unknown observation cannot mint a series (Decision 5).
 //!
 //! # Registration is boot-only, and this type is the WHOLE of it here
 //!
