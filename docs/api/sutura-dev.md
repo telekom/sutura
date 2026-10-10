@@ -1436,6 +1436,10 @@ framing the driver reads first, so a driver that follows the redirect reaches
 `RedirectingListener::target` and is closed there, before any authentication.
 `authenticating` and `marking` go one step further and no more: neither completes a login.
 
+Each speaks over the accepted TCP stream itself, or, through the `_over` forms, over a session a
+test opens on it - TLS, for a driver that sends a token only over `tcps`. This crate
+links no TLS library, so the test brings the session.
+
 ### `struct RedirectingListener`
 
 ```rust
@@ -1458,6 +1462,17 @@ pub fn start() -> std::io::Result<Self>
 ```
 
 Binds both listeners on `127.0.0.1` and answers ONE client.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
+```rust
+pub fn start_over<S>(open: impl FnOnce(TcpStream) -> Option<S> + Send + 'static) -> std::io::Result<Self>
+```
+
+`Self::start`, with the declared listener speaking over the session `open` opens on the
+accepted connection. The redirect still names a plaintext `TCP` address.
 
 # Errors
 
@@ -1518,6 +1533,18 @@ the key and value pairs of the session data the driver reads its verifier fields
 
 A listener that cannot bind or has no local address.
 
+### `fn authenticating_over`
+
+```rust
+pub fn authenticating_over<S>(open: impl FnOnce(std::net::TcpStream) -> Option<S> + Send + 'static, session: &[(&str, &str)]) -> std::io::Result<Listening>
+```
+
+`authenticating`, over the session `open` opens on the accepted connection.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
 ### `fn marking`
 
 ```rust
@@ -1533,6 +1560,11 @@ before its type.
 # Errors
 
 A listener that cannot bind or has no local address.
+
+### `type_alias Listening`
+
+A listener's port, and what the client sent it after the ACCEPT: its first authentication
+message, and the message after the answer if it sent one before it closed.
 
 ## Module `tolerance`
 

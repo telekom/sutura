@@ -7,9 +7,15 @@
 
 The public API of `sutura-exec-oracle`, rendered from rustdoc JSON.
 
-A `Warehouse` adapter over Oracle Database - one connection under the deployment's declared
-identity (`SharedServiceUser`). `github.com/telekom/sutura#127` PR 2, over PR 1's
+A `Warehouse` adapter over Oracle Database. `github.com/telekom/sutura#127` PR 2, over PR 1's
 `Dialect::Oracle` rendering.
+
+**Two postures.** A `shared-service-user` source answers every question on one connection under
+the deployment's declared user. An `impersonation-at-source` source opens a session of its own
+for each question, with the asker's own verified token (`TokenSessions`), so the database
+authenticates the asker and runs the statement as the user it maps that token to. The boot
+connection under the declared user stays, for the boot path's own probes only
+(`Warehouse::verify_anchor`, `Warehouse::declared_key`); a question never runs on it.
 
 **Synchronous.** `oracledb::Connection`'s own
 methods (`execute`, `query`, `set_call_timeout`) are plain blocking `fn`s over a
@@ -49,6 +55,14 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   `Connection`'s own methods
   take `&self`, so the port's shared reference alone does not prove the driver tolerates two
   overlapping calls - and nothing here measured that it does.
+- **The session lifecycle, and the bound on sessions.** A question at an impersonating source
+  opens its session under that lock, runs on it, and closes it before the lock is released, so a
+  source holds at most one asker's session at a time beside its boot connection, and no session
+  outlives the question or serves a second asker. The dial bound covers each session's TCP
+  connect; the handshake and the close after it are not bounded, so a database that stops
+  answering there holds the source.
+- **The token is copied once, into the driver's configuration**, as an ordinary `String` the
+  driver keeps masked; nothing here zeroes that copy.
 
 ## `enum OracleError`
 
@@ -82,7 +96,7 @@ Why this data system could not answer.
   shape it can have. It travels as an `Err` from the port, which the boot path reads as *this
   declaration went unchecked* rather than as a violated one.
 - `Render`
-- `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
+- `Undeliverable` - The credential broker handed this adapter a leg it cannot open a session for.
 - `PresentedDisagreesWithPosture`
 - `DeadlineSpent` - The deadline was already spent before this call ever reached the driver - see `refuse_if_spent` for why this is checked rather than forwarded.
 - `CallTimeout` - `Connection::set_call_timeout` itself refused the value.
@@ -105,10 +119,12 @@ An Oracle connection, behind the `Warehouse` port.
 pub fn connect(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, dial: Dial<'_>, user: &str, password: &str, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
 ```
 
-Opens one connection to the listener `dial` names.
+Opens one connection to the listener `dial` names, under the declared user.
 
 A redirect from the listener is refused before authentication as
-`OracleError::RedirectRefused`, so the connection stays on the declared address.
+`OracleError::RedirectRefused`, so the connection stays on the declared address. For an
+`impersonation-at-source` `posture` the same dial, with no user or password, is kept to open
+each question's own session.
 
 ```rust
 pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, credential: &fixture::FixtureCredential, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
@@ -165,6 +181,47 @@ The same dial with its TCP connect bounded by `deadline` instead.
 ### Implements
 
 `Clone`, `Copy`, `Debug`
+
+## `struct TokenSessions`
+
+```rust
+pub struct TokenSessions
+```
+
+The declared dial with no user or password: where each question's own session is opened, with
+the asker's own token, at an `impersonation-at-source` source.
+
+The driver refuses a token over anything but TLS, so a `Channel::Plaintext` dial opens no
+session; the settings parse refuses that declaration before a dial exists.
+
+### Methods
+
+```rust
+pub fn new(dial: Dial<'_>) -> Result<Self, OracleError>
+```
+
+The driver's configuration for `dial`: its address, its channel and anchors, the dial bound,
+and a refused redirect.
+
+# Errors
+
+`OracleError::TrustAnchors` for anchors that are not usable certificates, and
+`OracleError::Connect` for an address the driver cannot parse.
+
+```rust
+pub fn open(&self, token: &Secret) -> Result<oracledb::Connection, OracleError>
+```
+
+Opens one session that authenticates with `token`. Dropping it closes the session.
+
+# Errors
+
+`OracleError::RedirectRefused` for a listener that redirects, and `OracleError::Connect`
+for every other refused dial or login. Neither carries the token.
+
+### Implements
+
+`Clone`, `Debug`
 
 ## `struct DriverError`
 

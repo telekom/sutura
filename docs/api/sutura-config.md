@@ -302,6 +302,13 @@ thing minting can fail on is a credential set that does not cover the sources it
 about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
 here would be process death under `panic = "abort"` for a case a type already describes.
 
+## `use DeclaredSubjects`
+
+The subjects one authenticating source may be asked as - `DeclaredPrincipalBroker::authenticating`.
+
+A set and not a `DeclaredPrincipals`, because the source names no principal: the database
+resolves the asker's own token to a user itself. Never empty, for `DeclaredPrincipals`' reason.
+
 ## `use NoDeclaredPrincipals`
 
 Why a declared impersonation map is not one a source can be served under.
@@ -2503,6 +2510,11 @@ the same map and the same refusals, but the leg carries the declared principal a
 statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
 is the key, and an anonymous or undeclared caller is refused exactly as below.
 
+**An authenticating source is the third** (`DeclaredPrincipalBroker::authenticating`): a set
+of subjects rather than a map, for a source that opens each request's session with the asker's
+own verified assertion and resolves who that is itself - Oracle's token authentication. The leg
+carries the assertion with no principal beside it; the same refusals apply.
+
 # What it refuses, which is the half that matters
 
 - **A source it holds neither half for** - refused as `credential_unavailable`, so a forgotten
@@ -2644,6 +2656,39 @@ arrangement of this signature in which the value is unread and the caller still 
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `struct DeclaredSubjects`
+
+```rust
+pub struct DeclaredSubjects
+```
+
+The subjects one authenticating source may be asked as - `DeclaredPrincipalBroker::authenticating`.
+
+A set and not a `DeclaredPrincipals`, because the source names no principal: the database
+resolves the asker's own token to a user itself. Never empty, for `DeclaredPrincipals`' reason.
+
+##### Methods
+
+```rust
+pub fn admits(&self, subject: &SubjectKey) -> bool
+```
+
+Whether this source may be asked as `subject`.
+
+```rust
+pub fn parse(declared: BTreeSet<SubjectKey>) -> Result<Self, NoDeclaredPrincipals>
+```
+
+Parses one source's declared subjects.
+
+# Errors
+
+`NoDeclaredPrincipals::Empty` for a declaration naming nobody.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 #### `enum DeclaredPrincipalsUnusable`
 
 ```rust
@@ -2687,6 +2732,14 @@ declared caller as one pool principal whatever the map said.
 source** - the reason the architecture decision gives for a broker being per answer at all.
 
 ##### Methods
+
+```rust
+pub fn authenticating(self, at: SourceName, declared: DeclaredSubjects) -> Self
+```
+
+Declares one impersonating source that opens each request's session with the asker's own
+verified assertion, for the subjects it declares. No principal is named: the source resolves
+the token itself.
 
 ```rust
 pub fn count(&self) -> usize
@@ -5819,6 +5872,7 @@ convenience, and nothing needs to clone a startup refusal.
   `crate::DeclaredPrincipals::target`. There is no `scope` key: the credential
   document has no `scopes` member, so one would reach nothing.
 - `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
+- `OracleSubjects` - An `oracle` source's `subjects` are not usable.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -6368,6 +6422,25 @@ then on the variant is the answer.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `enum InvalidOracleSubjects`
+
+```rust
+pub enum InvalidOracleSubjects
+```
+
+Why an `oracle` source's `subjects` are not ones it can be served under.
+
+##### Variants
+
+- `Missing` - An impersonating source declared no subject, so no caller could ever be served there.
+- `NotImpersonating` - Subjects on a source that is not impersonating, which nothing would read.
+- `Subject`
+- `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### `enum InvalidImpersonate`
 
 ```rust
@@ -6392,6 +6465,10 @@ Why a `clickhouse` source's `impersonate` map is not one it can be served under.
 #### `type_alias DeclaredUsers`
 
 A `clickhouse` source's declared subject -> `ClickHouse` user map.
+
+#### `type_alias OracleSubjects`
+
+An `oracle` source's declared subjects.
 
 ### Module `transport`
 
