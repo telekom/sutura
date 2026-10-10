@@ -3379,8 +3379,10 @@
 <h1 id="inbound-identity">Inbound identity<a class="headerlink" href="#inbound-identity" title="Permanent link">&para;</a></h1>
 <p>Inbound identity tells sutura who asks. sutura checks a signed token from your identity provider
 and gets a verified subject, its scopes and its groups. sutura uses the subject for the audit
-record and for the scope check. A BigQuery source with <code>posture: impersonation-at-source</code> also
-runs the query as the service account that its map names for that subject.</p>
+record and for the scope check. A source with <code>posture: impersonation-at-source</code> also
+runs the query as the identity that its map names for that subject: a service account on BigQuery, a
+user on ClickHouse. sutura refuses a subject that the map does not name. No other data system
+supports this posture.</p>
 <p>The settings are under <code>security.inbound</code>. There are two modes, and there is no default:</p>
 <table>
 <thead>

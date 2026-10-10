@@ -3686,9 +3686,15 @@ On a <code>files</code> source, a bundle that names a table that the engine did 
 </tr>
 </tbody>
 </table>
-<p>Before it opens the listener, sutura asks each data system whether it holds the tables of the catalog. A missing
-table, a refused listing and an inconsistent listing refuse to start. A data system that cannot be asked gives a
-<code>WARN</code> in the log, and the server starts.</p>
+<p>Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
+refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a <code>WARN</code>, and
+the server starts. A <code>files</code> source refuses to start when the catalog names a table that the engine did not attach.
+The other data systems do not report their tables at start, so a missing table fails on the first question against it.
+The log has <code>INFO</code> lines about the check in two cases. When BigQuery is the only kind, each BigQuery source that a
+model of the catalog reads gets one line: every table is there. When there is more than one kind of data system, the
+check runs over every source, and each source that a model reads gets one line. BigQuery says that every table is
+there. Every other kind, <code>files</code> included, says that the adapter does not report which tables it holds. A deployment of
+one kind other than BigQuery (<code>files</code>, Postgres, ClickHouse, Oracle or DuckDB) logs no line about tables.</p>
 <h2 id="who-is-asking">Who is asking<a class="headerlink" href="#who-is-asking" title="Permanent link">&para;</a></h2>
 <p>Without <code>security.inbound</code>, the deployment token authenticates the deployment and not the caller. Every question runs
 with the access of the deployment.</p>
@@ -3738,7 +3744,7 @@ refused request gets <code>401</code> with a <code>WWW-Authenticate: Bearer</cod
 </tr>
 </tbody>
 </table>
-<p>A verified token with none of these scopes gets <code>403</code> with <code>code: insufficient_scope</code>, and the detail names the
+<p>A verified token that lacks the scope of the operation that it calls gets <code>403</code> with <code>code: insufficient_scope</code>, and the detail names the
 scope to grant. A scope decides which operations the caller can use, not which rows an answer holds. The posture of
 the source decides whose access governs the rows.</p>
 <p><code>security.identity</code> is <code>single-user</code> or <code>multi-user</code>. <code>single-user</code> needs <code>security.single_user_because</code>.
@@ -3938,12 +3944,12 @@ deployment instead. The fix is a grant at the data system. A <code>403</code> wi
 <tr>
 <td><code>rate_limit.client_address</code></td>
 <td><code>peer</code></td>
-<td><code>peer</code> or <code>forwarded</code>: what a bucket counts</td>
+<td><code>peer</code> or <code>forwarded</code>: what a bucket counts. Behind an ingress, <code>peer</code> is one bucket for every caller</td>
 </tr>
 <tr>
 <td><code>rate_limit.trusted_proxies</code></td>
 <td>none</td>
-<td>The hops whose <code>X-Forwarded-For</code> sutura believes. <code>forwarded</code> needs it</td>
+<td>The hops whose <code>X-Forwarded-For</code> sutura believes. <code>forwarded</code> with none is refused at start</td>
 </tr>
 </tbody>
 </table>

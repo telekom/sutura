@@ -3498,41 +3498,13 @@ version, so you cannot get a different compiler than CI.</p>
 </span></code></pre></div>
 <p><code>direnv allow</code> is a trust boundary, not a formality, and hooking <code>direnv</code> into your shell is the
 step people skip. <code>just</code> with no argument lists every task.</p>
-<p><strong><code>just setup</code> is what installs the git hooks, and it is not optional.</strong> It installs all three
-stages (<code>pre-commit</code>, <code>pre-push</code>, <code>commit-msg</code>) through <code>prek</code>, installs the pixi environment the
-hook runner lives in, warms <code>xtask</code> so your first commit is not a cold compile, and ends with
-<code>doctor</code>. It is idempotent, so re-run it whenever an environment file changes.</p>
-<p><strong>Hook tiers.</strong> A hook that is too slow for its stage gets switched off, so each stage runs only what
-it can afford.</p>
-<table>
-<thead>
-<tr>
-<th>Stage</th>
-<th>Runs</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pre-commit</code></td>
-<td>fmt, clippy, <code>cargo check</code> of the changed packages, the structural gates, text and chart gates</td>
-</tr>
-<tr>
-<td><code>pre-push</code></td>
-<td>the whole-tree secret scan and the supply-chain gate, nothing else</td>
-</tr>
-<tr>
-<td><code>commit-msg</code></td>
-<td>the conventional-commit subject</td>
-</tr>
-</tbody>
-</table>
-<p>The suite, the doctests and the CRAP score run in <code>just validate</code> and in CI. <code>just ship-check</code> also
-runs CRAP for a diff that reaches the scored crate, and the fuzz replay (<code>just fuzz-smoke</code>) for a diff
-that touches the fuzzed tree. A local commit can hold a failing test until <code>just validate</code> or CI
-runs it.</p>
-<p>Run <code>just setup</code> before your first commit, because <strong>an uninstalled hook does not complain - it
-silently never fires.</strong> <code>just setup</code> unsets a <code>core.hooksPath</code> that points at a missing directory.
-If you are unsure whether your hooks are live, run <code>just setup</code> again and read what it prints.</p>
+<p><strong>Git hooks.</strong> <code>just setup</code> installs them, together with the pixi environment that the hooks run in. The hooks
+enforce some gates before CI. <code>pre-commit</code> runs fmt, clippy, a check of the changed packages, and the structural, text
+and chart gates. <code>pre-push</code> runs the secret scan and the supply-chain gate. <code>commit-msg</code> checks the conventional-commit
+subject. CI runs every gate again, except the most expensive ones. The fuzzers run only on a release tag, or when
+someone starts them by hand.</p>
+<p>Run <code>just setup</code> before your first commit, and again when an environment file changes. A hook that is not installed
+does not fire, and it gives no warning.</p>
 <h2 id="working-in-parallel-worktrees">Working in parallel worktrees<a class="headerlink" href="#working-in-parallel-worktrees" title="Permanent link">&para;</a></h2>
 <p>Each worktree runs its own development services. Two worktrees share no container, network, volume or port.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>worktree<span class="w"> </span>feat/thing<span class="w">       </span><span class="c1"># a new worktree for a stacked change</span>
@@ -3541,8 +3513,9 @@ If you are unsure whether your hooks are live, run <code>just setup</code> again
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>just<span class="w"> </span>dev-down<span class="w">                  </span><span class="c1"># remove this worktree's services</span>
 </span></code></pre></div>
 <p>Docker chooses each host port. Read a port with <code>just dev-endpoint</code>, and never write one into a file.</p>
-<p>The services are ClickHouse, and Keycloak with <code>just dev-up-identity</code>. <code>just test</code> provisions PostgreSQL
-from Nix. Without docker, the services skip locally and fail in CI. To add a service, add a row to
+<p><code>just dev-up</code> starts ClickHouse. Each other service has its own task: Keycloak (<code>just dev-up-identity</code>),
+DataHub (<code>just dev-up-datahub</code>), OpenMetadata (<code>just dev-up-openmetadata</code>) and Oracle (<code>just dev-up-oracle</code>).
+<code>just test</code> provisions PostgreSQL from Nix. Without docker, the services skip locally and fail in CI. To add a service, add a row to
 <code>sutura_dev::scope::SERVICES</code> and a block to <code>compose.services.yaml</code>.</p>
 <p><strong>Other routes.</strong> The dev container runs the same shell in Docker:
 <code>docker compose -f compose.dev.yaml run --rm dev</code>. Use it on Windows without WSL2. Bare <code>rustup</code> compiles
