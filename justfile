@@ -841,6 +841,7 @@ dev-up-cube:
 # A named task rather than a cell in the default suite, for `openmetadata-acceptance`'s reasons:
 # `just test` sets `SUTURA_DEV_REQUIRE_TIER=1` and the nix sandbox has no docker socket. It brings
 # the profile up first, then reads the live `/cubejs-api/v1/meta` through `src/http.rs`'s reader.
+# CI runs the same cells through `nix run .#cube-acceptance`; keep the two aligned by hand.
 # The provisioned Cube, asked whether the real reader decodes what the tier's model serves.
 cube-acceptance:
     #!/usr/bin/env bash

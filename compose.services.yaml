@@ -688,7 +688,8 @@ services:
     # Because: Cube is not packaged in `nixpkgs`, and a nix `checks.*` derivation has no docker
     #   socket and no network.
     # Converges: when Cube is packaged as a nix-native tier, taking `nix/postgres-tier.nix`'s shape.
-    #   Until then `just cube-acceptance` is the only venue: no nix check and no CI job reaches it.
+    #   Until then the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance`
+    #   are its venues; no nix check reaches it.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
     profiles:
       - cube

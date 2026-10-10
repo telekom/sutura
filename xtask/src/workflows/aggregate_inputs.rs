@@ -65,6 +65,8 @@ const REQUIRED: &[(&str, &str)] = &[
     ("DH_SELECTED", "ci"),
     ("OM_RESULT", "ci-openmetadata-tier"),
     ("OM_SELECTED", "ci"),
+    ("CUBE_RESULT", "ci-cube-tier"),
+    ("CUBE_SELECTED", "ci"),
     ("BQC_RESULT", "bigquery-conformance"),
     ("BQC_REQUIRED", "ci"),
     ("CAUS_RESULT", "causality"),
