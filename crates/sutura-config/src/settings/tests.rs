@@ -316,21 +316,6 @@ fn a_declared_datahub_deadline_and_max_response_bytes_reach_the_reader() {
 }
 
 #[test]
-fn a_declared_refresh_seconds_reaches_the_catalog_settings() {
-    // `#975`'s wiring, `crate::settings::catalogs::parse_catalogs` line 69-71 - the exact same
-    // gap the deadline test above closed for `deadline_seconds`/`max_response_bytes` after
-    // PR-750: `with_refresh_seconds` lives at the builder layer only, so a settings file
-    // declaring `refresh_seconds:` had no cell proving the parsed key reaches
-    // `CatalogSettings::refresh_seconds()`.
-    let sources = Sources::defaults(Environment::Development).with_overlay(
-        "catalogs:\n  - name: catalog\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n    refresh_seconds: 300\n",
-    );
-    let settings = Settings::load(&sources).expect("a markdown catalog with a refresh interval loads");
-    let catalog = settings.catalogs().each().next().expect("the declared catalog is present");
-    assert_eq!(catalog.refresh_seconds(), Some(300));
-}
-
-#[test]
 fn a_bound_at_its_ceiling_loads_and_one_past_it_does_not() {
     let at = format!(
         "server:\n  request_timeout_seconds: {}\n  max_body_bytes: {}\n",
@@ -998,3 +983,7 @@ mod allowed_hosts;
 /// twins. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod agent_surface;
+
+/// The `catalogs[].refresh_seconds` default and refusals. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod refresh_seconds;

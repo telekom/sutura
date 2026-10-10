@@ -233,6 +233,10 @@ catalogs:
     # A placeholder, and it is meant to be replaced by a commit id or a build number: what
     # identifies a snapshot of a directory is not something the directory knows.
     version: "unversioned"
+    # Fifteen minutes. `CatalogSettings::DEFAULT_REFRESH_SECONDS` is the same number, and cells hold
+    # each against the literal 900. A deployment's own `catalogs:` list replaces this one, so the same
+    # default is filled in per entry when the key is absent.
+    refresh_seconds: 900
 
 runtime:
   # The resource that runs out is a blocking-pool thread holding a data system, not a socket, so

@@ -146,8 +146,9 @@ pub struct CatalogSettings {
     /// own recommended default.
     max_response_bytes: Option<u64>,
     /// `github.com/telekom/sutura#975` - every kind, not `datahub` alone: how often a composition
-    /// root that DRIVES a refresh re-reads this catalog and re-pins it. `None` means never - the
-    /// state every catalog declared before this key existed is already in.
+    /// root that DRIVES a refresh re-reads this catalog and re-pins it. A settings file always
+    /// yields `Some` - [`Self::DEFAULT_REFRESH_SECONDS`] when the key is absent; `None` means
+    /// never and is reachable only by building the settings in code.
     refresh_seconds: Option<u64>,
     /// `catalog.kind: rdbms` only, all or nothing. `None` for every other kind.
     rdbms: Option<RdbmsSettings>,
@@ -178,9 +179,9 @@ pub enum InvalidCatalogSettings {
     #[error("catalog.{field} is required when catalog.kind is openmetadata, and is empty or absent")]
     MissingForOpenmetadata { field: &'static str },
     /// `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every
-    /// tick of whatever drives it, which is not a refresh interval; absent is how "never refresh"
-    /// is written.
-    #[error("catalogs.{name}.refresh_seconds is 0 - remove the key for never, or write a positive interval")]
+    /// tick of whatever drives it, which is not a refresh interval; absent is the default
+    /// interval, not "never".
+    #[error("catalogs.{name}.refresh_seconds is 0 - remove the key for the default, or write a positive interval")]
     ZeroRefresh { name: SourceName },
     /// A `catalog.kind: rdbms` entry's own keys are not usable.
     #[error("`catalogs.{name}` is `kind: rdbms` and is not usable")]
@@ -252,10 +253,15 @@ impl CatalogSettings {
         })
     }
 
-    /// Declares how often this catalog is re-read and re-pinned - `#975`. `None` (the default
-    /// every entry written before this key existed is already at) means never; `Some(0)` is
-    /// refused rather than read as "never" or "as fast as possible", so an operator who wrote a
-    /// literal `0` is told rather than silently ignored.
+    /// The interval a catalog declared without `refresh_seconds` is re-read at - fifteen minutes.
+    /// `defaults.yaml`'s default entry spells the same number, and cells hold each against the
+    /// literal 900.
+    pub const DEFAULT_REFRESH_SECONDS: u64 = 900;
+
+    /// Declares how often this catalog is re-read and re-pinned - `#975`. `None` (what
+    /// [`Self::parse`] starts at) means never; `Some(0)` is refused rather than read as "never" or
+    /// "as fast as possible", so an operator who wrote a literal `0` is told rather than silently
+    /// ignored.
     pub fn with_refresh_seconds(mut self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings> {
         if refresh_seconds == Some(0) {
             return Err(InvalidCatalogSettings::ZeroRefresh { name: self.name });
@@ -723,8 +729,9 @@ mod tests {
         );
     }
 
-    /// `#975`: absent means never, a positive value round-trips, and every kind takes it - not
-    /// only `datahub`, unlike the three fields above.
+    /// `#975`: `CatalogSettings::parse` leaves the interval at never (a settings file fills in
+    /// the default), a positive value round-trips, and every kind takes it - not only `datahub`,
+    /// unlike the three fields above.
     #[test]
     fn a_refresh_interval_defaults_to_never_and_round_trips_on_every_kind() {
         for kind in [CatalogKind::Markdown, CatalogKind::Datahub, CatalogKind::Okf] {

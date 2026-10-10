@@ -38,7 +38,7 @@ variables, in that order. [Configuration](configuration.md) lists the layers and
 
 Each data system and each catalog has its own settings. See the [integrations](integrations/index.md).
 
-`catalogs[].refresh_seconds` sets how often `sutura serve` reads the catalog again. The default is never, and `0` is
+`catalogs[].refresh_seconds` sets how often `sutura serve` reads the catalog again. The default is 900 seconds, and `0` is
 refused. A refresh swaps the served catalog. A new question uses the new snapshot, and a question in flight ends on the
 snapshot that it started with. A bundle that fails the start-up checks is refused, and the served catalog stays in place.
 On a `files` source, a bundle that names a table that the engine did not attach at start-up is refused until a restart.
