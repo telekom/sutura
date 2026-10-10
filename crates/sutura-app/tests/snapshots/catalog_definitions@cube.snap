@@ -3,10 +3,10 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: pinned.definitions()
 ---
 models:
-  customers:
-    name: customers
+  dim_customer:
+    name: dim_customer
     source: local
-    table: customers
+    table: dim_customer
     columns:
       customer_key:
         name: customer_key
@@ -26,29 +26,10 @@ models:
     primary_key:
       - customer_key
     description: "One row per customer, holding the attributes an answer may be grouped by."
-  daily_usage:
-    name: daily_usage
+  dim_product:
+    name: dim_product
     source: local
-    table: daily_usage
-    columns:
-      subscription_key:
-        name: subscription_key
-        data_type: number
-        description: The subscription this usage belongs to.
-        nullable: ~
-      usage_date:
-        name: usage_date
-        data_type: time
-        description: The day this row of usage was recorded on.
-        nullable: ~
-    primary_key:
-      - subscription_key
-      - usage_date
-    description: One row per subscription per day on which it used anything.
-  products:
-    name: products
-    source: local
-    table: products
+    table: dim_product
     columns:
       product_family:
         name: product_family
@@ -68,15 +49,15 @@ models:
     primary_key:
       - product_key
     description: One row per tariff.
-  regions:
-    name: regions
+  dim_region:
+    name: dim_region
     source: local
-    table: regions
+    table: dim_region
     columns:
       region:
         name: region
         data_type: string
-        description: "The join key, the same text customers.region holds."
+        description: "The join key, the same text dim_customer.region holds."
         nullable: ~
       sales_area:
         name: sales_area
@@ -86,10 +67,10 @@ models:
     primary_key:
       - region
     description: "One row per region, and the sales area it rolls up into."
-  subscriptions:
-    name: subscriptions
+  fct_subscription_monthly:
+    name: fct_subscription_monthly
     source: local
-    table: subscriptions
+    table: fct_subscription_monthly
     columns:
       churned_in_month:
         name: churned_in_month
@@ -120,5 +101,24 @@ models:
       - month
       - subscription_key
     description: One row per subscription per month - the monthly snapshot of every subscription.
+  fct_usage_daily:
+    name: fct_usage_daily
+    source: local
+    table: fct_usage_daily
+    columns:
+      subscription_key:
+        name: subscription_key
+        data_type: number
+        description: The subscription this usage belongs to.
+        nullable: ~
+      usage_date:
+        name: usage_date
+        data_type: time
+        description: The day this row of usage was recorded on.
+        nullable: ~
+    primary_key:
+      - subscription_key
+      - usage_date
+    description: One row per subscription per day on which it used anything.
 relationships: {}
 metrics: {}

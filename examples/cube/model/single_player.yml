@@ -1,17 +1,18 @@
 # The development Cube model: the single-player corpus (`examples/single-player/data`) as Cube
-# cubes, for the `cube` profile in `compose.services.yaml`. The descriptions are the example
-# catalog's own; DuckDB reads the corpus files the profile places under `/cube/data`.
+# cubes over ClickHouse, for the `cube` profile in `compose.services.yaml`. Each cube is named after
+# its table and each measure after the catalog metric it serves, because sutura addresses a member
+# as `<table>.<metric>` and `<table>.<column>`. Cube and dimension descriptions are the catalog's own.
 cubes:
-  - name: subscriptions
-    sql: "SELECT * FROM read_csv_auto('/cube/data/fct_subscription_monthly.csv')"
+  - name: fct_subscription_monthly
+    sql_table: default.fct_subscription_monthly
     description: One row per subscription per month - the monthly snapshot of every subscription.
     joins:
-      - name: customers
+      - name: dim_customer
         relationship: many_to_one
-        sql: "{CUBE}.customer_key = {customers}.customer_key"
-      - name: products
+        sql: "{CUBE}.customer_key = {dim_customer}.customer_key"
+      - name: dim_product
         relationship: many_to_one
-        sql: "{CUBE}.product_key = {products}.product_key"
+        sql: "{CUBE}.product_key = {dim_product}.product_key"
     dimensions:
       - name: subscription_key
         sql: subscription_key
@@ -38,35 +39,70 @@ cubes:
         type: string
         description: The subscription's own contract length - annual or monthly.
     measures:
-      - name: recurring_revenue
-        sql: mrr_cents
-        type: sum
-        description: Recurring revenue from active subscriptions, in minor units.
-        filters:
-          - sql: "{CUBE}.status = 'active'"
       - name: active_subscriptions
         sql: subscription_key
         type: count_distinct
         description: Distinct subscriptions active at the end of the month.
         filters:
           - sql: "{CUBE}.status = 'active'"
+      - name: subscription_base
+        sql: subscription_key
+        type: count_distinct
+        description: Distinct subscriptions in the snapshot, whatever their status.
+      - name: subscription_months_billed
+        sql: subscription_key
+        type: count
+        description: Snapshot rows - one per subscription per month billed.
       - name: subscriptions_churned
         type: count
         description: Subscriptions that churned during the month.
         filters:
           - sql: "{CUBE}.churned_in_month"
+      - name: recurring_revenue
+        sql: mrr_cents
+        type: sum
+        description: Recurring revenue from active subscriptions, in minor units.
+        filters:
+          - sql: "{CUBE}.status = 'active'"
+      - name: mean_subscription_mrr
+        sql: mrr_cents
+        type: avg
+        description: The mean recurring revenue of an active subscription, in minor units.
+        filters:
+          - sql: "{CUBE}.status = 'active'"
+      - name: churn_rate
+        sql: "{subscriptions_churned} / NULLIF({subscription_base}, 0)"
+        type: number
+        description: The share of the subscription base that churned during the month.
+      - name: revenue_per_churned_subscription
+        sql: "{total_revenue} / {subscriptions_churned}"
+        type: number
+        description: Recurring revenue per churned subscription, in minor units.
+      - name: revenue_per_customer
+        sql: "{recurring_revenue} / NULLIF({active_customers}, 0)"
+        type: number
+        description: Recurring revenue per active customer, in minor units.
+      - name: total_revenue
+        sql: mrr_cents
+        type: sum
+        public: false
+      - name: active_customers
+        sql: customer_key
+        type: count_distinct
+        public: false
+        filters:
+          - sql: "{CUBE}.status = 'active'"
     segments:
       - name: active
         sql: "{CUBE}.status = 'active'"
-        description: Subscriptions active at the end of the month.
 
-  - name: customers
-    sql: "SELECT * FROM read_csv_auto('/cube/data/dim_customer.csv')"
+  - name: dim_customer
+    sql_table: default.dim_customer
     description: One row per customer, holding the attributes an answer may be grouped by.
     joins:
-      - name: regions
+      - name: dim_region
         relationship: many_to_one
-        sql: "{CUBE}.region = {regions}.region"
+        sql: "{CUBE}.region = {dim_region}.region"
     dimensions:
       - name: customer_key
         sql: customer_key
@@ -83,8 +119,8 @@ cubes:
         type: string
         description: Which of the five regions this customer is in.
 
-  - name: products
-    sql: "SELECT * FROM read_csv_auto('/cube/data/dim_product.csv')"
+  - name: dim_product
+    sql_table: default.dim_product
     description: One row per tariff.
     dimensions:
       - name: product_key
@@ -102,8 +138,8 @@ cubes:
         type: string
         description: Which of the four product families this tariff belongs to.
 
-  - name: regions
-    sql: "SELECT * FROM read_csv_auto('/cube/data/dim_region.csv')"
+  - name: dim_region
+    sql_table: default.dim_region
     description: One row per region, and the sales area it rolls up into.
     dimensions:
       - name: region
@@ -111,19 +147,19 @@ cubes:
         type: string
         primary_key: true
         public: true
-        description: The join key, the same text customers.region holds.
+        description: The join key, the same text dim_customer.region holds.
       - name: sales_area
         sql: sales_area
         type: string
         description: The sales area this region rolls up into.
 
-  - name: daily_usage
-    sql: "SELECT * FROM read_csv_auto('/cube/data/fct_usage_daily.csv')"
+  - name: fct_usage_daily
+    sql_table: default.fct_usage_daily
     description: One row per subscription per day on which it used anything.
     joins:
-      - name: subscriptions
+      - name: fct_subscription_monthly
         relationship: many_to_one
-        sql: "{CUBE}.subscription_key = {subscriptions}.subscription_key AND date_trunc('month', {CUBE}.usage_date) = {subscriptions}.month"
+        sql: "{CUBE}.subscription_key = {fct_subscription_monthly}.subscription_key AND toStartOfMonth({CUBE}.usage_date) = {fct_subscription_monthly}.month"
     dimensions:
       - name: subscription_key
         sql: subscription_key
@@ -142,7 +178,15 @@ cubes:
         sql: voice_min
         type: sum
         description: Voice minutes used.
+      - name: data_per_subscription
+        sql: "{data_gb} / NULLIF({subscriptions_using}, 0)"
+        type: number
+        description: Data used per subscription that used any, in gigabytes.
       - name: data_gb
         sql: data_gb
         type: sum
-        description: Data used, in gigabytes.
+        public: false
+      - name: subscriptions_using
+        sql: subscription_key
+        type: count_distinct
+        public: false

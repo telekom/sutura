@@ -38,10 +38,19 @@ fn every_recorded_cube_is_a_model_on_the_cube_source_with_its_dimensions_as_colu
         .expect("the recorded answer loads");
     let models = pinned.definitions().models();
     let names: Vec<&str> = models.keys().map(ModelName::as_str).collect();
-    assert_eq!(names, ["customers", "daily_usage", "products", "regions", "subscriptions"]);
-    let subscriptions = &models[&ModelName::parse("subscriptions").expect("a name")];
+    assert_eq!(
+        names,
+        [
+            "dim_customer",
+            "dim_product",
+            "dim_region",
+            "fct_subscription_monthly",
+            "fct_usage_daily"
+        ]
+    );
+    let subscriptions = &models[&ModelName::parse("fct_subscription_monthly").expect("a name")];
     assert_eq!(subscriptions.source().as_str(), "metrics");
-    assert_eq!(subscriptions.table_name().as_str(), "subscriptions");
+    assert_eq!(subscriptions.table_name().as_str(), "fct_subscription_monthly");
     let columns: Vec<&str> = subscriptions.columns().map(|column| column.name().as_str()).collect();
     assert_eq!(
         columns,
@@ -64,11 +73,17 @@ fn a_measure_is_reported_and_never_minted_as_a_metric() {
     assert_eq!(
         measures,
         [
-            "subscriptions.recurring_revenue",
-            "subscriptions.active_subscriptions",
-            "subscriptions.subscriptions_churned",
-            "daily_usage.voice_minutes",
-            "daily_usage.data_gb",
+            "fct_subscription_monthly.active_subscriptions",
+            "fct_subscription_monthly.subscription_base",
+            "fct_subscription_monthly.subscription_months_billed",
+            "fct_subscription_monthly.subscriptions_churned",
+            "fct_subscription_monthly.recurring_revenue",
+            "fct_subscription_monthly.mean_subscription_mrr",
+            "fct_subscription_monthly.churn_rate",
+            "fct_subscription_monthly.revenue_per_churned_subscription",
+            "fct_subscription_monthly.revenue_per_customer",
+            "fct_usage_daily.voice_minutes",
+            "fct_usage_daily.data_per_subscription",
         ]
     );
     let pinned = fixture::over_fixture_source(name("metrics"), version())
