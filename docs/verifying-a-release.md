@@ -2,17 +2,14 @@
 
 The tagged-release workflow signs artefacts and records SLSA provenance as described below.
 Signature and provenance bundles carry the evidence; they do not attest themselves.
-This page explains the checks and what they do **not** say.
+This page explains the checks.
 
 ## Read this part first
 
-**A signature answers "did this pipeline produce these bytes". It does not answer "are these bytes
-good".** Provenance is an *identity* claim, and the whole of what it establishes is that the file in
-your hand is byte-for-byte what the release workflow of `github.com/telekom/sutura` emitted at a
-tag, and not something a mirror, a proxy or a compromised download page substituted. It says
-nothing about whether the code is correct, whether a dependency has an advisory, or whether the
-release is fit for your use. The gates say the first, `cargo-deny` says the second, and nothing
-says the third.
+**A signature answers "did this pipeline produce these bytes".** Provenance is an *identity* claim:
+the file in your hand is byte-for-byte what the release workflow of `github.com/telekom/sutura`
+emitted at a tag, and not something a mirror, a proxy or a compromised download page
+substituted.
 
 **The SBOM inventories the crate graph. It is read out of the binary, not out of a lock file.**
 The reason is under [What the SBOM covers](#what-the-sbom-covers).
@@ -34,8 +31,6 @@ links the HTTP surface, the caller-token verification, the rate limiter and the 
 description. It also carries every entry of the `features` list in that file. A deployment uses an
 adapter through a settings-tree entry, not through a build. A binary with fewer adapters is a source
 build, and a feature that is not in that list is available in a source build only.
-`nix build .#checks.x86_64-linux.shipped-features` asserts the list against the dependency list
-that is embedded in the shipped binary, not against a manifest.
 
 **The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver that it
 links. libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls. That
@@ -143,7 +138,7 @@ original assets. It contains five Sigstore bundles: one multi-subject asset atte
 manifest-list attestations. It is not a new signing policy. The collector checks the required
 JSON, DSSE and SLSA fields and the exact, unique name and digest pairs against `subjects.sha256` and
 `image-digests.txt`. It writes the asset only after all inputs pass. It does **not** verify
-signatures, certificates or transparency proofs. A missing export blocks the draft publication.
+signatures, certificates or transparency proofs.
 
 Choose the expected tag and the full source commit independently of the downloaded bundle. Supply a
 trusted-root file from your trusted distribution channel. Do not trust a file only because a mirror
@@ -217,7 +212,7 @@ Whether the registry package is readable without a login is a registry setting.
 
 ## What the SBOM covers
 
-Each leaf image ships two inventories of the same scan - CycloneDX and SPDX, so the two cannot
+Each leaf image carries two inventories of the same scan - CycloneDX and SPDX, so the two cannot
 disagree - attached to the release and, for CycloneDX, attached to the image itself:
 
 ```bash
@@ -240,20 +235,15 @@ executable. The obvious way to produce this list is the wrong one:
   binary nor the document says so.
 - It is also the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the linker
   *kept*. `xtask`, the repository's own gate tool, is a workspace member, so it is in the resolve
-  graph and never in the binary. A workspace-wide document names it anyway, and so overstates what
-  ships.
+  graph and never in the binary. A workspace-wide document names it anyway, and so lists a crate
+  that is not in the binary.
 - There is one SBOM per image, not one per release.
 
 So the list is put **inside the artefact at build time** and read back out of the bytes that the
-scan reads. It cannot drift from the binary, because it is the binary. The release job checks that
-the section is there. Without that check, a build that stops producing the section still passes the
-scan and still writes valid CycloneDX that names three files, and nothing downstream can tell that
-apart from a correct run.
+scan reads. It cannot drift from the binary, because it is the binary.
 
-**The list is not a statement about those crates.** It says which versions were compiled in.
-`cargo-deny` checks them against the RustSec database in CI on every dependency change and weekly.
-That is a run, not a property of the artefact. `cargo audit --bin` reads this section and answers
-the question against the file you have.
+The list says which crate versions were compiled in. `cargo audit --bin` reads this section and
+checks them against the RustSec database for the file you have.
 
 ## The licence statement
 
@@ -276,23 +266,14 @@ cosign verify-blob \
 **The attribution document is deliberately WIDER than the SBOM.** The SBOM says what is *in* one
 binary, so an overstated SBOM is a false statement about the file in your hand. That is why the list
 lives inside the executable. The attribution document discharges a licence obligation, and there the
-two errors differ. A crate that did not ship costs you one line to read. A crate that shipped and is
-missing is the failure that the document exists to prevent. So it names every crate that the
-workspace resolves at all features, which is more than `sutura-cli` links.
+two errors differ. A crate that is not in the binary costs you one line to read. A crate that is in
+the binary and is missing is the failure that the document exists to prevent. So it names every
+crate that the workspace resolves at all features, which is more than `sutura-cli` links.
 
 **The release generates the document, and nobody commits it.** A committed derived file falls behind
 `Cargo.lock` as soon as a dependency moves, and Dependabot runs with a read-only token and cannot
 regenerate it. The release generates the document from the `Cargo.lock` of the tag that it
-publishes. Three mechanisms hold it:
-
-| Mechanism                             | What it holds                                                                                                                                                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cargo xtask check-attribution`       | a generation names every third-party package in `Cargo.lock` and carries a **declared licence for each one** - a crate that declares none is a refusal                          |
-| `cargo xtask check-attribution-owner` | no committed `ATTRIBUTION.md` comes back, and `release.yml` still generates the asset rather than copying one                                                                   |
-| the release's own count floor         | the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing |
-
-A new dependency's declared licence does not show up in a pull-request diff. `cargo deny check`
-refuses a licence that is not on the allowlist, and the first gate above refuses a missing one.
+publishes.
 
 **It names vendored code too.** The two crates under `vendor/mimalloc_rust` are path dependencies,
 not registry crates, and `sutura-cli` links the allocator on Linux. They are rows like any other
@@ -301,23 +282,3 @@ came from.
 
 **Neither document carries the notice text of each dependency.** The `NOTICE` file of an Apache-2.0
 crate lives in its source tree, not in its metadata, so nothing that reads metadata can render it.
-
-## What none of this establishes
-
-A verified release does not mean the following.
-
-- **The build is not reproducible by you.** The provenance records which workflow ran. It is not a
-  rebuild recipe that you can run. The build is pinned with Nix.
-- **The dependencies can still have known advisories.** `cargo-deny` checks them against the
-  RustSec database in CI on every dependency change and weekly. Its verdict is a CI run, not an
-  artefact that you can check offline.
-- **The licence obligations are not fully discharged.** The attribution document is signed. The
-  notice text of each Apache-2.0 dependency is in its source, not in its metadata, and the document
-  does not carry it. The allowlist in `deny.toml` is a policy check.
-- **The crate list does not cover everything in the binary.** It is what `cargo` compiled in. C that
-  a build script compiled, such as the allocator, is linked into the executable and is not a crate.
-  It appears in the image inventory as a file and not in the crate list as a package.
-- **A transparency-log entry does not prove that the log was honest.** `cosign` checks an inclusion
-  proof against Rekor and does not audit Rekor.
-- **A verified image is not an image that you should run.** It is the image that this pipeline
-  built. Whether to trust that pipeline is a question about this repository.

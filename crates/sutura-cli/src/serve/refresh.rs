@@ -3,22 +3,25 @@
 //!
 //! A `Refresher` owns the already-open catalogs and the served [`Surface`]. Each tick re-reads and
 //! re-composes every catalog exactly as boot did (`crate::catalog::load_each`), then hands the
-//! bundle to [`Surface::adopt`], which decides what is served. The interval is
-//! `catalogs[].refresh_seconds`, a deployment's own declaration, so it is the DRIVING loop's argument
-//! rather than this module's own; `poll_once` does not know it.
+//! bundle to [`Surface::adopt`], which holds it to what boot held the first one to and stores it
+//! whole or not at all. The interval is `catalogs[].refresh_seconds`, a deployment's own declaration,
+//! so it is the DRIVING loop's argument rather than this module's own; `poll_once` does not know it.
 //!
 //! # What a refusal means, and what a change means
 //!
 //! A re-read that fails (the remote endpoint is down, a document no longer validates), or a bundle
-//! the surface refuses, keeps the bundle already served and logs loudly rather than tearing anything
-//! down. A surface that keeps what it serves is silent (`Outcome::Unchanged`); a rotation is logged by
-//! digest, never by content - `docs/adr/0010`'s reasoning about a log line applies here too.
+//! that the surface refuses (an anchor no longer reproduces, a model names a table this process does
+//! not hold), keeps the bundle already served and logs loudly rather than tearing anything down: an
+//! answer keeps being computed from the last GOOD bundle. A bundle with the digest already served is
+//! silent (`Outcome::Unchanged`); a different one is stored and logged by digest, never by content -
+//! `docs/adr/0010`'s reasoning about a log line applies here too.
 //!
 //! # Which question sees which bundle
 //!
-//! The one the surface serves: this module holds no bundle of its own. `LocalService::adopt` keeps
-//! the bundle the service started with, so a refresh changes no answer yet. Both transports read the
-//! catalog through `Surface::definitions`, so this module has no transport-specific half.
+//! `Surface::answer` takes one snapshot when a question starts and keeps it until it ends, so a
+//! swap that lands mid-question changes nothing for it; the next question reads the new bundle.
+//! Both transports answer through `Surface::answer`, and read the catalog through
+//! `Surface::definitions`, so this module has no transport-specific half.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,7 +74,7 @@ where
 
     /// Re-reads every declared catalog, re-composes them, and offers the result to the surface.
     ///
-    /// Blocking: the re-read does I/O, and a surface may check a changed bundle against the data
+    /// Blocking: the re-read does I/O and a changed bundle re-runs its anchors against the data
     /// systems. [`spawn`] runs it on the blocking pool.
     pub(crate) fn poll_once(&self) -> Outcome {
         let next = match load_each(&self.catalogs) {
