@@ -80,7 +80,11 @@ Before it opens the listener, sutura checks that the tables of the catalog exist
 refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a `WARN`, and
 the server starts. A `files` source refuses to start when the catalog names a table that the engine did not attach.
 The other data systems do not report their tables at start, so a missing table fails on the first question against it.
-The log has an `INFO` line for each of them.
+The log has `INFO` lines about the check in two cases. When BigQuery is the only kind, each BigQuery source that a
+model of the catalog reads gets one line: every table is there. When there is more than one kind of data system, the
+check runs over every source, and each source that a model reads gets one line. BigQuery says that every table is
+there. Every other kind, `files` included, says that the adapter does not report which tables it holds. A deployment of
+one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle or DuckDB) logs no line about tables.
 
 ## Who is asking
 

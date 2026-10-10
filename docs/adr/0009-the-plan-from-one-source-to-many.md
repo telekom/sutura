@@ -1073,7 +1073,7 @@ peak. Before #1313 this case was refused before execution and recorded a zero pe
 records, 73 answered, 36 were refused before execution and 3 failed.
 
 **Wall clock: the median of 100 samples of 100 iterations, as a share of the 29 s execution
-budget.** The budget is the sixth amendment's: the 30 s default less the 1 s reply margin.
+budget.** The budget is the third amendment's: the 30 s default less the 1 s reply margin.
 
 | Case (two-source)                            | Run B median | Share   | Run A median (load 33.2) | Share   |
 | -------------------------------------------- | ------------ | ------- | ------------------------ | ------- |
