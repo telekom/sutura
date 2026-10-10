@@ -520,6 +520,28 @@ async fn an_answer_past_the_row_cap_is_counted_under_result_too_large() {
     );
 }
 
+#[tokio::test]
+async fn a_filter_count_past_the_limit_is_counted_under_too_many_filters() {
+    let app = app(metrics_settings(Environment::Development));
+    let filter = serde_json::json!({"op": "eq", "dimension": "region", "value": "north"});
+    let question = serde_json::json!({
+        "metrics": ["revenue"],
+        "grain": "month",
+        "range": {"start": "2026-06-01", "end": "2026-07-01"},
+        "filters": vec![filter; 17],
+    });
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/query", Some(super::TOKEN), Body::from(question.to_string())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let exposition = scrape(&app).await;
+    assert_eq!(refusals(&exposition, "too_many_filters"), 1, "{exposition}");
+    assert_eq!(refusals(&exposition, "too_many_dimensions"), 0, "{exposition}");
+}
+
 /// A data system that runs a federated leg and answers one cell, over no data system at all.
 ///
 /// `EXECUTES_LEGS` is an associated const of the port, so a fixture that answers `true` is its own

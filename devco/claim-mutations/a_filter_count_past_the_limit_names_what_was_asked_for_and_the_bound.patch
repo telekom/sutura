@@ -1,0 +1,10 @@
+--- a/crates/sutura-http/src/wire/refusal.rs
++++ b/crates/sutura-http/src/wire/refusal.rs
+@@ -162,6 +162,6 @@
+         RefusalReason::TooManyFilters { requested, limit } => (
+             StatusCode::UNPROCESSABLE_ENTITY,
+-            format!("{requested} filters were asked for and the maximum is {limit}"),
++            format!("{limit} filters were asked for and the maximum is {requested}"),
+         ),
+         // 422. The range parsed and both endpoints are real dates, so this is not a `400`; it is the
+         // availability boundary, and the answer to a well formed question is no.
