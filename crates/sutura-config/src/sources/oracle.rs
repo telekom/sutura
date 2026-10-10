@@ -146,10 +146,12 @@ fn parse_delegation(
     if *channel == OracleChannel::Plaintext {
         return Err(invalid(InvalidOracleDelegation::Plaintext));
     }
-    declared
+    let hops = declared
         .iter()
         .map(|hop| DelegationDeclared::of(alias, hop, "delegation.token_endpoint", "delegation.client_secret_file"))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    super::workload_identity::refuse_broker_token_last(alias, "delegation", hops.last().map(DelegationDeclared::grant))?;
+    Ok(hops)
 }
 
 /// The six keys an `oracle` entry has no use for, paired with whether this entry wrote each.
@@ -548,6 +550,32 @@ mod tests {
                 ("sutura-app", DelegationGrant::TokenExchange),
                 ("https://db.example.com", DelegationGrant::OnBehalfOf)
             ]
+        );
+    }
+
+    /// A chain ending in `broker-token` is refused at load; the same hop before another parses.
+    #[test]
+    fn an_oracle_delegation_ending_in_a_broker_token_hop_is_refused() {
+        let ending = [
+            hop("sutura-app", DelegationGrant::TokenExchange),
+            hop("11111111-1111-4111-8111-111111111111", DelegationGrant::BrokerToken),
+        ];
+        let error = SourceRegistry::parse(&[impersonating(&ending)], Some(&single_user()))
+            .expect_err("a chain ending in broker-token is refused");
+        assert!(
+            matches!(
+                error,
+                InvalidSourceRegistry::DelegationEndsInBrokerToken { key: "delegation", .. }
+            ),
+            "{error}"
+        );
+        let followed = [
+            hop("11111111-1111-4111-8111-111111111111", DelegationGrant::BrokerToken),
+            hop("https://db.example.com", DelegationGrant::OnBehalfOf),
+        ];
+        drop(
+            SourceRegistry::parse(&[impersonating(&followed)], Some(&single_user()))
+                .expect("a broker-token hop before another parses"),
         );
     }
 

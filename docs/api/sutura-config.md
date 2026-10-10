@@ -5795,6 +5795,7 @@ convenience, and nothing needs to clone a startup refusal.
   own - `Self::NoDataDirectory` - so folding them would make one message stand for two checks
   that are not the same. This one names the key.
 - `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
+- `DelegationEndsInBrokerToken` - A delegation whose last hop is `broker-token`: that token is for the next identity provider, so no hop exchanges it for the data system.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 
@@ -6906,6 +6907,7 @@ Which request a `DelegationDeclared` exchange sends its endpoint.
 
 - `TokenExchange` - RFC 8693 token exchange, asking for `audience`.
 - `OnBehalfOf` - Microsoft Entra ID's on-behalf-of request, asking for the scope `<audience>/.default`.
+- `BrokerToken` - Keycloak's Identity Brokering API v2, asking for the token of the identity provider that the endpoint names. Never the last hop: its token is for the next identity provider.
 
 ##### Implements
 

@@ -227,13 +227,12 @@ Why a paged read was refused. Never carries a cursor: it is endpoint-owned text.
 
 ## Module `delegation`
 
-The real `DelegationExchange` over the shared outbound client: an RFC 8693 token exchange, or
-Microsoft Entra ID's on-behalf-of request - see `Grant`.
+The real `DelegationExchange` over the shared outbound client, one request per `Grant`.
 
 What is checked on the answer, and what is not:
 
-- `token_type` is `Bearer` and, for a token exchange, `issued_token_type` is the access token
-  this asked for (an on-behalf-of answer carries no `issued_token_type`);
+- `issued_token_type` is the access token this asked for (an on-behalf-of answer carries
+  none), and `token_type` is `Bearer` (a broker answer carries none);
 - the token is a compact JWT whose payload `aud` carries the requested audience and whose `exp`
   lies after the instant of the check.
 
@@ -330,6 +329,7 @@ Which request an `OverHttp` sends its endpoint.
 
 - `TokenExchange` - RFC 8693: the subject token, asking for `audience`.
 - `OnBehalfOf` - Microsoft Entra ID's on-behalf-of: the subject token as the `assertion`, asking for the scope `<audience>/.default`.
+- `BrokerToken` - Keycloak's Identity Brokering API v2: the subject token as `token`, asking for the token of the identity provider that the endpoint `/realms/<realm>/broker/<alias>/token` names. Nothing is sent for `audience`; the answer is still held to it.
 
 #### Implements
 

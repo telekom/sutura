@@ -174,6 +174,57 @@ fn an_on_behalf_of_answer_needs_no_issued_token_type_and_is_held_to_the_audience
 }
 
 #[test]
+fn a_broker_token_request_sends_the_callers_token_as_token_and_nothing_for_the_audience() {
+    assert_eq!(
+        sent_for(Grant::BrokerToken),
+        sorted(&[
+            ("client_id", "https://sutura.example.com"),
+            ("client_secret", CLIENT_SECRET),
+            ("token", SUBJECT_TOKEN),
+        ])
+    );
+}
+
+#[test]
+fn a_broker_token_answer_needs_no_token_type_and_is_held_to_the_audience() {
+    let untyped = |token: &str| {
+        serde_json::json!({
+            "access_token": token,
+            "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "expires_in": 300,
+        })
+        .to_string()
+    };
+    drop(
+        answered(Grant::BrokerToken, 200, &untyped(&good_token()), &audience(), NOW)
+            .expect("a broker answer carries no token_type"),
+    );
+    assert!(matches!(
+        answered(Grant::TokenExchange, 200, &untyped(&good_token()), &audience(), NOW),
+        Err(DelegationFailed::WrongTokenType)
+    ));
+    let elsewhere = jwt(&serde_json::json!({"aud": "account", "exp": NOW + 300}));
+    assert!(matches!(
+        answered(Grant::BrokerToken, 200, &untyped(&elsewhere), &audience(), NOW),
+        Err(DelegationFailed::WrongAudience)
+    ));
+    let no_issued_type = serde_json::json!({"access_token": good_token()}).to_string();
+    assert!(matches!(
+        answered(Grant::BrokerToken, 200, &no_issued_type, &audience(), NOW),
+        Err(DelegationFailed::WrongTokenType)
+    ));
+}
+
+#[test]
+fn a_client_the_broker_does_not_allow_is_refused_with_its_error_code() {
+    let body = r#"{"error":"invalid_client","error_description":"Client not allowed to retrieve token for the provider"}"#;
+    assert!(matches!(
+        answered(Grant::BrokerToken, 403, body, &audience(), NOW),
+        Err(DelegationFailed::Refused { status: 403, error: Some(ref code) }) if code == "invalid_client"
+    ));
+}
+
+#[test]
 fn an_unreachable_idp_is_unreachable_and_names_no_token() {
     let server = FakeServer::start(Vec::new());
     let endpoint = format!("{}/token", server.endpoint());

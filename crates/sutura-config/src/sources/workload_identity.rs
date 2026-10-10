@@ -96,6 +96,25 @@ pub enum DelegationGrant {
     TokenExchange,
     /// Microsoft Entra ID's on-behalf-of request, asking for the scope `<audience>/.default`.
     OnBehalfOf,
+    /// Keycloak's Identity Brokering API v2, asking for the token of the identity provider that
+    /// the endpoint names. Never the last hop: its token is for the next identity provider.
+    BrokerToken,
+}
+
+/// Refuses a chain whose `last` hop's grant is [`DelegationGrant::BrokerToken`]; `key` names the
+/// chain under the source.
+pub(crate) fn refuse_broker_token_last(
+    alias: &sutura_domain::model::SourceName,
+    key: &'static str,
+    last: Option<DelegationGrant>,
+) -> Result<(), super::InvalidSourceRegistry> {
+    if last == Some(DelegationGrant::BrokerToken) {
+        return Err(super::InvalidSourceRegistry::DelegationEndsInBrokerToken {
+            alias: alias.clone(),
+            key,
+        });
+    }
+    Ok(())
 }
 
 impl DelegationDeclared {

@@ -1,10 +1,9 @@
-//! The real [`DelegationExchange`] over the shared outbound client: an RFC 8693 token exchange, or
-//! Microsoft Entra ID's on-behalf-of request - see [`Grant`].
+//! The real [`DelegationExchange`] over the shared outbound client, one request per [`Grant`].
 //!
 //! What is checked on the answer, and what is not:
 //!
-//! - `token_type` is `Bearer` and, for a token exchange, `issued_token_type` is the access token
-//!   this asked for (an on-behalf-of answer carries no `issued_token_type`);
+//! - `issued_token_type` is the access token this asked for (an on-behalf-of answer carries
+//!   none), and `token_type` is `Bearer` (a broker answer carries none);
 //! - the token is a compact JWT whose payload `aud` carries the requested audience and whose `exp`
 //!   lies after the instant of the check.
 //!
@@ -117,6 +116,10 @@ pub enum Grant {
     /// Microsoft Entra ID's on-behalf-of: the subject token as the `assertion`, asking for the
     /// scope `<audience>/.default`.
     OnBehalfOf,
+    /// Keycloak's Identity Brokering API v2: the subject token as `token`, asking for the token of
+    /// the identity provider that the endpoint `/realms/<realm>/broker/<alias>/token` names. Nothing
+    /// is sent for `audience`; the answer is still held to it.
+    BrokerToken,
 }
 
 /// [`DelegationExchange`] over HTTP.
@@ -171,6 +174,11 @@ impl DelegationExchange for OverHttp {
                 ("subject_token_type", ACCESS_TOKEN),
                 ("requested_token_type", ACCESS_TOKEN),
                 ("audience", audience.as_str()),
+                ("client_id", self.client.id.as_str()),
+                ("client_secret", self.client.secret.expose_secret()),
+            ],
+            Grant::BrokerToken => &[
+                ("token", subject.expose_secret()),
                 ("client_id", self.client.id.as_str()),
                 ("client_secret", self.client.secret.expose_secret()),
             ],
@@ -233,8 +241,8 @@ pub(crate) fn answered(
     if body.is_none() {
         return Err(DelegationFailed::Malformed { what: "not JSON" });
     }
-    if (grant == Grant::TokenExchange && field("issued_token_type") != Some(ACCESS_TOKEN))
-        || !field("token_type").is_some_and(|kind| kind.eq_ignore_ascii_case("bearer"))
+    if (grant != Grant::OnBehalfOf && field("issued_token_type") != Some(ACCESS_TOKEN))
+        || (grant != Grant::BrokerToken && !field("token_type").is_some_and(|kind| kind.eq_ignore_ascii_case("bearer")))
     {
         return Err(DelegationFailed::WrongTokenType);
     }

@@ -329,6 +329,10 @@ pub enum InvalidSourceRegistry {
     /// before the startup log prints the resolved settings, and never quoted back.
     #[error("`sources.{alias}.{key}` carries an `@` - credentials in the URL are refused")]
     CredentialsInUrl { alias: SourceName, key: &'static str },
+    /// A delegation whose last hop is `broker-token`: that token is for the next identity provider,
+    /// so no hop exchanges it for the data system.
+    #[error("`sources.{alias}.{key}` ends in a `broker-token` hop - add the hop that exchanges its token for the data system")]
+    DelegationEndsInBrokerToken { alias: SourceName, key: &'static str },
     /// The `posture:` word is not one of the two.
     #[error("`sources.{alias}.posture` does not say how this source establishes identity")]
     Posture {
@@ -708,6 +712,15 @@ fn parse_entry(
         }
     };
 
+    workload_identity::refuse_broker_token_last(
+        alias,
+        "workload_identity.delegation",
+        entry
+            .workload_identity
+            .as_ref()
+            .and_then(|raw| raw.delegation.as_ref())
+            .map(|hop| hop.grant),
+    )?;
     // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.

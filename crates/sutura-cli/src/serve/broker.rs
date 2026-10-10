@@ -178,6 +178,7 @@ fn delegation(
         let grant = match declared.grant() {
             DelegationGrant::TokenExchange => Grant::TokenExchange,
             DelegationGrant::OnBehalfOf => Grant::OnBehalfOf,
+            DelegationGrant::BrokerToken => Grant::BrokerToken,
         };
         let exchange: std::sync::Arc<dyn DelegationExchange> =
             std::sync::Arc::new(OverHttp::new(endpoint, client, agent.clone(), bounds).granting(grant));
