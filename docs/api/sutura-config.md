@@ -302,13 +302,6 @@ thing minting can fail on is a credential set that does not cover the sources it
 about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
 here would be process death under `panic = "abort"` for a case a type already describes.
 
-## `use DeclaredSubjects`
-
-The subjects one authenticating source may be asked as - `DeclaredPrincipalBroker::authenticating`.
-
-A set and not a `DeclaredPrincipals`, because the source names no principal: the database
-resolves the asker's own token to a user itself. Never empty, for `DeclaredPrincipals`' reason.
-
 ## `use NoDeclaredPrincipals`
 
 Why a declared impersonation map is not one a source can be served under.
@@ -2656,39 +2649,6 @@ arrangement of this signature in which the value is unread and the caller still 
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `struct DeclaredSubjects`
-
-```rust
-pub struct DeclaredSubjects
-```
-
-The subjects one authenticating source may be asked as - `DeclaredPrincipalBroker::authenticating`.
-
-A set and not a `DeclaredPrincipals`, because the source names no principal: the database
-resolves the asker's own token to a user itself. Never empty, for `DeclaredPrincipals`' reason.
-
-##### Methods
-
-```rust
-pub fn admits(&self, subject: &SubjectKey) -> bool
-```
-
-Whether this source may be asked as `subject`.
-
-```rust
-pub fn parse(declared: BTreeSet<SubjectKey>) -> Result<Self, NoDeclaredPrincipals>
-```
-
-Parses one source's declared subjects.
-
-# Errors
-
-`NoDeclaredPrincipals::Empty` for a declaration naming nobody.
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
 #### `enum DeclaredPrincipalsUnusable`
 
 ```rust
@@ -2734,12 +2694,12 @@ source** - the reason the architecture decision gives for a broker being per ans
 ##### Methods
 
 ```rust
-pub fn authenticating(self, at: SourceName, declared: DeclaredSubjects) -> Self
+pub fn authenticating(self, at: SourceName, delegation: Delegation) -> Self
 ```
 
-Declares one impersonating source that opens each request's session with the asker's own
-verified assertion, for the subjects it declares. No principal is named: the source resolves
-the token itself.
+Declares one impersonating source that opens each request's session with the token
+`delegation` exchanges the asker's verified assertion for. No principal is named and no
+caller is listed: the source resolves the token to its own user and decides what it may read.
 
 ```rust
 pub fn count(&self) -> usize
@@ -5872,7 +5832,8 @@ convenience, and nothing needs to clone a startup refusal.
   `crate::DeclaredPrincipals::target`. There is no `scope` key: the credential
   document has no `scopes` member, so one would reach nothing.
 - `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
-- `OracleSubjects` - An `oracle` source's `subjects` are not usable.
+- `OracleDelegation` - An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+- `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -6422,19 +6383,18 @@ then on the variant is the answer.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `enum InvalidOracleSubjects`
+#### `enum InvalidOracleDelegation`
 
 ```rust
-pub enum InvalidOracleSubjects
+pub enum InvalidOracleDelegation
 ```
 
-Why an `oracle` source's `subjects` are not ones it can be served under.
+Why an `oracle` source's `delegation` is not one it can be served under.
 
 ##### Variants
 
-- `Missing` - An impersonating source declared no subject, so no caller could ever be served there.
-- `NotImpersonating` - Subjects on a source that is not impersonating, which nothing would read.
-- `Subject`
+- `Missing` - An impersonating source with no exchange, so no caller's token could open a session.
+- `NotImpersonating` - An exchange on a source that is not impersonating, which nothing would run.
 - `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
 
 ##### Implements
@@ -6465,10 +6425,6 @@ Why a `clickhouse` source's `impersonate` map is not one it can be served under.
 #### `type_alias DeclaredUsers`
 
 A `clickhouse` source's declared subject -> `ClickHouse` user map.
-
-#### `type_alias OracleSubjects`
-
-An `oracle` source's declared subjects.
 
 ### Module `transport`
 
@@ -6924,6 +6880,10 @@ pub fn client_secret_file(&self) -> &std::path::Path
 ```
 
 ```rust
+pub const fn grant(&self) -> DelegationGrant
+```
+
+```rust
 pub fn token_endpoint(&self) -> &str
 ```
 
@@ -6933,6 +6893,23 @@ chooses the host, and each caller's token is sent to it.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum DelegationGrant`
+
+```rust
+pub enum DelegationGrant
+```
+
+Which request a `DelegationDeclared` exchange sends its endpoint.
+
+##### Variants
+
+- `TokenExchange` - RFC 8693 token exchange, asking for `audience`.
+- `OnBehalfOf` - Microsoft Entra ID's on-behalf-of request, asking for the scope `<audience>/.default`.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
 
 #### `struct WorkloadIdentitySa`
 

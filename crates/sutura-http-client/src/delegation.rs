@@ -30,7 +30,7 @@ const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 /// path, and it refuses a query, a fragment and any `@` - in the authority or, where an unencoded
 /// `/` in a password ends the parsed authority early, in the path.
 ///
-/// A loopback endpoint is dialled directly, never through a proxy - [`crate::agent`]'s
+/// A loopback endpoint is dialled directly, never through a proxy - [`crate::agent()`]'s
 /// own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
 /// an egress proxy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]

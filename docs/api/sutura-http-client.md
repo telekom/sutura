@@ -225,6 +225,140 @@ many entities have arrived.
 
 Why a paged read was refused. Never carries a cursor: it is endpoint-owned text.
 
+## Module `delegation`
+
+The real `DelegationExchange` over the shared outbound client: an RFC 8693 token exchange, or
+Microsoft Entra ID's on-behalf-of request - see `Grant`.
+
+What is checked on the answer, and what is not:
+
+- `token_type` is `Bearer` and, for a token exchange, `issued_token_type` is the access token
+  this asked for (an on-behalf-of answer carries no `issued_token_type`);
+- the token is a compact JWT whose payload `aud` carries the requested audience and whose `exp`
+  lies after the instant of the check.
+
+**The payload is decoded, not verified.** It arrived over TLS from the endpoint the deployment
+declared, and the signature is the data system's to verify, against the issuer's own keys. So
+the claim checks catch an identity provider configured to issue the wrong audience; they are
+not a defence against the identity provider itself.
+
+### `struct TokenEndpoint`
+
+```rust
+pub struct TokenEndpoint
+```
+
+The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
+
+The origin is held to `Endpoint::parse`'s scheme rule; unlike an `Endpoint` it keeps its
+path, and it refuses a query, a fragment and any `@` - in the authority or, where an unencoded
+`/` in a password ends the parsed authority early, in the path.
+
+A loopback endpoint is dialled directly, never through a proxy - `crate::agent()`'s
+own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
+an egress proxy needs.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
+```
+
+# Errors
+
+`InvalidEndpoint`, the shared client's own refusal.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum UnusableClientId`
+
+```rust
+pub enum UnusableClientId
+```
+
+Why a declared client identifier is unusable.
+
+#### Variants
+
+- `Unusable` - Empty, over 255 bytes, or carrying a space or a non-printable byte.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct ExchangeClient`
+
+```rust
+pub struct ExchangeClient
+```
+
+This deployment's client at the identity provider and its secret (`client_secret_post`).
+
+**The most sensitive value in the deployment**: whoever holds it can obtain a pool-audience
+token for any subject whose inbound token they also hold. `Debug` prints the identifier and `Secret`'s redaction; there is no
+`Display`.
+
+#### Methods
+
+```rust
+pub fn new(id: &str, secret: Secret) -> Result<Self, UnusableClientId>
+```
+
+# Errors
+
+`UnusableClientId` for an identifier no form can carry unambiguously.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `enum Grant`
+
+```rust
+pub enum Grant
+```
+
+Which request an `OverHttp` sends its endpoint.
+
+#### Variants
+
+- `TokenExchange` - RFC 8693: the subject token, asking for `audience`.
+- `OnBehalfOf` - Microsoft Entra ID's on-behalf-of: the subject token as the `assertion`, asking for the scope `<audience>/.default`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct OverHttp`
+
+```rust
+pub struct OverHttp
+```
+
+`DelegationExchange` over HTTP.
+
+#### Methods
+
+```rust
+pub const fn granting(self, grant: Grant) -> Self
+```
+
+```rust
+pub const fn new(endpoint: TokenEndpoint, client: ExchangeClient, agent: sutura_tls::Rotating<ureq::Agent>, bounds: ReadBounds) -> Self
+```
+
+An RFC 8693 token exchange; `Self::granting` asks another way.
+
+#### Implements
+
+`Debug`, `DelegationExchange`
+
 ## Module `test_support`
 
 A real local HTTP server - "ports get fakes, not mocked HTTP".
