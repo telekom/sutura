@@ -632,7 +632,7 @@ fn a_leg_carries_no_row_limit(dialect: Dialect) {
 /// table is not being truncated by a date it does not have, and that nothing is being aggregated on
 /// a data system with no combiner above it.
 fn a_lookup_leg_renders_no_bucket_and_no_aggregate(dialect: Dialect) {
-    for name in ["lookup-unfiltered", "lookup-filtered", "lookup-joined"] {
+    for name in ["lookup-unfiltered", "lookup-filtered"] {
         let Some((_, leg)) = shapes().into_iter().find(|(fixture, _)| *fixture == name) else {
             panic!("there is no fixture called {name}");
         };
@@ -709,6 +709,14 @@ fn every_leg_shape_renders_in_every_compiled_dialect() {
         for (name, leg) in shapes() {
             let query = generate_leg(&leg, *dialect).unwrap_or_else(|e| panic!("{name} would not render for {dialect}: {e}"));
             assert!(!query.sql().is_empty(), "{name} for {dialect} rendered an empty statement");
+            if name == "lookup-joined" {
+                let shouted = query.sql().to_uppercase();
+                assert!(
+                    shouted.contains("LEFT JOIN") && shouted.contains(&REMOTE_REGION_TABLE.to_uppercase()),
+                    "{name} for {dialect} dropped the hop its chain carried on through:\n{}",
+                    query.sql()
+                );
+            }
             rendered = rendered.saturating_add(1);
         }
     }

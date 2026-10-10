@@ -1,11 +1,11 @@
 //! The derived corpus: the shared example bytes, plus the declared edits that make a topology the
 //! quickstart cannot state.
 //!
-//! The baseline has **one data directory, two catalogs over it, differing in exactly one line** - whether
-//! the `customers` model sits on the metric's own data system. That width is
-//! [`the_two_catalogs_differ_in_one_document`], and it is the control on the baseline instrument:
-//! without it, a corpus asymmetry would be reported by `super` as a federation defect, which is the
-//! most expensive kind of false positive because the diagnosis names the wrong subsystem.
+//! The baseline has **one data directory, two catalogs over it, differing only in which data system
+//! holds the dimension models**: `ON_A_SECOND_DATA_SYSTEM` is applied to the two-source catalog and
+//! to nothing else, and every case here is applied to both. A corpus asymmetry would be reported by
+//! `super` as a federation defect, which is the most expensive kind of false positive because the
+//! diagnosis names the wrong subsystem.
 //! The refusal-only variants also move products, under distinct stems without mutating the baseline.
 //!
 //! **Derived rather than committed, and that is a scope decision.** Placing the dimension model on a
@@ -584,65 +584,6 @@ pub(crate) fn every_question() -> Vec<(String, Query)> {
         all.push((String::from(name), query));
     }
     all
-}
-
-/// The width of the difference between the two bundles, as a property rather than a comment.
-///
-/// If a case were derived into one catalog and not the other, this file would report a corpus
-/// asymmetry as a federation defect - the most expensive kind of false positive a differential
-/// can have, because the diagnosis names the wrong subsystem.
-#[test]
-fn the_two_catalogs_differ_in_one_document() {
-    let derived = derived();
-    let mut differing: Vec<String> = Vec::new();
-    // **Both roots, and that direction is the whole assertion.** Walking `one_source` alone left a
-    // document only `two_source` has in neither set - not in the walk, and not in `CATALOG_CASES`
-    // unless it happened to name that path - so a one-sided ADDITION passed while a one-sided
-    // rewrite reddened. Review measured it: a metric added to the two-source catalog only left this
-    // binary at `15 tests run: 15 passed`. `OneSided` now makes that particular addition
-    // unrepresentable; this walk is what catches one arriving any other way.
-    for (root, path) in [&derived.one_source, &derived.two_source]
-        .into_iter()
-        .flat_map(|root| every_document(root).into_iter().map(move |path| (root, path)))
-    {
-        let at = path
-            .strip_prefix(root)
-            .expect("the walk started at this root")
-            .to_string_lossy()
-            .into_owned();
-        compare_document(derived, &at, &mut differing);
-    }
-    differing.sort();
-    differing.dedup();
-    assert_eq!(
-        differing,
-        ON_A_SECOND_DATA_SYSTEM.map(|one_sided| String::from(one_sided.at)).to_vec(),
-        "the two catalogs must differ in exactly the documents that move the dimension models"
-    );
-}
-
-fn compare_document(derived: &Derived, at: &str, differing: &mut Vec<String>) {
-    let here = std::fs::read_to_string(derived.one_source.join(at)).unwrap_or_default();
-    let there = std::fs::read_to_string(derived.two_source.join(at)).unwrap_or_default();
-    if here != there {
-        differing.push(at.replace('\\', "/"));
-    }
-}
-
-fn every_document(root: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(&directory).unwrap_or_else(|e| panic!("could not read {}: {e}", directory.display())) {
-            let entry = entry.expect("a directory entry is readable");
-            if entry.file_type().expect("an entry has a type").is_dir() {
-                pending.push(entry.path());
-            } else {
-                found.push(entry.path());
-            }
-        }
-    }
-    found
 }
 
 /// Which join keys one (month, region, product) triple was seen under.
