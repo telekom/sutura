@@ -82,13 +82,20 @@ four release triples. It is pinned at the release tag `go/v1.13.0`
 (repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase
 `main` past that pin.
 
-Three source-level adaptations, recorded here so nothing is silent:
+Four source-level adaptations, recorded here so nothing is silent:
 
 - **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.1`) above what
   this nixpkgs pins (`go_1_27 = 1.27.0`). `nix/bigquery-adbc-drivers.nix` relaxes the floor
   to `go 1.27` and drops any `toolchain` directive at the source, so both the module-vendoring
   FOD and the build accept the pinned toolchain. `1.27.1` is a patch floor; the relax changes
   the directive, not dependencies.
+- **A REST 403 access denial reads as `Unauthorized`.** `nix/bigquery-adbc-forbidden.patch`
+  changes `errToAdbcErr` (`go/util.go`): a `googleapi` 403 whose reason is `accessDenied`,
+  `billingNotEnabled` or `blocked` gets `Unauthorized`, the status the driver already gives those
+  reasons in a job's status. Unpatched, a caller without the grant to run a job gets `Internal`, so
+  sutura answered it as a data system that did not answer. A 403 for a rate or a quota stays
+  `Internal`. `patch` fails the build when a driver bump moves the patched lines. Drop it when
+  upstream maps the same reasons.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
