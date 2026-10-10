@@ -110,7 +110,10 @@ one source. **The default is `false`.**
   `run_sql`: one source, the text passed through unparsed.
 - **Limit.** The typed refusal needs the parser. So it exists only in a build with the `sql`
   feature. A build without it allows one source, and that source's own error answers a table name
-  it does not know, as `StatementFailed`.
+  it does not know, as `StatementFailed`. The two builds also read different tables. Without the
+  feature, `run_sql` passes the text through, so a statement reads any table that the source's grant
+  allows, as today. With it, only the models that the caller's `ScopedView::models` lists are
+  tables. So one statement can answer in one build and be refused in the other.
 
 **Who may run it.** A caller that holds `run_sql`'s capability scope, as today. A caller without the scope
 does not see the tool advertised, as ADR 0013 decides for `run_sql`. The session registers only
@@ -138,7 +141,7 @@ whole:
 `SQLExecutor` that sutura implements gets one statement for one source. It parses that text as a
 `RawStatement` and gives it to `Warehouse::execute_raw` through the leg runner of decision 4.
 
-| Guard of `run_sql`                                        | In the federated tool                                                                                 |
+| Guard of `run_sql`                                        | In `run_sql` with `federation_allowed` set to `true`                                                  |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Off by default                                            | `run_sql` stays off by default, and `federation_allowed` is `false` by default                        |
 | `RunSqlEnabledInMultiUserMode`                            | One startup refusal for each listed `shared-service-user` source in `multi-user` mode                 |
@@ -160,9 +163,9 @@ whole:
   (`pool::environment`).
 - **Cross-posture disclosure.** In `single-user` mode one statement can join a `shared-service-user`
   leg and an `impersonation-at-source` leg. `RawOutcome` has no `Provenance` and no `executed_as`
-  today. The federated tool adds one `executed_as` entry for each leg to its outcome, outside any
-  `Provenance`. So the answer is disclosed per leg, as ADR 0040 does for a metric, and it still
-  claims no certification.
+  today. `run_sql` with `federation_allowed` set to `true` adds one `executed_as` entry for each leg
+  to its outcome, outside any `Provenance`. So the answer is disclosed per leg, as ADR 0040 does for
+  a metric, and it still claims no certification.
 
 **Limits.**
 
@@ -192,7 +195,7 @@ decision to give it up is visible in a diff. Rejected: on in every build.
 
 **Limit.** No check holds the default build free of a parser yet. ADR 0013's evidence is that
 neither crate is in `Cargo.lock`. `Cargo.lock` resolves every feature, so that evidence ends with
-this feature too. PR 5 adds a gate over the default build's resolved tree that fails when `sqlparser` or
+this feature too. PR 5b adds a gate over the default build's resolved tree that fails when `sqlparser` or
 `datafusion-sql` is in it.
 
 ## Decision 3: DataFusion plans the certified metric question, and every question value stays a bound parameter
@@ -291,21 +294,30 @@ next PR, so that `just causality` can build the base.
 | -- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1  | This record                                                                                                                                                                                        | Nothing to run                                                                                                                                                                                                                                                                                                                           |
 | 2  | The schema method on `Warehouse` (DuckDB and Postgres first, BigQuery next), the set pinned by both digests, the method's `clippy.toml` row, and that file's count of credential-free port methods | A column that the bundle names and the source lacks refuses the load. A refresh swaps the set. A question in flight keeps its set.                                                                                                                                                                                                       |
-| 3  | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs                                                                     | Every federated golden gives the same answer as before. The ledger charges before any leg runs. Two subjects' providers are not equal. An uncharged leg is refused.                                                                                                                                                                      |
+| 3a | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs and `compute_context()` the digest of the source                    | Every federated golden gives the same answer as before. The ledger charges before any leg runs.                                                                                                                                                                                                                                          |
+| 3b | The subject in `compute_context()`, and the leg runner's refusal of a leg that the charged cut did not give out                                                                                    | Two subjects' providers are not equal. An uncharged leg is refused.                                                                                                                                                                                                                                                                      |
 | 4  | DataFusion cuts the metric plan (decision 3), with `polyglot-sql` as the generator                                                                                                                 | A differential against PR 3's answers on DuckDB and Postgres. One placeholder for each value in each pushed statement. A cut that the map does not accept is refused by name.                                                                                                                                                            |
-| 5  | `federation_allowed` on `run_sql` (decision 2), behind the `sql` cargo feature, and a gate that fails when `sqlparser` or `datafusion-sql` is in the default build's resolved tree                 | `false`: a statement over two sources is the typed refusal. `true`: the same statement over DuckDB and Postgres gives the answer that one DuckDB with both tables gives. Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller. The default build has neither crate. |
+| 5a | The new `RawRefusalReason` variant, which nothing produces yet                                                                                                                                     | Nothing new to run                                                                                                                                                                                                                                                                                                                       |
+| 5b | `federation_allowed` on `run_sql` (decision 2), behind the `sql` cargo feature, and a gate that fails when `sqlparser` or `datafusion-sql` is in the default build's resolved tree                 | `false`: a statement over two sources is the typed refusal. `true`: the same statement over DuckDB and Postgres gives the answer that one DuckDB with both tables gives. Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller. The default build has neither crate. |
 
-**How PR 3's cells pass `just causality`.** PR 3 keeps today's behaviour, so two of its cells (*the
-same answer as before*, *the ledger charges before any leg runs*) pass on the base. Each one
-declares `Claim-Cell:` with a killing mutation under `devco/claim-mutations/`. The other two (*two
-subjects' providers are not equal*, *an uncharged leg is refused*) name the new port and cannot
-build on the base. Each one gets a `devco/causality-no-base-exemptions` entry with its reason.
+**How the cells of PR 3 and PR 5 pass `just causality`.** A `devco/causality-no-base-exemptions`
+entry does not cover a cell that cannot build on the base. The entry exempts a test that the base
+run gave no result for. A test file that names a type the base does not have stops the base build,
+and then the whole run is inconclusive (exit 3). So the rule above splits PR 3 and PR 5:
 
-**PR 5's two switch cells are red on the base where they can be.** Each one names the refusal and
-the answer by their wire names only, so it compiles on the base. It is red there, because the base
-has no `federation_allowed` key and runs `run_sql` over one source. A cell that must name the new
-`RawRefusalReason` variant cannot build on the base, and it gets a
-`devco/causality-no-base-exemptions` entry with its reason.
+- **3a** keeps today's behaviour, so its two cells pass on the base. Each one declares
+  `Claim-Cell:` with a killing mutation under `devco/claim-mutations/`.
+- **3b**'s two cells name the port that 3a adds. So they build on 3a, and they are red there.
+- **5b**'s two switch cells name the refusal and the answer by their wire names only. So they
+  compile on the base, and they are red there, because the base has no `federation_allowed` key
+  and runs `run_sql` over one source. A cell that names the new `RawRefusalReason` variant builds
+  on 5a, and it is red there, because 5a produces the variant nowhere.
+
+Three cells of 5b need a build without the `sql` feature: *`true` without the feature*, *more than
+one source without the feature*, and *the default build has neither crate*. `just test` and
+`just causality` build with every feature, so neither one runs them. Their venue is the
+default-feature lane: `just check-default-features`, and `just gates`, which runs the same two
+checks. `just validate` does not run them. PR 5b adds its resolved-tree gate to that lane.
 
 What #828's milestones become:
 
