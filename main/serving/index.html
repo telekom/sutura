@@ -3566,7 +3566,7 @@ variables, in that order. <a href="../configuration/">Configuration</a> lists th
 </tbody>
 </table>
 <p>Each data system and each catalog has its own settings. See the <a href="../integrations/">integrations</a>.</p>
-<p><code>catalogs[].refresh_seconds</code> sets how often <code>sutura serve</code> reads the catalog again. The default is never, and <code>0</code> is
+<p><code>catalogs[].refresh_seconds</code> sets how often <code>sutura serve</code> reads the catalog again. The default is 900 seconds, and <code>0</code> is
 refused. A refresh swaps the served catalog. A new question uses the new snapshot, and a question in flight ends on the
 snapshot that it started with. A bundle that fails the start-up checks is refused, and the served catalog stays in place.
 On a <code>files</code> source, a bundle that names a table that the engine did not attach at start-up is refused until a restart.</p>
