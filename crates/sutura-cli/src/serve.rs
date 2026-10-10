@@ -658,9 +658,9 @@ pub(crate) enum OpenedSources {
     /// process before the listener binds.
     #[cfg(feature = "clickhouse")]
     ClickHouse(sutura_app::Warehouses<ClickHouseSource>),
-    /// An Oracle database per source, dialled in the clear on a declared loopback host - the only
-    /// channel `sutura_config` lets this kind declare - and followed in the clear wherever that
-    /// listener redirects (see `crate::oracle`). Nothing is attached.
+    /// An Oracle database per source, dialled over the channel its entry declares - in the clear on
+    /// a loopback host, or TLS verified against the declared anchors - with a listener redirect
+    /// refused (see `crate::oracle`). Nothing is attached.
     #[cfg(feature = "oracle")]
     Oracle(sutura_app::Warehouses<OracleSource>),
     /// A local `DuckDB` database file per source, opened read-only. Nothing is attached.
