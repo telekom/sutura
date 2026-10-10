@@ -574,6 +574,15 @@ fn the_bounds_are_read_from_the_domain_rather_than_typed() {
 }
 
 #[test]
+fn a_ranked_question_over_two_data_systems_is_not_said_to_be_refused() {
+    // A federated `top` ranks above the combine and is refused only over an already-cut set.
+    let text = rendered(Tool::ALL, CatalogProse::Quoted, None);
+    let flowed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flowed.contains("two data systems `top` ranks the combined answer"), "{text}");
+    assert!(!flowed.contains("refuses `top`"), "{text}");
+}
+
+#[test]
 fn the_prompt_teaches_nothing_about_composing_sql() {
     // Deliberate, and the largest difference from the implementation this is modelled on: that one
     // spends most of its length on SQL composition. There is no field to put SQL in here, so the

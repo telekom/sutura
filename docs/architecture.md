@@ -21,45 +21,33 @@ JavaScript; the script only highlights the connections of the crate you point at
 
 ## Deployments
 
-Two deployments show how the parts connect. In both, the agent reaches sutura over MCP, and the key
-set of the identity provider lets sutura verify the caller's token.
-
-### Direct
+The diagram shows one deployment. The agent reaches sutura over MCP. The key set of the identity
+provider lets sutura verify the caller's token.
 
 <iframe
-  src="../assets/deployment-direct.html"
-  title="sutura with an agent that calls it directly"
+  src="../assets/deployment.html"
+  title="sutura deployment"
   loading="lazy"
-  style="width: 100%; height: 540px; border: 0;"
+  style="width: 100%; height: 570px; border: 0;"
 ></iframe>
 
-[Open the diagram on its own page](assets/deployment-direct.html). The agent calls sutura over MCP
-with the caller's token.
+[Open the diagram on its own page](assets/deployment.html).
 
-### Through an AI gateway
+The agent calls the model providers through an AI gateway. The MCP gateway is optional. If you use
+it, it passes the caller's token to sutura. The token must name sutura as its audience.
 
-<iframe
-  src="../assets/deployment-gateway.html"
-  title="sutura behind an AI gateway"
-  loading="lazy"
-  style="width: 100%; height: 540px; border: 0;"
-></iframe>
+sutura is the MCP server for agents. sutura verifies the token and runs each query in the data
+system.
 
-[Open the diagram on its own page](assets/deployment-gateway.html). The gateway routes the model
-calls and the MCP calls. It passes the caller's token to sutura. The token must name sutura as its
-audience.
+Users ask the access request portal for access. The portal grants roles in the identity provider
+and grants in all data systems. sutura keeps no copy of the grants.
 
-In both deployments, sutura verifies the token, reads the definitions from DataHub and runs each
-query in the data system.
-
-Users ask the access request portal for access. The portal grants roles in the identity provider and
-grants in the data system. sutura keeps no copy of the grants.
-
-DataHub holds each metric definition once. The metrics serving layer serves it to BI tools and APIs,
-and sutura serves it to agents, so every consumer gets the same number.
+DataHub and Cube are the single source of truth. DataHub holds the definitions. Cube serves the
+metrics to BI tools, APIs and sutura. Without Cube, sutura reads the definitions from DataHub and
+runs each metric itself.
 
 Each part can change: another catalog (OpenMetadata, RDBMS, files), another data system (DuckDB,
-Oracle, files), another OIDC issuer, direct or through a gateway.
+Oracle, files), another OIDC issuer, with or without the MCP gateway, with or without Cube.
 
 ## Identity
 

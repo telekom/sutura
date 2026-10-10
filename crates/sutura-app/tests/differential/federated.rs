@@ -7,15 +7,15 @@
 //! combiner**, so every arithmetic claim about a two-source answer rested on rows a test wrote down.
 //! `telekom/sutura#325`'s F5 is that gap, and closed #72 deferred it without an owner.
 //!
-//! # The instrument, and why it is one line wide
+//! # The instrument, and why it is one difference wide
 //!
 //! One corpus, derived from `examples/single-player` into cargo's own target temp directory, and
-//! **two catalogs over it that differ in exactly one line** - whether the `customers` model sits on
-//! the data system the metric's own model does. On the one-source catalog every question is a
-//! whole-answer plan; on the two-source catalog every question that reaches a customer attribute is
-//! split. The DATA both sides read is the same directory, so a disagreement cannot be a fixture.
-//! [`the_two_catalogs_differ_in_one_document`] holds the width of the difference, because an
-//! instrument whose two sides drifted apart would report a corpus edit as a federation defect.
+//! **two catalogs over it that differ only in which data system holds the dimension models** - whether
+//! `customers` and the `regions` beside it sit on the data system the metric's own model does. On the
+//! one-source catalog every question is a whole-answer plan; on the two-source catalog every question
+//! that reaches a customer attribute is split. The DATA both sides read is the same directory, so a
+//! disagreement cannot be a fixture. `ON_A_SECOND_DATA_SYSTEM` is the whole of that difference and
+//! every case in [`CATALOG_CASES`] is applied to both.
 //!
 //! **The shared corpus is derived rather than edited**, and that is a scope decision: a
 //! second-source topology is one deployment's, not something a single-source quickstart can say.

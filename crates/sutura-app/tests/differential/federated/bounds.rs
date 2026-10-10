@@ -44,9 +44,20 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 /// turning the measurement into a benchmark while still making an order-of-magnitude regression
 /// fail.
 const MAX_RSS_PER_POOL_BYTE: usize = 1024;
+/// Questions whose one-source path ends in the driver's non-finite-cell error.
 const EXPECTED_FAILURES: [&str; 2] = [
     "revenue-per-churned-subscription-january",
     "two-source-a-zero-denominator-that-fails",
+];
+/// The members of [`EXPECTED_FAILURES`] the two-source topology refuses rather than fails: the
+/// combiner takes a non-finite ratio as `FederatedAnswerNotWellFormed`, which the census counts as
+/// refused.
+const REFUSED_WHEN_FEDERATED: [&str; 1] = ["two-source-a-zero-denominator-that-fails"];
+/// The questions whose chain crosses onto the second data system and carries on there - at its first
+/// hop and at its second - which the two-source topology answers rather than refuses.
+const CROSSING_QUESTIONS: [&str; 2] = [
+    "recurring-revenue-by-sales-area",
+    "two-source-a-chain-that-crosses-at-its-second-hop",
 ];
 const EXPECTED_METRIC: &str = "revenue_per_churned_subscription";
 
@@ -392,17 +403,42 @@ fn every_corpus_question_has_one_fresh_child_outcome_in_each_topology() {
         return;
     }
     let cases = cases();
-    for case in &cases {
-        println!("{}", run_child(*case));
+    let records: Vec<String> = cases.iter().map(|case| run_child(*case)).collect();
+    for record in &records {
+        println!("{record}");
     }
     let expected_failed = cases
         .iter()
         .filter(|case| {
-            every_question()
-                .get(case.question)
-                .is_some_and(|(name, _)| EXPECTED_FAILURES.contains(&name.as_str()))
+            every_question().get(case.question).is_some_and(|(name, _)| {
+                EXPECTED_FAILURES.contains(&name.as_str())
+                    && !(case.topology == Topology::Two && REFUSED_WHEN_FEDERATED.contains(&name.as_str()))
+            })
         })
         .count();
+    let failed = records
+        .iter()
+        .filter(|record| record.contains("\"status\":\"failed\""))
+        .count();
+    assert_eq!(
+        failed, expected_failed,
+        "the children that failed are the questions the corpus expects to fail"
+    );
+    for name in CROSSING_QUESTIONS {
+        let question = every_question()
+            .iter()
+            .position(|(question, _)| question == name)
+            .expect("the corpus contains the crossing question");
+        let at = cases
+            .iter()
+            .position(|case| case.topology == Topology::Two && case.question == question)
+            .expect("every question has a two-source case");
+        assert!(
+            records[at].contains("\"status\":\"ok\""),
+            "a chain that crosses and carries on is answered across two data systems: {}",
+            records[at]
+        );
+    }
     println!(
         "{{\"status\":\"manifest\",\"expected\":{},\"expected_failed\":{expected_failed}}}",
         cases.len()

@@ -763,6 +763,23 @@ mod tests {
     }
 
     #[test]
+    fn every_refusal_code_is_a_declared_reason_label() {
+        // `sutura_refusals_total{reason}` counts each refusal under the code this module gives it, so
+        // the series registered at boot have to include every code in this table: a refusal with no
+        // series would count nowhere. Read off the rendered exposition, which is what an operator scrapes.
+        let mut builder = sutura_runtime::metrics::RegistryBuilder::default();
+        let _installed = crate::metrics::Metrics::install(&mut builder);
+        let rendered = builder.build().render();
+        for (_, _, code) in every_reason() {
+            let series = format!("sutura_refusals_total{{reason=\"{code}\"}} 0");
+            assert!(
+                rendered.contains(&series),
+                "{code} is a refusal code with no `reason` series: {rendered}"
+            );
+        }
+    }
+
+    #[test]
     fn the_row_cap_refusal_says_what_happened_and_what_to_do_about_it() {
         // The case the change was asked for. A caller whose answer was declined for being too large
         // must be able to tell that from the sentence alone: what happened, that nothing was

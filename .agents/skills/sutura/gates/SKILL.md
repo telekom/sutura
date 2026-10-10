@@ -204,7 +204,7 @@ security checks, and none of it compiles.
 Tiers are bypassable with `--no-verify`, so none of this is an invariant. What the gate holds is
 the config: it reads `.pre-commit-config.yaml` and nothing else, so a push hook that compiles OR
 that is outside the security-only set fails it. **It does not read the tier prose** - this page and
-`CONTRIBUTING.md`'s table can drift from the config with every gate green; the config is the
+`CONTRIBUTING.md`'s git hooks paragraph can drift from the config with every gate green; the config is the
 authority.
 
 **The commit stage runs no suite, no doctests, no CRAP score and no fuzz replay**, by owner decision,

@@ -42,28 +42,14 @@ just doctor     # what is present, what is missing, what would fail
 `direnv allow` is a trust boundary, not a formality, and hooking `direnv` into your shell is the
 step people skip. `just` with no argument lists every task.
 
-**`just setup` is what installs the git hooks, and it is not optional.** It installs all three
-stages (`pre-commit`, `pre-push`, `commit-msg`) through `prek`, installs the pixi environment the
-hook runner lives in, warms `xtask` so your first commit is not a cold compile, and ends with
-`doctor`. It is idempotent, so re-run it whenever an environment file changes.
+**Git hooks.** `just setup` installs them, together with the pixi environment that the hooks run in. The hooks
+enforce some gates before CI. `pre-commit` runs fmt, clippy, a check of the changed packages, and the structural, text
+and chart gates. `pre-push` runs the secret scan and the supply-chain gate. `commit-msg` checks the conventional-commit
+subject. CI runs every gate again, except the most expensive ones. The fuzzers run only on a release tag, or when
+someone starts them by hand.
 
-**Hook tiers.** A hook that is too slow for its stage gets switched off, so each stage runs only what
-it can afford.
-
-| Stage        | Runs                                                                                           |
-| ------------ | ---------------------------------------------------------------------------------------------- |
-| `pre-commit` | fmt, clippy, `cargo check` of the changed packages, the structural gates, text and chart gates |
-| `pre-push`   | the whole-tree secret scan and the supply-chain gate, nothing else                             |
-| `commit-msg` | the conventional-commit subject                                                                |
-
-The suite, the doctests and the CRAP score run in `just validate` and in CI. `just ship-check` also
-runs CRAP for a diff that reaches the scored crate, and the fuzz replay (`just fuzz-smoke`) for a diff
-that touches the fuzzed tree. A local commit can hold a failing test until `just validate` or CI
-runs it.
-
-Run `just setup` before your first commit, because **an uninstalled hook does not complain - it
-silently never fires.** `just setup` unsets a `core.hooksPath` that points at a missing directory.
-If you are unsure whether your hooks are live, run `just setup` again and read what it prints.
+Run `just setup` before your first commit, and again when an environment file changes. A hook that is not installed
+does not fire, and it gives no warning.
 
 ## Working in parallel worktrees
 
@@ -78,8 +64,9 @@ just dev-down                  # remove this worktree's services
 
 Docker chooses each host port. Read a port with `just dev-endpoint`, and never write one into a file.
 
-The services are ClickHouse, and Keycloak with `just dev-up-identity`. `just test` provisions PostgreSQL
-from Nix. Without docker, the services skip locally and fail in CI. To add a service, add a row to
+`just dev-up` starts ClickHouse. Each other service has its own task: Keycloak (`just dev-up-identity`),
+DataHub (`just dev-up-datahub`), OpenMetadata (`just dev-up-openmetadata`) and Oracle (`just dev-up-oracle`).
+`just test` provisions PostgreSQL from Nix. Without docker, the services skip locally and fail in CI. To add a service, add a row to
 `sutura_dev::scope::SERVICES` and a block to `compose.services.yaml`.
 
 **Other routes.** The dev container runs the same shell in Docker:

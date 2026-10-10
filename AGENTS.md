@@ -147,7 +147,7 @@ This codebase's own reference is the `sutura/` group:
 | split work into reviewable PRs                             | `git-ops/stacked-branches`                         |
 | work out why a gate or test is red                         | `engineering/debugging`                            |
 
-`CONTRIBUTING.md` hook tiers and the PR checklist · `SECURITY.md` what counts as a vulnerability
-and what is design rather than guarantee · `docs/architecture.md` the narrative · `docs/adr/`
+`CONTRIBUTING.md` git hooks and the PR checklist · `SECURITY.md` what counts as a vulnerability
+and how to report it · `docs/architecture.md` the narrative · `docs/adr/`
 decisions, a new one minted by `just new-adr <slug>` (never the next number), citing nothing external ·
 `docs/where-identity-is-proven.md` which venue may be cited for which identity claim.

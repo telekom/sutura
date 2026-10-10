@@ -553,11 +553,13 @@ pub(crate) struct RawCatalog {
     /// here.
     #[serde(default)]
     pub(crate) max_response_bytes: Option<u64>,
-    /// Every kind, not `datahub` alone - `github.com/telekom/sutura#975`. Absent means never
-    /// re-read; a declared `0` is refused by `CatalogSettings::with_refresh_seconds` rather than
-    /// read as either "never" or "every tick".
-    #[serde(default)]
-    pub(crate) refresh_seconds: Option<u64>,
+    /// Every kind, not `datahub` alone - `github.com/telekom/sutura#975`. Absent means
+    /// `CatalogSettings::DEFAULT_REFRESH_SECONDS`, filled here because a deployment's `catalogs:`
+    /// list replaces the one in `defaults.yaml` rather than merging into it; a declared `0` is
+    /// refused by `CatalogSettings::with_refresh_seconds` rather than read as either "never" or
+    /// "every tick".
+    #[serde(default = "catalog_refresh_seconds")]
+    pub(crate) refresh_seconds: u64,
     /// `catalog.kind: rdbms` only, and every rdbms key below it: `parse_catalogs` refuses each on
     /// any other kind. The environment key that selects this deployment's rows in the dictionary.
     #[serde(default)]
@@ -643,6 +645,11 @@ pub(crate) struct RawLiveRowPredicate {
 /// review is what keeps that literal a word `CatalogKind::NAMES` lists.
 fn catalog_kind_markdown() -> String {
     String::from("markdown")
+}
+
+/// The default `catalogs[].refresh_seconds`, for `#[serde(default)]`.
+const fn catalog_refresh_seconds() -> u64 {
+    crate::catalog::CatalogSettings::DEFAULT_REFRESH_SECONDS
 }
 
 /// The tool surface's own settings. Off by default, per tool: an absent `tools:` key is exactly the

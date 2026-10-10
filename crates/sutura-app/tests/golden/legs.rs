@@ -38,6 +38,7 @@
 //! | `two-fact-second` | the same question's other fact | the second fact's own statement: its own calendar hop and link, the range and nothing else |
 //! | `lookup-unfiltered` | the `customers` half of the same question | LEFT above, so no predicate at all |
 //! | `lookup-filtered` | `active_subscriptions in the north` | a lookup carrying the question's value, bound |
+//! | `lookup-joined` | `recurring_revenue by sales_area` | a chain that crossed onto the lookup's data system and carried on: a `LEFT JOIN` of the lookup's own |
 //!
 //! **No leg golden may carry a `LIMIT`.** `AGENTS.md` counts the SQL goldens that read `LIMIT 10001`
 //! and `check-guidance` fails if that number drifts; a leg is not an answer, so a row cap on one
@@ -68,6 +69,9 @@ const REMOTE_TABLE: &str = "dim_customer";
 
 /// A same-source dimension model, so a hop that stays a join is covered too.
 const LOCAL_DIMENSION_TABLE: &str = "dim_product";
+
+/// The model a chain reaches after it crossed onto [`REMOTE_TABLE`]'s data system.
+const REMOTE_REGION_TABLE: &str = "dim_region";
 
 /// The month-grain snapshot a usage fact joins through the compound key.
 const MONTHLY_TABLE: &str = "dim_monthly";
@@ -418,6 +422,35 @@ fn lookup_unfiltered() -> LegPlan {
         bindings: PlanBindings::none(),
     }
 }
+
+/// A lookup whose chain crossed onto its data system and carried on: `customers`, then the `regions`
+/// beside it, read through `sales_area`.
+///
+/// The crossing hop's table is the `FROM`, and the hop after it is a `LEFT JOIN` of this leg's own
+/// that starts at that table and not at the fact's - the two statements a chain reaching past its
+/// crossing would otherwise need are one.
+fn lookup_joined() -> LegPlan {
+    LegPlan::Lookup {
+        source: source("crm"),
+        table: StatementTables::parse(
+            table(REMOTE_TABLE),
+            vec![PlanJoin::new(
+                RelationshipName::parse("customer_region").expect("a fixture relationship is a relationship"),
+                table(REMOTE_REGION_TABLE),
+                JoinType::ManyToOne,
+                sutura_domain::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
+                    origin: column(REMOTE_TABLE, "region_code"),
+                    target: column(REMOTE_REGION_TABLE, "region_code"),
+                }])
+                .expect("a fixture join declares one key"),
+            )],
+        )
+        .expect("two differently named fixture tables are distinguishable"),
+        keys: vec![link_key(REMOTE_TABLE), key("sales_area", REMOTE_REGION_TABLE, "sales_area")],
+        bindings: PlanBindings::none(),
+    }
+}
+
 /// The same lookup with the question's own filter pushed into it: `region = 'north'`.
 ///
 /// The value is the CALLER's, which is what makes this fixture worth having: a new entry point is a
@@ -456,6 +489,7 @@ fn shapes() -> Vec<(&'static str, LegPlan)> {
         ("two-fact-second", two_fact_second()),
         ("lookup-unfiltered", lookup_unfiltered()),
         ("lookup-filtered", lookup_filtered()),
+        ("lookup-joined", lookup_joined()),
     ]
 }
 
@@ -675,6 +709,14 @@ fn every_leg_shape_renders_in_every_compiled_dialect() {
         for (name, leg) in shapes() {
             let query = generate_leg(&leg, *dialect).unwrap_or_else(|e| panic!("{name} would not render for {dialect}: {e}"));
             assert!(!query.sql().is_empty(), "{name} for {dialect} rendered an empty statement");
+            if name == "lookup-joined" {
+                let shouted = query.sql().to_uppercase();
+                assert!(
+                    shouted.contains("LEFT JOIN") && shouted.contains(&REMOTE_REGION_TABLE.to_uppercase()),
+                    "{name} for {dialect} dropped the hop its chain carried on through:\n{}",
+                    query.sql()
+                );
+            }
             rendered = rendered.saturating_add(1);
         }
     }

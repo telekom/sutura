@@ -1769,10 +1769,10 @@ parsed as `CatalogKind::Rdbms`.
 pub fn with_refresh_seconds(self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings>
 ```
 
-Declares how often this catalog is re-read and re-pinned - `#975`. `None` (the default
-every entry written before this key existed is already at) means never; `Some(0)` is
-refused rather than read as "never" or "as fast as possible", so an operator who wrote a
-literal `0` is told rather than silently ignored.
+Declares how often this catalog is re-read and re-pinned - `#975`. `None` (what
+`Self::parse` starts at) means never; `Some(0)` is refused rather than read as "never" or
+"as fast as possible", so an operator who wrote a literal `0` is told rather than silently
+ignored.
 
 #### Implements
 
@@ -1794,7 +1794,7 @@ Why a catalog configuration is not usable.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
 - `CredentialsInEndpoint` - `catalogs[].endpoint` carries an `@`. A catalog endpoint is `scheme://host[:port]`, so an `@` is userinfo however the URL parser splits it - refused here, before the startup log prints the resolved settings, and never quoted back.
 - `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
-- `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
+- `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is the default interval, not "never".
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
 

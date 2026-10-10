@@ -1445,14 +1445,15 @@ declared relationship - or through a chain of them, in the order the author wrot
 order is load-bearing: hop N's origin must be hop N-1's target, so a chain is a single path and
 not a set of relationships, and the planner renders the joins in that order rather than choosing
 one. **Every hop is refused if it could duplicate rows, and a chain crosses a data system
-boundary at most once, only at its first hop**: hop 1 may cross - a single remote dimension is
-the federated case the plan layer serves, by splitting the question into one link and one lookup
-table - and a later hop is refused unless BOTH its ends sit on the metric's own source. So an
-accepted chain is either wholly local or exactly one crossing hop, which are the two shapes the
-plan layer can render, and no accepted hop changes what a measure sees. **The limit next to the
-claim:** that is `Definitions::assemble`'s check, so it holds for a bundle that was assembled
-here; `sutura_semantic`'s plan stage asks the same question again over the resolved chain,
-because a load check alone is one edit away from being bypassed.
+boundary at most once, at any hop**: the hops before the crossing join on the metric's own
+source, the crossing hop is the one link the federated plan carries, and the hops after it join
+inside the lookup leg's statement on the system the chain crossed to. A later hop that lands
+anywhere else - back on the metric's own source or on a third - is refused. So an accepted chain
+is wholly local or crosses once and stays, which are the shapes the plan layer can render, and no
+accepted hop changes what a measure sees. **The limit next to the claim:** that is
+`Definitions::assemble`'s check, so it holds for a bundle that was assembled here;
+`sutura_semantic`'s plan stage asks the same question again over the resolved chain, because a
+load check alone is one edit away from being bypassed.
 
 `allowed_values` is what makes a dimension filterable. `None` means it can be grouped by and not
 filtered: a filter needs an allowlist, because the alternative is comparing against a value the
@@ -9570,10 +9571,12 @@ fn _checked(
   would be a predicate on a column that is not there; nothing is aggregated, so there is no
   term and no measure label; and the metric belongs to the fact leg.
 
-  **`table` is a checked `StatementTables`, for `Fact`'s reason**: the one
-  type holds a statement's `FROM` table and its joins, and refuses two tables answering to one
-  identifier. It serializes `#[serde(flatten)]` like the fact leg's, so `table` sits beside
-  `joins`. Both renderers read its joins as they read the fact leg's; no builder gives a lookup leg one.
+  **It may join further, inside the data system it reads.** A chain that crosses onto this
+  system and carries on - `customers` then the `regions` beside it - is one statement here: the
+  crossing hop's table is the `FROM` and every later hop is a `LEFT JOIN` of this leg's own,
+  which is why `table` is a checked `StatementTables` and not a bare path, for
+  `Fact`'s reason. It serializes `#[serde(flatten)]` like the fact leg's, so
+  `table` sits beside `joins`, empty when the dimension is one hop.
 
   `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
   dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
@@ -9790,10 +9793,12 @@ instead, pinned by a `compile_fail` doctest with a compiling twin, so a second l
 reintroduce it - **a prediction in a doc comment is not a mechanism, which is the lesson worth
 keeping from this.**
 
-What remains is narrow and stated so it is not mistaken for the above. Two LEGS whose tables
-collide are not this defect: each leg is its own statement on its own data system, so nothing
-binds one identifier to two tables; what the combiner joins on is a label, and a label that
-shadowed a table is
+What remains is narrow and stated so it is not mistaken for the above. A
+`Lookup` leg takes a `StatementTables` too, because a chain that
+crosses onto its data system and carries on joins further there. And two LEGS whose tables collide
+are not this defect:
+each leg is its own statement on its own data system, so nothing binds one identifier to two
+tables; what the combiner joins on is a label, and a label that shadowed a table is
 `LabelShadowsTable`'s refusal at
 load.
 

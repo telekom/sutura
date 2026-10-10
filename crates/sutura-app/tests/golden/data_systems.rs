@@ -414,8 +414,8 @@ where
 /// unique, vacuously, and would read as a clean check forever.
 ///
 /// **What this axis does not reach is `BigQuery`'s count**: it takes the port's default, so a
-/// dimension model on a dataset is unchecked - stated in `.agents/skills/sutura/invariants` and in
-/// `SECURITY.md` rather than implied by a green run here, and excused by name in
+/// dimension model on a dataset is unchecked - stated in `.agents/skills/sutura/invariants`
+/// rather than implied by a green run here, and excused by name in
 /// `adapters::exemptions::EXEMPTIONS`. Where it executes, the cell asserts that default is still what answers,
 /// so the exemption expires the day a probe is implemented rather than outliving it.
 fn counts_every_declared_join_key<W>()

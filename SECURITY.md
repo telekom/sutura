@@ -1,163 +1,48 @@
 # Security policy
 
+sutura is a server. A release ships binaries, a container image and a Helm chart. The server answers
+certified questions for agents over MCP and HTTP. A release build pins every Rust dependency in
+`Cargo.lock`, so an advisory against a dependency that a release ships is in scope.
+
+## Scope
+
+In scope: a vulnerability in sutura's own code, or in a dependency that a release ships. For example:
+
+- A caller reads rows or runs a query that the caller may not.
+- A question gets past the certified tool surface.
+- A value reaches a rendered statement as text.
+- A token, a credential or a secret leaks into a log, an error or an answer.
+- Untrusted input stops the process. Untrusted input is a token, a catalog document or a data-system
+  response.
+
+Generally out of scope:
+
+- Decisions that belong to the operator: which issuer and pool to trust, the grants in each data
+  system, which sources a deployment declares, and how the host is hardened.
+- Tooling that no release ships: the dev shell, CI-only crates and `xtask`.
+- A scanner finding with no path from a shipped binary.
+
+## Supported versions
+
+sutura is pre-1.0. Only the latest release is supported, and there are no backports. A fix ships as
+a new release of the binaries, the image and the chart.
+
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting on this repository: **Security -> Report a
 vulnerability**. That opens a private channel with the maintainers.
 
-Please do not open a public issue for a suspected vulnerability. A public issue is the one
-disclosure route we cannot take back.
+Do not open a public issue, pull request or discussion for a suspected vulnerability. A public
+report is the one disclosure route we cannot take back.
 
-Include what you have: the affected version or commit, what an attacker can do, and a
-reproduction if you have one. A partial report is worth sending.
+Include what you have:
 
-We aim to acknowledge within five working days and to agree a disclosure timeline with you.
+- The affected version or commit.
+- The impact: what an attacker can do.
+- Steps to reproduce.
 
-## What is in scope
+A partial report is worth sending.
 
-This project is early, and the scope has changed twice: once when the HTTP surface landed, and again
-when the identity path did. **There is a network perimeter and there is now a caller identity, and
-both are in scope.** What is built is a governed semantic compiler and executor over local files,
-served over HTTP behind a rate limiter and either a shared deployment token, a verified caller token,
-or both.
-
-**Read this paragraph before deciding a report is out of scope, because an earlier version of this
-file said the opposite and would have talked a valid report out of being sent.** There are now two
-credentials and they are not the same thing:
-
-- The **shared bearer token** authenticates the *deployment*. Without `security.inbound`, everyone
-  holding it is treated as the same caller.
-- Where a deployment declares `security.inbound`, sutura verifies the **caller's own** token - a
-  signature against a pinned asymmetric algorithm, an issuer, an audience that is this deployment's
-  own resource identifier, an expiry, and a required token class. That establishes *who is asking*,
-  and it gates *which operations* they may invoke through OAuth scopes.
-
-**Caller authentication alone does not decide which rows an answer contains.** Every question goes
-through a credential broker for its source. The shipped BigQuery adapter can carry the caller's own
-verified assertion through the source's declared per-subject account map; an undeclared subject is
-refused rather than run as the deployment. Its real source-acceptance venue is wired but has no
-observed run, so end-to-end execution as that subject remains unproven. Other sources execute under
-their declared shared identity. A deployment can therefore know who is asking and still read rows
-under a shared identity for those sources.
-
-That makes the scope precise rather than absent:
-
-- A report that a caller can invoke an **operation** they were not granted - past the scope check,
-  past the bearer gate, past the token validator - **is a finding, and a high-severity one.**
-- A report that one caller can read another caller's **rows** through a BigQuery source is a finding:
-  the declared subject-to-account mapping must be honored. For a source declared to run under a
-  shared identity, row access follows that identity's grants. **A false claim of impersonation** in
-  a log line, audit record, provenance or documentation is also a finding.
-- A report that the **identity itself** can be forged or confused - a token accepted with the wrong
-  class, the wrong audience or an unexpected algorithm; a caller stating its own identity in a header
-  or a body; a revoked key that keeps verifying past its bound; an assertion replayed outside the
-  window this deployment configured - **is a finding.**
-
-In scope on the perimeter:
-
-- a way past the bearer gate, or a path that reaches data without it
-- a way to make the rate limiter ineffective - including bucket keying that a caller can choose,
-  and unbounded growth of the limiter's own state
-- a way to bypass the request-size or time bounds, or to make the service hold work after the
-  caller has been answered
-- transport-encryption failures: cleartext where TLS was declared, a certificate reload that opens
-  a window, or a configuration that starts permissively where it should refuse
-- a startup configuration that is accepted and should not be - the refusals are a control, and one
-  that can be talked out of is a bug
-
-And, as before, the things that affect anyone who builds or runs it:
-
-- a way to get unreviewed content into a published artifact or image
-- a credential leak, or a path that logs or serialises one
-- a build that can be induced to fetch from a source the maintainers did not choose
-- a gate that reports success without checking what it claims to check
-- a way to get SQL, a table name or a predicate onto the tool surface, or a caller value into a
-  statement as text rather than as a bind parameter
-
-And on the identity path, now that one exists:
-
-- a token accepted where it should be refused - the wrong signing algorithm, a symmetric key, an
-  audience that is not this deployment's, an absent or wrong token class, a missing or forward-dated
-  `iat`, or a lifetime past the ceiling the deployment configured
-- a caller-supplied identity that is believed: a header, a request field or a body key that reaches
-  the principal chain
-- a key removed from the key set that keeps verifying past the bound, or a forged key id that turns
-  requests into outbound fetches
-- a deployment that declares an inbound identity and serves without one
-- `/mcp` served with no inbound identity where the startup refusals should stop it: a `multi-user`
-  or undeclared mode, an off-host deployment without both the deployment token and the limiter
-  (for `/mcp`, a declared proxy, TLS terminator or non-loopback host name counts as off-host), or a source
-  that runs as the asking subject
-- an operation invoked without the scope that governs it, on either transport
-- an outcome returned without a record having been written first
-- a **claim** about identity that the build does not deliver: a record, provenance value, log line or
-  document saying a leg ran as the asking subject when its source used a shared identity
-
-Per-**row** access as the calling subject is built for BigQuery and remains unproven at the real
-source: no observed served run has shown the source applying the grants of the mapped account. See
-`docs/where-identity-is-proven.md` for the venue and its limit.
-
-## What we already treat as a defect
-
-Each of these is held by a type, a lint or a gate today, and
-`.agents/skills/sutura/invariants` names the mechanism beside it, with the limit it does not reach. If you can break one, that is a security bug, not a feature request:
-
-- SQL, a table name, or a predicate reaching the tool surface
-- a value from a question reaching a generated statement as text rather than as a bind parameter
-- an identifier reaching a generated statement unquoted
-- a metric's definitional filter absent from, or nameable on, a question about that metric
-- a plan silently spanning two data systems
-- a bundle serving answers when a declared anchor was not checked, or did not reproduce its number
-- a credential appearing in a log, an error, or a serialised value
-- a result cache keyed by anything other than the subject first
-- a second call site for `Warehouse::verify_anchor` or `Warehouse::declared_key`, the two port methods that reach a data system
-  with no credential. They belong to the boot path; `clippy.toml` bans both, so every other call site - a
-  delegating wrapper, a test cell - carries an `#[expect]` a reviewer sees. **Their input types are self-checks and not barriers** - see *Not yet
-  guarantees* below
-
-## Not yet guarantees
-
-These are the design and are **not** enforced, so breaking one is not a vulnerability report - it
-is the state of the repository, recorded in `.agents/skills/sutura/invariants`:
-
-- **a query proven to execute as the calling subject at a real source.** BigQuery's per-subject
-  path is built, but its served identity venue has no observed run. Other sources deliberately use
-  their declared shared identity. A mismatch between a BigQuery subject and the account used to
-  execute its question is a finding; a claim that this live behavior has already been proven is also
-  a finding
-- **`AnchorPlan` is not a barrier, and citing it as one is the mistake this line exists to stop.**
-  It parses a plan as one the pinned bundle itself agrees is a declared anchor's own, so it catches a
-  boot path that compiled the wrong question - but every value its constructor reads is publicly
-  constructible and Rust has no cross-crate friend visibility, so in-process code that wants to
-  construct one can. What keeps the credential-free method to the boot path is the `clippy.toml` ban
-  on it, which is a lint rather than a type: it reaches this workspace and an `#[allow]` walks past
-  it. A report that the *type* can be constructed outside the boot path is the state of the
-  repository, recorded here and on the type
-- **a declared cardinality holding continuously, or on every data system.** A relationship whose
-  join type says its target column identifies at most one row is counted against its distinct values
-  once, at startup, and a bundle the data contradicts does not validate - so both plan shapes refuse
-  rather than answering two different numbers for one question. Three things that does not reach: a
-  duplicate introduced *after* startup - which reaches every caller from then on as a number, for the
-  whole life of the process, because there is no reload and the answer path is unchanged - a data
-  system whose adapter cannot count at all (it answers *not asked* and nothing prints that; a probe
-  that FAILS does refuse the boot and names the data system's own complaint), and the origin half of a
-  `one_to_one`, which nothing asks about. A report that a row inserted after boot changes an answer is
-  the state of the repository
-- **`single-user` as a fact.** `security.identity: single-user` is a mode and a reason the operator
-  writes; nothing counts who calls. On such a deployment with no inbound identity, `/mcp` answers
-  every caller as the deployment with every capability, as `/v1` does there. A report that a second
-  person reached it is the state of the repository
-- a **row**-level entitlement between callers. Scopes narrow which operations a caller may invoke and
-  decide nothing about which rows an answer contains
-- **binding a gateway identity assertion to a request.** The replay window is bounded by this
-  deployment's own ceiling and nothing binds an assertion to what it was sent with, so inside that
-  window an intercepted assertion replays. A regression test asserts the replay rather than pretending
-  otherwise
-- **which host a delegation exchange sends a caller's token to.** sutura does not tie a delegation's
-  `token_endpoint` to the inbound issuer: the operator chooses the host, and each caller's token is
-  sent to it
-- a result leaving without provenance in an Arrow schema. There is no Arrow envelope
-
-## Supported versions
-
-Pre-1.0. Only the latest tag is supported, and there are no backports.
+We aim to acknowledge a report within five working days and to agree a disclosure timeline with you.
+We fix the problem and credit you, unless you want to stay anonymous. We disclose after a fix is
+out, in coordination with you.
