@@ -46,6 +46,9 @@ mod bigquery_conformance_aggregate;
 #[path = "affected/claim_mutation.rs"]
 mod claim_mutation;
 #[cfg(test)]
+#[path = "affected/cube_aggregate.rs"]
+mod cube_aggregate;
+#[cfg(test)]
 #[path = "affected/datahub_aggregate.rs"]
 mod datahub_aggregate;
 #[path = "affected/lockfile.rs"]

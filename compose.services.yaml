@@ -679,6 +679,61 @@ services:
       retries: 60
       start_period: 30s
 
+  # The Cube metrics serving layer (`github.com/telekom/sutura#1340`). `sutura_dev::scope::SERVICES`
+  # names `cube`, this publishes 4000 ephemerally, and `xtask dev-up --with cube` reads back whatever
+  # it landed on. DuckDB inside the container reads the single-player corpus, so the tier needs no
+  # second database.
+  cube:
+    # CI venue: compose only.
+    # Because: Cube is not packaged in `nixpkgs`, and a nix `checks.*` derivation has no docker
+    #   socket and no network.
+    # Converges: when Cube is packaged as a nix-native tier, taking `nix/postgres-tier.nix`'s shape.
+    #   Until then the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance`
+    #   are its venues; no nix check reaches it.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
+    profiles:
+      - cube
+    hostname: cube
+    environment:
+      CUBEJS_DB_TYPE: duckdb
+      CUBEJS_DEV_MODE: "false"
+      CUBEJS_TELEMETRY: "false"
+      # Production mode asks for Cube Store as its cache and queue; the in-process driver is the
+      # one-container fixture's answer.
+      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+      # A FIXTURE, the `x-datahub-backend-environment` signing key's argument: the HS256 key a
+      # deployment token for this tier is signed with, reachable from nothing outside this host.
+      CUBEJS_API_SECRET: sutura-dev-cube-secret-with-256-bits
+    # `configs:` rather than a bind mount: each file is read from THIS worktree's checkout and
+    # copied into the container, so nothing on the host is shared between worktrees.
+    configs:
+      - source: cube-model
+        target: /cube/conf/model/single_player.yml
+      - source: cube-subscriptions
+        target: /cube/data/fct_subscription_monthly.csv
+      - source: cube-usage
+        target: /cube/data/fct_usage_daily.csv
+      - source: cube-customers
+        target: /cube/data/dim_customer.csv
+      - source: cube-products
+        target: /cube/data/dim_product.csv
+      - source: cube-regions
+        target: /cube/data/dim_region.csv
+    ports:
+      - 4000
+    healthcheck:
+      # The image carries `node` and no `curl` or `wget`.
+      test: [
+        "CMD",
+        "node",
+        "-e",
+        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   # The local chat demo: ONE container holding the sutura server and the chat client, because a
   # single supervisor is what makes "either child exits, the demo ends" true.
   #
@@ -799,3 +854,17 @@ volumes:
   demo-webui-data:
   openmetadata-mysql-data:
   openmetadata-opensearch-data:
+
+configs:
+  cube-model:
+    file: examples/cube/model/single_player.yml
+  cube-subscriptions:
+    file: examples/single-player/data/fct_subscription_monthly.csv
+  cube-usage:
+    file: examples/single-player/data/fct_usage_daily.csv
+  cube-customers:
+    file: examples/single-player/data/dim_customer.csv
+  cube-products:
+    file: examples/single-player/data/dim_product.csv
+  cube-regions:
+    file: examples/single-player/data/dim_region.csv

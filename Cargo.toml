@@ -25,6 +25,8 @@ members = [
   "crates/sutura-catalog-datacontract",
   # Declaring source: capabilities and limits are in docs/what-openmetadata-can-carry.md.
   "crates/sutura-catalog-openmetadata",
+  # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
+  "crates/sutura-catalog-cube",
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -124,6 +126,7 @@ sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
+sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }

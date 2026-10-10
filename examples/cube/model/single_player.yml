@@ -1,0 +1,148 @@
+# The development Cube model: the single-player corpus (`examples/single-player/data`) as Cube
+# cubes, for the `cube` profile in `compose.services.yaml`. The descriptions are the example
+# catalog's own; DuckDB reads the corpus files the profile places under `/cube/data`.
+cubes:
+  - name: subscriptions
+    sql: "SELECT * FROM read_csv_auto('/cube/data/fct_subscription_monthly.csv')"
+    description: One row per subscription per month - the monthly snapshot of every subscription.
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_key = {customers}.customer_key"
+      - name: products
+        relationship: many_to_one
+        sql: "{CUBE}.product_key = {products}.product_key"
+    dimensions:
+      - name: subscription_key
+        sql: subscription_key
+        type: number
+        primary_key: true
+        public: true
+        description: The surrogate key daily_usage joins on, through usage_subscription.
+      - name: month
+        sql: month
+        type: time
+        primary_key: true
+        public: true
+        description: The first day of the month this snapshot row describes.
+      - name: status
+        sql: status
+        type: string
+        description: The subscription's state at the end of the month - active or terminated.
+      - name: churned_in_month
+        sql: churned_in_month
+        type: boolean
+        description: Whether this subscription churned during the month, independent of its end-of-month status.
+      - name: contract_term
+        sql: contract_term
+        type: string
+        description: The subscription's own contract length - annual or monthly.
+    measures:
+      - name: recurring_revenue
+        sql: mrr_cents
+        type: sum
+        description: Recurring revenue from active subscriptions, in minor units.
+        filters:
+          - sql: "{CUBE}.status = 'active'"
+      - name: active_subscriptions
+        sql: subscription_key
+        type: count_distinct
+        description: Distinct subscriptions active at the end of the month.
+        filters:
+          - sql: "{CUBE}.status = 'active'"
+      - name: subscriptions_churned
+        type: count
+        description: Subscriptions that churned during the month.
+        filters:
+          - sql: "{CUBE}.churned_in_month"
+    segments:
+      - name: active
+        sql: "{CUBE}.status = 'active'"
+        description: Subscriptions active at the end of the month.
+
+  - name: customers
+    sql: "SELECT * FROM read_csv_auto('/cube/data/dim_customer.csv')"
+    description: One row per customer, holding the attributes an answer may be grouped by.
+    joins:
+      - name: regions
+        relationship: many_to_one
+        sql: "{CUBE}.region = {regions}.region"
+    dimensions:
+      - name: customer_key
+        sql: customer_key
+        type: number
+        primary_key: true
+        public: true
+        description: The surrogate key every fact table joins on.
+      - name: segment
+        sql: segment
+        type: string
+        description: The commercial segment of the customer - business, consumer or wholesale.
+      - name: region
+        sql: region
+        type: string
+        description: Which of the five regions this customer is in.
+
+  - name: products
+    sql: "SELECT * FROM read_csv_auto('/cube/data/dim_product.csv')"
+    description: One row per tariff.
+    dimensions:
+      - name: product_key
+        sql: product_key
+        type: number
+        primary_key: true
+        public: true
+        description: The surrogate key subscriptions join on.
+      - name: product_name
+        sql: product_name
+        type: string
+        description: The tariff's own name.
+      - name: product_family
+        sql: product_family
+        type: string
+        description: Which of the four product families this tariff belongs to.
+
+  - name: regions
+    sql: "SELECT * FROM read_csv_auto('/cube/data/dim_region.csv')"
+    description: One row per region, and the sales area it rolls up into.
+    dimensions:
+      - name: region
+        sql: region
+        type: string
+        primary_key: true
+        public: true
+        description: The join key, the same text customers.region holds.
+      - name: sales_area
+        sql: sales_area
+        type: string
+        description: The sales area this region rolls up into.
+
+  - name: daily_usage
+    sql: "SELECT * FROM read_csv_auto('/cube/data/fct_usage_daily.csv')"
+    description: One row per subscription per day on which it used anything.
+    joins:
+      - name: subscriptions
+        relationship: many_to_one
+        sql: "{CUBE}.subscription_key = {subscriptions}.subscription_key AND date_trunc('month', {CUBE}.usage_date) = {subscriptions}.month"
+    dimensions:
+      - name: subscription_key
+        sql: subscription_key
+        type: number
+        primary_key: true
+        public: true
+        description: The subscription this usage belongs to.
+      - name: usage_date
+        sql: usage_date
+        type: time
+        primary_key: true
+        public: true
+        description: The day this row of usage was recorded on.
+    measures:
+      - name: voice_minutes
+        sql: voice_min
+        type: sum
+        description: Voice minutes used.
+      - name: data_gb
+        sql: data_gb
+        type: sum
+        description: Data used, in gigabytes.

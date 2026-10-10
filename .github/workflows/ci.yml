@@ -293,6 +293,7 @@ jobs:
       catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}
       catalog_datacontract: ${{ steps.classify.outputs.catalog_datacontract }}
+      catalog_cube: ${{ steps.classify.outputs.catalog_cube }}
       catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
       catalog_rdbms: ${{ steps.classify.outputs.catalog_rdbms }}
       catalog_wren: ${{ steps.classify.outputs.catalog_wren }}
@@ -2264,6 +2265,38 @@ jobs:
       - name: OpenMetadata acceptance cells
         run: nix run .#openmetadata-acceptance
 
+  # The Cube docker tier (#1340): starts the compose `cube` profile and runs the cells
+  # `just cube-acceptance` runs - the live metadata API read through `HttpMetaReader` (`--features
+  # http`) and compared with the recorded answer the golden suite registers, and a token the tier did
+  # not sign refused. `ci-openmetadata-tier`'s shape and rules: category-gated on `catalog_cube`, held
+  # run-or-fail by `ci-aggregate`, no secret, no event exception.
+  ci-cube-tier:
+    needs: [ci]
+    if: needs.ci.outputs.catalog_cube == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    concurrency:
+      group: ci-cube-tier-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Cube acceptance cells
+        run: nix run .#cube-acceptance
+
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
   # - stays where the decision is reviewed. Event-gated rather than category-gated: `examples/demo-chatinterface/**`
@@ -2319,6 +2352,7 @@ jobs:
       oracle-tier,
       ci-datahub-tier,
       ci-openmetadata-tier,
+      ci-cube-tier,
       bigquery-conformance,
       causality,
       postgres-linked-driver,
@@ -2342,6 +2376,8 @@ jobs:
           DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
           OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}
           OM_SELECTED: ${{ needs.ci.outputs.catalog_openmetadata }}
+          CUBE_RESULT: ${{ needs.ci-cube-tier.result }}
+          CUBE_SELECTED: ${{ needs.ci.outputs.catalog_cube }}
           BQC_RESULT: ${{ needs.bigquery-conformance.result }}
           BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}
           CAUS_RESULT: ${{ needs.causality.result }}
@@ -2455,6 +2491,17 @@ jobs:
             case "$OM_RESULT" in
               skipped|success) ;;
               *) fail "ci-openmetadata-tier reported '$OM_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The Cube docker tier, the same rule as `ci-openmetadata-tier` and for the same reason.
+          if [ "$CUBE_SELECTED" = "true" ]; then
+            if [ "$CUBE_RESULT" != "success" ]; then
+              fail "ci-cube-tier must run (catalog_cube category selected) but reported '$CUBE_RESULT'"
+            fi
+          else
+            case "$CUBE_RESULT" in
+              skipped|success) ;;
+              *) fail "ci-cube-tier reported '$CUBE_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           # `causality` and `postgres-linked-driver` were steps of `ci` (#1280): they must run

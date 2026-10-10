@@ -1251,6 +1251,26 @@
           '');
         };
 
+        # The Cube venue (#1340): starts the compose `cube` profile and runs the live cells - the
+        # metadata API read through `HttpMetaReader` against the recorded answer, and a token the
+        # tier did not sign refused - failing rather than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`.
+        # The `ci-cube-tier` CI job runs it; `just cube-acceptance` is its by-hand twin, and nothing
+        # checks that the two agree. An app for `apps.openmetadata-acceptance`'s reason. No teardown:
+        # the CI runner is ephemeral.
+        apps.cube-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-cube-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with cube
+            export SUTURA_DEV_REQUIRE_TIER=1
+            exec cargo test --profile ci -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture "$@"
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has
