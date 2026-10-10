@@ -476,6 +476,8 @@ mod tests {
             "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
             "          OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}",
             "          OM_SELECTED: ${{ needs.ci.outputs.catalog_openmetadata }}",
+            "          CUBE_RESULT: ${{ needs.ci-cube-tier.result }}",
+            "          CUBE_SELECTED: ${{ needs.ci.outputs.catalog_cube }}",
             "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
             "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
             "          CAUS_RESULT: ${{ needs.causality.result }}",
