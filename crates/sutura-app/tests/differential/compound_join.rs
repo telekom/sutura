@@ -39,7 +39,7 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, NotValidated, PinnedDefinitions};
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::RowCeilings;
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::{Real, Value};
 
@@ -243,7 +243,7 @@ fn a_compound_key_validates_the_real_duplication_a_single_column_key_does_not() 
         1 << 30,
         deadline(),
         &SpendLedger::no_budget(),
-        RowCeiling::DEFAULT,
+        RowCeilings::DEFAULT,
     )
     .expect("the compound bundle answers")
     .into_outcome();

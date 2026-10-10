@@ -72,7 +72,7 @@ where
         1 << 30,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
 }
 

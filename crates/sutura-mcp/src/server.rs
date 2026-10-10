@@ -219,6 +219,8 @@ pub struct AgentSurface<S> {
     /// way the prompt does - an operator who omits the prose there must not ship it through here.
     prose: sutura_app::prompt::CatalogProse,
     list_physical_schema: bool,
+    /// The configured row ceilings the `initialize` prompt states.
+    row_ceilings: sutura_domain::plan::RowCeilings,
     /// How many questions may be executing at once, and how long a call waits for a turn.
     ///
     /// Held by value and not behind an `Option`: a deployment that forgot to bound its execution is
@@ -302,6 +304,7 @@ impl<S> AgentSurface<S> {
             asking,
             prose,
             list_physical_schema: false,
+            row_ceilings: sutura_domain::plan::RowCeilings::DEFAULT,
             admission,
             reply,
             tools,
@@ -312,6 +315,14 @@ impl<S> AgentSurface<S> {
     #[must_use]
     pub const fn listing_physical_schema(mut self, enabled: bool) -> Self {
         self.list_physical_schema = enabled;
+        self
+    }
+
+    /// The row ceilings this deployment configured, which the prompt states.
+    /// [`RowCeilings::DEFAULT`](sutura_domain::plan::RowCeilings::DEFAULT) unless set.
+    #[must_use]
+    pub const fn row_ceilings(mut self, row_ceilings: sutura_domain::plan::RowCeilings) -> Self {
+        self.row_ceilings = row_ceilings;
         self
     }
 
@@ -381,7 +392,8 @@ where
     ) -> impl Future<Output = Result<InitializeResult, ErrorData>> + Send + '_ {
         context.peer.set_peer_info(request.clone());
         let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref())
-            .listing_physical_schema(self.list_physical_schema);
+            .listing_physical_schema(self.list_physical_schema)
+            .row_ceilings(self.row_ceilings);
         std::future::ready(self.asked(&context).and_then(|asked| {
             let definitions = self.service.definitions();
             let view = sutura_app::scoped_for(&definitions, asked.context());
