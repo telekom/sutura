@@ -475,10 +475,21 @@ async fn a_refusal_and_a_fault_are_different_series() {
     // A refusal did NOT page: no fault code moved, and no unauthorized attempt was invented.
     assert!(body.contains(r#"sutura_questions_total{code="unavailable"} 0"#), "{body}");
     assert!(body.contains(r#"sutura_questions_total{code="internal"} 0"#), "{body}");
+    assert_eq!(
+        refusals(&body, "dimension_not_permitted"),
+        1,
+        "the refusal has its own reason: {body}"
+    );
 
     let (_, body) = call(&faulting, request("GET", "/metrics", Some(METRICS_TOKEN), Body::empty())).await;
     assert!(body.contains(r#"sutura_questions_total{code="unavailable"} 1"#), "{body}");
     assert!(body.contains(r#"sutura_questions_total{code="refused"} 0"#), "{body}");
+    assert!(
+        !body
+            .lines()
+            .any(|line| line.starts_with("sutura_refusals_total{") && !line.ends_with(" 0")),
+        "a fault is not a refusal, so it moves no reason: {body}"
+    );
 }
 
 /// Reads one `sutura_refusals_total{reason}` sample, and fails loudly on a reason the family was not
