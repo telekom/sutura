@@ -396,4 +396,30 @@ mod dial {
         let rendered = rendered.join(" | ");
         assert!(!rendered.contains(CANARY), "the refusal repeats the token: {rendered}");
     }
+
+    /// **With the driver's packet trace switched on, an asker's session is refused before it
+    /// dials.** The cell above runs again in a child process with the trace switched on, and fails
+    /// at its dial with the refusal rather than reaching its listener.
+    #[test]
+    fn with_the_packet_trace_switched_on_an_askers_session_is_refused_before_it_dials() {
+        let child = std::process::Command::new(std::env::current_exe().expect("the test binary has a path"))
+            .args([
+                "--exact",
+                "dial::an_askers_session_carries_their_token_and_its_refusal_does_not_repeat_it",
+            ])
+            .env("RSO_DEBUG_PACKETS", "")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("the test binary runs");
+        let printed = format!(
+            "{}{}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+        assert!(!child.status.success(), "the session ran with the packet trace on: {printed}");
+        assert!(
+            printed.contains("PacketTraceOn"),
+            "the session failed for another reason: {printed}"
+        );
+    }
 }
