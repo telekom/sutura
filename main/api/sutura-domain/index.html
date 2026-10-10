@@ -3957,11 +3957,11 @@ dictionary types every column and comments few of them, a Table Schema descripto
 field and describe none. <code>nullable</code> is likewise a source's own claim, read and stored, never
 derived from anything else here.</p>
 <p><strong><code>data_type</code> is descriptive text.</strong> It is a quote of what the source called the column -
-<code>"STRING"</code>, <code>"character varying"</code>, <code>"NUMERIC(38,9)"</code> - for a person reading the catalog. At HEAD
-nothing branches on it - <code>sutura_sql</code> has its own closed vocabulary for what a statement may
-execute - but that is an absence rather than a mechanism: <code>ColumnType</code>'s own doc names review
-as what holds "never a cast", not the type system, because nothing here stops a future reader of
-<code>Self::data_type</code> from treating it as one.</p>
+<code>"STRING"</code>, <code>"character varying"</code>, <code>"NUMERIC(38,9)"</code> - for a person reading the catalog. The one
+branch on it is <code>LinkKind::declared</code>, which reads it only to REFUSE a federated join across
+kinds; <code>sutura_sql</code> has its own closed vocabulary for what a statement may execute, and
+<code>ColumnType</code>'s own doc names review as what holds "never a cast", not the type system, because
+nothing here stops another reader of <code>Self::data_type</code> from treating it as one.</p>
 <p><strong>Column prose is parsed and pinned.</strong> The opt-in physical-schema listing quotes it under
 <code>prompt.catalog_prose</code>; a deployment omitting catalog prose omits it on both prompt and tool.</p>
 <h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
@@ -4459,9 +4459,10 @@ string measure.</p>
 <h3 id="use-columntype"><code>use ColumnType</code><a class="headerlink" href="#use-columntype" title="Permanent link">&para;</a></h3>
 <p>A <code>super::Column</code>'s data type, as a source's own dictionary spells it: <code>"STRING"</code>,
 <code>"character varying"</code>, <code>"NUMERIC(38,9)"</code>.</p>
-<p><strong>Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.</strong> Nothing in this crate branches
-on it, and <code>sutura_sql</code> has its own closed vocabulary for what a statement may execute - but that
-is an absence rather than a mechanism: nothing stops a future reader of <code>Column::data_type</code> from
+<p><strong>Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.</strong> The one branch on it is
+<code>LinkKind::declared</code>, which reads it to REFUSE a federated join across kinds and nothing else,
+and <code>sutura_sql</code> has its own closed vocabulary for what a statement may execute - but that is an
+absence rather than a mechanism: nothing stops a future reader of <code>Column::data_type</code> from
 treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
 rather than asserted, per this repository's own rule that an overstated control is itself the
 defect.</p>
@@ -4469,10 +4470,10 @@ defect.</p>
 A run of whitespace - including a newline, however the source pretty-printed a nested type -
 collapses to one plain space before anything else is checked. Two spellings that differ only in
 that whitespace are the same type, and a source's own formatting choice must not move the digest.
-This is safe here specifically because there is no rendering surface for it to disagree with:
+This is safe here specifically because no rendering surface reads anything but the stored text:
 <code>Description</code>'s "refuse at load, never alter at render" rule exists because a renderer and a
-digest could see two different texts; a value nothing renders cannot have that defect, so
-normalising it is not the mistake normalising a description would be.</p>
+digest could see two different texts, and the one refusal that quotes a type reads this
+normalised text itself, so the two cannot differ.</p>
 <h3 id="use-description"><code>use Description</code><a class="headerlink" href="#use-description" title="Permanent link">&para;</a></h3>
 <p>The prose that travels with a definition: what a model, a metric or a dimension means.</p>
 <p><strong>The channel this type was added for was the last one whose rendering could differ from its
@@ -4573,10 +4574,11 @@ defect, found in review.</strong> A real composite type - a <code>STRUCT</code> 
 fields - routinely runs past a dimension value's 64 characters: a <code>DataHub</code> field measured in
 review, <code>STRUCT&lt;street STRING, city STRING, postal_code STRING, country STRING&gt;</code>, is 70. Reusing
 the dimension bound meant that one legal type spelling refused the WHOLE catalog load, for text
-nothing in this crate branches on. 512 is deliberately far past the 70 observed rather than tight
-around it: unlike a dimension value, nothing renders a column type into a document a person or an
-agent reads today (<code>super::Column</code>'s own doc states that), so generosity here costs
-store-and-forget bytes rather than prompt real estate.</p>
+the load itself never branches on. 512 is deliberately far past the 70 observed rather than tight
+around it: unlike a dimension value, no document a person or an agent reads carries a column
+type except one refusal, a federated join across kinds, which quotes it as
+<code>QuotedColumnType</code> - so generosity here costs store-and-forget bytes and, in that one refusal, text
+of at most this many characters BEFORE escaping (the quoted form is longer by its escapes).</p>
 <h3 id="use-max_description_bytes"><code>use MAX_DESCRIPTION_BYTES</code><a class="headerlink" href="#use-max_description_bytes" title="Permanent link">&para;</a></h3>
 <p>The longest description, in bytes.</p>
 <p><strong>The same number as <code>crate::knowledge::MAX_NOTE_BODY_BYTES</code>, because it is the same
@@ -8483,82 +8485,114 @@ use sutura_domain::warehouse::ParamValue;</p>
 </span><span id="__span-422-260"><a id="__codelineno-422-260" name="__codelineno-422-260" href="#__codelineno-422-260"></a>`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
 </span><span id="__span-422-261"><a id="__codelineno-422-261" name="__codelineno-422-261" href="#__codelineno-422-261"></a>`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 </span><span id="__span-422-262"><a id="__codelineno-422-262" name="__codelineno-422-262" href="#__codelineno-422-262"></a>
-</span><span id="__span-422-263"><a id="__codelineno-422-263" name="__codelineno-422-263" href="#__codelineno-422-263"></a>### `use labels`
+</span><span id="__span-422-263"><a id="__codelineno-422-263" name="__codelineno-422-263" href="#__codelineno-422-263"></a>### `use LinkKind`
 </span><span id="__span-422-264"><a id="__codelineno-422-264" name="__codelineno-422-264" href="#__codelineno-422-264"></a>
-</span><span id="__span-422-265"><a id="__codelineno-422-265" name="__codelineno-422-265" href="#__codelineno-422-265"></a>The one definition of what a carried leaf is projected under.
+</span><span id="__span-422-265"><a id="__codelineno-422-265" name="__codelineno-422-265" href="#__codelineno-422-265"></a>What equality over a link column means, once a type that cannot carry one exactly is refused.
 </span><span id="__span-422-266"><a id="__codelineno-422-266" name="__codelineno-422-266" href="#__codelineno-422-266"></a>
-</span><span id="__span-422-267"><a id="__codelineno-422-267" name="__codelineno-422-267" href="#__codelineno-422-267"></a>The splitter and the combiner both call this, so the column the combiner reads a leaf from and
-</span><span id="__span-422-268"><a id="__codelineno-422-268" name="__codelineno-422-268" href="#__codelineno-422-268"></a>the label the splitter projected it under cannot disagree - there is no second copy of the rule.
-</span><span id="__span-422-269"><a id="__codelineno-422-269" name="__codelineno-422-269" href="#__codelineno-422-269"></a>
-</span><span id="__span-422-270"><a id="__codelineno-422-270" name="__codelineno-422-270" href="#__codelineno-422-270"></a>**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
-</span><span id="__span-422-271"><a id="__codelineno-422-271" name="__codelineno-422-271" href="#__codelineno-422-271"></a>function twice, so naming by aggregate would give both leaves one label and a combine that
-</span><span id="__span-422-272"><a id="__codelineno-422-272" name="__codelineno-422-272" href="#__codelineno-422-272"></a>divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
-</span><span id="__span-422-273"><a id="__codelineno-422-273" name="__codelineno-422-273" href="#__codelineno-422-273"></a>metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
-</span><span id="__span-422-274"><a id="__codelineno-422-274" name="__codelineno-422-274" href="#__codelineno-422-274"></a>under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
-</span><span id="__span-422-275"><a id="__codelineno-422-275" name="__codelineno-422-275" href="#__codelineno-422-275"></a>
-</span><span id="__span-422-276"><a id="__codelineno-422-276" name="__codelineno-422-276" href="#__codelineno-422-276"></a>### `use NothingCombined`
+</span><span id="__span-422-267"><a id="__codelineno-422-267" name="__codelineno-422-267" href="#__codelineno-422-267"></a>**Kinds rather than types, and the reason is that the interior's own row builder may give two
+</span><span id="__span-422-268"><a id="__codelineno-422-268" name="__codelineno-422-268" href="#__codelineno-422-268"></a>legs different types for one logical column.** A leg whose link values all fit an `i64` comes
+</span><span id="__span-422-269"><a id="__codelineno-422-269" name="__codelineno-422-269" href="#__codelineno-422-269"></a>back `Int64`; one whose column mixes a fitting value with exact integral text comes back
+</span><span id="__span-422-270"><a id="__codelineno-422-270" name="__codelineno-422-270" href="#__codelineno-422-270"></a>`Decimal128(38, 0)`. Both are exact integers and `DataFusion`'s comparison coercion joins them
+</span><span id="__span-422-271"><a id="__codelineno-422-271" name="__codelineno-422-271" href="#__codelineno-422-271"></a>correctly, so requiring the two types to be EQUAL would refuse a legal pair.
+</span><span id="__span-422-272"><a id="__codelineno-422-272" name="__codelineno-422-272" href="#__codelineno-422-272"></a>
+</span><span id="__span-422-273"><a id="__codelineno-422-273" name="__codelineno-422-273" href="#__codelineno-422-273"></a>What it must still refuse is a join across kinds - `telekom/sutura#138`: an integer column
+</span><span id="__span-422-274"><a id="__codelineno-422-274" name="__codelineno-422-274" href="#__codelineno-422-274"></a>against a text column misses on every row by construction, and the hand-written combine returned
+</span><span id="__span-422-275"><a id="__codelineno-422-275" name="__codelineno-422-275" href="#__codelineno-422-275"></a>that silently as an empty inner answer or a left answer whose every fact row had a null remote
+</span><span id="__span-422-276"><a id="__codelineno-422-276" name="__codelineno-422-276" href="#__codelineno-422-276"></a>side.
 </span><span id="__span-422-277"><a id="__codelineno-422-277" name="__codelineno-422-277" href="#__codelineno-422-277"></a>
-</span><span id="__span-422-278"><a id="__codelineno-422-278" name="__codelineno-422-278" href="#__codelineno-422-278"></a>What `RefusingCombiner` answers with.
+</span><span id="__span-422-278"><a id="__codelineno-422-278" name="__codelineno-422-278" href="#__codelineno-422-278"></a>### `use QuotedColumnType`
 </span><span id="__span-422-279"><a id="__codelineno-422-279" name="__codelineno-422-279" href="#__codelineno-422-279"></a>
-</span><span id="__span-422-280"><a id="__codelineno-422-280" name="__codelineno-422-280" href="#__codelineno-422-280"></a>### `use RefusingCombiner`
+</span><span id="__span-422-280"><a id="__codelineno-422-280" name="__codelineno-422-280" href="#__codelineno-422-280"></a>A declared column type, quoted and escaped so a refusal may carry it.
 </span><span id="__span-422-281"><a id="__codelineno-422-281" name="__codelineno-422-281" href="#__codelineno-422-281"></a>
-</span><span id="__span-422-282"><a id="__codelineno-422-282" name="__codelineno-422-282" href="#__codelineno-422-282"></a>A combiner that answers nothing, for a transport's own tests.
-</span><span id="__span-422-283"><a id="__codelineno-422-283" name="__codelineno-422-283" href="#__codelineno-422-283"></a>
-</span><span id="__span-422-284"><a id="__codelineno-422-284" name="__codelineno-422-284" href="#__codelineno-422-284"></a>**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
-</span><span id="__span-422-285"><a id="__codelineno-422-285" name="__codelineno-422-285" href="#__codelineno-422-285"></a>exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
-</span><span id="__span-422-286"><a id="__codelineno-422-286" name="__codelineno-422-286" href="#__codelineno-422-286"></a>routing, credentials and refusal shapes, and a service takes a combiner: without this, each
-</span><span id="__span-422-287"><a id="__codelineno-422-287" name="__codelineno-422-287" href="#__codelineno-422-287"></a>transport would write its own, and two copies of a fake are two things to keep in step.
-</span><span id="__span-422-288"><a id="__codelineno-422-288" name="__codelineno-422-288" href="#__codelineno-422-288"></a>
-</span><span id="__span-422-289"><a id="__codelineno-422-289" name="__codelineno-422-289" href="#__codelineno-422-289"></a>**Refusing rather than answering, and that is the honest fake for its callers.** No transport
-</span><span id="__span-422-290"><a id="__codelineno-422-290" name="__codelineno-422-290" href="#__codelineno-422-290"></a>test asks a two-source question - the adapters those suites register are mono fakes - so a
-</span><span id="__span-422-291"><a id="__codelineno-422-291" name="__codelineno-422-291" href="#__codelineno-422-291"></a>combiner that produced rows would be inventing an answer nothing reads. A combine that is
-</span><span id="__span-422-292"><a id="__codelineno-422-292" name="__codelineno-422-292" href="#__codelineno-422-292"></a>reached through this fake is a test that has drifted into the federated path, and it fails
-</span><span id="__span-422-293"><a id="__codelineno-422-293" name="__codelineno-422-293" href="#__codelineno-422-293"></a>loudly rather than passing over a fabricated number.
+</span><span id="__span-422-282"><a id="__codelineno-422-282" name="__codelineno-422-282" href="#__codelineno-422-282"></a>**A source's own dictionary supplied the text**, a catalog adapter read it off a platform nobody
+</span><span id="__span-422-283"><a id="__codelineno-422-283" name="__codelineno-422-283" href="#__codelineno-422-283"></a>here controls, and a refusal reaches a log, a person and an agent's context. So it is never
+</span><span id="__span-422-284"><a id="__codelineno-422-284" name="__codelineno-422-284" href="#__codelineno-422-284"></a>carried raw: the only way to build one is `From&lt;&amp;ColumnType&gt;`, which writes it as a quoted
+</span><span id="__span-422-285"><a id="__codelineno-422-285" name="__codelineno-422-285" href="#__codelineno-422-285"></a>literal with every quote, backslash and non-printing character escaped, and the field cannot be
+</span><span id="__span-422-286"><a id="__codelineno-422-286" name="__codelineno-422-286" href="#__codelineno-422-286"></a>reached any other way. The quoting is the standard library's `{:?}` over a string, the one
+</span><span id="__span-422-287"><a id="__codelineno-422-287" name="__codelineno-422-287" href="#__codelineno-422-287"></a>`InvalidColumnType` already gives a value in its own
+</span><span id="__span-422-288"><a id="__codelineno-422-288" name="__codelineno-422-288" href="#__codelineno-422-288"></a>messages.
+</span><span id="__span-422-289"><a id="__codelineno-422-289" name="__codelineno-422-289" href="#__codelineno-422-289"></a>
+</span><span id="__span-422-290"><a id="__codelineno-422-290" name="__codelineno-422-290" href="#__codelineno-422-290"></a>**What this does and does not bound.** A quoted type cannot close its own quotes or break a line,
+</span><span id="__span-422-291"><a id="__codelineno-422-291" name="__codelineno-422-291" href="#__codelineno-422-291"></a>so it stays one delimited span inside a sentence. It does not make the words inside it benign: a
+</span><span id="__span-422-292"><a id="__codelineno-422-292" name="__codelineno-422-292" href="#__codelineno-422-292"></a>type may still read like an instruction to a model, and is at most
+</span><span id="__span-422-293"><a id="__codelineno-422-293" name="__codelineno-422-293" href="#__codelineno-422-293"></a>`MAX_COLUMN_TYPE_CHARS` characters before escaping.
 </span><span id="__span-422-294"><a id="__codelineno-422-294" name="__codelineno-422-294" href="#__codelineno-422-294"></a>
-</span><span id="__span-422-295"><a id="__codelineno-422-295" name="__codelineno-422-295" href="#__codelineno-422-295"></a>Behind `fixtures`, so nothing published holds it.
+</span><span id="__span-422-295"><a id="__codelineno-422-295" name="__codelineno-422-295" href="#__codelineno-422-295"></a>### `use labels`
 </span><span id="__span-422-296"><a id="__codelineno-422-296" name="__codelineno-422-296" href="#__codelineno-422-296"></a>
-</span><span id="__span-422-297"><a id="__codelineno-422-297" name="__codelineno-422-297" href="#__codelineno-422-297"></a>### `use ResultLabel`
+</span><span id="__span-422-297"><a id="__codelineno-422-297" name="__codelineno-422-297" href="#__codelineno-422-297"></a>The one definition of what a carried leaf is projected under.
 </span><span id="__span-422-298"><a id="__codelineno-422-298" name="__codelineno-422-298" href="#__codelineno-422-298"></a>
-</span><span id="__span-422-299"><a id="__codelineno-422-299" name="__codelineno-422-299" href="#__codelineno-422-299"></a>The label one column of a result carries, which can only be built out of something already
-</span><span id="__span-422-300"><a id="__codelineno-422-300" name="__codelineno-422-300" href="#__codelineno-422-300"></a>parsed.
+</span><span id="__span-422-299"><a id="__codelineno-422-299" name="__codelineno-422-299" href="#__codelineno-422-299"></a>The splitter and the combiner both call this, so the column the combiner reads a leaf from and
+</span><span id="__span-422-300"><a id="__codelineno-422-300" name="__codelineno-422-300" href="#__codelineno-422-300"></a>the label the splitter projected it under cannot disagree - there is no second copy of the rule.
 </span><span id="__span-422-301"><a id="__codelineno-422-301" name="__codelineno-422-301" href="#__codelineno-422-301"></a>
-</span><span id="__span-422-302"><a id="__codelineno-422-302" name="__codelineno-422-302" href="#__codelineno-422-302"></a>**The half of the labelling scheme that used to be held by review.** A federated leg's result
-</span><span id="__span-422-303"><a id="__codelineno-422-303" name="__codelineno-422-303" href="#__codelineno-422-303"></a>carries two kinds of label in one namespace. The internal kind is
-</span><span id="__span-422-304"><a id="__codelineno-422-304" name="__codelineno-422-304" href="#__codelineno-422-304"></a>`InternalLabel`, a type: every rendering starts with a digit, and
-</span><span id="__span-422-305"><a id="__codelineno-422-305" name="__codelineno-422-305" href="#__codelineno-422-305"></a>`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
-</span><span id="__span-422-306"><a id="__codelineno-422-306" name="__codelineno-422-306" href="#__codelineno-422-306"></a>`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
-</span><span id="__span-422-307"><a id="__codelineno-422-307" name="__codelineno-422-307" href="#__codelineno-422-307"></a>a `String` on `PlanKey` and `LegTerm`, and what
-</span><span id="__span-422-308"><a id="__codelineno-422-308" name="__codelineno-422-308" href="#__codelineno-422-308"></a>kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
-</span><span id="__span-422-309"><a id="__codelineno-422-309" name="__codelineno-422-309" href="#__codelineno-422-309"></a>derive every one of them from a dimension name, a metric name or
-</span><span id="__span-422-310"><a id="__codelineno-422-310" name="__codelineno-422-310" href="#__codelineno-422-310"></a>`TIME_BUCKET_LABEL` - a derivation held by review, and by no
-</span><span id="__span-422-311"><a id="__codelineno-422-311" name="__codelineno-422-311" href="#__codelineno-422-311"></a>test. `telekom/sutura#337` is the report.
-</span><span id="__span-422-312"><a id="__codelineno-422-312" name="__codelineno-422-312" href="#__codelineno-422-312"></a>
-</span><span id="__span-422-313"><a id="__codelineno-422-313" name="__codelineno-422-313" href="#__codelineno-422-313"></a>This type is the other half. There is no constructor taking text, so the four functions below are
-</span><span id="__span-422-314"><a id="__codelineno-422-314" name="__codelineno-422-314" href="#__codelineno-422-314"></a>the whole of what a label can come from, and a computed string is not one of them. That turns
-</span><span id="__span-422-315"><a id="__codelineno-422-315" name="__codelineno-422-315" href="#__codelineno-422-315"></a>*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
-</span><span id="__span-422-316"><a id="__codelineno-422-316" name="__codelineno-422-316" href="#__codelineno-422-316"></a>version of the same argument and the one the leading digit was chosen to support.
-</span><span id="__span-422-317"><a id="__codelineno-422-317" name="__codelineno-422-317" href="#__codelineno-422-317"></a>
-</span><span id="__span-422-318"><a id="__codelineno-422-318" name="__codelineno-422-318" href="#__codelineno-422-318"></a>**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
-</span><span id="__span-422-319"><a id="__codelineno-422-319" name="__codelineno-422-319" href="#__codelineno-422-319"></a>enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&amp;'static
-</span><span id="__span-422-320"><a id="__codelineno-422-320" name="__codelineno-422-320" href="#__codelineno-422-320"></a>str` rendering to hand out - the position is formatted - so `label()` would return a
-</span><span id="__span-422-321"><a id="__codelineno-422-321" name="__codelineno-422-321" href="#__codelineno-422-321"></a>`Cow` and the five alias call sites in `sutura_sql::generate` would change
-</span><span id="__span-422-322"><a id="__codelineno-422-322" name="__codelineno-422-322" href="#__codelineno-422-322"></a>with it. Measured, not assumed: `aliased(inner: Expr, label: &amp;str)` is called five times there,
-</span><span id="__span-422-323"><a id="__codelineno-422-323" name="__codelineno-422-323" href="#__codelineno-422-323"></a>once per projected column shape. So the rendering is stored and the four constructors are the
-</span><span id="__span-422-324"><a id="__codelineno-422-324" name="__codelineno-422-324" href="#__codelineno-422-324"></a>gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
-</span><span id="__span-422-325"><a id="__codelineno-422-325" name="__codelineno-422-325" href="#__codelineno-422-325"></a>from the value, because nothing reads it back - what the type buys is that the TEXT can only come
-</span><span id="__span-422-326"><a id="__codelineno-422-326" name="__codelineno-422-326" href="#__codelineno-422-326"></a>from one of them.
-</span><span id="__span-422-327"><a id="__codelineno-422-327" name="__codelineno-422-327" href="#__codelineno-422-327"></a>
-</span><span id="__span-422-328"><a id="__codelineno-422-328" name="__codelineno-422-328" href="#__codelineno-422-328"></a>A computed string is not a label, and that is a compile error rather than a review finding:
-</span><span id="__span-422-329"><a id="__codelineno-422-329" name="__codelineno-422-329" href="#__codelineno-422-329"></a>
-</span><span id="__span-422-330"><a id="__codelineno-422-330" name="__codelineno-422-330" href="#__codelineno-422-330"></a>```compile_fail
-</span><span id="__span-422-331"><a id="__codelineno-422-331" name="__codelineno-422-331" href="#__codelineno-422-331"></a>use sutura_domain::model::{ColumnName, TableName};
-</span><span id="__span-422-332"><a id="__codelineno-422-332" name="__codelineno-422-332" href="#__codelineno-422-332"></a>use sutura_domain::plan::{PlanColumn, PlanKey};
+</span><span id="__span-422-302"><a id="__codelineno-422-302" name="__codelineno-422-302" href="#__codelineno-422-302"></a>**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
+</span><span id="__span-422-303"><a id="__codelineno-422-303" name="__codelineno-422-303" href="#__codelineno-422-303"></a>function twice, so naming by aggregate would give both leaves one label and a combine that
+</span><span id="__span-422-304"><a id="__codelineno-422-304" name="__codelineno-422-304" href="#__codelineno-422-304"></a>divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
+</span><span id="__span-422-305"><a id="__codelineno-422-305" name="__codelineno-422-305" href="#__codelineno-422-305"></a>metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
+</span><span id="__span-422-306"><a id="__codelineno-422-306" name="__codelineno-422-306" href="#__codelineno-422-306"></a>under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+</span><span id="__span-422-307"><a id="__codelineno-422-307" name="__codelineno-422-307" href="#__codelineno-422-307"></a>
+</span><span id="__span-422-308"><a id="__codelineno-422-308" name="__codelineno-422-308" href="#__codelineno-422-308"></a>### `use NothingCombined`
+</span><span id="__span-422-309"><a id="__codelineno-422-309" name="__codelineno-422-309" href="#__codelineno-422-309"></a>
+</span><span id="__span-422-310"><a id="__codelineno-422-310" name="__codelineno-422-310" href="#__codelineno-422-310"></a>What `RefusingCombiner` answers with.
+</span><span id="__span-422-311"><a id="__codelineno-422-311" name="__codelineno-422-311" href="#__codelineno-422-311"></a>
+</span><span id="__span-422-312"><a id="__codelineno-422-312" name="__codelineno-422-312" href="#__codelineno-422-312"></a>### `use RefusingCombiner`
+</span><span id="__span-422-313"><a id="__codelineno-422-313" name="__codelineno-422-313" href="#__codelineno-422-313"></a>
+</span><span id="__span-422-314"><a id="__codelineno-422-314" name="__codelineno-422-314" href="#__codelineno-422-314"></a>A combiner that answers nothing, for a transport's own tests.
+</span><span id="__span-422-315"><a id="__codelineno-422-315" name="__codelineno-422-315" href="#__codelineno-422-315"></a>
+</span><span id="__span-422-316"><a id="__codelineno-422-316" name="__codelineno-422-316" href="#__codelineno-422-316"></a>**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+</span><span id="__span-422-317"><a id="__codelineno-422-317" name="__codelineno-422-317" href="#__codelineno-422-317"></a>exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+</span><span id="__span-422-318"><a id="__codelineno-422-318" name="__codelineno-422-318" href="#__codelineno-422-318"></a>routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+</span><span id="__span-422-319"><a id="__codelineno-422-319" name="__codelineno-422-319" href="#__codelineno-422-319"></a>transport would write its own, and two copies of a fake are two things to keep in step.
+</span><span id="__span-422-320"><a id="__codelineno-422-320" name="__codelineno-422-320" href="#__codelineno-422-320"></a>
+</span><span id="__span-422-321"><a id="__codelineno-422-321" name="__codelineno-422-321" href="#__codelineno-422-321"></a>**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+</span><span id="__span-422-322"><a id="__codelineno-422-322" name="__codelineno-422-322" href="#__codelineno-422-322"></a>test asks a two-source question - the adapters those suites register are mono fakes - so a
+</span><span id="__span-422-323"><a id="__codelineno-422-323" name="__codelineno-422-323" href="#__codelineno-422-323"></a>combiner that produced rows would be inventing an answer nothing reads. A combine that is
+</span><span id="__span-422-324"><a id="__codelineno-422-324" name="__codelineno-422-324" href="#__codelineno-422-324"></a>reached through this fake is a test that has drifted into the federated path, and it fails
+</span><span id="__span-422-325"><a id="__codelineno-422-325" name="__codelineno-422-325" href="#__codelineno-422-325"></a>loudly rather than passing over a fabricated number.
+</span><span id="__span-422-326"><a id="__codelineno-422-326" name="__codelineno-422-326" href="#__codelineno-422-326"></a>
+</span><span id="__span-422-327"><a id="__codelineno-422-327" name="__codelineno-422-327" href="#__codelineno-422-327"></a>Behind `fixtures`, so nothing published holds it.
+</span><span id="__span-422-328"><a id="__codelineno-422-328" name="__codelineno-422-328" href="#__codelineno-422-328"></a>
+</span><span id="__span-422-329"><a id="__codelineno-422-329" name="__codelineno-422-329" href="#__codelineno-422-329"></a>### `use ResultLabel`
+</span><span id="__span-422-330"><a id="__codelineno-422-330" name="__codelineno-422-330" href="#__codelineno-422-330"></a>
+</span><span id="__span-422-331"><a id="__codelineno-422-331" name="__codelineno-422-331" href="#__codelineno-422-331"></a>The label one column of a result carries, which can only be built out of something already
+</span><span id="__span-422-332"><a id="__codelineno-422-332" name="__codelineno-422-332" href="#__codelineno-422-332"></a>parsed.
 </span><span id="__span-422-333"><a id="__codelineno-422-333" name="__codelineno-422-333" href="#__codelineno-422-333"></a>
-</span><span id="__span-422-334"><a id="__codelineno-422-334" name="__codelineno-422-334" href="#__codelineno-422-334"></a>// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
-</span><span id="__span-422-335"><a id="__codelineno-422-335" name="__codelineno-422-335" href="#__codelineno-422-335"></a>// string that lands in the internal namespace.
-</span><span id="__span-422-336"><a id="__codelineno-422-336" name="__codelineno-422-336" href="#__codelineno-422-336"></a>fn _computed(table: TableName, column: ColumnName, leaf: usize) -&gt; PlanKey {
-</span><span id="__span-422-337"><a id="__codelineno-422-337" name="__codelineno-422-337" href="#__codelineno-422-337"></a>    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
-</span><span id="__span-422-338"><a id="__codelineno-422-338" name="__codelineno-422-338" href="#__codelineno-422-338"></a>}
+</span><span id="__span-422-334"><a id="__codelineno-422-334" name="__codelineno-422-334" href="#__codelineno-422-334"></a>**The half of the labelling scheme that used to be held by review.** A federated leg's result
+</span><span id="__span-422-335"><a id="__codelineno-422-335" name="__codelineno-422-335" href="#__codelineno-422-335"></a>carries two kinds of label in one namespace. The internal kind is
+</span><span id="__span-422-336"><a id="__codelineno-422-336" name="__codelineno-422-336" href="#__codelineno-422-336"></a>`InternalLabel`, a type: every rendering starts with a digit, and
+</span><span id="__span-422-337"><a id="__codelineno-422-337" name="__codelineno-422-337" href="#__codelineno-422-337"></a>`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
+</span><span id="__span-422-338"><a id="__codelineno-422-338" name="__codelineno-422-338" href="#__codelineno-422-338"></a>`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
+</span><span id="__span-422-339"><a id="__codelineno-422-339" name="__codelineno-422-339" href="#__codelineno-422-339"></a>a `String` on `PlanKey` and `LegTerm`, and what
+</span><span id="__span-422-340"><a id="__codelineno-422-340" name="__codelineno-422-340" href="#__codelineno-422-340"></a>kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
+</span><span id="__span-422-341"><a id="__codelineno-422-341" name="__codelineno-422-341" href="#__codelineno-422-341"></a>derive every one of them from a dimension name, a metric name or
+</span><span id="__span-422-342"><a id="__codelineno-422-342" name="__codelineno-422-342" href="#__codelineno-422-342"></a>`TIME_BUCKET_LABEL` - a derivation held by review, and by no
+</span><span id="__span-422-343"><a id="__codelineno-422-343" name="__codelineno-422-343" href="#__codelineno-422-343"></a>test. `telekom/sutura#337` is the report.
+</span><span id="__span-422-344"><a id="__codelineno-422-344" name="__codelineno-422-344" href="#__codelineno-422-344"></a>
+</span><span id="__span-422-345"><a id="__codelineno-422-345" name="__codelineno-422-345" href="#__codelineno-422-345"></a>This type is the other half. There is no constructor taking text, so the four functions below are
+</span><span id="__span-422-346"><a id="__codelineno-422-346" name="__codelineno-422-346" href="#__codelineno-422-346"></a>the whole of what a label can come from, and a computed string is not one of them. That turns
+</span><span id="__span-422-347"><a id="__codelineno-422-347" name="__codelineno-422-347" href="#__codelineno-422-347"></a>*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
+</span><span id="__span-422-348"><a id="__codelineno-422-348" name="__codelineno-422-348" href="#__codelineno-422-348"></a>version of the same argument and the one the leading digit was chosen to support.
+</span><span id="__span-422-349"><a id="__codelineno-422-349" name="__codelineno-422-349" href="#__codelineno-422-349"></a>
+</span><span id="__span-422-350"><a id="__codelineno-422-350" name="__codelineno-422-350" href="#__codelineno-422-350"></a>**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
+</span><span id="__span-422-351"><a id="__codelineno-422-351" name="__codelineno-422-351" href="#__codelineno-422-351"></a>enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&amp;'static
+</span><span id="__span-422-352"><a id="__codelineno-422-352" name="__codelineno-422-352" href="#__codelineno-422-352"></a>str` rendering to hand out - the position is formatted - so `label()` would return a
+</span><span id="__span-422-353"><a id="__codelineno-422-353" name="__codelineno-422-353" href="#__codelineno-422-353"></a>`Cow` and the five alias call sites in `sutura_sql::generate` would change
+</span><span id="__span-422-354"><a id="__codelineno-422-354" name="__codelineno-422-354" href="#__codelineno-422-354"></a>with it. Measured, not assumed: `aliased(inner: Expr, label: &amp;str)` is called five times there,
+</span><span id="__span-422-355"><a id="__codelineno-422-355" name="__codelineno-422-355" href="#__codelineno-422-355"></a>once per projected column shape. So the rendering is stored and the four constructors are the
+</span><span id="__span-422-356"><a id="__codelineno-422-356" name="__codelineno-422-356" href="#__codelineno-422-356"></a>gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
+</span><span id="__span-422-357"><a id="__codelineno-422-357" name="__codelineno-422-357" href="#__codelineno-422-357"></a>from the value, because nothing reads it back - what the type buys is that the TEXT can only come
+</span><span id="__span-422-358"><a id="__codelineno-422-358" name="__codelineno-422-358" href="#__codelineno-422-358"></a>from one of them.
+</span><span id="__span-422-359"><a id="__codelineno-422-359" name="__codelineno-422-359" href="#__codelineno-422-359"></a>
+</span><span id="__span-422-360"><a id="__codelineno-422-360" name="__codelineno-422-360" href="#__codelineno-422-360"></a>A computed string is not a label, and that is a compile error rather than a review finding:
+</span><span id="__span-422-361"><a id="__codelineno-422-361" name="__codelineno-422-361" href="#__codelineno-422-361"></a>
+</span><span id="__span-422-362"><a id="__codelineno-422-362" name="__codelineno-422-362" href="#__codelineno-422-362"></a>```compile_fail
+</span><span id="__span-422-363"><a id="__codelineno-422-363" name="__codelineno-422-363" href="#__codelineno-422-363"></a>use sutura_domain::model::{ColumnName, TableName};
+</span><span id="__span-422-364"><a id="__codelineno-422-364" name="__codelineno-422-364" href="#__codelineno-422-364"></a>use sutura_domain::plan::{PlanColumn, PlanKey};
+</span><span id="__span-422-365"><a id="__codelineno-422-365" name="__codelineno-422-365" href="#__codelineno-422-365"></a>
+</span><span id="__span-422-366"><a id="__codelineno-422-366" name="__codelineno-422-366" href="#__codelineno-422-366"></a>// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
+</span><span id="__span-422-367"><a id="__codelineno-422-367" name="__codelineno-422-367" href="#__codelineno-422-367"></a>// string that lands in the internal namespace.
+</span><span id="__span-422-368"><a id="__codelineno-422-368" name="__codelineno-422-368" href="#__codelineno-422-368"></a>fn _computed(table: TableName, column: ColumnName, leaf: usize) -&gt; PlanKey {
+</span><span id="__span-422-369"><a id="__codelineno-422-369" name="__codelineno-422-369" href="#__codelineno-422-369"></a>    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
+</span><span id="__span-422-370"><a id="__codelineno-422-370" name="__codelineno-422-370" href="#__codelineno-422-370"></a>}
 </span></code></pre></div></p>
 <p>And the twin, so a rename cannot make that block pass vacuously:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-423-1"><a id="__codelineno-423-1" name="__codelineno-423-1" href="#__codelineno-423-1"></a>use sutura_domain::model::{ColumnName, DimensionName, TableName};
@@ -9393,6 +9427,30 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which <code>FederatedPlan</code>'s <code>measure_label</code> holds.</p>
+<h4 id="use-linkkind"><code>use LinkKind</code><a class="headerlink" href="#use-linkkind" title="Permanent link">&para;</a></h4>
+<p>What equality over a link column means, once a type that cannot carry one exactly is refused.</p>
+<p><strong>Kinds rather than types, and the reason is that the interior's own row builder may give two
+legs different types for one logical column.</strong> A leg whose link values all fit an <code>i64</code> comes
+back <code>Int64</code>; one whose column mixes a fitting value with exact integral text comes back
+<code>Decimal128(38, 0)</code>. Both are exact integers and <code>DataFusion</code>'s comparison coercion joins them
+correctly, so requiring the two types to be EQUAL would refuse a legal pair.</p>
+<p>What it must still refuse is a join across kinds - <code>telekom/sutura#138</code>: an integer column
+against a text column misses on every row by construction, and the hand-written combine returned
+that silently as an empty inner answer or a left answer whose every fact row had a null remote
+side.</p>
+<h4 id="use-quotedcolumntype"><code>use QuotedColumnType</code><a class="headerlink" href="#use-quotedcolumntype" title="Permanent link">&para;</a></h4>
+<p>A declared column type, quoted and escaped so a refusal may carry it.</p>
+<p><strong>A source's own dictionary supplied the text</strong>, a catalog adapter read it off a platform nobody
+here controls, and a refusal reaches a log, a person and an agent's context. So it is never
+carried raw: the only way to build one is <code>From&lt;&amp;ColumnType&gt;</code>, which writes it as a quoted
+literal with every quote, backslash and non-printing character escaped, and the field cannot be
+reached any other way. The quoting is the standard library's <code>{:?}</code> over a string, the one
+<code>InvalidColumnType</code> already gives a value in its own
+messages.</p>
+<p><strong>What this does and does not bound.</strong> A quoted type cannot close its own quotes or break a line,
+so it stays one delimited span inside a sentence. It does not make the words inside it benign: a
+type may still read like an instruction to a model, and is at most
+<code>MAX_COLUMN_TYPE_CHARS</code> characters before escaping.</p>
 <h4 id="module-combiner">Module <code>combiner</code><a class="headerlink" href="#module-combiner" title="Permanent link">&para;</a></h4>
 <p>The second driven port, and the pair of leg results it takes.</p>
 <p>The architecture decision designed it here and recorded that it was not built; step 3 of
@@ -10468,6 +10526,13 @@ somebody else's input.</p>
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+- <code>FederationLinkTypeMismatch</code> - The two columns the crossing relationship joins are declared as different kinds of value.</p>
+<p>Decided from the catalog before either leg runs, and only when BOTH types are declared and
+  BOTH are known: an integer against text can never match, so every row would miss. A type
+  this does not know, or one a catalog leaves undeclared, defers to the combiner's own check
+  over the legs' real schemas (<code>FederatedAnswerNotWellFormed</code>). The types are quoted and
+  escaped, never raw: a source's dictionary supplied them. Not narrowable by the caller: the
+  declared types are the catalog's.
 - <code>FederatedAnswerNotWellFormed</code> - The combiner could not compute the answer as asked, deterministically.</p>
 <p><strong>D19 + A4: this used to have no refusal at all.</strong> A non-finite ratio and a link value
   mapping to more than one lookup row left as <code>ServiceError::Federated</code> and reached a transport
