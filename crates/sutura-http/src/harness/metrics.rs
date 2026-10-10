@@ -15,17 +15,19 @@ use axum::http::StatusCode;
 use sutura_config::Environment;
 use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
-use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::plan::{
+    AnchorPlan, Executable, FederatedAnswerRefusal, FederatedPlan, FederationCombiner, Legs, NothingCombined,
+};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::arrow::of_rows;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 
 use super::{app, metrics_settings, over};
 use crate::testing::{
-    A_QUESTION, ANCHORED_VALUE, CombinesTo, WarehouseThatFailsToExecute, broker, bundle, call, catalog_of, request, sink, source,
-    state_over, two_source_bundle, two_source_leg_warehouses, unanchored_bundle, warehouse_that_answers_past_the_row_cap,
-    warehouse_that_can_be_held,
+    A_QUESTION, ANCHORED_VALUE, WarehouseThatFailsToExecute, broker, bundle, call, catalog_of, request, sink, source, state_over,
+    two_source_bundle, unanchored_bundle, warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
 /// The metrics credential, distinct from the API token, for the cases that configure one.
@@ -507,6 +509,97 @@ async fn an_answer_past_the_row_cap_is_counted_under_result_too_large() {
     );
 }
 
+/// A data system that runs a federated leg and answers one cell, over no data system at all.
+///
+/// `EXECUTES_LEGS` is an associated const of the port, so a fixture that answers `true` is its own
+/// type: the shared fakes decline a leg.
+struct LegWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+}
+
+impl Warehouse for LegWarehouse {
+    type Error = Infallible;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(crate::testing::canned(&self.result))
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+/// `two_source_bundle`'s two sources, each a [`LegWarehouse`]: the per-leg gate looks a source up
+/// before it asks that source's capability, so one open source would refuse the other first.
+fn leg_warehouses() -> sutura_app::Warehouses<LegWarehouse> {
+    let leg = |source: SourceName| LegWarehouse {
+        source,
+        // The reason text `crate::testing::broker`'s grant carries, as `app_with_a_spend_ceiling` writes it.
+        posture: SourcePosture::SharedServiceUser {
+            declared: SharedIdentityDeclared::of(
+                AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
+                    .expect("a fixture reason is a reason"),
+            ),
+        },
+        result: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+            .expect("a one-cell result is a result set"),
+    };
+    sutura_app::Warehouses::of(leg(source()))
+        .and(leg(SourceName::parse("elsewhere").expect("a test source is a source")))
+        .expect("two distinct sources, one registry")
+}
+
+/// A combiner whose combined answer is `rows` rows of one column, whatever the legs returned.
+///
+/// A fake over the port, never a mocked engine: it is what lets a transport test reach the federated
+/// bounds `RefusingCombiner` is built to keep it away from.
+struct CombinesTo(usize);
+
+impl FederationCombiner for CombinesTo {
+    type Error = NothingCombined;
+
+    fn combine(&self, _plan: &FederatedPlan, _legs: Legs<'_>, _working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
+        let columns = [String::from("revenue")];
+        // A one-column answer is always well formed, so `NothingCombined` is the arm nothing reaches.
+        of_rows(&columns, &vec![vec![Value::Integer(1)]; self.0]).map_err(|_malformed| NothingCombined)
+    }
+
+    fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
+        None
+    }
+
+    fn answer_not_well_formed(&self, _error: &Self::Error) -> Option<FederatedAnswerRefusal> {
+        None
+    }
+}
+
 #[tokio::test]
 async fn a_combined_answer_past_the_federated_row_cap_is_counted_under_result_too_large() {
     // The same refusal reached on the federated path: both legs run, the combiner assembles one row
@@ -515,7 +608,7 @@ async fn a_combined_answer_past_the_federated_row_cap_is_counted_under_result_to
     let rows = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the row cap fits a usize") + 1;
     let service = crate::surface::LocalService::start(
         &catalog_of(two_source_bundle()),
-        two_source_leg_warehouses(),
+        leg_warehouses(),
         sink(),
         broker(),
         CombinesTo(rows),

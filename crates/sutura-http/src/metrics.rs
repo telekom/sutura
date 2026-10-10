@@ -80,10 +80,10 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
 ///
 /// The value a refusal is counted under is the `&'static str` the wire body already carries, so the
 /// transport spells no second mapping; this is only the registration list, which the registry needs
-/// whole at boot. `every_refusal_code_is_a_declared_reason_label` holds it equal to the wire table's
-/// codes in both directions, so a variant added without a label here fails a test rather than
-/// counting nowhere (the registry ignores an unregistered key).
-pub(crate) const REFUSAL_REASONS: &[Label] = &[
+/// whole at boot. `every_refusal_code_is_a_declared_reason_label` holds every code the wire table
+/// lists in it, so a variant added without a label here fails a test rather than counting nowhere
+/// (the registry ignores an unregistered key).
+const REFUSAL_REASONS: &[Label] = &[
     label("budget_exhausted"),
     label("credential_unavailable"),
     label("cross_model_ratio_spans_sources"),
