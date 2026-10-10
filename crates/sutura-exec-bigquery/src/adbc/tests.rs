@@ -210,6 +210,25 @@ fn the_listing_this_transport_cannot_do_is_not_an_authorization_refusal() {
 }
 
 #[test]
+fn a_caller_whose_principal_holds_no_grant_is_refused_by_the_source_and_not_retried() {
+    // A caller with no grant on the dataset: BigQuery answers `accessDenied`, which the pinned
+    // driver gives the status `Unauthorized`. That reaches the caller as `source_refused`, never as
+    // a `503` that invites a retry. The control is a dropped connection, which a retry may answer.
+    let endpoint = endpoint(Impersonation::Disabled);
+    let refused = AdbcError::Adbc(super::DriverMessage::of(&adbc_core::error::Error::with_message_and_status(
+        "[bq] Could not run query: accessDenied: Access Denied: User does not have permission to query table",
+        adbc_core::error::Status::Unauthorized,
+    )));
+    assert!(endpoint.job_was_refused(&refused), "{refused:?}");
+    let dropped = AdbcError::Adbc(super::DriverMessage::of(&adbc_core::error::Error::with_message_and_status(
+        "[bq] Could not run query: connection reset by peer",
+        adbc_core::error::Status::IO,
+    )));
+    assert!(!endpoint.job_was_refused(&dropped), "{dropped:?}");
+    assert!(!endpoint.job_was_refused(&AdbcError::NoDryRun));
+}
+
+#[test]
 fn only_a_declined_dry_run_reads_as_one_and_the_listing_it_cannot_do_does_not() {
     // **The refusal `declined_to_dry_run` turns into an answer, and its control.** Until that
     // predicate existed, `validate`'s `Err` made every question against a configured ADBC source a
