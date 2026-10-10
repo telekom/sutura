@@ -62,6 +62,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         client_certificate: None,
         client_key: None,
         impersonate: None,
+        subjects: None,
     }
 }
 
@@ -429,6 +430,7 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         client_certificate: None,
         client_key: None,
         impersonate: None,
+        subjects: None,
     }
 }
 

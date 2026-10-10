@@ -60,9 +60,9 @@ mod tests {
     #[cfg(feature = "oracle")]
     use crate::serve::ENGINE_SOURCE;
     use crate::serve::open_engine;
-    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
     #[cfg(feature = "oracle")]
-    use crate::serve::tests::{entry, wif};
+    use crate::serve::tests::entry;
+    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
 
     /// One `oracle` entry whose password file is not there, so a refusal naming that key is proof
     /// the composition reached the credential step - and dialled nothing.
@@ -113,36 +113,27 @@ mod tests {
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
-    /// **The refusal `github.com/telekom/sutura#127` names as having no cell.** `OracleWarehouse::
-    /// IMPERSONATION` is `NoPlaceForASubject`, so an `impersonation-at-source` entry fails
-    /// `SourcePosture::deliverable_by` - before the password file is read and before anything is
-    /// dialled - and the refusal carries `crate::oracle`'s own sentence saying no build delivers it.
+    /// **An impersonating source passes the posture cross-check.** Declared with its `subjects`
+    /// over `verified`, it stops at its own password file - before anything is dialled.
     #[test]
     #[cfg(feature = "oracle")]
-    fn an_oracle_source_declared_to_impersonate_does_not_boot() {
+    fn an_impersonating_oracle_source_reaches_the_password_file_the_deployment_declared() {
+        let entry = "  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+                     service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    \
+                     password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
+                     transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
+                     posture: \"impersonation-at-source\"\n    subjects: [\"analyst-a@example.com\"]\n";
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(&oracle_entry("warehouse", "impersonation-at-source", wif())),
+                &registry(entry),
                 one_worker(),
                 default_timeout(),
                 None,
             ),
-            "an impersonating posture with nowhere for a subject's credential to arrive must not start",
+            "the declared password file is not there, so this deployment does not start",
         );
-        assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-        assert!(
-            error.contains("no per-subject path in this repository yet"),
-            "the refusal must say no build delivers it, not that another build can: {error}"
-        );
-        assert!(
-            !error.contains("--features oracle"),
-            "this build DID link the adapter: {error}"
-        );
-        assert!(
-            !error.contains("password_file"),
-            "the capability cross-check fires before the password file is read: {error}"
-        );
+        assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
     /// The mixed registry's `oracle` group: the `files` half opens, then the Oracle half is refused
@@ -281,5 +272,54 @@ mod tests {
         let _ignored = std::fs::remove_dir_all(&directory);
         assert!(plaintext.contains("unknown packet type 3"), "{plaintext}");
         assert!(!verified.contains("unknown packet type 3"), "{verified}");
+    }
+
+    /// **The broker serves an impersonating source through its declared subjects**: a declared
+    /// subject is presented their own assertion, with no principal beside it, and anyone else is
+    /// refused rather than answered on the boot session.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn the_broker_presents_a_declared_subjects_own_token_and_refuses_an_undeclared_one() {
+        use sutura_domain::identity::{
+            Agreed, CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+        };
+
+        let entry = "  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+                     service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    \
+                     password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
+                     transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
+                     posture: \"impersonation-at-source\"\n    subjects: [\"analyst-a@example.com\"]\n";
+        let broker = crate::serve::broker::build_broker(&registry(entry), None).expect("the declared subjects build a broker");
+        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let asked = SourceSet::of(at.clone());
+        let ask = |subject: &str| {
+            let chain = PrincipalChain::of(Subject::verified(subject).expect("a test subject"));
+            broker
+                .mint(
+                    &RequestContext::with_assertion(chain, Secret::new(format!("token.for.{subject}")), u64::MAX),
+                    &asked,
+                )
+                .expect("a mint answers")
+        };
+        let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject");
+        let Ok(Agreed::Granted { credentials }) = ask("analyst-a@example.com").agreeing_with(&asked_by, &asked, 0) else {
+            panic!("the declared subject is served");
+        };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a cell asserting WHOSE token the leg carries needs its text"
+        )]
+        let presented = match credentials.presented_for(&at) {
+            Ok(Presented::SubjectToken {
+                material,
+                impersonate: None,
+            }) => String::from(material.expose_secret()),
+            other => panic!("expected the asker's own token and no principal, got {other:?}"),
+        };
+        assert_eq!(presented, "token.for.analyst-a@example.com");
+        assert!(
+            matches!(ask("someone-else@example.com"), Minted::Refused { ref source } if *source == at),
+            "an undeclared subject is refused"
+        );
     }
 }

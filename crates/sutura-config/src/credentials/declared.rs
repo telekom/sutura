@@ -32,6 +32,11 @@
 //! statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
 //! is the key, and an anonymous or undeclared caller is refused exactly as below.
 //!
+//! **An authenticating source is the third** ([`DeclaredPrincipalBroker::authenticating`]): a set
+//! of subjects rather than a map, for a source that opens each request's session with the asker's
+//! own verified assertion and resolves who that is itself - Oracle's token authentication. The leg
+//! carries the assertion with no principal beside it; the same refusals apply.
+//!
 //! # What it refuses, which is the half that matters
 //!
 //! - **A source it holds neither half for** - refused as `credential_unavailable`, so a forgotten
@@ -62,7 +67,7 @@
 //! And nothing here proves Google accepted the assertion or the second hop: that is leg 2, it needs
 //! a hosted run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted, Presented,
@@ -202,6 +207,34 @@ impl DeclaredPrincipals {
     }
 }
 
+/// The subjects one authenticating source may be asked as - [`DeclaredPrincipalBroker::authenticating`].
+///
+/// A set and not a [`DeclaredPrincipals`], because the source names no principal: the database
+/// resolves the asker's own token to a user itself. Never empty, for [`DeclaredPrincipals`]' reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredSubjects(BTreeSet<SubjectKey>);
+
+impl DeclaredSubjects {
+    /// Parses one source's declared subjects.
+    ///
+    /// # Errors
+    ///
+    /// [`NoDeclaredPrincipals::Empty`] for a declaration naming nobody.
+    pub fn parse(declared: BTreeSet<SubjectKey>) -> Result<Self, NoDeclaredPrincipals> {
+        if declared.is_empty() {
+            return Err(NoDeclaredPrincipals::Empty);
+        }
+        Ok(Self(declared))
+    }
+
+    /// Whether this source may be asked as `subject`.
+    #[inline]
+    #[must_use]
+    pub fn admits(&self, subject: &SubjectKey) -> bool {
+        self.0.contains(subject)
+    }
+}
+
 /// A defect in this broker itself, which no configuration reaches.
 ///
 /// Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
@@ -258,6 +291,7 @@ type Impersonating = (DeclaredPrincipals, Presenting);
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
     impersonating: BTreeMap<SourceName, Impersonating>,
+    authenticating: BTreeMap<SourceName, DeclaredSubjects>,
 }
 
 impl DeclaredPrincipalBroker {
@@ -304,13 +338,25 @@ impl DeclaredPrincipalBroker {
         self
     }
 
+    /// Declares one impersonating source that opens each request's session with the asker's own
+    /// verified assertion, for the subjects it declares. No principal is named: the source resolves
+    /// the token itself.
+    #[must_use]
+    pub fn authenticating(mut self, at: SourceName, declared: DeclaredSubjects) -> Self {
+        drop(self.authenticating.insert(at, declared));
+        self
+    }
+
     /// How many sources this broker can mint for at all.
     ///
     /// Read by this crate's own suite, where the assertion that matters is that a source declared
     /// impersonating with no entry is ABSENT rather than mapped to something.
     #[must_use]
     pub fn count(&self) -> usize {
-        self.shared.len().saturating_add(self.impersonating.len())
+        self.shared
+            .len()
+            .saturating_add(self.impersonating.len())
+            .saturating_add(self.authenticating.len())
     }
 }
 
@@ -323,7 +369,10 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // first one's credential is built, so "refused before anything was minted" is true of what
         // happened rather than only of what escaped.
         for source in sources.iter() {
-            if !self.shared.contains_key(source) && !self.impersonating.contains_key(source) {
+            if !self.shared.contains_key(source)
+                && !self.impersonating.contains_key(source)
+                && !self.authenticating.contains_key(source)
+            {
                 return Ok(Minted::Refused { source: source.clone() });
             }
         }
@@ -357,6 +406,24 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                     },
                 ));
                 deadlines.push(Expiry::NothingExpires);
+                continue;
+            }
+            // **The same authorization decision, and the asker's own assertion with no principal
+            // beside it**: the source opens this request's session with the token and resolves who
+            // it is. No exchange, so nothing here waits on I/O before a later refusal.
+            if let Some(subjects) = self.authenticating.get(source) {
+                let admitted = key.is_some_and(|key| subjects.admits(key));
+                let (true, Some(assertion), Some(expires)) = (admitted, assertion, assertion_expires) else {
+                    return Ok(Minted::Refused { source: source.clone() });
+                };
+                drop(presented.insert(
+                    source.clone(),
+                    Presented::SubjectToken {
+                        material: assertion.clone(),
+                        impersonate: None,
+                    },
+                ));
+                deadlines.push(expires);
                 continue;
             }
             // Unreachable: the pass above established that every source has one of the two halves.

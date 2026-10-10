@@ -38,6 +38,10 @@ pub(super) fn parse_placement(
     if kind != SourceKind::ClickHouse {
         refuse_foreign_keys(alias, kind, [("impersonate", entry.impersonate.is_some())])?;
     }
+    // `oracle`'s subject list, likewise.
+    if kind != SourceKind::Oracle {
+        refuse_foreign_keys(alias, kind, [("subjects", entry.subjects.is_some())])?;
+    }
     match kind {
         SourceKind::Files => {
             refuse_foreign_keys(

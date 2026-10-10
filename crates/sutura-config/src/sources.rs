@@ -447,6 +447,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: crate::sources::placement::InvalidImpersonate,
     },
+    /// An `oracle` source's `subjects` are not usable.
+    #[error("`sources.{alias}.subjects` is not usable")]
+    OracleSubjects {
+        alias: SourceName,
+        #[source]
+        cause: crate::sources::placement::InvalidOracleSubjects,
+    },
     /// A workload-identity block was declared on a source that is not impersonating.
     ///
     /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -549,6 +556,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) verification_identity: Option<&'raw str>,
     pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
     pub(crate) impersonate: Option<&'raw std::collections::BTreeMap<String, String>>,
+    pub(crate) subjects: Option<&'raw [String]>,
     pub(crate) host: Option<&'raw str>,
     pub(crate) unix_socket: Option<&'raw str>,
     pub(crate) port: Option<u16>,
@@ -695,8 +703,11 @@ fn parse_entry(
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
     let workload_identity = match entry.workload_identity.as_ref() {
-        // A `clickhouse` source declares its subject map as `impersonate` instead - see its placement.
-        None if matches!(entry.posture.trim(), "impersonation-at-source") && kind != SourceKind::ClickHouse => {
+        // A `clickhouse` source declares its subject map as `impersonate` and an `oracle` source its
+        // `subjects` instead - see their placements.
+        None if matches!(entry.posture.trim(), "impersonation-at-source")
+            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle) =>
+        {
             return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
         }
         None => None,

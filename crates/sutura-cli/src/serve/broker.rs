@@ -2,9 +2,9 @@
 //! through - built here, out of `serve.rs`, so the composition root keeps the dispatch and the one
 //! thing that is genuinely its own logic reads next to the refusals that guard it.
 //!
-//! The whole file is behind the two impersonating adapters' features in `serve.rs`'s `mod broker;`,
-//! and the `workload_identity` half behind `bigquery` alone: only that adapter's `wire` client can
-//! compose a delegation exchange.
+//! The whole file is behind the three impersonating adapters' features in `serve.rs`'s
+//! `mod broker;`, and the `workload_identity` half behind `bigquery` alone: only that adapter's `wire`
+//! client can compose a delegation exchange.
 //!
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
@@ -65,6 +65,10 @@ pub(crate) fn build_broker(
         #[cfg(feature = "clickhouse")]
         if let Some(declared) = crate::clickhouse::declared_principals(alias, source)? {
             broker = broker.switching(alias.clone(), declared);
+        }
+        #[cfg(feature = "oracle")]
+        if let Some(declared) = crate::oracle::declared_subjects(alias, source)? {
+            broker = broker.authenticating(alias.clone(), declared);
         }
         #[cfg(feature = "bigquery")]
         {

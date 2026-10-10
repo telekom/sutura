@@ -12,6 +12,10 @@
 //! address - `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`
 //! holds it.
 //!
+//! **An `impersonation-at-source` source opens each question's session with the asker's own
+//! token**, for the `subjects` it declares: `declared_subjects` hands that set to `serve::broker`,
+//! and `build` connects the boot session under the declared user as for any other posture.
+//!
 //! The WHOLE module is behind `#[cfg(feature = "oracle")]` at its declaration in `main.rs`, so
 //! everything here may name an adapter type unconditionally.
 
@@ -21,19 +25,6 @@ use sutura_domain::warehouse::Warehouse as _;
 use sutura_exec_oracle::{Channel, Dial, OracleWarehouse};
 
 use crate::commands::render;
-
-/// Why an `impersonation-at-source` `oracle` entry is refused, in terms of what is missing rather
-/// than of what to go and build.
-///
-/// `SourcePosture::deliverable_by` is the mechanism, unchanged, and its generic remedy - *deploy a build whose adapter for that
-/// source can impersonate* - names a build that does not exist for this kind. Appended to the domain
-/// refusal, and unreachable rather than wrong the day the adapter declares `PerSubjectCredential`.
-/// It names no cargo flag, because no value of one makes this source impersonate
-/// (`cargo xtask check-feature-remedies`).
-const IMPERSONATION_DEFERRED: &str = "this adapter is one connection under the user the deployment declared, and Oracle has no \
-     per-subject path in this repository yet - so no build of sutura opens an \
-     `impersonation-at-source` Oracle source today, whatever it was compiled with. Declare \
-     `shared-service-user` with an acknowledgement instead";
 
 /// Builds one Oracle adapter from a declared entry, after checking this build can deliver the
 /// source's posture.
@@ -50,10 +41,10 @@ const IMPERSONATION_DEFERRED: &str = "this adapter is one connection under the u
 ///
 /// # Errors
 ///
-/// A placement the dispatcher should have sent elsewhere; a source with no declared identity; the
-/// `impersonation-at-source` posture, which this adapter has nowhere to put; a password file that
-/// cannot be read or is empty; an anchor bundle that cannot be read or holds no usable certificate;
-/// or a connection the listener or the database refused.
+/// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
+/// posture this adapter cannot deliver; a password file that cannot be read or is empty; an anchor
+/// bundle that cannot be read or holds no usable certificate; or a connection the listener or the
+/// database refused.
 pub(crate) fn build(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
@@ -69,6 +60,7 @@ pub(crate) fn build(
         ref user,
         ref password_file,
         ref channel,
+        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -82,7 +74,7 @@ pub(crate) fn build(
     identity
         .posture()
         .deliverable_by(OracleWarehouse::IMPERSONATION, source)
-        .map_err(|cause| format!("{}\n{IMPERSONATION_DEFERRED}", render(&cause)))?;
+        .map_err(|cause| render(&cause))?;
     let password = crate::password_file::read(source, password_file)?;
     #[expect(
         clippy::disallowed_methods,
@@ -118,4 +110,22 @@ pub(crate) fn build(
         working_set.result_budget(),
     )
     .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
+}
+
+/// The broker's half of an `impersonation-at-source` source: its declared subjects, as
+/// `DeclaredPrincipalBroker::authenticating` admits them. `None` for a source that is not
+/// impersonating.
+pub(crate) fn declared_subjects(
+    source: &SourceName,
+    configured: &sutura_config::ConfiguredSource,
+) -> Result<Option<sutura_config::DeclaredSubjects>, String> {
+    let sutura_config::SourcePlacement::Oracle { ref subjects, .. } = *configured.placement() else {
+        return Ok(None);
+    };
+    if subjects.is_empty() {
+        return Ok(None);
+    }
+    sutura_config::DeclaredSubjects::parse(subjects.clone())
+        .map(Some)
+        .map_err(|cause| format!("`sources.{source}.subjects` is unusable: {cause}"))
 }

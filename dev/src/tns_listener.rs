@@ -10,9 +10,13 @@
 //! framing the driver reads first, so a driver that follows the redirect reaches
 //! [`RedirectingListener::target`] and is closed there, before any authentication.
 //! [`authenticating`] and [`marking`] go one step further and no more: neither completes a login.
+//!
+//! Each speaks over the accepted TCP stream itself, or, through the `_over` forms, over a session a
+//! test opens on it - TLS, for a driver that sends a token only over `tcps`. This crate
+//! links no TLS library, so the test brings the session.
 
-use std::io::{Read as _, Write as _};
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -31,6 +35,19 @@ impl RedirectingListener {
     ///
     /// A listener that cannot bind or has no local address.
     pub fn start() -> std::io::Result<Self> {
+        Self::start_over(Some)
+    }
+
+    /// [`Self::start`], with the declared listener speaking over the session `open` opens on the
+    /// accepted connection. The redirect still names a plaintext `TCP` address.
+    ///
+    /// # Errors
+    ///
+    /// A listener that cannot bind or has no local address.
+    pub fn start_over<S>(open: impl FnOnce(TcpStream) -> Option<S> + Send + 'static) -> std::io::Result<Self>
+    where
+        S: Read + Write,
+    {
         let target = TcpListener::bind("127.0.0.1:0")?;
         let target_port = target.local_addr()?.port();
         let declared = TcpListener::bind("127.0.0.1:0")?;
@@ -44,13 +61,15 @@ impl RedirectingListener {
             }
         }));
         drop(std::thread::spawn(move || {
-            let Ok((mut stream, _)) = declared.accept() else { return };
+            let Ok((stream, _)) = declared.accept() else { return };
             let _ignored = stream.set_read_timeout(Some(Duration::from_secs(10)));
+            let Some(mut stream) = open(stream) else { return };
             let mut connect = [0_u8; 4096];
             let _ignored = stream.read(&mut connect);
             let address = format!("(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT={target_port}))");
             let data = format!("{address}\u{0}(DESCRIPTION=(CONNECT_DATA=(SERVICE_NAME=FREEPDB1)))");
             let _ignored = stream.write_all(&redirect(data.as_bytes()));
+            let _ignored = stream.flush();
         }));
         Ok(Self {
             port,
@@ -127,7 +146,26 @@ pub fn sending(bytes: Vec<u8>) -> std::io::Result<u16> {
 ///
 /// A listener that cannot bind or has no local address.
 pub fn authenticating(session: &[(&str, &str)]) -> std::io::Result<u16> {
-    after_accept(negotiated(6, &session_data(session)))
+    authenticating_over(Some, session).map(|(port, _sent)| port)
+}
+
+/// A listener's port, and what the client sent it after the ACCEPT: its first authentication
+/// message, and the message after the answer if it sent one before it closed.
+pub type Listening = (u16, mpsc::Receiver<Vec<u8>>);
+
+/// [`authenticating`], over the session `open` opens on the accepted connection.
+///
+/// # Errors
+///
+/// A listener that cannot bind or has no local address.
+pub fn authenticating_over<S>(
+    open: impl FnOnce(TcpStream) -> Option<S> + Send + 'static,
+    session: &[(&str, &str)],
+) -> std::io::Result<Listening>
+where
+    S: Read + Write,
+{
+    after_accept(open, negotiated(6, &session_data(session)))
 }
 
 /// Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
@@ -142,27 +180,41 @@ pub fn authenticating(session: &[(&str, &str)]) -> std::io::Result<u16> {
 pub fn marking() -> std::io::Result<u16> {
     let mut answer = negotiated(12, &[1, 0, 1]);
     answer.extend(negotiated(12, &[1]));
-    after_accept(answer)
+    after_accept(Some, answer).map(|(port, _sent)| port)
 }
 
-/// Binds a listener on `127.0.0.1` that ACCEPTs ONE client's CONNECT, answers the client's next
-/// message with `answer`, closes after the message after that, and returns its port.
-fn after_accept(answer: Vec<u8>) -> std::io::Result<u16> {
+/// Binds a listener on `127.0.0.1` that ACCEPTs ONE client's CONNECT over the session `open`
+/// opens, answers the client's next message with `answer`, closes after the message after that,
+/// and returns its port and what the client sent after the ACCEPT.
+fn after_accept<S>(open: impl FnOnce(TcpStream) -> Option<S> + Send + 'static, answer: Vec<u8>) -> std::io::Result<Listening>
+where
+    S: Read + Write,
+{
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
+    let (told, sent) = mpsc::channel();
     drop(std::thread::spawn(move || {
-        let Ok((mut stream, _)) = listener.accept() else { return };
+        let Ok((stream, _)) = listener.accept() else { return };
         let _ignored = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let Some(mut stream) = open(stream) else { return };
         let mut read = [0_u8; 8192];
         let _ignored = stream.read(&mut read);
         let _ignored = stream.write_all(&packet(2, &accept()));
-        let _ignored = stream.read(&mut read);
+        let _ignored = stream.flush();
+        let mut after = Vec::new();
+        let mut keep = |stream: &mut S| {
+            let count = stream.read(&mut read).unwrap_or(0);
+            after.extend_from_slice(read.get(..count).unwrap_or_default());
+        };
+        keep(&mut stream);
         let _ignored = stream.write_all(&answer);
+        let _ignored = stream.flush();
         // One more read - the client's next message, or its close - so the answer is not cut off by
         // a reset, and a client that waits on the listener after its next message reads a close.
-        let _ignored = stream.read(&mut read);
+        keep(&mut stream);
+        let _ignored = told.send(after);
     }));
-    Ok(port)
+    Ok((port, sent))
 }
 
 /// An ACCEPT body: protocol version 318, no native network encryption, an 8 KiB SDU, and the flag
