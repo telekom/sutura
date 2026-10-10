@@ -333,12 +333,14 @@ jobs:
 
       # The site keeps `main` and one directory per release, and nothing else. A tag publishes
       # `X.Y.Z` (the tag's `v` dropped, a prerelease suffix kept), so any other version on the branch
-      # is a leftover and goes, whatever deployed it. Only a main deploy prunes: a tag deploy
-      # publishes and never deletes. The filter names what to delete, so an empty or unreadable
-      # list deletes nothing, and an empty result is a no-op. `mike list --json` prints
+      # is a leftover and goes, whatever deployed it. Only a main deploy prunes, and the alias
+      # `latest` is what only that deploy sets. The prune runs after the deploy, which has moved
+      # `latest` onto `main`: deleting a version deletes its aliases. The filter names what to
+      # delete, so an empty or unreadable list deletes nothing, and an empty result is a no-op.
+      # `mike list --json` prints
       # `[{"version": "main", "title": "main", "aliases": ["latest"]}, ...]`.
       - name: Prune the versions that are neither main nor a release
-        if: steps.target.outputs.version == 'main'
+        if: steps.target.outputs.alias == 'latest'
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"

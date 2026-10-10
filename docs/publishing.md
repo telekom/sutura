@@ -8,10 +8,10 @@ description: Which versions of this site are published, and the one setting no w
 The site holds `main` and one version for each release. A release URL somebody cited a year ago
 still resolves to the text they read.
 
-[mike](https://github.com/jimporter/mike) does this. `.github/workflows/docs.yml` builds the site
-with mkdocs-material and hands it to mike. mike owns the `gh-pages` branch: the version directories,
-`versions.json`, the root redirect and the `.nojekyll` marker. The header's version selector is
-Material's own, and `extra.version.provider: mike` in `mkdocs.yml` drives it.
+[mike](https://github.com/jimporter/mike) publishes the versions. `.github/workflows/docs.yml`
+builds the site with mkdocs-material and hands it to mike. mike owns the `gh-pages` branch: the
+version directories, `versions.json`, the root redirect and the `.nojekyll` marker. The header's
+version selector is Material's own, and `extra.version.provider: mike` in `mkdocs.yml` drives it.
 
 Both tools come from pixi's isolated `docs` environment. A local build therefore uses the versions
 that CI uses, and there is no pip and no npm in the path.
@@ -36,9 +36,9 @@ gh-pages/
 | `workflow_dispatch` from `main` | `main/`                        | `latest`, as for a push                                                 |
 | pull request                    | nothing                        | builds with `--strict`, so a broken link or an orphan page fails the PR |
 
-Only a deploy of `main` deletes a version directory, and only one that is neither `main` nor a
-release. The publish never force-pushes. A concurrent publish makes the job fail, and the publish
-does not overwrite.
+A deploy of `main` deletes every version directory that is neither `main` nor a release. No other
+deploy deletes one. The publish never force-pushes. A concurrent publish makes the job fail, and the
+publish does not overwrite.
 
 `latest` is the main branch and `X.Y.Z/` is a release. The root redirect points at `latest`. If a
 release tag is published before main is published for the first time, the root redirect points at
