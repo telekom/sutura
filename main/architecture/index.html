@@ -3317,9 +3317,9 @@ Oracle, files), another OIDC issuer, with or without the MCP gateway, with or wi
 <ul>
 <li><strong>Leg 1: sutura knows who asks.</strong> sutura verifies the caller's token before it answers, on HTTP and on MCP
   (<code>security.inbound</code>). <a href="../integrations/identity/">Inbound identity</a> has the settings.</li>
-<li><strong>Leg 2: the data system runs the query as the caller.</strong> BigQuery and ClickHouse do this (secure-impersonation). sutura
-  refuses a caller that the source does not declare. Every other data system runs each query as one identity that the
-  operator declares for that source (<code>shared-service-user</code>).</li>
+<li><strong>Leg 2: the data system runs the query as the caller.</strong> BigQuery, ClickHouse and Oracle do this
+  (secure-impersonation). sutura refuses a caller that the source does not declare. Every other data system runs each
+  query as one identity that the operator declares for that source (<code>shared-service-user</code>).</li>
 </ul>
 <p>Grants, row policies and masking stay in the data system. sutura keeps no result cache, because a cache keyed on the
 question would leak rows between callers.</p>

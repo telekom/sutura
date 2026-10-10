@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answer questions over an Oracle Database as one declared user.">
+        <meta name="description" content="Answer questions over an Oracle Database as one declared user, or as each caller with their own token.">
       
       
       
@@ -3341,6 +3341,8 @@ source kind is <code>oracle</code>. The adapter is built with the <code>oracle</
 <h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Your data is in an Oracle Database, and one database user may read it for all callers.</li>
+<li>Your data is in an Oracle Database that accepts OAuth 2.0 access tokens, and each query must run
+  as the caller.</li>
 </ul>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <p>The entry reads the <a href="../../#data-system-settings">settings that every data system has</a>
@@ -3359,7 +3361,7 @@ and these keys:</p>
 <td><code>host</code></td>
 <td>string</td>
 <td>required</td>
-<td>The listener host. A loopback IP address, such as <code>127.0.0.1</code></td>
+<td>The listener host. With <code>plaintext</code>, a loopback IP address, such as <code>127.0.0.1</code>; with <code>verified</code>, a valid DNS name or an IP address</td>
 </tr>
 <tr>
 <td><code>port</code></td>
@@ -3389,11 +3391,25 @@ and these keys:</p>
 <td><code>transport_mode</code></td>
 <td>string</td>
 <td>required</td>
-<td><code>plaintext</code></td>
+<td><code>plaintext</code> or <code>verified</code>. <code>mutual</code> is refused</td>
+</tr>
+<tr>
+<td><code>transport_anchors</code></td>
+<td>absolute path</td>
+<td>none</td>
+<td>For <code>verified</code>: a PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused</td>
+</tr>
+<tr>
+<td><code>subjects</code></td>
+<td>list</td>
+<td>none</td>
+<td>For <code>impersonation-at-source</code>: the caller subjects (<code>sub</code>) that may ask this source. A caller who is not in the list is refused</td>
 </tr>
 </tbody>
 </table>
-<p>sutura connects at startup, so it does not start if the listener or the login fails.</p>
+<p>sutura connects at startup, so it does not start if the listener or the login fails. The connect to
+the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
+it logs in, so declare the address that answers.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">sources</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
@@ -3407,10 +3423,34 @@ and these keys:</p>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
 </span></code></pre></div>
+<p>Each caller with their own token:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"oracle"</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2484</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"orcl.example.com"</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-password"</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-ca.pem"</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">subjects</span><span class="p">:</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01"</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02"</span>
+</span></code></pre></div>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
-<p>This data system supports <code>shared-service-user</code> only.</p>
-<p>sutura connects as the one user in <code>user</code>. Every caller's query runs as that user. The source must
-use <code>posture: shared-service-user</code>.</p>
+<p>This data system supports <code>shared-service-user</code> and secure-impersonation.</p>
+<p>With <code>shared-service-user</code>, sutura connects as the one user in <code>user</code>. Every caller's query runs as
+that user.</p>
+<p>With <code>impersonation-at-source</code>, sutura opens a session for each query with the token that it
+verified for the caller, sent as an OAuth 2.0 access token. The database checks the token and runs
+the query as the database user that it maps the token to. sutura refuses an anonymous caller and a
+caller who is not in <code>subjects</code>, and closes the session when the query ends. The source must use
+<code>transport_mode: verified</code>. sutura also connects as <code>user</code> at startup to check the source, and no
+caller's query runs on that connection. Configure the database to accept the tokens of your
+identity provider.</p>
+<p>sutura refuses to start when the Oracle driver's packet trace is switched on.</p>
 
 
 

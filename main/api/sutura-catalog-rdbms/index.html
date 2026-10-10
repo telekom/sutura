@@ -3340,6 +3340,7 @@ a reader back to all of them.</p>
 <h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Read</code> - The reader could not fetch the dictionary.</li>
+<li><code>RedirectRefused</code> - The listener redirected the login to an address the connection does not declare. Refused before authentication.</li>
 <li><code>NoVisibleTables</code> - The reader returned no table, so this bundle cannot honour its required <code>Structure</code> claim.</li>
 <li><code>ModelName</code> - A table's semantic name did not parse as a model name.</li>
 <li><code>CatalogName</code> - A table's catalog did not parse as the top part of a qualified table name.</li>
@@ -3625,10 +3626,9 @@ name is not. The environment and an <code>equals</code> value are bound as <code
   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
   driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
   source, not observed against a server - so up to one batch is in memory before a cap refuses.</li>
-<li><strong>The connection is plaintext and confined only at its first dial.</strong> <code>sutura-config</code>'s
-  <code>OracleCatalogConnection</code> refuses TLS and a non-loopback host, because the driver takes no
-  caller-built trust store; the driver still follows a listener's TNS redirect to any address
-  it names - the limit <code>sutura-cli</code>'s <code>oracle</code> module holds for the source kind.</li>
+<li><strong>The connection is plaintext and stays on its declared loopback host.</strong> <code>sutura-config</code>'s
+  <code>OracleCatalogConnection</code> refuses TLS and a non-loopback host, and a listener's redirect is
+  refused before authentication as <code>RdbmsError::RedirectRefused</code>.</li>
 <li><strong><code>SharedServiceUser</code>, not leg 2.</strong> A catalog read has no caller to run as; it is one login
   under the user the deployment declared.</li>
 </ul>

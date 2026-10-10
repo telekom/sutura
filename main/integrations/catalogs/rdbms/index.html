@@ -3563,7 +3563,8 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 </table>
 <p><code>plaintext</code> needs a loopback IP address as <code>host</code>. <code>verified</code> and <code>mutual</code> need <code>host</code>, not
 <code>unix_socket</code>. A build with the <code>rdbms</code> feature reads PostgreSQL dictionaries; the Oracle
-dictionary needs a build with the <code>oracle</code> feature.</p>
+dictionary needs a build with the <code>oracle</code> feature. The Oracle reader refuses a listener that
+redirects the connection, before it logs in.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">catalogs</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">"dictionary"</span>

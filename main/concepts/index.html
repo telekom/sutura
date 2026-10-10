@@ -3499,10 +3499,12 @@ records the caller, from a signature.</p>
 The <strong>subject</strong> is the identity that the data system sees: the person, not the service.</p>
 <p>A leg runs in one of two ways:</p>
 <ul>
-<li><strong>secure-impersonation</strong> (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery, the
-  caller's verified token is exchanged for the service account that the operator declares for that
-  subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
-  ClickHouse user that the operator declares for that subject (<code>EXECUTE AS</code>).</li>
+<li><strong>secure-impersonation</strong> (BigQuery, ClickHouse, Oracle). The leg runs as the subject. On BigQuery,
+  the caller's verified token is exchanged for the service account that the operator declares for
+  that subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  ClickHouse user that the operator declares for that subject (<code>EXECUTE AS</code>). On Oracle, sutura
+  opens a session with the caller's verified token, and the database runs the query as the database
+  user that it maps the token to.</li>
 <li><strong>shared-service-user</strong> (files, Postgres). The leg runs as the deployment's own identity for
   that source. An operator declares this in the configuration.</li>
 </ul>

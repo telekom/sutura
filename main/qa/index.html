@@ -3437,8 +3437,8 @@
 the finance definition. Second, the rows come back as the service account can read them, not as the caller can read them,
 so row-level security has no effect.</p>
 <p>sutura prevents both. The agent can ask only for certified definitions, and every value binds as a parameter. With
-secure-impersonation (BigQuery, ClickHouse), the data system runs the query as the caller. A <code>shared-service-user</code>
-source runs it as the one identity that the operator declares.</p>
+secure-impersonation (BigQuery, ClickHouse, Oracle), the data system runs the query as the caller. A
+<code>shared-service-user</code> source runs it as the one identity that the operator declares.</p>
 <h2 id="why-is-a-refusal-not-an-error">Why is a refusal not an error?<a class="headerlink" href="#why-is-a-refusal-not-an-error" title="Permanent link">&para;</a></h2>
 <p>An error invites a retry. A refusal is a typed result with a reason, so a caller cannot mistake "you may not ask this" for
 a network problem. sutura writes one audit record, with the caller, for every answer and every refusal.</p>

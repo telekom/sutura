@@ -3229,8 +3229,9 @@
 
 
 <h1 id="sutura">sutura<a class="headerlink" href="#sutura" title="Permanent link">&para;</a></h1>
-<p>sutura answers questions about data with metric definitions that somebody certified. It answers
-as the person or agent that asks, where the data system can do this (BigQuery, ClickHouse). When it cannot answer correctly, it refuses.</p>
+<p>sutura answers questions about data with metric definitions that somebody certified. It answers as
+the person or agent that asks, where the data system can do this (BigQuery, ClickHouse, Oracle).
+When it cannot answer correctly, it refuses.</p>
 <p>An agent with a plain database connection writes its own SQL and runs it with the credential of
 the service. This causes two problems. Nobody certified the number, so "revenue" can mean
 something different from what finance means. And the rows are the rows that the service may read,
@@ -3258,7 +3259,7 @@ not the rows that the caller may read, so row-level security has no effect.</p>
 </tr>
 <tr>
 <td>Every query runs as the caller</td>
-<td>A leg that cannot run as the caller is refused. BigQuery exchanges the caller's token for a declared service account. ClickHouse runs each statement as a declared user. Every other data system runs as one identity that the operator declares</td>
+<td>A leg that cannot run as the caller is refused. BigQuery exchanges the caller's token for a declared service account. ClickHouse runs each statement as a declared user. Oracle opens each query's session with the caller's token. Every other data system runs as one identity that the operator declares</td>
 </tr>
 </tbody>
 </table>

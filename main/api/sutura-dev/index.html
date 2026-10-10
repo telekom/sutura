@@ -3247,6 +3247,8 @@ binaries printing the same probe is exactly that clone - <code>github.com/teleko
 <p><code>env_proxy</code> is the same argument for an outbound client's cell: every crate that builds an
 agent proves it dials a plaintext or loopback target directly under an environment proxy, and
 the harness re-running a test under one is written once.</p>
+<p><code>tns_listener</code> is the same argument for the crates that dial Oracle: they prove what a
+listener's answer to the CONNECT is refused for, against one fake.</p>
 <h2 id="module-bench_venue">Module <code>bench_venue</code><a class="headerlink" href="#module-bench_venue" title="Permanent link">&para;</a></h2>
 <p>Whether the host was too busy for a benchmark's number to mean anything.</p>
 <p>A fourth half of this crate, unrelated to the other three: <code>benches/*.rs</code> under <code>crates/</code> is a
@@ -4127,6 +4129,93 @@ listening on a port I expected" is not an identity, and neither is "whatever hol
 file names": a PID is reused. The check is the process's own working directory, resolved and
 compared against this repository's root, because that is the one property a colliding stranger
 cannot accidentally have.</p>
+<h2 id="module-tns_listener">Module <code>tns_listener</code><a class="headerlink" href="#module-tns_listener" title="Permanent link">&para;</a></h2>
+<p>Fake Oracle listeners on loopback that answer a driver's CONNECT: with a TNS REDIRECT, with
+bytes a test chooses, or with an ACCEPT and then an authentication response the driver cannot
+use.</p>
+<p>Here rather than in a test module because two crates dial Oracle - the warehouse adapter through
+<code>sutura-cli</code>, and the RDBMS catalog's Oracle reader - and both prove the same refusal. <code>cargo
+xtask check-jscpd</code> refuses a clone under <code>crates/</code>, so the fake is written once.</p>
+<p>Limit: <code>RedirectingListener</code>, <code>answering</code> and <code>sending</code> speak only the pre-negotiation
+framing the driver reads first, so a driver that follows the redirect reaches
+<code>RedirectingListener::target</code> and is closed there, before any authentication.
+<code>authenticating</code> and <code>marking</code> go one step further and no more: neither completes a login.</p>
+<p>Each speaks over the accepted TCP stream itself, or, through the <code>_over</code> forms, over a session a
+test opens on it - TLS, for a driver that sends a token only over <code>tcps</code>. This crate
+links no TLS library, so the test brings the session.</p>
+<h3 id="struct-redirectinglistener"><code>struct RedirectingListener</code><a class="headerlink" href="#struct-redirectinglistener" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-88-1"><a id="__codelineno-88-1" name="__codelineno-88-1" href="#__codelineno-88-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RedirectingListener</span>
+</span></code></pre></div>
+<p>A listener that redirects every client to a second loopback listener, and records whether that
+second listener was dialled.</p>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-89-1"><a id="__codelineno-89-1" name="__codelineno-89-1" href="#__codelineno-89-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+</span></code></pre></div>
+<p>The port a source declares: the listener that redirects.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-90-1"><a id="__codelineno-90-1" name="__codelineno-90-1" href="#__codelineno-90-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Binds both listeners on <code>127.0.0.1</code> and answers ONE client.</p>
+<h1 id="errors_9">Errors<a class="headerlink" href="#errors_9" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-91-1"><a id="__codelineno-91-1" name="__codelineno-91-1" href="#__codelineno-91-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start_over</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">open</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">FnOnce</span><span class="p">(</span><span class="n">TcpStream</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">Send</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">static</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p><code>Self::start</code>, with the declared listener speaking over the session <code>open</code> opens on the
+accepted connection. The redirect still names a plaintext <code>TCP</code> address.</p>
+<h1 id="errors_10">Errors<a class="headerlink" href="#errors_10" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-92-1"><a id="__codelineno-92-1" name="__codelineno-92-1" href="#__codelineno-92-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+</span></code></pre></div>
+<p>The port the redirect names, which no source declares.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-93-1"><a id="__codelineno-93-1" name="__codelineno-93-1" href="#__codelineno-93-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_was_dialled</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">wait</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether a client reached <code>Self::target</code>, waiting up to <code>wait</code> for the accept to land.</p>
+<p>Call it after the client returned: a dial it made is then already in the target's backlog.</p>
+<h3 id="fn-answering"><code>fn answering</code><a class="headerlink" href="#fn-answering" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-94-1"><a id="__codelineno-94-1" name="__codelineno-94-1" href="#__codelineno-94-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">answering</span><span class="p">(</span><span class="n">packet_type</span><span class="p">:</span><span class="w"> </span><span class="kt">u8</span><span class="p">,</span><span class="w"> </span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="kt">u16</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Binds a listener on <code>127.0.0.1</code> that answers ONE client's CONNECT with a single packet of
+<code>packet_type</code> carrying <code>body</code>, then closes, and returns its port.</p>
+<h1 id="errors_11">Errors<a class="headerlink" href="#errors_11" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<h3 id="fn-sending"><code>fn sending</code><a class="headerlink" href="#fn-sending" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-95-1"><a id="__codelineno-95-1" name="__codelineno-95-1" href="#__codelineno-95-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sending</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="kt">u16</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Binds a listener on <code>127.0.0.1</code> that answers ONE client's CONNECT with <code>bytes</code> as they are,
+framed or not, then closes, and returns its port.</p>
+<h1 id="errors_12">Errors<a class="headerlink" href="#errors_12" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<h3 id="fn-authenticating"><code>fn authenticating</code><a class="headerlink" href="#fn-authenticating" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-96-1"><a id="__codelineno-96-1" name="__codelineno-96-1" href="#__codelineno-96-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">authenticating</span><span class="p">(</span><span class="n">session</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="kt">str</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="kt">u16</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Binds a listener on <code>127.0.0.1</code> that accepts ONE client's CONNECT, and returns its port.</p>
+<p>It offers fast authentication, then answers the first authentication message with <code>session</code>,
+the key and value pairs of the session data the driver reads its verifier fields from.</p>
+<h1 id="errors_13">Errors<a class="headerlink" href="#errors_13" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<h3 id="fn-authenticating_over"><code>fn authenticating_over</code><a class="headerlink" href="#fn-authenticating_over" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-97-1"><a id="__codelineno-97-1" name="__codelineno-97-1" href="#__codelineno-97-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">authenticating_over</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">open</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">FnOnce</span><span class="p">(</span><span class="n">std</span><span class="p">::</span><span class="n">net</span><span class="p">::</span><span class="n">TcpStream</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">Send</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">static</span><span class="p">,</span><span class="w"> </span><span class="n">session</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="kt">str</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Listening</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p><code>authenticating</code>, over the session <code>open</code> opens on the accepted connection.</p>
+<h1 id="errors_14">Errors<a class="headerlink" href="#errors_14" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<h3 id="fn-marking"><code>fn marking</code><a class="headerlink" href="#fn-marking" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-98-1"><a id="__codelineno-98-1" name="__codelineno-98-1" href="#__codelineno-98-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">marking</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="kt">u16</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Binds a listener on <code>127.0.0.1</code> that accepts ONE client's CONNECT, and returns its port.</p>
+<p>It offers fast authentication, then answers the first authentication message with a BREAK
+marker, which makes the driver reset the connection, and then with a marker whose body ends
+before its type.</p>
+<h1 id="errors_15">Errors<a class="headerlink" href="#errors_15" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<h3 id="fn-marking_then_data"><code>fn marking_then_data</code><a class="headerlink" href="#fn-marking_then_data" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-99-1"><a id="__codelineno-99-1" name="__codelineno-99-1" href="#__codelineno-99-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">marking_then_data</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="kt">u16</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p><code>marking</code>, with a DATA packet after the short marker, so the connection stays open past it.</p>
+<h1 id="errors_16">Errors<a class="headerlink" href="#errors_16" title="Permanent link">&para;</a></h1>
+<p>A listener that cannot bind or has no local address.</p>
+<h3 id="type_alias-listening"><code>type_alias Listening</code><a class="headerlink" href="#type_alias-listening" title="Permanent link">&para;</a></h3>
+<p>A listener's port, and what the client sent it after the ACCEPT: its first authentication
+message, and the message after the answer if it sent one before it closed.</p>
 <h2 id="module-tolerance">Module <code>tolerance</code><a class="headerlink" href="#module-tolerance" title="Permanent link">&para;</a></h2>
 <p>Whether a wall-clock assertion runs under CI's own margin, or a wider one for a shared machine.</p>
 <p><code>telekom/sutura#140</code>: a deadline cell asserting <code>elapsed &lt; budget + a_few_hundred_ms</code> reddened
@@ -4167,7 +4256,7 @@ which wins over <code>RELAXED</code> unconditionally (this module's own belt-and
 would enforce, and there is presently no other way to. Measured, not designed in: the first
 attempt at exactly this ask silently ran the RELAXED path anyway.</p>
 <h3 id="enum-tolerance"><code>enum Tolerance</code><a class="headerlink" href="#enum-tolerance" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-88-1"><a id="__codelineno-88-1" name="__codelineno-88-1" href="#__codelineno-88-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Tolerance</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-100-1"><a id="__codelineno-100-1" name="__codelineno-100-1" href="#__codelineno-100-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Tolerance</span>
 </span></code></pre></div>
 <p>Which wall-clock margin a deadline assertion should use.</p>
 <h4 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h4>
@@ -4175,19 +4264,19 @@ attempt at exactly this ask silently ran the RELAXED path anyway.</p>
 <li><code>Strict</code> - CI's own margin - an isolated runner, one job, no other lane's build sharing its cores.</li>
 <li><code>Relaxed</code> - A wider margin for a shared machine, chosen so the assertion still fails a deadline that stopped enforcing entirely, and read - never measured - so the same tree gives the same verdict every time it runs here.</li>
 </ul>
-<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-89-1"><a id="__codelineno-89-1" name="__codelineno-89-1" href="#__codelineno-89-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ceiling</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">strict</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-101-1"><a id="__codelineno-101-1" name="__codelineno-101-1" href="#__codelineno-101-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ceiling</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">strict</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>Picks <code>strict</code> or <code>relaxed</code> for this venue, and announces the second choice on stderr - the
 <code>SKIPPED</code>-in-the-first-column convention <code>sutura_dev::provisioned</code> already uses for the same
 reason: a developer reading a passing run must not mistake a relaxed margin for CI's own.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-90-1"><a id="__codelineno-90-1" name="__codelineno-90-1" href="#__codelineno-90-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-102-1"><a id="__codelineno-102-1" name="__codelineno-102-1" href="#__codelineno-102-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The venue this process is running in, read once.</p>
 <h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-decide_1"><code>fn decide</code><a class="headerlink" href="#fn-decide_1" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-91-1"><a id="__codelineno-91-1" name="__codelineno-91-1" href="#__codelineno-91-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">github_actions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed_opt_in</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Tolerance</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-103-1"><a id="__codelineno-103-1" name="__codelineno-103-1" href="#__codelineno-103-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">github_actions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed_opt_in</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Tolerance</span>
 </span></code></pre></div>
 <p>The decision, over the two values rather than over the environment.</p>
 <p>Testable without mutating the process environment - the same reason
