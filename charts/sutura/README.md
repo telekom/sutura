@@ -12,14 +12,15 @@ Install a released version of the chart from the OCI registry:
 helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version> -f values.yaml
 ```
 
-The values file must set `environment`, `security.accessToken.secretName`,
-`security.metricsToken.secretName` and `security.tlsTermination`.
+The values file must set `environment`, `security.accessToken.secretName` and
+`security.metricsToken.secretName`.
+It must also declare TLS: set `security.tlsTermination`, or set `tls.enabled: true` with `tls.secretName`.
 Each secret name refers to a Kubernetes Secret.
 
 ## Configure
 
 Set every option in `values.yaml`.
-Each key has a one-line comment.
+Each section has a one-line comment.
 The chart passes `config.base` and `config.environment` to sutura as its settings files.
 
 ## Learn more
