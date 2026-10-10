@@ -9,8 +9,7 @@ description: Answer questions over a BigQuery dataset, as one service account or
 
 The `bigquery` data system answers questions over a BigQuery dataset. sutura renders each plan as
 GoogleSQL and runs it through the ADBC BigQuery driver. The crate is `sutura-exec-bigquery`, and
-the source kind is `bigquery`. It is the one data system with a path to run a query as the caller.
-See [Identity](#identity).
+the source kind is `bigquery`. It can run a query as the caller. See [Identity](#identity).
 
 ## When to use it
 

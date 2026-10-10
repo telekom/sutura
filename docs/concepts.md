@@ -61,8 +61,9 @@ say: a window function, a percentile, an expression over two columns. It is a *s
 `measure:`, not a field on it, and exactly one of the two may be present. The fragment is admitted
 as text: present, bounded, one fragment rather than a script, free of control and invisible
 characters. It is pinned under the definition digest exactly as written. sutura does not compile
-it. Every adapter this workspace ships refuses to start on a bundle that carries one, naming the
-metric. A caller still has no field for SQL, and the agent prompt never sees any.
+it. No adapter this workspace ships executes it, so a bundle that carries one is refused at
+startup, naming the metric. A caller still has no field for SQL, and the agent prompt never sees
+any.
 
 An **anchor** is a known result for a metric. `sutura_app::verify_and_validate` re-executes every
 metric that declares one. It returns the bundle as `Validated` only if every anchor it declares was
