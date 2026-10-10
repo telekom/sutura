@@ -17,7 +17,6 @@ mod identity {
         [
             Presented::SubjectToken {
                 material: Secret::new("an-exchanged-token"),
-                impersonate: None,
             },
             Presented::SubjectPrincipal {
                 name: PrincipalName::parse("analyst_role").expect("a test name is a name"),

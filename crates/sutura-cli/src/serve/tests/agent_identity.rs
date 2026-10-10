@@ -31,8 +31,7 @@
 
 use std::sync::Arc;
 
-use sutura_config::{DeclaredPrincipalBroker, DeclaredPrincipals};
-use sutura_config::{Environment, Settings, Sources};
+use sutura_config::{DeclaredPrincipalBroker, Environment, Settings, Sources};
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet};
 use sutura_domain::identity::Presented;
 use sutura_domain::plan::{AnchorPlan, Executable};
@@ -376,21 +375,7 @@ fn priced_state(key_set_id: &str) -> PricedState {
     // **The broker `crate::serve` really attaches**, declaring the one subject these cells ask as -
     // so the spend the cells below measure is spend a broker admitted for that subject.
     //
-    // **What these cells do NOT hold, stated because the composition reads as if they did:** the
-    // refusal of a caller this map does not name. Their `ASKING_SUBJECT` IS the map's one declared
-    // key, so widening that refusal to serve any caller leaves every cell here green - it is
-    // structurally unreachable from them, not merely untested. The cell that holds it is
-    // `sutura_config::credentials::declared::tests`'
-    // `a_verified_caller_this_source_does_not_name_is_refused_and_never_widened`, beside the
-    // `let … else` it kills.
-    let broker = DeclaredPrincipalBroker::empty().impersonating(
-        source(),
-        DeclaredPrincipals::parse(std::collections::BTreeMap::from([(
-            sutura_domain::identity::SubjectKey::parse(ASKING_SUBJECT).expect("a test subject is a subject"),
-            sutura_domain::identity::PrincipalName::parse("bq-ada@example.com").expect("a test principal is a principal"),
-        )]))
-        .expect("a one-entry declaration is a declaration"),
-    );
+    let broker = DeclaredPrincipalBroker::empty().federating(source(), None);
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
     let posture = SourcePosture::ImpersonationAtSource;

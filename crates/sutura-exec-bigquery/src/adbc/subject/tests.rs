@@ -8,7 +8,6 @@ use std::net::TcpStream;
 
 use sutura_domain::identity::Secret;
 
-use super::super::AdbcError;
 use super::{SECRET_HEADER, SubjectSource, UnusablePool, WorkloadPool};
 
 /// The pool every cell below federates against.
@@ -25,7 +24,7 @@ fn pool() -> WorkloadPool {
               at `identity::credential_options`"
 )]
 fn document(source: &SubjectSource) -> serde_json::Value {
-    let text = String::from(source.document(&pool(), &crate::adbc::a_declared_account()).expose_secret());
+    let text = String::from(source.document(&pool()).expose_secret());
     serde_json::from_str(&text).expect("the credential document is JSON")
 }
 
@@ -99,11 +98,7 @@ fn credentials(document: &serde_json::Value) -> (String, String) {
 fn the_document_names_the_pool_and_a_loopback_source_the_driver_can_read() {
     // **The shape read off the pinned Google source rather than invented**: `external_account` with
     // an `audience`, a JWT `subject_token_type`, Google's STS `token_url` and a `credential_source`
-    // the library dispatches to its URL provider. `service_account_impersonation_url` is PRESENT
-    // since `telekom/sutura#929` F3 - a round of this cell asserted it null, which made the
-    // federated credential the pool principal and every declared caller one identity. What the
-    // field says is `the_document_names_the_declared_account_as_the_second_hop`'s own cell; what
-    // this one holds is that it is there at all.
+    // the library dispatches to its URL provider.
     let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
     let document = document(&held);
     assert_eq!(document["type"], "external_account");
@@ -111,10 +106,6 @@ fn the_document_names_the_pool_and_a_loopback_source_the_driver_can_read() {
     assert_eq!(document["subject_token_type"], "urn:ietf:params:oauth:token-type:jwt");
     assert_eq!(document["token_url"], "https://sts.googleapis.com/v1/token");
     assert_eq!(document["credential_source"]["format"]["type"], "text");
-    assert!(
-        !document["service_account_impersonation_url"].is_null(),
-        "with no impersonation URL the credential is the pool's own principal, so a declared account decides nothing: {document}"
-    );
     let url = document["credential_source"]["url"].as_str().expect("a URL");
     assert!(url.starts_with("http://127.0.0.1:"), "{url}");
 }
@@ -243,7 +234,7 @@ fn the_credential_document_is_redacted_under_debug() {
     // assertion. `Secret` has no `Display` and prints `REDACTED` under `Debug`, so neither is
     // reachable by accident.
     let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
-    let rendered = format!("{:?}", held.document(&pool(), &crate::adbc::a_declared_account()));
+    let rendered = format!("{:?}", held.document(&pool()));
     assert!(rendered.contains("REDACTED"), "{rendered}");
     for leaked in ["an.assertion.value", "127.0.0.1", "external_account"] {
         assert!(!rendered.contains(leaked), "a debug rendering carried `{leaked}`: {rendered}");
@@ -365,71 +356,17 @@ fn the_endpoint_is_closed_before_drop_returns_even_with_a_connection_in_flight()
 }
 
 #[test]
-fn the_document_names_the_declared_account_as_the_second_hop() {
-    // **THE F3 cell at the sending boundary.** `credentials/internal/externalaccount`'s
-    // `NewTokenProvider` wraps the federated provider in `internal/impersonate` when and only when
-    // this member is non-empty, and that provider POSTs the value as a URL verbatim - so the exact
-    // string here is what decides which account the question runs as. Asserted by EQUALITY rather
-    // than by `contains`: a dropped `:generateAccessToken`, a wrong host or a wrong API version all
-    // reach a different endpoint, and `contains` passes over each of them.
+fn the_document_names_no_second_hop_so_the_token_is_the_callers_own_principal() {
+    // **No service account at any step.** `externalaccount.NewTokenProvider` wraps the federated
+    // provider in `internal/impersonate` when and only when `service_account_impersonation_url` is
+    // non-empty - so its absence is what makes the token `BigQuery` sees the caller's own
+    // `principal://.../subject/<sub>`, and that principal's grants decide the rows.
     let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
     let document = document(&held);
-    let account = crate::adbc::a_declared_account();
-    assert_eq!(
-        document["service_account_impersonation_url"],
-        serde_json::Value::String(format!(
-            "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{account}:generateAccessToken"
-        ))
-    );
-
-    // **The address has to appear WHOLE and free of `*`**, which is a guard against a specific
-    // future defect rather than a restatement of the line above. `PrincipalName` is declared by
-    // hand in `sutura_domain::identity::credential`; every OTHER principal newtype there comes out
-    // of `principal_newtype!`, which stores the MASKED form and drops the raw. Carried on one of
-    // those, this field would read `s***-a@a***.i***.g***` and Google would refuse it - so a
-    // change of the carried type reddens here.
-    let sent = document["service_account_impersonation_url"]
-        .as_str()
-        .expect("the impersonation URL is a string");
     assert!(
-        sent.contains(account.as_str()),
-        "the declared account is not sent whole: {sent}"
+        document.get("service_account_impersonation_url").is_none(),
+        "a second hop came back, so the question runs as an account and not as the caller: {document}"
     );
-    assert!(!sent.contains('*'), "the declared account reached the URL masked: {sent}");
-
-    // And the five members that decide the FIRST hop are untouched by the second, so this cell
-    // cannot pass over a document that gained a field and lost the federation.
-    assert_eq!(document["type"], "external_account");
-    assert_eq!(document["audience"], pool().audience());
-    assert_eq!(document["subject_token_type"], "urn:ietf:params:oauth:token-type:jwt");
-    assert_eq!(document["token_url"], "https://sts.googleapis.com/v1/token");
-    assert_eq!(document["credential_source"]["format"]["type"], "text");
-    // The caller's scopes go to the impersonation call and `cloud-platform` to the STS leg, both
-    // decided by the library - so this document carries no `scopes` member.
-    assert!(document["scopes"].is_null(), "{document}");
-}
-
-#[test]
-fn a_declared_account_this_transport_will_not_name_is_refused_before_the_document_is_built() {
-    // **The second end of the narrowing.** `DeclaredPrincipals::parse` refuses this shape at boot
-    // for the broker this crate ships, and `Presented` is a public port any broker can construct -
-    // so the check is repeated where the value is INTERPOLATED, which is the doctrine
-    // `WorkloadPool::parse` and `transport::ProjectId` already follow. Without it a `Presented`
-    // built by hand re-points the URL's account segment.
-    let assertion = Secret::new("a.caller.assertion");
-    let hostile = sutura_domain::identity::PrincipalName::parse("sa/../../projects/-/serviceAccounts/other@x.example.com")
-        .expect("the domain's shared parser accepts this, which is why this cell exists");
-    let refused = super::super::identity::authenticate(
-        crate::transport::JobIdentity::AsSubject {
-            assertion: &assertion,
-            target: &hostile,
-        },
-        &super::super::identity::Impersonation::ThroughPool(pool()),
-    )
-    .map(|_| ())
-    .expect_err("a target this transport cannot name is refused rather than interpolated");
-    assert!(matches!(refused, AdbcError::UnusableTarget), "{refused:?}");
-    // The refusal carries neither the value nor the assertion: it reaches a log.
-    assert!(!refused.to_string().contains("serviceAccounts"), "{refused}");
-    assert!(!refused.to_string().contains("a.caller.assertion"), "{refused}");
+    // With no hop, the STS leg asks for the API client's own scopes, so no `scopes` member either.
+    assert!(document.get("scopes").is_none(), "{document}");
 }

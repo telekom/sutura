@@ -232,6 +232,25 @@ fn a_workload_identity_scope_is_refused_as_an_unknown_key() {
     );
 }
 
+#[test]
+fn a_workload_identity_impersonate_map_is_refused_as_an_unknown_key() {
+    // The subject -> service-account map is gone: the federated token is the caller's own pool
+    // principal, and the data system's grants on it decide what the caller reads. A config that
+    // still writes the map is refused at start-up, by name, and never read as a control in place.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/d\"\n    \
+         posture: \"impersonation-at-source\"\n    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
+         impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n",
+    );
+    let error = Settings::load(&sources).expect_err("a subject -> service-account map is not a setting");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("impersonate"),
+        "the refusal names the key: {rendered}"
+    );
+}
+
 /// A multi-user deployment whose SECOND shared source is unacknowledged does not start. No other
 /// cell here fails if the check stops after the first source it walks; a
 /// federated answer reads two or three sources (`telekom/sutura#780`), and the acknowledgement is

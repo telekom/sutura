@@ -79,26 +79,10 @@ fn asking(raw: &str) -> RequestContext {
     )
 }
 
-fn declaring(subjects: &[&str]) -> DeclaredPrincipals {
-    DeclaredPrincipals::parse(
-        subjects
-            .iter()
-            .map(|raw| {
-                (
-                    SubjectKey::parse(raw).expect("a test key is a key"),
-                    PrincipalName::parse("bq@sutura.example.com").expect("a test principal is a principal"),
-                )
-            })
-            .collect::<BTreeMap<_, _>>(),
-    )
-    .expect("a declaration naming somebody parses")
-}
-
 fn delegated_warehouse(idp: &Arc<FakeIdp>) -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().impersonating_delegated(
+    DeclaredPrincipalBroker::empty().federating(
         source("warehouse"),
-        declaring(&["analyst-a@example.com", "analyst-b@example.com"]),
-        Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience()),
+        Some(Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience())),
     )
 }
 
@@ -117,7 +101,7 @@ fn presented_to(broker: &DeclaredPrincipalBroker, raw: &str) -> String {
         panic!("expected a grant for {raw}");
     };
     match credentials.presented_for(&source("warehouse")).expect("asked for") {
-        Presented::SubjectToken { material, .. } => material.expose_secret().to_owned(),
+        Presented::SubjectToken { material } => material.expose_secret().to_owned(),
         other => panic!("expected a subject token, got {other:?}"),
     }
 }
@@ -176,13 +160,17 @@ fn the_presented_lifetime_is_the_earlier_of_the_inbound_and_the_exchanged_token(
 
 #[test]
 fn a_plan_refused_at_one_source_sends_nothing_to_the_idp() {
-    // `yard` sorts AFTER `warehouse`, so the admitted, delegated source clears its own checks first
-    // and only an exchange made before the whole refusal pass ends can reach the fake.
+    // `yard` sorts AFTER `warehouse`, so the delegated source clears its own checks first and only
+    // an exchange made before the whole refusal pass ends can reach the fake. `yard` switches, and
+    // does not declare the asker.
     let (idp, asked) = fake(false);
-    let broker = delegated_warehouse(&idp).impersonating_delegated(
+    let broker = delegated_warehouse(&idp).switching(
         source("yard"),
-        declaring(&["analyst-b@example.com"]),
-        Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
+        DeclaredPrincipals::switched(BTreeMap::from([(
+            SubjectKey::parse("analyst-b@example.com").expect("a test key is a key"),
+            PrincipalName::parse("analyst_b").expect("a test principal is a principal"),
+        )]))
+        .expect("a declaration naming somebody parses"),
     );
     let minted = broker
         .mint(

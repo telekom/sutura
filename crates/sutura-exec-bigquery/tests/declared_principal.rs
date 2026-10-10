@@ -51,16 +51,10 @@
 //! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
 //! two accounts' grants.
 //!
-//! **What it asserts since `telekom/sutura#929`'s re-review: EXACT equality, not merely a
-//! difference.** The credential document names the account declared for the asking subject as its
-//! `service_account_impersonation_url` (F3), so `SESSION_USER()` is that exact address and nothing
-//! else. A round of this file asserted only *two subjects, two distinct principals* on the grounds
-//! that a stronger expectation nobody had run would read as a proven binding - and the re-review
-//! rejected that trade: `assert_ne!` passes over a deployment where the declared values are ignored
-//! and the pool happens to resolve two subjects to two principals of its own, which is exactly the
-//! *accepted and then ignored* defect F3 fixed. So the expectation is now the mechanism's own, and
-//! it is still an expectation: **nobody has dispatched this leg**, so what changed is what a green
-//! run would establish, never that one happened.
+//! **What it asserts: two subjects, two principals, neither the deployment's.** The credential
+//! document names no second hop, so `SESSION_USER()` is each subject's own federated principal.
+//! Its exact spelling is Google's, so the cell compares the two answers with each other and with
+//! the deployment's own, and names no expected string.
 
 #![cfg(feature = "adbc")]
 
@@ -127,27 +121,17 @@ mod declared_principal {
         )
     }
 
-    /// The identity a question runs as when this source is asked with `assertion`, for a caller
-    /// the deployment declared should execute as `account`.
+    /// The identity a question runs as when this source is asked with `assertion`.
     ///
     /// **`SubjectToken` and not `SubjectPrincipal`**, which is not a spelling choice: this adapter
     /// refuses the principal shape (`BigQueryError::NoPrincipalSwitch`), so a cell that built one
     /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
     /// document, and the transport puts it behind a workload-identity credential document for the
-    /// driver to federate and then impersonate `account` with.
-    ///
-    /// **Both values are per caller here, which is what the pre-F3 shape could not express.** A
-    /// leg built with one account for both subjects would run both questions as one principal and
-    /// the cell below would go red for a reason that is not the mechanism failing - so the two
-    /// addresses come from two variables, and `each_subject_executes_as_its_own_principal_at_the_declared_pool`
-    /// refuses to run without either.
-    fn executed_as(assertion: &str, account: &str) -> String {
+    /// driver to federate.
+    fn executed_as(assertion: &str) -> String {
         let warehouse = opened();
         let presented = Presented::SubjectToken {
             material: Secret::new(assertion),
-            impersonate: Some(
-                sutura_domain::identity::PrincipalName::parse(account).expect("the declared account is a principal name"),
-            ),
         };
         String::from(
             warehouse
@@ -160,51 +144,18 @@ mod declared_principal {
     #[test]
     #[ignore = "needs a real BigQuery project, the driver .so, and two assertions the declared pool accepts"]
     fn each_subject_executes_as_its_own_principal_at_the_declared_pool() {
-        // **THE leg-2 bar, and it is the same one the withdrawn HTTP venue met**: two distinct
-        // subjects resolve to two distinct BigQuery principals, observed at the data system rather
-        // than at a seam.
-        //
-        // **The account-binding oracle, asserted as an EQUALITY since `telekom/sutura#929`'s
-        // re-review.** The credential document names the declared account as its
-        // `service_account_impersonation_url`, so the second hop's output is that account and
-        // `SESSION_USER()` is that exact address. The two `assert_ne!`s below are kept beside the
-        // equalities rather than replaced by them, and they are not redundant: they refuse a
-        // MISCONFIGURED venue (one assertion presented twice, one address declared twice) with a
-        // message naming the configuration, where two equalities against one address would both
-        // pass and the leg would report a proven binding over one subject.
-        //
-        // **Why `assert_ne!` alone was not enough, which is the re-review's point.** It passes over
-        // a deployment that ignores the declared values entirely and lets the pool resolve each
-        // subject to its own principal - two distinct answers, neither of them the account the
-        // operator declared. That is the *security-critical setting accepted and then ignored*
-        // shape F3 fixed, and only an equality can see it.
+        // **THE leg-2 bar**: two distinct subjects resolve to two distinct BigQuery principals,
+        // observed at the data system rather than at a seam. The first `assert_ne!` refuses a
+        // MISCONFIGURED venue (one assertion presented twice) with a message naming it.
         let first_assertion = required("SUTURA_BQ_ASSERTION_A");
         let second_assertion = required("SUTURA_BQ_ASSERTION_B");
         assert_ne!(
             first_assertion, second_assertion,
             "one assertion presented twice is one subject, and proves nothing about two"
         );
-        let first_account = required("SUTURA_BQ_ACCOUNT_A");
-        let second_account = required("SUTURA_BQ_ACCOUNT_B");
         assert_ne!(
-            first_account, second_account,
-            "one declared account for both subjects runs both questions as one principal, whatever the pool resolved"
-        );
-        let ran_as_first = executed_as(&first_assertion, &first_account);
-        let ran_as_second = executed_as(&second_assertion, &second_account);
-        assert_eq!(
-            ran_as_first.trim(),
-            first_account.trim(),
-            "the first subject's question did not run as the account declared for it, so the declared \
-             target principal is a setting this deployment accepted and then did not apply"
-        );
-        assert_eq!(
-            ran_as_second.trim(),
-            second_account.trim(),
-            "the second subject's question did not run as the account declared for it"
-        );
-        assert_ne!(
-            ran_as_first, ran_as_second,
+            executed_as(&first_assertion),
+            executed_as(&second_assertion),
             "both subjects resolved to one principal, which is the shared-identity outcome wearing leg 2's name"
         );
     }
@@ -215,9 +166,7 @@ mod declared_principal {
         // **THE CONTROL, and without it the cell above cannot tell federation from the deployment
         // answering as itself.** A shared leg carries no subject, so this read goes out as whatever
         // the driver's application default credentials authenticate as. Compared against the two
-        // subjects' OWN observed principals rather than against the declared accounts: the control
-        // has to hold whatever the declaration says, and comparing against a declared address would
-        // pass on a deployment where the second hop silently did not happen.
+        // subjects' OWN observed principals.
         let declared = SharedIdentityDeclared::of(
             AcknowledgementReason::parse("the control leg reads this venue's own identity, under no subject at all")
                 .expect("a reason is a reason"),
@@ -239,13 +188,10 @@ mod declared_principal {
                 .expect("the dataset answered the identity read")
                 .as_str(),
         );
-        for (assertion, account) in [
-            ("SUTURA_BQ_ASSERTION_A", "SUTURA_BQ_ACCOUNT_A"),
-            ("SUTURA_BQ_ASSERTION_B", "SUTURA_BQ_ACCOUNT_B"),
-        ] {
+        for assertion in ["SUTURA_BQ_ASSERTION_A", "SUTURA_BQ_ASSERTION_B"] {
             assert_ne!(
                 ours,
-                executed_as(&required(assertion), &required(account)),
+                executed_as(&required(assertion)),
                 "a subject's question ran as this deployment's own identity, so the leg beside this one \
                  cannot tell federation from the deployment answering as itself"
             );

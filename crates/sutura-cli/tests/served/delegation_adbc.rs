@@ -224,7 +224,7 @@ mod tests {
     #[test]
     #[ignore = "needs the ADBC BigQuery driver at SUTURA_BIGQUERY_ADBC_DRIVER; run by `just e2e-datahub-adbc`"]
     fn a_spawned_deployment_exchanges_the_declared_callers_own_token_and_no_one_elses() {
-        let (subject, _) = DELEGATED;
+        let subject = DELEGATED;
         let mut deployed = deployed("delegation-adbc-exchanges", vec![Scripted::ok(&issued(&exchanged(subject)))]);
 
         let (_, refused) = ask(&deployed, UNDECLARED);
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     #[ignore = "needs the ADBC BigQuery driver at SUTURA_BIGQUERY_ADBC_DRIVER; run by `just e2e-datahub-adbc`"]
     fn a_spawned_deployments_refused_exchange_answers_identity_unavailable_and_reaches_no_source() {
-        let (subject, _) = DELEGATED;
+        let subject = DELEGATED;
         let mut deployed = deployed(
             "delegation-adbc-refused",
             vec![Scripted::status(400, r#"{"error":"invalid_grant"}"#)],
