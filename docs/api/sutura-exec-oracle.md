@@ -100,7 +100,7 @@ Why this data system could not answer.
 - `PresentedDisagreesWithPosture`
 - `DeadlineSpent` - The deadline was already spent before this call ever reached the driver - see `refuse_if_spent` for why this is checked rather than forwarded.
 - `CallTimeout` - `Connection::set_call_timeout` itself refused the value.
-- `PacketTraceOn` - The driver's packet trace is switched on - see `refuse_packet_trace`.
+- `PacketTraceOn` - The driver's packet trace is switched on - see `sutura_runtime::oracle_trace::refuse`.
 
 ### Implements
 
@@ -241,15 +241,6 @@ type, so this is the newtype rather than a second, string-only error shape.
 ### Implements
 
 `Debug`, `Display`, `Error`
-
-## `use refuse_packet_trace`
-
-Refuses while the driver's packet trace is switched on. Every dial this adapter makes asks here
-first.
-
-# Errors
-
-`OracleError::PacketTraceOn` while the variable is set.
 
 ## `constant DIAL_DEADLINE`
 

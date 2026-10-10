@@ -3898,6 +3898,7 @@ dependencies = [
  "sutura-adbc-postgres",
  "sutura-dev",
  "sutura-domain",
+ "sutura-runtime",
  "sutura-semantic",
  "thiserror 2.0.21",
 ]
@@ -4097,6 +4098,7 @@ dependencies = [
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
+ "sutura-runtime",
  "sutura-sql",
  "thiserror 2.0.21",
 ]
