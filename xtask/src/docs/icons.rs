@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn each_refused_form_is_named_and_a_clean_icon_is_not() {
-        let forms: [(&str, &str); 30] = [
+        let forms: [(&str, &str); 31] = [
             ("<script", "<svg><script>alert(1)</script></svg>"),
             ("<SCRIPT", r#"<svg><SCRIPT SRC="x"></SCRIPT></svg>"#),
             ("on*=", r#"<svg onload="alert(1)"><path d="M0 0"/></svg>"#),
@@ -256,6 +256,10 @@ mod tests {
             (
                 "character reference",
                 r#"<svg><path style="fill:u&#114;l(https://example.com/x)"/></svg>"#,
+            ),
+            (
+                "character reference, hex",
+                r#"<svg><path style="fill:&#x75;rl(https://example.com/x)"/></svg>"#,
             ),
             ("on*= after a quote", r#"<svg a="b"onload="alert(1)"/>"#),
             ("on*= after a single quote", r#"<svg a='b'onload="alert(1)"/>"#),
