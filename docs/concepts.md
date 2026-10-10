@@ -148,65 +148,27 @@ disagree with the original, with no way to tell which one is right.
 
 ## Catalogue and data system
 
-Two ports, deliberately separate.
+sutura has two separate ports.
 
-A **catalogue** supplies definitions: metrics, dimensions, the glossary, lineage. A directory of
-documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait.
-Both exist, and more beside them. `sutura-catalog-local` reads a directory.
-`sutura-catalog-datahub` and `sutura-catalog-openmetadata` read a metadata catalogue over HTTP.
-The other `sutura-catalog-*` crates read further declaration sources.
+A **catalogue** supplies the definitions: metrics, dimensions, the glossary and lineage. Each catalogue adapter reads one
+kind of source: a directory of documents, a metadata platform such as DataHub or OpenMetadata, or another declaration
+format. See [Integrations](integrations/index.md).
 
-A **data system** executes. The port is named `Warehouse`, and the name says nothing about what
-sits behind it. Its adapters are different kinds of thing. `sutura-exec-datafusion` is **the
-engine**: it reads CSV, Parquet and NDJSON files itself, executes the plan over Arrow and
-generates no SQL. Every build links it. `sutura-exec-duckdb` is a **data source**: it renders the
-plan into `DuckDB` SQL and pushes the statement down. Postgres, ClickHouse, Oracle and BigQuery
-are data sources too, each behind a default-off feature. The release binary enables DuckDB,
-BigQuery, Postgres and ClickHouse. A musl release links the DuckDB driver, and any other build
-mounts the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. The golden suite executes the
-example corpus against Postgres and ClickHouse on a server their nix tier starts beside the suite.
-BigQuery's golden cells run against a real dataset in the `bigquery-conformance` CI job and skip
-elsewhere under a named exemption. Oracle's skip under one because no gate provisions an Oracle.
+A **data system** runs the query. It has two kinds of adapter:
 
-A plan resolves to **one** data system per leg. Spanning two is not a bigger version of the same
-problem: it is a second identity to satisfy. A plan whose legs cannot all run as one subject is
-refused, not run partly as somebody else.
+- **The engine** (`sutura-exec-datafusion`) reads CSV, Parquet and NDJSON files and runs the plan itself. Every build
+  links it.
+- **A data source** (DuckDB, PostgreSQL, ClickHouse, BigQuery, Oracle) receives the plan as SQL in its own dialect and
+  runs it.
 
-**Answered today, for two sources.** The plan stage collects the source of the metric's own model
-and of every model reached through a join into a set. Three or more sources refuse as
-`PlanSpansTooManySources`. Exactly two are split into a fact leg and a lookup leg. Each leg
-executes against its own data system, and the legs are joined and re-aggregated above them. The
-count is computed from the plan, not asserted about it afterwards. A golden builds a two-source
-catalogue to provoke the split.
+**Two sources in one question.** sutura splits the plan into legs, runs each leg on its own source, and joins the
+results. It refuses a plan with three or more sources (`PlanSpansTooManySources`). A ClickHouse source cannot run a
+leg, so a two-source question that names one is refused (`FederationNotExecutable`).
 
-**Two sources are not two identities, and that is the limit to read this with.** Every adapter a
-released binary links declares that it has nowhere for a subject to arrive. So both legs of a
-two-source answer run under the one identity the process itself has, and the answer records that
-same shared identity twice, not two different ones. This is *single-player* federation: one
-asker's question reaching two data systems, not two data systems each applying that asker's own
-grants. Nothing here tests that two subjects get different rows, and nothing can until a source
-can execute as the asker.
-
-**A combined answer MAY be made of two different kinds of identity, and it says which leg was
-which.** Where one leg runs under a source's acknowledged shared identity and the other as the
-asking subject, the answer carries one `executed_as` entry per source naming that leg's own
-posture. Only one adapter can carry a per-subject credential, so every federation across two
-*different* data systems is cross-posture by construction.
-
-**What that does and does not answer for.** A total made of rows one identity was permitted to see
-plus rows another identity was permitted to see is a number neither of them is entitled to. That
-arithmetic is unchanged, and the disclosure is not what answers for it: an answer's execution
-record and its rows arrive in one body on both transports, so a caller who is told already has the
-rows. What answers for it is that an operator declared each source's posture in writing on its own
-entry before the process started. A deployment with a shared source and no acknowledgement does
-not boot at all. What is *not* decidable either way is whether two legs under the same shared
-posture are the same identity. Nothing here names which shared identity a source is read as.
-
-**A deployment still holds one KIND of data system.** Two `files` sources are a two-source
-deployment. A `files` source beside a warehouse is refused at startup, naming both entries. A
-build whose only linked adapter cannot run a leg - which is any build without the in-process
-engine - refuses a two-source question as `FederationNotExecutable` rather than answering half of
-it.
+**Identity for each leg.** Each leg runs in the identity mode of its source: `shared-service-user` or
+secure-impersonation. The answer records one `executed_as` entry for each source. A combined total can include rows that
+one identity can see and the other cannot. In a multi-user deployment, the operator accepts this in the configuration,
+on each `shared-service-user` source. Without that, the deployment does not start.
 
 ## Provenance
 
