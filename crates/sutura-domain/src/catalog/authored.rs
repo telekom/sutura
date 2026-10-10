@@ -289,8 +289,8 @@ impl TryFrom<String> for AnchorValue {
 /// the load itself never branches on. 512 is deliberately far past the 70 observed rather than tight
 /// around it: unlike a dimension value, no document a person or an agent reads carries a column
 /// type except one refusal, a federated join across kinds, which quotes it as
-/// `QuotedColumnType` - so generosity here costs store-and-forget bytes and, in that one refusal, at
-/// most this many escaped characters.
+/// `QuotedColumnType` - so generosity here costs store-and-forget bytes and, in that one refusal, text
+/// of at most this many characters BEFORE escaping (the quoted form is longer by its escapes).
 pub const MAX_COLUMN_TYPE_CHARS: usize = 512;
 
 /// A [`super::Column`]'s data type, as a source's own dictionary spells it: `"STRING"`,
