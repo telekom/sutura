@@ -279,13 +279,10 @@ outputs:
           kind: bigquery
           billing_project: ${project}
           dataset: ${dataset.datasetId}
-          # Required by the settings and not read: the driver authenticates as the caller.
-          credential_file: /nonexistent/not-read.json
           max_bytes_billed: 1073741824
           posture: impersonation-at-source
           workload_identity:
             audience: //iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${pool.workloadIdentityPoolId}/providers/${keycloakProvider.workloadIdentityPoolProviderId}
-            scope: https://www.googleapis.com/auth/bigquery
             impersonate:
               # alice and bob, by their Keycloak user id.
               0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01: ${aliceAccount.email}

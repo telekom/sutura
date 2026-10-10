@@ -434,22 +434,6 @@ pub enum SourcePlacement {
         billing_project: BillingProject,
         /// Where an unqualified table name resolves. See [`DatasetId`].
         dataset: DatasetId,
-        /// The credential file this source is reached with. Absolute, checked at parse - **and read
-        /// by nothing.**
-        ///
-        /// **A path rather than a credential**, so nothing in this tree holds token material and
-        /// `Secret` has nothing to redact here. Reading it used to be the adapter's job at the line
-        /// that opens the source; the ADBC driver authenticates itself, so the composition root
-        /// passes the path nowhere (`sutura_cli::sources::bigquery` says so at its own boot line).
-        /// **Still required and still checked to be ABSOLUTE - and not checked to exist**, which is
-        /// the correction `telekom/sutura#929`'s eighth review round made to this very paragraph.
-        /// `sources::parse_absolute` refuses `path.is_relative()` and returns; nothing stats the
-        /// file. Measured: adding `|| !path.exists()` to that predicate - a no-op if the claim had
-        /// held - produced 26 failures. So an operator who writes a path to a file that is not
-        /// there boots clean, and one who writes a relative path gets a refusal about a key that
-        /// changes nothing either way. A settings surface with no mechanism behind it rather than a
-        /// control, stated at both of the two things it does and does not check.
-        credential_file: PathBuf,
         /// The most one job may be billed for scanning. **Required, and sent to the data system as
         /// `BigQuery`'s own `maximumBytesBilled`.**
         ///
@@ -780,7 +764,6 @@ mod tests {
             SourcePlacement::BigQuery {
                 billing_project: BillingProject::parse("acme-analytics").expect("a test project is one"),
                 dataset: DatasetId::parse("warehouse").expect("a test dataset is one"),
-                credential_file: PathBuf::from("/etc/sutura/bq.json"),
                 max_bytes_billed: 1024 * 1024 * 1024,
             }
             .kind(),

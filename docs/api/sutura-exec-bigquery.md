@@ -289,10 +289,10 @@ artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` c
 that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
 one pinned source.
 
-`impersonation` is whether this source impersonates and at what scope - the source's declared
-`workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
-rather than read per request because it is a property of the source, and a declared scope the
-driver would refuse then fails before a listener is bound.
+`impersonation` is whether this source impersonates and through which pool - the source's
+declared `workload_identity.audience`, or `adbc::Impersonation::Disabled` for a shared
+one. Taken here rather than read per request because it is a property of the source, and a
+pool the driver would refuse then fails before a listener is bound.
 
 `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
 every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
@@ -629,15 +629,14 @@ provider resource the subject token is exchanged for - `externalaccount::Options
 refuses an empty one outright, so a deployment that declared nothing would fail on its first
 question instead of at boot.
 
-**One field, and the declared SCOPE is not it.** `sources.<alias>.workload_identity.scope` is
-parsed by `sutura_config` and reaches nothing here, because the pinned driver has nowhere to put
-it: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member,
-so the document cannot carry one, and the driver's only scope option is
-`bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` treats as a
-request for the DELETED mechanism - it then demands a target principal and replaces the
-federated credential with an impersonated token source. A screened value this transport cannot
-send would read as a control that is in place, so it is not held here at all and the operator is
-told where they declare it.
+**One field, and a scope is not it.** There is no `workload_identity.scope` key: the pinned
+driver has nowhere to put one. `credsfile::ExternalAccountFile`
+(`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member, so the document cannot carry one,
+and the driver's only scope option is `bigquery.impersonate.scopes`, which `connection.go`'s
+`hasImpersonationOptions` treats as a request for the DELETED mechanism - it then demands a
+target principal and replaces the federated credential with an impersonated token source. A
+declared value this transport cannot send would read as a control that is in place, so the
+settings parse refuses the key.
 
 ### `use DriverLocation`
 

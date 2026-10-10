@@ -196,9 +196,9 @@ tolerations: []
 affinity: {}
 
 # Escape hatches for what this chart does not model by name: a source's own credential file
-# (`sources.<alias>.credential_file`, `password_file`, `client_certificate`, `client_key`),
+# (`sources.<alias>.password_file`, `client_certificate`, `client_key`),
 # outbound trust anchors, or anything else that needs a volume this chart has no dedicated
-# value for. Point `config.base.sources.<alias>.credential_file` (etc.) at the mount path you
+# value for. Point `config.base.sources.<alias>.password_file` (etc.) at the mount path you
 # declare here.
 extraVolumes: []
 extraVolumeMounts: []

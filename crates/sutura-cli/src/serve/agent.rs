@@ -119,6 +119,7 @@ pub(crate) fn mount(
             serving,
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
             settings.prompt().list_physical_schema(),
+            settings.row_ceilings(),
             admission,
             settings.server().request_timeout(),
             settings.server().max_body(),

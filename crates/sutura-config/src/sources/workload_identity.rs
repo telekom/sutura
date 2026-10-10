@@ -10,9 +10,10 @@
 //! source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
 //! sixth amendment.
 //!
-//! **What each declared value actually reaches.** `audience` is sent. `scope` is parsed and sent
-//! nowhere: the credential document has no `scopes` member, and the driver's own scope option
-//! selects the DELETED principal-switch mechanism rather than this one. `impersonate`'s KEYS decide
+//! **What each declared value actually reaches.** `audience` is sent. There is no `scope` key:
+//! the credential document has no `scopes` member, and the driver's own scope option selects the
+//! DELETED principal-switch mechanism rather than this one, so a declared scope would reach
+//! nothing and is refused as an unknown key. `impersonate`'s KEYS decide
 //! which subjects a source may be served for, and since `telekom/sutura#929` F3 its VALUES name the
 //! account each of those subjects executes as - sent as the credential document's
 //! `service_account_impersonation_url`, so changing one changes which account a caller's questions
@@ -31,11 +32,6 @@
 /// resource.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WifAudience(String);
-
-/// The OAuth scope an operator declares for the federated credential. Sent by nothing - see
-/// [`WorkloadIdentityConfig::scope`].
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WifScope(String);
 
 /// The Workload Identity Federation setup a `impersonation-at-source` source needs.
 ///
@@ -62,7 +58,6 @@ pub struct WifScope(String);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadIdentityConfig {
     audience: WifAudience,
-    scope: WifScope,
     impersonate: std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa>,
     /// The issuer the pool trusts - the `iss` a subject token must carry for Google STS to accept
     /// it. See the type's own doc for why `None` is a value.
@@ -143,7 +138,7 @@ impl DelegationDeclared {
 }
 
 impl WorkloadIdentityConfig {
-    /// Parses a declared audience, scope and impersonation map together.
+    /// Parses a declared audience and impersonation map together.
     ///
     /// `impersonate` is read as raw strings rather than already-parsed types, for the reason
     /// `RawSource` carries every field as one: the settings tree speaks in strings, and parsing
@@ -158,10 +153,9 @@ impl WorkloadIdentityConfig {
     /// parse that guards every principal identifier.
     pub fn parse(
         audience: impl AsRef<str>,
-        scope: impl AsRef<str>,
         impersonate: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self, InvalidWorkloadIdentity> {
-        Self::parse_with_expectations(audience, scope, impersonate, None, None)
+        Self::parse_with_expectations(audience, impersonate, None, None)
     }
 
     /// Parses a declaration that also names what the pool trusts - telekom/sutura#817's seam.
@@ -172,7 +166,6 @@ impl WorkloadIdentityConfig {
     /// the audience as a provider resource (the [`WifAudience`] parse).
     pub fn parse_with_expectations(
         audience: impl AsRef<str>,
-        scope: impl AsRef<str>,
         impersonate: &std::collections::BTreeMap<String, String>,
         expected_issuer: Option<&str>,
         expected_audience: Option<&str>,
@@ -205,7 +198,6 @@ impl WorkloadIdentityConfig {
         };
         Ok(Self {
             audience: WifAudience::parse(audience.as_ref())?,
-            scope: WifScope::parse(scope.as_ref())?,
             impersonate: parsed,
             expected_issuer,
             expected_audience,
@@ -233,25 +225,6 @@ impl WorkloadIdentityConfig {
     #[must_use]
     pub const fn audience(&self) -> &WifAudience {
         &self.audience
-    }
-
-    /// The scope the exchanged credential would carry, and **no transport in this build sends it.**
-    ///
-    /// Stated here because this is where an operator declares it. The shipped path federates the
-    /// asker's own assertion through an `external_account` credential document, and the pinned
-    /// driver has nowhere to put a scope: the document shape
-    /// (`cloud.google.com/go/auth@v0.23.2`'s `credsfile::ExternalAccountFile`) has no `scopes`
-    /// member, and the driver's own `bigquery.impersonate.scopes` option is read as a request for
-    /// service-account impersonation, which replaces the federated credential rather than scoping
-    /// it. The `BigQuery` client's own default scope applies instead.
-    ///
-    /// **Declared and unread, not declared and ignored** - the distinction is that this is the
-    /// sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
-    /// Removing the key is a settings break and a follow-up; misreporting it is a defect now.
-    #[inline]
-    #[must_use]
-    pub const fn scope(&self) -> &WifScope {
-        &self.scope
     }
 
     /// The declared subject -> service-account map, for the composition root to hand the broker.
@@ -375,49 +348,11 @@ impl WifAudience {
     }
 }
 
-impl WifScope {
-    /// The longest a scope may be. Larger than an audience because a scope is a URL.
-    const MOST: usize = 1024;
-
-    /// Parses a scope.
-    ///
-    /// A scope is a URL (`https://www.googleapis.com/auth/bigquery.readonly`), so it allows the `%`
-    /// and letters a URL does rather than the narrower set an audience does. A longer bound than an
-    /// audience's, and the same reason for having one: it belongs in a request and a refusal should
-    /// never log it raw.
-    pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return Err(InvalidWorkloadIdentity::Empty { what: "scope" });
-        }
-        if trimmed.chars().count() > Self::MOST {
-            return Err(InvalidWorkloadIdentity::TooLong {
-                what: "scope",
-                found: trimmed.chars().count(),
-                most: Self::MOST,
-            });
-        }
-        if let Some(at) = trimmed.char_indices().find_map(|(at, c)| {
-            (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '/' | ':' | '.' | '-' | '_' | '%')).then_some(at)
-        }) {
-            return Err(InvalidWorkloadIdentity::Character { what: "scope", at });
-        }
-        Ok(Self(String::from(trimmed)))
-    }
-
-    /// The scope, for building a request.
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// Why a declared workload-identity value is not usable.
 ///
 /// **The position is carried and the value is not**, for the reason every refusal about
-/// operator-written text carries it: an audience and a scope are foreign strings heading for a
-/// request, and neither belongs in a log.
+/// operator-written text carries it: an audience is a foreign string heading for a
+/// request, and it does not belong in a log.
 ///
 /// **No `Clone`**, for the reason `InvalidSourceRegistry` (`crate::sources`) already gives: its own
 /// `ImpersonationSubject` variant's cause is `sutura_domain::identity::InvalidPrincipalId`, which is
@@ -473,18 +408,16 @@ pub enum InvalidWorkloadIdentity {
 
 #[cfg(test)]
 mod tests {
-    use super::{InvalidWorkloadIdentity, WifAudience, WifScope, WorkloadIdentityConfig, WorkloadIdentitySa};
+    use super::{InvalidWorkloadIdentity, WifAudience, WorkloadIdentityConfig, WorkloadIdentitySa};
 
     #[test]
     fn a_declared_workload_identity_parses_both_halves() {
         let id = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &std::collections::BTreeMap::new(),
         )
         .expect("a real-shaped declaration parses");
         assert!(id.audience().as_str().starts_with("//iam.googleapis.com/"));
-        assert_eq!(id.scope().as_str(), "https://www.googleapis.com/auth/bigquery.readonly");
         assert!(
             id.impersonate().is_empty(),
             "an entry with no `impersonate` map keeps a bare exchange"
@@ -500,7 +433,6 @@ mod tests {
         ));
         let id = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &declared,
         )
         .expect("a real-shaped impersonation map parses");
@@ -517,7 +449,6 @@ mod tests {
         drop(declared.insert(String::from("principal-a@example.com"), String::from("not-an-account")));
         let err = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &declared,
         )
         .expect_err("a target with no `@` is not an account");
@@ -551,7 +482,6 @@ mod tests {
         ));
         let err = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &declared,
         )
         .expect_err("two declared subjects that compare equal after parse are refused");
@@ -567,7 +497,6 @@ mod tests {
         ));
         let err = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &declared,
         )
         .expect_err("a whitespace-only declared subject is not an identifier");
@@ -587,7 +516,6 @@ mod tests {
         drop(declared.insert(oversized, String::from("sa-declared@acme-analytics.iam.gserviceaccount.com")));
         let err = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &declared,
         )
         .expect_err("an over-long declared subject is not a usable identifier");
@@ -601,7 +529,6 @@ mod tests {
         // to leg 1 at boot and to check the subject token against at mint.
         let id = WorkloadIdentityConfig::parse_with_expectations(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &std::collections::BTreeMap::new(),
             Some("https://accounts.google.com"),
             Some("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/sutura/providers/oidc"),
@@ -623,7 +550,6 @@ mod tests {
         // value that is not one is refused at declaration, never accepted and then surprising.
         let err = WorkloadIdentityConfig::parse_with_expectations(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &std::collections::BTreeMap::new(),
             Some("not-an-https-url"),
             Some("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/sutura/providers/oidc"),
@@ -638,7 +564,6 @@ mod tests {
         // when both halves are present (telekom/sutura#817).
         let err = WorkloadIdentityConfig::parse_with_expectations(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
-            "https://www.googleapis.com/auth/bigquery.readonly",
             &std::collections::BTreeMap::new(),
             Some("https://accounts.google.com"),
             None,
@@ -672,14 +597,6 @@ mod tests {
         assert!(
             WifAudience::parse(&"a".repeat(WifAudience::MOST)).is_ok(),
             "exactly the bound is an audience this deployment may present"
-        );
-    }
-
-    #[test]
-    fn a_scope_carrying_a_space_is_refused_at_the_offset_of_the_space() {
-        assert_eq!(
-            WifScope::parse("not a scope"),
-            Err(InvalidWorkloadIdentity::Character { what: "scope", at: 3 })
         );
     }
 }

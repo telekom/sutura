@@ -180,3 +180,7 @@ record names is still reopened rather than closed - the pool sees the document l
 nothing in this process compares its own expectations against the pool's. `expected_issuer` and
 `expected_audience` are still refused at boot, and F3 narrows the arm next to them rather than
 relaxing either.
+
+## Fifth amendment, 2026-10-09: `workload_identity.scope` is gone
+
+A source declares no `scope`: `github.com/telekom/sutura#1328` refuses `workload_identity.scope` by name, so "the audience and scope it already names" is the audience alone.

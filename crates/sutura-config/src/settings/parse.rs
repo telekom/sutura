@@ -6,7 +6,7 @@
 //! Nothing here is `pub` - these are helpers `Settings::parse` calls, moved to a sibling module so
 //! the file that describes the posture is not also the file that parses a thousand lines of it.
 
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::{FederatedRowCeiling, RowCeiling};
 
 use super::SettingsError;
 use crate::environment::Environment;
@@ -107,7 +107,6 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             data_dir: source.data_dir.as_deref(),
             billing_project: source.billing_project.as_deref(),
             dataset: source.dataset.as_deref(),
-            credential_file: source.credential_file.as_deref(),
             max_bytes_billed: source.max_bytes_billed,
             posture: &source.posture,
             acknowledged_because: source.acknowledged_because.as_deref(),
@@ -216,6 +215,17 @@ pub(super) fn parse_row_ceiling(raw: &RawSettings) -> Result<RowCeiling, Setting
     raw.governance.top_row_ceiling.map_or_else(
         || Ok(RowCeiling::DEFAULT),
         |rows| RowCeiling::parse(rows).map_err(|cause| SettingsError::RowCeiling { cause }),
+    )
+}
+
+/// The federated answer's row ceiling - `FederatedRowCeiling::DEFAULT` when
+/// `governance.federated_row_ceiling` is absent, which is every deployment's behaviour before this
+/// key existed (`github.com/telekom/sutura#828`). Zero and a value above the maximum are startup
+/// refusals naming the key, never a clamp.
+pub(super) fn parse_federated_row_ceiling(raw: &RawSettings) -> Result<FederatedRowCeiling, SettingsError> {
+    raw.governance.federated_rows.map_or_else(
+        || Ok(FederatedRowCeiling::DEFAULT),
+        |rows| FederatedRowCeiling::parse(rows).map_err(|cause| SettingsError::FederatedRowCeiling { cause }),
     )
 }
 

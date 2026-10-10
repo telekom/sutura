@@ -117,7 +117,7 @@ pub enum PostgresError {
         #[source]
         cause: sutura_domain::warehouse::csv::InferenceError,
     },
-    /// The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
+    /// The `fixtures` build's `statement_timeout` tuning value is not a `u32` millisecond count.
     ///
     /// The value becomes a `SET LOCAL statement_timeout = N` ceiling, so it is parsed at the
     /// boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
@@ -152,19 +152,28 @@ pub enum PostgresError {
     },
 }
 
-/// A tuning value, or this build's own. **Not for a credential** - the credential half is
-/// `fixture::FixtureCredential`: a fallback is the right shape for a timeout a host may want to
-/// widen and the wrong shape for a secret nobody chose.
-fn env_or(key: &str, fallback: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| String::from(fallback))
-}
+/// The statement-timeout ceiling a build without the `fixtures` feature always uses.
+const DEFAULT_STATEMENT_TIMEOUT_MS: u32 = 15_000;
 
-/// The dev-only statement timeout ceiling, parsed to a `u32`.
+/// The statement timeout ceiling: `SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, and
+/// [`DEFAULT_STATEMENT_TIMEOUT_MS`] in every other - the shipped binary links this crate without
+/// `fixtures`, so a deployment's environment cannot move it.
 ///
 /// Parsing is `u32` (not `u64` rounded down), so an oversized value is refused rather than becoming
 /// a different number.
 fn statement_timeout_ms() -> Result<u32, PostgresError> {
-    parse_statement_timeout(&env_or("SUTURA_DEV_STATEMENT_TIMEOUT_MS", "15000"))
+    statement_timeout_under(
+        cfg!(feature = "fixtures"),
+        std::env::var("SUTURA_DEV_STATEMENT_TIMEOUT_MS").ok().as_deref(),
+    )
+}
+
+/// [`statement_timeout_ms`]'s decision with both inputs passed in: the environment value is read
+/// only when `dev_build`.
+fn statement_timeout_under(dev_build: bool, from_env: Option<&str>) -> Result<u32, PostgresError> {
+    from_env
+        .filter(|_| dev_build)
+        .map_or(Ok(DEFAULT_STATEMENT_TIMEOUT_MS), parse_statement_timeout)
 }
 
 /// Parses a `statement_timeout` tuning value as a `u32` millisecond count.

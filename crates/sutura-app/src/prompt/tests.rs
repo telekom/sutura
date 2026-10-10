@@ -13,6 +13,7 @@ mod injection_corpus;
 mod listed_physical_schema;
 mod physical_schema;
 mod refusal_corpus;
+mod row_ceilings;
 mod run_sql;
 mod tool_audience;
 

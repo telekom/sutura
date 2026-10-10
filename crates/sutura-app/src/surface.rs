@@ -85,7 +85,7 @@ use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::{FederationCombiner, RowCeiling};
+use sutura_domain::plan::{FederationCombiner, RowCeilings};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -439,7 +439,7 @@ pub struct LocalService<W, S, B, C> {
     combiner: C,
     working_set_bytes: u64,
     spend_ledger: SpendLedger,
-    row_ceiling: RowCeiling,
+    row_ceilings: RowCeilings,
 }
 
 impl<W, S, B, C> LocalService<W, S, B, C>
@@ -528,7 +528,7 @@ where
             combiner,
             working_set_bytes,
             spend_ledger: SpendLedger::no_budget(),
-            row_ceiling: RowCeiling::DEFAULT,
+            row_ceilings: RowCeilings::DEFAULT,
         })
     }
 
@@ -545,13 +545,14 @@ where
         self
     }
 
-    /// Replaces the `top` row ceiling, for a composition root that read one out of its settings -
-    /// `github.com/telekom/sutura#777`. [`Self::with_spend_ledger`]'s reason applies unchanged:
-    /// every existing caller of [`Self::start`] and [`Self::start_composed`] keeps [`RowCeiling::DEFAULT`],
-    /// which is [`sutura_domain::plan::MAX_ROWS`] and the behaviour every deployment already had.
+    /// Replaces the row ceilings, for a composition root that read them out of its settings - the
+    /// `top` one is `github.com/telekom/sutura#777`, the federated one `github.com/telekom/sutura#828`.
+    /// [`Self::with_spend_ledger`]'s reason applies unchanged: every existing caller of
+    /// [`Self::start`] and [`Self::start_composed`] keeps [`RowCeilings::DEFAULT`], which is
+    /// [`sutura_domain::plan::MAX_ROWS`] for both and the behaviour every deployment already had.
     #[must_use]
-    pub const fn with_row_ceiling(mut self, row_ceiling: RowCeiling) -> Self {
-        self.row_ceiling = row_ceiling;
+    pub const fn with_row_ceilings(mut self, row_ceilings: RowCeilings) -> Self {
+        self.row_ceilings = row_ceilings;
         self
     }
 
@@ -594,7 +595,7 @@ where
             self.working_set_bytes,
             deadline,
             &self.spend_ledger,
-            self.row_ceiling,
+            self.row_ceilings,
         )
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own

@@ -116,7 +116,7 @@ fn a_federated_answer_dry_runs_each_leg_exactly_once() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
     .expect("a federated answer is not an error")
     .into_outcome();
