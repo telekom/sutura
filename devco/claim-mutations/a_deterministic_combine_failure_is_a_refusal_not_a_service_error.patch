@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
+index 95761c1f3..d3867f7b0 100644
+--- a/crates/sutura-app/src/federated.rs
++++ b/crates/sutura-app/src/federated.rs
+@@ -137,6 +137,9 @@ where
+     // registry lookups cannot collide. Looked up BEFORE the capability gate below, for the reason
+     // the gate itself is now per-instance rather than per-type: there is no adapter to ask about a
+     // source nobody opened.
++    if plan.fact().source() != plan.lookup().source() {
++        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
++    }
+     let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
+         return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
+     };
