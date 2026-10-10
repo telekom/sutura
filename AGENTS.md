@@ -72,9 +72,9 @@ Those three plus secure-by-design are the definition of *correct* in review here
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
   who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: on BigQuery
-  the caller's own verified assertion is federated through the declared pool, and the account the
-  source's per-source map declares for that subject becomes the credential's
-  `service_account_impersonation_url` - an undeclared subject is refused, never run as the
+  the caller's own verified assertion is federated through the declared pool, and the federated
+  token is that subject's own pool principal - no service account is impersonated, and BigQuery's
+  grants on that principal decide what it reads. An anonymous caller is refused, never run as the
   deployment. The adapter venue that would show it is `wired` with **no observed run**; a served
   venue is not built, by decision - sutura assumes the operator configures a valid issuer and pool,
   and proves only its own half. The run this sentence once cited was of an HTTP exchange the ADBC

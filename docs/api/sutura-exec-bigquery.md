@@ -148,21 +148,6 @@ an owned `#[source]`.
   broker presenting the other one gets. Accepting it would submit the job under the
   credential the transport already holds while provenance, read off this source's posture,
   reported the answer as impersonated.
-- `NoImpersonationTarget` - A subject's own credential arrived with no account declared beside it.
-
-  **Refused rather than run as the pool principal, which is the half-configured state this
-  variant exists to keep off a dataset.** The credential document's
-  `service_account_impersonation_url` is what makes a declared account decide anything; with
-  no account there is nothing to name, and the alternative to refusing is a question that runs
-  as whatever principal the pool resolves the subject to while the deployment's `impersonate`
-  map says it runs as somebody specific. `telekom/sutura#929`'s review is explicit that a
-  security-critical setting must not be accepted and then ignored - and *silently widened* is
-  the same defect from the other side.
-
-  Reachable only from a broker that is not `sutura_config::DeclaredPrincipalBroker`: that one mints the
-  account off the map it parsed, so a served deployment refuses the declaration at boot
-  instead. `Presented` is a public port, so the refusal is typed rather than an
-  `unreachable!`.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `Unreadable` - A result column could not be read as a domain value.
 
@@ -474,19 +459,6 @@ Why the ADBC transport could not answer.
   is this process's own: a host with no usable loopback interface cannot serve an impersonated
   question, and saying that is better than a driver failing to fetch a token for reasons of
   its own.
-- `UnusableTarget` - A declared impersonation target is not one this transport will name in a request.
-
-  **Its own variant rather than an `Self::Uncovered`, because it is a refusal about a
-  VALUE and the string in that one is a missing capability.** The account rides into one path
-  segment of `service_account_impersonation_url`, which decides which account the question
-  runs as, and `cloud.google.com/go/auth`'s impersonation provider POSTs that URL verbatim
-  with no shape check at all. `sutura_domain::identity::PrincipalName`'s parser is the
-  domain's shared one and accepts `/`, so the narrowing is this crate's.
-
-  **It carries nothing**, deliberately: the shipped broker parses the same rule at boot and
-  names the value there, where an operator can act on it, and this arm is reachable only from
-  a broker that built a `Presented` by hand. A refusal at the send boundary that echoed the
-  value would put a caller-influenced string into an error that reaches a log.
 - `NoRandomness` - The operating system would not supply the randomness this request's two secrets need.
 
   **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
@@ -598,13 +570,14 @@ Why a configured bytes-billed ceiling is not one this transport will send.
 
 ### `use DriverMessage`
 
-A driver message with every console job link cut out, so no rendered error says where a job ran.
+A driver message with every console job link cut out, so no rendered error says where a job ran,
+and the status the driver gave it.
 
 The pinned driver appends `(Query: <link>)` to the message of any error after the job was
 created (`go/record_reader.go`'s `runQuery`), and the link names the project, location and job.
 
 **The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
-gate - a private tuple field in a child module, so a `DriverMessage(..)` in `super` is `E0423`.
+gate - private fields in a child module, so a `DriverMessage { .. }` in `super` is `E0451`.
 Only `driver_message.rs` itself can skip `of`.
 
 ### `use Impersonation`
@@ -803,24 +776,14 @@ fact and `Presented::agrees_with` passes both subject shapes - they are one POST
 
   The shared posture, and the boot path - see `JobDeadline::Boot` for the other half of what
   "no caller" means to a request.
-- `AsSubject` - The asking subject's own verified assertion, and the account this deployment declared that subject's questions should execute as.
+- `AsSubject` - The asking subject's own verified assertion.
 
   **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
   `crate::adbc` puts the assertion behind a workload-identity credential document, so
-  Google's own token service verifies it and resolves the subject to the declared pool's
-  principal. Nothing on that path runs the question under the deployment's identity.
-
-  **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
-  second mechanism: the credential the driver ends up holding is still derived from the
-  caller's own assertion, and the pool principal impersonating a declared account is one chain
-  with two links. It is not the deleted principal switch, which ran from the deployment's own
-  application default credentials with the caller's credential nowhere in the chain - that has
-  no spelling here and a broker presenting it is refused by
-  `BigQueryError::NoPrincipalSwitch`.
-
-  **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
-  run every declared caller as one pool principal while a deployment's `impersonate` map said
-  otherwise.
+  Google's own token service verifies it and returns a federated token for the declared pool's
+  `principal://.../subject/<sub>`. `BigQuery` evaluates its grants and row policies against that
+  principal. Nothing on that path runs the question under the deployment's identity, and there
+  is no second hop to another account.
 
 #### Implements
 
@@ -874,9 +837,8 @@ Who this job is to be executed as.
 never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
 ignored it would answer as itself while provenance reported the asker. It does not make the
 source execute as the asker on its own: `JobIdentity::AsSubject` carries the subject's
-assertion and the account declared for that subject, and the declared pool is what resolves
-the assertion to a principal able to impersonate it - unproven against a live pool, per
-`docs/where-identity-is-proven.md`.
+assertion, and the declared pool is what resolves it to the subject's own principal -
+unproven against a live pool, per `docs/where-identity-is-proven.md`.
 
 ```rust
 pub const fn params(&self) -> &[ParamValue]

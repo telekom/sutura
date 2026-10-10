@@ -8,27 +8,21 @@
 //! # The mechanism
 //!
 //! An impersonating source hands the driver a WORKLOAD-IDENTITY CREDENTIAL DOCUMENT naming a
-//! loopback source for the asking subject's own assertion, and the account that subject's
-//! questions are declared to execute as - [`super::subject`] builds both and carries the whole
-//! argument, including why a loopback URL rather than a file or an executable, and what the open
-//! port's exposure actually is.
+//! loopback source for the asking subject's own assertion - [`super::subject`] builds it and carries
+//! the whole argument, including why a loopback URL rather than a file or an executable, and what the
+//! open port's exposure actually is. The document names no second hop: the federated token Google's
+//! token service returns IS the subject's own pool principal, and `BigQuery`'s grants on that
+//! principal decide what it reads.
 //!
-//! # Two second hops, and only one of them is here
+//! # No second hop
 //!
-//! **This one** is the pool's principal impersonating a declared account, authorized by
-//! `roles/iam.workloadIdentityUser` **on that account**, bound to the pool subject the caller's
-//! assertion resolves to - the grant `test-infra/pulumi/google` already declares, because that
-//! role carries `iam.serviceAccounts.getAccessToken`. So F3 needs no new binding, and
-//! `roles/iam.serviceAccountTokenCreator` - which the deleted hop needed - stays inapplicable. The
-//! chain starts at a credential the CALLER possesses: no assertion, no token.
-//!
-//! **The deleted one** was `bigquery.impersonate.target_principal`, which impersonated a declared
-//! account from the DEPLOYMENT's own application default credentials - the subject's own
-//! credential was nowhere in that chain, and the owner rejected it. The option, the per-subject
-//! account newtype and the scope newtype that fed it are gone rather than kept beside the
-//! federating path: a fallback a misconfiguration could select is the defect, not a convenience.
-//! What makes them different is not the URL, which is the same endpoint - it is **who authorizes
-//! the call**, and in this one that is a principal only a verified caller can reach.
+//! Two were built and both are deleted. `bigquery.impersonate.target_principal` impersonated a
+//! declared account from the DEPLOYMENT's own application default credentials - the subject's own
+//! credential was nowhere in that chain, and the owner rejected it. A
+//! `service_account_impersonation_url` impersonated a declared account from the pool principal, and
+//! grants on the principal itself replaced it (`docs/adr/0032`). A fallback a misconfiguration could
+//! select is the defect, not a convenience. The chain starts at a credential the CALLER possesses:
+//! no assertion, no token.
 //!
 //! # Why the pool's values are parsed HERE, when configuration already parsed them
 //!

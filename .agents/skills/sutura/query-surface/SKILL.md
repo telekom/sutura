@@ -99,9 +99,8 @@ record `shared-service-user`. A published build now also links BigQuery, the one
 produce a mixed-posture answer. **The refusal that compared the two postures is DELETED**
 (`docs/adr/0040`): the answer carries one `executed_as` entry per source. No served cross-posture
 run has been observed, and the record names a posture, not which shared account executed. Two
-impersonating `bigquery` legs federate with a per-subject credential at each
-(`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account` holds that the
-one mint over both sources resolves each source's own declared account). **What no green run here
+impersonating `bigquery` legs federate with a per-subject credential at each, each against its own
+source's pool. **What no green run here
 says:** no federated answer has been produced against a real dataset - the dialect axis declares
 `Dialect::BigQuery` `Evidence::RenderOnly`, so the claim is *the leg renders for the dialect and
 the transport submits it with the subject's own credential and the configured ceiling*; (2) **no golden reaches the engine's leg path** -

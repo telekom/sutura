@@ -1,26 +1,26 @@
 ---
 title: Multi player
-description: Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own Google service account.
+description: Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own workload identity principal.
 ---
 
 # Multi player
 
 This example runs sutura for several users. Keycloak is the identity provider. DataHub is the
 catalog, read with one token for every caller. BigQuery is the data system, and sutura asks it as
-the service account that it maps to each caller.
+each caller's own principal in a workload identity pool. No caller has a service account.
 
 The example is in
 [`examples/multi-player`](https://github.com/telekom/sutura/tree/main/examples/multi-player):
 
-| Path             | Contents                                                                       |
-| ---------------- | ------------------------------------------------------------------------------ |
-| `compose.yaml`   | Keycloak, DataHub with its services, a loader, and sutura                      |
-| `setup.sh`       | Writes local secrets to `.env`, starts Keycloak and exports its public keys    |
-| `keycloak/`      | The realm with the users `alice`, `bob` and `carol`                            |
-| `infra/`         | A Pulumi program for the Google side: pool, accounts, dataset and row policies |
-| `dbt/`           | The dbt manifest that the loader writes into DataHub                           |
-| `loader/`        | Writes the Keycloak keys and sutura's secrets, and loads the DataHub model     |
-| `conf/base.yaml` | The sutura settings                                                            |
+| Path             | Contents                                                                     |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `compose.yaml`   | Keycloak, DataHub with its services, a loader, and sutura                    |
+| `setup.sh`       | Writes local secrets to `.env`, starts Keycloak and exports its public keys  |
+| `keycloak/`      | The realm with the users `alice`, `bob` and `carol`                          |
+| `infra/`         | A Pulumi program for the Google side: pool, grants, dataset and row policies |
+| `dbt/`           | The dbt manifest that the loader writes into DataHub                         |
+| `loader/`        | Writes the Keycloak keys and sutura's secrets, and loads the DataHub model   |
+| `conf/base.yaml` | The sutura settings                                                          |
 
 All data is synthetic.
 
@@ -28,11 +28,11 @@ All data is synthetic.
 
 - Docker, Pulumi, and a Google Cloud test project.
 - A Pulumi credential for the test project. It must enable APIs. It must create and remove a
-  bucket, a dataset, tables, a workload identity pool, a provider, service accounts, IAM grants
-  and row access policies. Use this credential for setup and teardown only.
+  bucket, a dataset, tables, a workload identity pool, a provider, IAM grants and row access
+  policies. Use this credential for setup and teardown only.
 
-In an enterprise deployment, operators create the accounts, the identity provider, the pool, the
-data and the grants in advance. sutura then needs no administrator or provisioning role. The
+In an enterprise deployment, operators create the users, the identity provider, the pool, the data
+and the grants in advance. sutura then needs no administrator or provisioning role. The
 catalog needs its own read credential.
 
 ## 1. Start Keycloak
@@ -57,8 +57,11 @@ pulumi stack output settings > ../conf/development.yaml
 cd ..
 ```
 
-The program creates a workload identity pool that trusts the Keycloak realm, one service account
-for `alice` and one for `bob`, and a dataset whose row access policies give them different rows.
+The program creates a workload identity pool that trusts the Keycloak realm, and a dataset. Its
+grants and row access policies name the pool principals of `alice` and `bob`, and give them
+different rows. Each caller must exist in BigQuery: `alice` and `bob` do, as their own pool
+principals with their own grants. `carol` gets no grant. The two principals read one dataset,
+and BigQuery applies each caller's own row access policy.
 It loads the CSV files of the [single player](single-player.md) example into that dataset. Its
 output is the BigQuery source for sutura, in `conf/development.yaml`.
 
@@ -87,11 +90,14 @@ curl -s http://127.0.0.1:8080/v1/query -H "Authorization: Bearer $TOKEN" -H 'Con
   -d '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-01-01","end":"2026-07-01"}}'
 ```
 
-| Caller  | Expected result                                                              |
-| ------- | ---------------------------------------------------------------------------- |
-| `alice` | Her rows. BigQuery runs the query as her service account                     |
-| `bob`   | Other rows, from the same question                                           |
-| `carol` | A refusal. The source maps no account to her, so sutura runs nothing for her |
+sutura exchanges the token at Keycloak for a token that the pool accepts. Google STS gives a
+federated token for the caller's own pool principal, and BigQuery runs the query as that principal.
+
+| Caller  | Expected result                                                          |
+| ------- | ------------------------------------------------------------------------ |
+| `alice` | Her rows, the annual contracts. BigQuery runs the query as her principal |
+| `bob`   | Other rows, the monthly contracts, from the same question                |
+| `carol` | A refusal. BigQuery refuses her question, because she has no grant       |
 
 ## 5. Remove it
 

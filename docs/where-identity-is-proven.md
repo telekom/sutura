@@ -139,7 +139,7 @@ column only points a reader of the venues table at it.
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
 | **A real enterprise identity provider** | in process, on the paths that touch it - the OIDC contract this product depends on, against the real Keycloak the tier boots inside the job | nothing for the contract: the row above IS a real enterprise provider. A hosted tenant, and somebody to configure it, for the provider-specific residual alone | `just keycloak-served-test` | - |
 | **A declared principal at a real dataset** | a GitHub environment - `bq-test`, on demand only | a workload-identity pool whose provider trusts the issuer that mints each subject's assertion, one principal per subject with its own dataset grants, and somebody to dispatch it | `nix run .#bigquery-declared-principal` | "that a declared subject's question executed as the principal the pool resolves that subject to" |
-| **A served binary under a verified human caller** | nowhere, by decision | the operator's own issuer and identity pool: sutura assumes the operator configures a valid one, so this repository owns no issuer, signing key or provider to stand in for it, and runs no hosted proof of an operator's configuration. What sutura owns is its half - carrying the verified caller's assertion and the declared account, refusing an undeclared subject, never answering as the deployment - held by fakes at the port | not built | "that a human subject's own identity reaches the source" |
+| **A served binary under a verified human caller** | nowhere, by decision | the operator's own issuer and identity pool: sutura assumes the operator configures a valid one, so this repository owns no issuer, signing key or provider to stand in for it, and runs no hosted proof of an operator's configuration. What sutura owns is its half - carrying the verified caller's own assertion, refusing an anonymous caller, never answering as the deployment - held by fakes at the port | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -598,54 +598,31 @@ verified subjects resolve to two distinct BigQuery principals, observed at the d
 changed is only the mechanism under it, so most of the provisioning still applies and one part of it
 does not.
 
-**All of it applies again, and that is a correction.** A round of this page said the Workload
-Identity Federation pool, its OIDC provider and the `roles/iam.workloadIdentityUser` bindings **no
-longer applied** - true while the shipped mechanism was a principal switch on the deployment's own
-credentials, and false since `docs/adr/0018`'s sixth amendment. The transport federates each
-subject's own assertion against the pool, so `test-infra/pulumi/google/__main__.py`'s pool and its
-`issuer_uri` are back in the picture. `roles/iam.serviceAccountTokenCreator` on the deployment's
-own identity is what stopped applying: nothing impersonates a declared account from the
-deployment's credentials any more.
-
-**The per-principal `roles/iam.workloadIdentityUser` bindings are exactly what the run needs
-again, and that is the third reading of this paragraph rather than a return to the first.** It read
-*exactly what the run needs* while the mechanism was a principal switch, then *OPEN* while the
-credential document named no impersonation URL. Since `telekom/sutura#929` F3 the document names
-the account declared for the asking subject, and that role carries
-`iam.serviceAccounts.getAccessToken` on the account it is bound on - so it authorizes the second
-hop directly. `roles/iam.serviceAccountTokenCreator` is still not what is needed. What remains
-unexercised is whether Google accepts either hop, which is a question a dispatch answers and this
-page may not. `test-infra/README.md` carries the same limit beside the resource.
+**The pool and its OIDC provider apply; no service-account binding does.** The transport federates
+each subject's own assertion against the pool (`docs/adr/0018`, sixth amendment), so
+`test-infra/pulumi/google/__main__.py`'s pool and its `issuer_uri` are in the picture. The
+credential document names no service-account impersonation URL, so the federated token IS the
+subject's own pool principal, `principal://.../subject/<sub>`, and the stack grants BigQuery roles
+and row access policies to that principal directly. Neither `roles/iam.workloadIdentityUser` nor
+`roles/iam.serviceAccountTokenCreator` is needed. Whether Google accepts a workload-pool principal
+as a row access policy grantee is a question a dispatch answers and this page may not.
 
 The oracle is unchanged - `SELECT SESSION_USER()`, read through
-`sutura_exec_bigquery::SessionUser`. What it returns is now predictable in principle: the credential
-document names the declared account as its service-account impersonation URL, so the token the
-driver holds is that account's and `SESSION_USER()` should read that exact address. **What the cells
-assert since telekom/sutura#929's re-review is EXACT equality with the account declared for each
-subject**, plus that the two answers differ and that neither is the deployment's own. A round of
-this page recorded the equality as a deliberate under-assertion - nobody had dispatched the
-workflow, so an expectation that has never executed would read as a proven binding - and the
-re-review rejected that trade for a reason that survives the argument: a difference alone passes
-over a deployment that ignores the declared values and lets the pool resolve each subject to some
-principal of its own, which is the *accepted and then ignored* defect F3 fixed. The equality is
-still an expectation and not a result: no run has been observed. The
-settings shape is the declared `workload_identity` block - `audience` (the pool) and the
-`impersonate` map whose KEYS decide which subjects may be served and whose VALUES name the account
-each of them executes as. There is no `scope` key: the credential document has no `scopes` member,
-and the library sends `cloud-platform` to the STS leg and the caller's own scopes to the
-impersonation call.
+`sutura_exec_bigquery::SessionUser`. The cells assert that the two answers differ from each other
+and from the deployment's own: the pool decides which principal each subject becomes, so no address
+this venue holds predicts the answer. The settings shape is the declared `workload_identity` block -
+`audience` (the pool) and an optional `delegation`. There is no subject map: every verified caller
+is federated, and the pool's attribute conditions and BigQuery's grants decide who reaches data.
+There is no `scope` key: the credential document has no `scopes` member, and the library sends
+the API client's own scopes to the STS leg.
 
 **The run, and the first half of it is now built rather than described.**
 `.github/workflows/bigquery-declared-principal.yml` is the job: it places one credential - the
 deployment's own - builds the driver for the runner's triple, and runs the two cells named in *A
 declared principal at a real dataset* above. What a dispatcher has to supply is the environment:
-two service accounts with their own keys - each bound `roles/iam.workloadIdentityUser` on its own
-account, as the stack provisions them - the pool's audience, and `SUTURA_BQ_DATASET`. The two
-account ADDRESSES are needed again since `telekom/sutura#929` F3, and the job reads them out of the
-two keys' own `client_email` rather than from a new secret: each subject's credential document has
-to name a DIFFERENT account, or both questions run as one principal whatever the mechanism did. Each
-answer is now compared against the address declared for that subject as well as against the other
-answer. **Nobody has dispatched it**, which is why that venue says `wired` and not `yes`.
+two keys that mint each subject's id_token, the pool's audience, `SUTURA_BQ_DATASET`, and a stack
+whose grants name each subject's pool principal. **Nobody has dispatched it**, which is why that
+venue says `wired` and not `yes`.
 
 **Why this half is still `not built`, and it is a measurement rather than a backlog entry.** Over
 the served surface a caller's capabilities come from the `scope` claim of the token leg 1 verified,
@@ -658,8 +635,8 @@ a target audience and no scope, and nothing in the settings tree supplies a scop
 behalf - `security.inbound` has no such key - so a Google-issued caller reaches `403`
 `insufficient_scope` before any source is asked. The Keycloak tier's tokens carry this surface's
 scopes and are served over a loopback listener with a throwaway CA, which Google's token service
-cannot fetch a key set from. **So the cost cell's *an IdP issuing the subjects the declared map
-names* is load-bearing and specific: an issuer whose tokens carry this surface's capability scopes
+cannot fetch a key set from. **So the served-caller venue needs one specific
+thing: an issuer whose tokens carry this surface's capability scopes
 AND whose key set the pool's provider can reach.** That is an owner-provisioned tenant, not
 something this repository can mint, and it is why the row is `not built` rather than `unrun`.
 **Adding a settings key that granted capabilities to a scopeless verified caller would close this
@@ -670,9 +647,9 @@ The second half - this venue - is still only described, and it is a served deplo
 1. boots `sutura serve` with the `bigquery` feature and `security.inbound` armed, over the ADBC
    driver the release artefact for its triple carries (a build from source instead points
    `SUTURA_BIGQUERY_ADBC_DRIVER` at a `.so`), with one `bigquery` source declared
-   `impersonation-at-source` whose `impersonate` map names both subjects;
+   `impersonation-at-source`;
 2. asks one question as each of two verified callers and asserts the two answers differ in the way
-   the two accounts' dataset grants make them differ - the ROWS, which is what the adapter-level
+   the two principals' dataset grants make them differ - the ROWS, which is what the adapter-level
    venue cannot see;
 3. carries the same control the other venue does, because without it a run in which both callers
    were answered as the deployment passes.
