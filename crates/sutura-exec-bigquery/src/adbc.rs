@@ -667,6 +667,13 @@ impl JobTransport for AdbcBigQuery {
         matches!(*error, AdbcError::DeadlineSpent | AdbcError::DeadlineElapsed)
     }
 
+    /// `true` for a driver call `BigQuery` refused for the identity it ran as - a caller whose own
+    /// principal holds no grant on what the question reads. It reaches that caller as
+    /// `source_refused` and never as a `503` that invites a retry.
+    fn job_was_refused(&self, error: &Self::Error) -> bool {
+        matches!(*error, AdbcError::Adbc(ref message) if message.refused_the_identity())
+    }
+
     /// `true` for the TWO CEILINGS alone, which are the failures here that are a result not fitting.
     ///
     /// **The port's default is `false` and that was wrong for this transport once
