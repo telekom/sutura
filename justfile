@@ -847,7 +847,7 @@ cube-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "cube-acceptance: scope sutura-catalog-cube - the live Cube tier: the metadata API read through"
-    echo "cube-acceptance: src/http.rs's HttpMetaReader (hence --features http), and a token-less read refused."
+    echo "cube-acceptance: src/http.rs's HttpMetaReader (hence --features http), and a token the tier did not sign refused."
     echo "cube-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with cube
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
