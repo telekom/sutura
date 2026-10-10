@@ -70,17 +70,9 @@ fn principal(raw: &str) -> PrincipalName {
     PrincipalName::parse(raw).expect("a test principal is a principal")
 }
 
-/// The two-subject declaration every cell below is measured against.
-fn two_analysts() -> DeclaredPrincipals {
-    DeclaredPrincipals::parse(BTreeMap::from([
-        (subject("analyst-a@example.com"), principal("bq-a@sutura.example.com")),
-        (subject("analyst-b@example.com"), principal("bq-b@sutura.example.com")),
-    ]))
-    .expect("a two-subject declaration names somebody")
-}
-
+/// A federating warehouse with no delegation: every verified caller is presented its own assertion.
 fn warehouse() -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().impersonating(source("warehouse"), two_analysts())
+    DeclaredPrincipalBroker::empty().federating(source("warehouse"), None)
 }
 
 /// The credentials a mint granted, bound to the request that asked for them.
@@ -100,20 +92,6 @@ fn granted(minted: Minted, raw: &str, sources: &SourceSet) -> sutura_domain::ide
     credentials
 }
 
-/// The ACCOUNT a mint declared for one source's leg, or `None` where it declared none.
-///
-/// **The value read through `agreeing_with` like every other observable here**, because a cell that
-/// reached into the map would be asserting on something no adapter can reach.
-fn target_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName) -> Option<String> {
-    match granted(minted, raw, sources)
-        .presented_for(at)
-        .expect("the source was asked for")
-    {
-        Presented::SubjectToken { impersonate, .. } => impersonate.as_ref().map(PrincipalName::to_string),
-        other => panic!("expected the asker's own credential for {at}, got {other:?}"),
-    }
-}
-
 /// The principal a mint presented for one source, or a panic naming how it did not.
 fn presented_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName) -> String {
     #[expect(
@@ -125,7 +103,7 @@ fn presented_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName)
         .presented_for(at)
         .expect("the source was asked for")
     {
-        Presented::SubjectToken { material, .. } => String::from(material.expose_secret()),
+        Presented::SubjectToken { material } => String::from(material.expose_secret()),
         other => panic!("expected the asker's own assertion for {at}, got {other:?}"),
     }
 }
@@ -157,20 +135,36 @@ fn two_distinct_subjects_are_served_their_own_assertions_and_never_each_others()
 }
 
 #[test]
-fn a_verified_caller_this_source_does_not_name_is_refused_and_never_widened() {
-    // `docs/adr/0032`'s rule, here rather than only in the exchanging broker: a source that declares
-    // WHO may execute there has named an authorization set, and a caller outside it is refused
-    // rather than served as the deployment. The refusal names the source and never the subject.
+fn a_verified_caller_no_declaration_names_is_presented_its_own_assertion_at_a_federating_source() {
+    // **No subject map, so the broker does not decide who may read.** A federating source presents
+    // every verified caller's own assertion; the data system's grants on that caller's federated
+    // principal decide the rows, and a caller with no grant is refused THERE as `source_refused`.
+    let at = source("warehouse");
+    let asked = SourceSet::of(at.clone());
+    let minted = warehouse()
+        .mint(&caller("someone-else@example.com"), &asked)
+        .expect("a verified caller is mintable");
+    assert_eq!(
+        presented_at(minted, "someone-else@example.com", &asked, &at),
+        "assertion.for.someone-else@example.com"
+    );
+}
+
+#[test]
+fn an_anonymous_request_carrying_an_assertion_is_refused_at_a_federating_source() {
+    // The deployment's own front door with a document attached: there is no verified subject for
+    // the pool to federate, so the assertion alone is not enough to be presented.
+    let anonymous = RequestContext::with_assertion(
+        PrincipalChain::of(Subject::TheDeploymentItself),
+        sutura_domain::identity::Secret::new("assertion.for.nobody"),
+        A_FIXTURE_EXPIRY,
+    );
     let refused = warehouse()
-        .mint(&caller("someone-else@example.com"), &SourceSet::of(source("warehouse")))
-        .expect("an undeclared caller is a refusal, not an error");
+        .mint(&anonymous, &SourceSet::of(source("warehouse")))
+        .expect("an anonymous request is a refusal, not an error");
     assert!(
         matches!(refused, Minted::Refused { ref source } if source.as_str() == "warehouse"),
         "{refused:?}"
-    );
-    assert!(
-        !format!("{refused:?}").contains("someone-else@example.com"),
-        "a refusal that reaches a log may not carry the caller: {refused:?}"
     );
 }
 
@@ -253,13 +247,15 @@ fn nothing_is_minted_for_a_plan_whose_second_source_cannot_be_served() {
 
 #[test]
 fn a_declaration_naming_nobody_is_refused_at_parse_rather_than_per_request() {
-    // **The defect class this whole change removes, as a cell.** An impersonating source whose map
-    // is empty can serve no caller at all. If that were a value, the deployment would boot clean
-    // and refuse every question - so it is not a value: `DeclaredPrincipals::parse` refuses it, and
+    // **The defect class this whole change removes, as a cell.** A switching source whose map is
+    // empty can serve no caller at all. If that were a value, the deployment would boot clean and
+    // refuse every question - so it is not a value: `DeclaredPrincipals::switched` refuses it, and
     // the composition root turns that into a startup failure.
-    let refused = DeclaredPrincipals::parse(BTreeMap::new()).expect_err("an empty declaration names nobody");
+    let refused = DeclaredPrincipals::switched(BTreeMap::new()).expect_err("an empty declaration names nobody");
     assert_eq!(refused, NoDeclaredPrincipals::Empty);
-    assert_eq!(two_analysts().count(), 2);
+    let one = DeclaredPrincipals::switched(BTreeMap::from([(subject("analyst-a@example.com"), principal("analyst_a"))]))
+        .expect("a one-subject declaration names somebody");
+    assert_eq!(one.count(), 1);
 }
 
 #[test]
@@ -343,145 +339,6 @@ fn a_shared_only_plan_does_not_inherit_the_callers_own_deadline() {
     );
 }
 
-#[test]
-fn each_subject_is_minted_the_account_declared_beside_it() {
-    // **THE F3 cell: the map's VALUES now decide something.** A round of this broker read the KEY
-    // to answer *may this caller be served* and dropped the account beside it, so changing a
-    // declared target principal had no effect on anything - a security-critical setting accepted
-    // and then ignored (`telekom/sutura#929`'s own review). What this holds is that each subject is
-    // minted the account declared FOR THAT SUBJECT: not `None`, not the first entry for everyone,
-    // and not the key it was looked up by.
-    let broker = warehouse();
-    let at = source("warehouse");
-    let asked = SourceSet::of(at.clone());
-    let for_a = broker
-        .mint(&caller("analyst-a@example.com"), &asked)
-        .expect("a declared subject is mintable");
-    let for_b = broker
-        .mint(&caller("analyst-b@example.com"), &asked)
-        .expect("a declared subject is mintable");
-    let a = target_at(for_a, "analyst-a@example.com", &asked, &at);
-    let b = target_at(for_b, "analyst-b@example.com", &asked, &at);
-    assert_eq!(a.as_deref(), Some("bq-a@sutura.example.com"));
-    assert_eq!(b.as_deref(), Some("bq-b@sutura.example.com"));
-    assert_ne!(
-        a, b,
-        "both subjects were declared one account, so one map entry decided both legs"
-    );
-    // And it is the VALUE rather than the key: the keys are the two `analyst-*` subjects, so a
-    // broker minting what it looked up by would have put one of those here.
-    assert!(
-        !format!("{a:?}{b:?}").contains("analyst-"),
-        "the subject key was minted as the account to execute as: {a:?} / {b:?}"
-    );
-}
-
-#[test]
-fn one_subject_federating_two_sources_is_minted_each_sources_own_declared_account() {
-    // **THE CELL `telekom/sutura#929`'s federation half asks for, and the axis
-    // `each_subject_is_minted_the_account_declared_beside_it` does NOT cover.** That one holds two
-    // SUBJECTS at one source; this one holds one subject across two sources, which is the shape
-    // `sutura_app::federated` actually produces and the shape where a collapse would be invisible:
-    // it mints ONCE over a `SourceSet` spanning both legs, so if a single `impersonate` map decided
-    // both legs, two sources declaring the same subject to two different accounts would reach the
-    // dataset as one principal while the settings tree said two.
-    //
-    // It does not collapse, and this is the mechanism rather than the reasoning: `mint` iterates
-    // `sources.iter()` and looks each source up in ITS OWN `DeclaredPrincipals`, so the account is
-    // resolved per (source, subject) pair. Asserted by reading both legs out of ONE mint and
-    // comparing the two accounts - a shared map, a first-entry fallback, or a mint that kept the
-    // last source's answer would all put one value in both.
-    //
-    // The ASSERTION is deliberately the same in both legs, because it is the caller's own document
-    // and a broker that federates has exactly one per request. What differs is which principal each
-    // data system runs it as, which is the whole of `impersonate`.
-    let east = source("warehouse_east");
-    let west = source("warehouse_west");
-    let broker = DeclaredPrincipalBroker::empty()
-        .impersonating(
-            east.clone(),
-            DeclaredPrincipals::parse(BTreeMap::from([
-                (subject("analyst-a@example.com"), principal("bq-east@sutura.example.com")),
-                // Declared HERE and at no other source, which is the second half's whole shape.
-                (subject("analyst-b@example.com"), principal("bq-east-b@sutura.example.com")),
-            ]))
-            .expect("a two-subject declaration names somebody"),
-        )
-        .impersonating(
-            west.clone(),
-            DeclaredPrincipals::parse(BTreeMap::from([(
-                subject("analyst-a@example.com"),
-                principal("bq-west@sutura.example.com"),
-            )]))
-            .expect("a one-subject declaration names somebody"),
-        );
-    let asked = SourceSet::of(east.clone()).and(west.clone());
-    let minted = broker
-        .mint(&caller("analyst-a@example.com"), &asked)
-        .expect("a subject both sources declare is mintable for both");
-    let bound = granted(minted, "analyst-a@example.com", &asked);
-    let account_at = |at: &SourceName| match bound.presented_for(at).expect("the source was asked for") {
-        Presented::SubjectToken { impersonate, .. } => impersonate.as_ref().map(PrincipalName::to_string),
-        other => panic!("expected the asker's own credential for {at}, got {other:?}"),
-    };
-    assert_eq!(account_at(&east).as_deref(), Some("bq-east@sutura.example.com"));
-    assert_eq!(account_at(&west).as_deref(), Some("bq-west@sutura.example.com"));
-    assert_ne!(
-        account_at(&east),
-        account_at(&west),
-        "one mint over two sources collapsed into one credential, so one source's map decided both legs"
-    );
-    // **And the SOURCE axis, which is the half a collapsed lookup actually breaks.** `analyst-b` is
-    // declared at east and nowhere else, so west has nobody to be and the whole answer is refused -
-    // rather than west serving east's account to a subject west never named. A subject NEITHER
-    // source declares would not hold this: it is refused with or without a per-source lookup, so
-    // the assertion would be inert. The refusal names west, the source that could not be asked as
-    // this caller, and `Minted::Refused` carries only that field.
-    let only_east_declares = broker
-        .mint(&caller("analyst-b@example.com"), &asked)
-        .expect("a source that does not declare the asker is a refusal, not an error");
-    assert!(
-        matches!(only_east_declares, Minted::Refused { ref source } if source == &west),
-        "a subject only east declares must be refused at west, got {only_east_declares:?}"
-    );
-}
-
-#[test]
-fn a_declared_target_that_is_not_a_service_account_email_is_refused_at_parse() {
-    // **The send-side narrowing, as a mechanism rather than a paragraph.** The account is
-    // interpolated into ONE PATH SEGMENT of the URL that decides which account a question runs as,
-    // and `cloud.google.com/go/auth`'s impersonation provider POSTs that URL verbatim with no shape
-    // check of its own. `PrincipalName::parse` ACCEPTS every value below - it is the parser every
-    // principal identifier in the domain shares, and a role name is not an email - so without this
-    // refusal a declaration carrying `/` re-points the segment at an account nobody declared.
-    //
-    // Refused at PARSE, so `sutura_cli`'s `build_broker` turns it into a startup failure: a
-    // deployment that cannot name its declared accounts must not boot clean.
-    let traversal = "sa/../../projects/-/serviceAccounts/other@x.iam.gserviceaccount.com";
-    for hostile in [
-        traversal,
-        "no-at-sign.example.com",
-        "two@at@signs.example.com",
-        "has space@example.com",
-        "has\"quote@example.com",
-        "query@example.com?alt=json",
-    ] {
-        let declared = principal(hostile);
-        // The domain's own parser is what accepts it, which is why this cell exists at all.
-        assert_eq!(
-            declared.as_str(),
-            hostile,
-            "the domain narrowed this, and the cell below proves nothing"
-        );
-        let refused = DeclaredPrincipals::parse(BTreeMap::from([(subject("analyst-a@example.com"), declared.clone())]))
-            .expect_err("a value that is not a service-account address is not a declarable target");
-        assert_eq!(refused, NoDeclaredPrincipals::NotAServiceAccount { target: declared });
-    }
-    // And the accepted direction, so the refusal above is not passing against a parse that refuses
-    // everything: `two_analysts` is built by `parse` and every cell here depends on it.
-    assert_eq!(two_analysts().count(), 2);
-}
-
 fn switching() -> DeclaredPrincipalBroker {
     let declared = DeclaredPrincipals::switched(BTreeMap::from([(subject("analyst-a@example.com"), principal("analyst_a"))]))
         .expect("a one-subject declaration names somebody");
@@ -539,7 +396,6 @@ fn an_authenticating_source_presents_the_askers_own_assertion_and_no_principal()
         presented_at(mint(), "analyst-a@example.com", &asked, &at),
         "assertion.for.analyst-a@example.com"
     );
-    assert_eq!(target_at(mint(), "analyst-a@example.com", &asked, &at), None);
 }
 
 /// A verified caller the source does not declare is refused, never served its own token anyway.

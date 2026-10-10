@@ -260,16 +260,15 @@ pub(crate) fn files_source(name: &str, data: &Path) -> String {
     )
 }
 
-/// The one subject a delegating `bigquery` source declares, beside the account it executes as.
+/// The subject the delegating cells ask as.
 #[cfg(feature = "bigquery")]
-pub(crate) const DELEGATED: (&str, &str) = ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com");
+pub(crate) const DELEGATED: &str = "analyst-a@example.com";
 
 /// A `bigquery` source that declares the delegation exchange of a `direct` deployment: an
-/// `impersonation-at-source` posture with a `workload_identity:` block naming the pool, [`DELEGATED`]
-/// as its one subject, and the four-key `delegation:` block whose exchange only `direct` can run.
+/// `impersonation-at-source` posture with a `workload_identity:` block naming the pool, and the
+/// four-key `delegation:` block whose exchange only `direct` can run.
 #[cfg(feature = "bigquery")]
 pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client_secret_file: &Path) -> String {
-    let (subject, account) = DELEGATED;
     format!(
         "  {name}:\n    \
            kind: \"bigquery\"\n    \
@@ -279,8 +278,6 @@ pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client
            posture: \"impersonation-at-source\"\n    \
            workload_identity:\n      \
            audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-           impersonate:\n        \
-           \"{subject}\": \"{account}\"\n      \
            delegation:\n        \
            token_endpoint: \"{token_endpoint}\"\n        \
            client_id: \"sutura\"\n        \

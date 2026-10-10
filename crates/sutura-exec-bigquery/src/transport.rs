@@ -21,7 +21,7 @@
 use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::{PrincipalName, Secret};
+use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
@@ -91,30 +91,17 @@ pub enum JobIdentity<'job> {
     /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
     /// "no caller" means to a request.
     Transport,
-    /// The asking subject's own verified assertion, and the account this deployment declared that
-    /// subject's questions should execute as.
+    /// The asking subject's own verified assertion.
     ///
     /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
     /// [`crate::adbc`] puts the assertion behind a workload-identity credential document, so
-    /// Google's own token service verifies it and resolves the subject to the declared pool's
-    /// principal. Nothing on that path runs the question under the deployment's identity.
-    ///
-    /// **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
-    /// second mechanism: the credential the driver ends up holding is still derived from the
-    /// caller's own assertion, and the pool principal impersonating a declared account is one chain
-    /// with two links. It is not the deleted principal switch, which ran from the deployment's own
-    /// application default credentials with the caller's credential nowhere in the chain - that has
-    /// no spelling here and a broker presenting it is refused by
-    /// `BigQueryError::NoPrincipalSwitch`.
-    ///
-    /// **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
-    /// run every declared caller as one pool principal while a deployment's `impersonate` map said
-    /// otherwise.
+    /// Google's own token service verifies it and returns a federated token for the declared pool's
+    /// `principal://.../subject/<sub>`. `BigQuery` evaluates its grants and row policies against that
+    /// principal. Nothing on that path runs the question under the deployment's identity, and there
+    /// is no second hop to another account.
     AsSubject {
         /// What the pool verifies.
         assertion: &'job Secret,
-        /// What the pool's principal then impersonates.
-        target: &'job PrincipalName,
     },
 }
 
@@ -188,9 +175,8 @@ impl<'job> JobRequest<'job> {
     /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
     /// ignored it would answer as itself while provenance reported the asker. It does not make the
     /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
-    /// assertion and the account declared for that subject, and the declared pool is what resolves
-    /// the assertion to a principal able to impersonate it - unproven against a live pool, per
-    /// `docs/where-identity-is-proven.md`.
+    /// assertion, and the declared pool is what resolves it to the subject's own principal -
+    /// unproven against a live pool, per `docs/where-identity-is-proven.md`.
     #[inline]
     #[must_use]
     pub const fn identity(&self) -> JobIdentity<'_> {

@@ -194,13 +194,6 @@ pub(crate) struct RawWorkloadIdentity {
     /// transport sends. A workload identity provider resource, such as
     /// `//iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/{pool}/providers/{provider}`.
     pub(crate) audience: String,
-    /// The declared subject -> service-account map. Its KEYS decide which subjects a source may be
-    /// asked as - a subject with no entry here is refused rather than granted a fallback identity -
-    /// and its VALUES name the account each of those subjects executes as, sent as the credential
-    /// document's `service_account_impersonation_url`. See
-    /// `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
-    #[serde(default)]
-    pub(crate) impersonate: std::collections::BTreeMap<String, String>,
     /// The issuer the pool trusts, if the operator wrote it - telekom/sutura#817's seam. Present is
     /// REFUSED at boot: the hop that compared it is deleted, so a declaration nothing reads would
     /// be a control that reads as being in place.

@@ -353,13 +353,7 @@ fn session_for<'leg>(
 ) -> Result<Session<'leg>, OracleError> {
     match (presented, per_caller) {
         (&Presented::SharedServiceUser { .. }, _) => Ok(Session::Boot),
-        (
-            &Presented::SubjectToken {
-                ref material,
-                impersonate: None,
-            },
-            Some(sessions),
-        ) => Ok(Session::Caller {
+        (Presented::SubjectToken { material }, Some(sessions)) => Ok(Session::Caller {
             sessions,
             token: material,
         }),
@@ -969,7 +963,6 @@ mod tests {
             TokenSessions::new(Dial::new("127.0.0.1", 2484, "FREEPDB1", Channel::Plaintext)).expect("a dial is usable unopened");
         let token = Presented::SubjectToken {
             material: Secret::new("the-askers-token"),
-            impersonate: None,
         };
         #[expect(
             clippy::disallowed_methods,
@@ -981,15 +974,7 @@ mod tests {
         };
         assert_eq!(selected, "the-askers-token");
         let name = PrincipalName::parse("analyst_a").expect("a test principal is a principal");
-        let with_a_hop = Presented::SubjectToken {
-            material: Secret::new("the-askers-token"),
-            impersonate: Some(name.clone()),
-        };
-        for (per_caller, presented) in [
-            (None, &token),
-            (Some(&sessions), &with_a_hop),
-            (Some(&sessions), &Presented::SubjectPrincipal { name }),
-        ] {
+        for (per_caller, presented) in [(None, &token), (Some(&sessions), &Presented::SubjectPrincipal { name })] {
             let refused = session_for(&at, per_caller, presented);
             assert!(matches!(refused, Err(OracleError::Undeliverable { .. })), "{refused:?}");
         }

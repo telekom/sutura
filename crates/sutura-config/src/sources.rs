@@ -422,7 +422,7 @@ pub enum InvalidSourceRegistry {
     },
     /// An `impersonation-at-source` source declared no token-exchange setup.
     ///
-    /// A source that executes as the asking subject has to say WHICH account each subject becomes -
+    /// A source that executes as the asking subject has to say WHICH pool federates that subject -
     /// there is nothing this build could guess, and a per-caller identity has to come out of a
     /// declaration rather than a default that pretends one exists.
     ///
@@ -432,12 +432,12 @@ pub enum InvalidSourceRegistry {
     /// federation replaced it. The pool's own exchange needs the audience, and Google's library
     /// refuses an empty one outright.
     ///
-    /// Of the keys in the block, `audience` is read, `impersonate`'s KEYS decide which callers may be
-    /// served at all, and its VALUES name the account each caller's questions execute as - see
-    /// [`crate::DeclaredPrincipals::target`]. There is no `scope` key: the credential
-    /// document has no `scopes` member, so one would reach nothing.
+    /// Of the keys in the block, `audience` is read. There is no `impersonate` key: the federated
+    /// token is the caller's own pool principal, and the data system's grants on it decide what the
+    /// caller may read. There is no `scope` key either: the credential document has no `scopes`
+    /// member, so one would reach nothing.
     #[error(
-        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, and the `impersonate` map naming which subjects may be served here"
+        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against"
     )]
     MissingWorkloadIdentity { alias: SourceName },
     /// A `clickhouse` source's `impersonate` map is not usable.
@@ -717,7 +717,6 @@ fn parse_entry(
         Some(raw) => Some(
             WorkloadIdentityConfig::parse_with_expectations(
                 &raw.audience,
-                &raw.impersonate,
                 raw.expected_issuer.as_deref(),
                 raw.expected_audience.as_deref(),
             )

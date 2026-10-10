@@ -64,15 +64,6 @@ pub(super) struct Asked {
     /// a bearer and a principal - while the adapter could deliver either; the principal switch was
     /// deleted, so a second field would record a mechanism nothing can produce.
     pub(super) subject: Option<String>,
-    /// The ACCOUNT the job was to execute as, where the leg named a subject - `BigQuery`'s
-    /// `service_account_impersonation_url` one layer down. `None` for a shared leg.
-    ///
-    /// **Recorded beside the assertion rather than folded into it**, because the two answer
-    /// different questions and a federated answer needs both: the assertion is WHOSE question this
-    /// is, and this is WHICH principal the data system runs it as. A leg carrying the right
-    /// assertion and a dropped account is exactly the defect `telekom/sutura#929` F3 fixed one
-    /// layer up, and a fake blind to this field could not see it come back.
-    pub(super) impersonate: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
     /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
@@ -178,11 +169,7 @@ impl Recording {
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
             subject: match request.identity() {
-                JobIdentity::AsSubject { assertion, .. } => Some(String::from(assertion.expose_secret())),
-                JobIdentity::Transport => None,
-            },
-            impersonate: match request.identity() {
-                JobIdentity::AsSubject { target, .. } => Some(target.to_string()),
+                JobIdentity::AsSubject { assertion } => Some(String::from(assertion.expose_secret())),
                 JobIdentity::Transport => None,
             },
             deadline: request.deadline(),
@@ -347,30 +334,10 @@ pub(super) fn impersonating_posture() -> SourcePosture {
     SourcePosture::ImpersonationAtSource
 }
 
-/// The account every fixture leg below declares for its subject.
-///
-/// One value, because what these cells are about is the ASSERTION crossing the seam; the cells
-/// about which account crosses name their own (`principal::tests` for the mint,
-/// `adbc::subject::tests` for the document).
-pub(super) const A_DECLARED_ACCOUNT: &str = "bq-analyst@acme.iam.gserviceaccount.com";
-
-/// A token presented as the asker's own, for the impersonating posture, with the account a
-/// deployment declared that asker's questions run as.
+/// A token presented as the asker's own, for the impersonating posture.
 pub(super) fn a_subject_token(raw: &str) -> Presented {
     Presented::SubjectToken {
         material: sutura_domain::identity::Secret::new(raw),
-        impersonate: Some(
-            sutura_domain::identity::PrincipalName::parse(A_DECLARED_ACCOUNT).expect("a fixture account is an account"),
-        ),
-    }
-}
-
-/// The same token with NO account declared beside it - the half-configured leg this adapter
-/// refuses rather than running as the pool's own principal.
-pub(super) fn a_subject_token_naming_no_account(raw: &str) -> Presented {
-    Presented::SubjectToken {
-        material: sutura_domain::identity::Secret::new(raw),
-        impersonate: None,
     }
 }
 

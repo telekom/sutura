@@ -26,12 +26,8 @@ use sutura_http_client::test_support::{FakeServer, Scripted};
 
 use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
 
-/// The two declared subjects, each beside its own account - two, so a source handed the wrong
-/// caller's account is visible from here.
-const CALLERS: [(&str, &str); 2] = [
-    ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com"),
-    ("analyst-b@example.com", "bq-b@acme-analytics.iam.gserviceaccount.com"),
-];
+/// The two verified callers - two, so a source handed the wrong caller's token is visible from here.
+const CALLERS: [&str; 2] = ["analyst-a@example.com", "analyst-b@example.com"];
 
 /// The audience the exchanged token is asked for and carries.
 const POOL: &str = "pool-client-id";
@@ -75,7 +71,7 @@ enum Seen {
     /// The deployment's own identity.
     Transport,
     /// A subject's credential, and the account it is to execute as.
-    Subject { assertion: String, target: String },
+    Subject { assertion: String },
 }
 
 /// Never reached by a caller: the transport records the job and declines it.
@@ -90,16 +86,13 @@ impl Recording {
     fn record(&self, request: &JobRequest<'_>) {
         let seen = match request.identity() {
             JobIdentity::Transport => Seen::Transport,
-            JobIdentity::AsSubject { assertion, target } => {
+            JobIdentity::AsSubject { assertion } => {
                 #[expect(
                     clippy::disallowed_methods,
                     reason = "the cell asserts which credential reached the transport"
                 )]
                 let assertion = String::from(assertion.expose_secret());
-                Seen::Subject {
-                    assertion,
-                    target: target.to_string(),
-                }
+                Seen::Subject { assertion }
             }
         };
         self.0.send(seen).expect("the cell holds the receiving end");
@@ -144,10 +137,8 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
     let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
     std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
-    let [(first, first_as), (second, second_as)] = CALLERS;
     let overlay = format!(
-        "{}  identity: \"multi-user\"\nsources:\n{}      impersonate:\n        \"{first}\": \"{first_as}\"\n        \
-         \"{second}\": \"{second_as}\"\n      delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
+        "{}  identity: \"multi-user\"\nsources:\n{}      delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
          client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
         direct_overlay(&issuer, &published.path().to_string_lossy()),
         super::bigquery_entry("warehouse", "impersonation-at-source", super::wif()),
@@ -215,14 +206,14 @@ async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String)
 
 #[tokio::test]
 async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back() {
-    let exchanges = CALLERS.map(|(subject, _)| exchanged(subject));
+    let exchanges = CALLERS.map(exchanged);
     let idp = FakeServer::start(exchanges.iter().map(|token| Scripted::ok(&issued(token))).collect());
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-exchanges", &idp);
 
     let mut tokens = Vec::new();
-    for ((subject, account), exchanged) in CALLERS.iter().zip(&exchanges) {
+    for (subject, exchanged) in CALLERS.iter().zip(&exchanges) {
         let token = issuer.mint(&accepted_by(subject)).expect("the issuer signs a token");
         let (status, body) = ask(app.clone(), &token).await;
         let seen: Vec<Seen> = transport.try_iter().collect();
@@ -234,12 +225,10 @@ async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_c
             assert_eq!(
                 job,
                 &Seen::Subject {
-                    assertion: exchanged.clone(),
-                    target: String::from(*account)
+                    assertion: exchanged.clone()
                 },
-                "every job for {subject} must carry the token exchanged for {subject} and the account \
-                 declared beside {subject} - never another caller's, the caller's own token or the \
-                 deployment's identity"
+                "every job for {subject} must carry the token exchanged for {subject} - never another \
+                 caller's, the caller's own token or the deployment's identity"
             );
         }
         tokens.push(token);
@@ -260,7 +249,7 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-refused", &idp);
-    let [(subject, _), _] = CALLERS;
+    let [subject, _] = CALLERS;
     let token = issuer.mint(&accepted_by(subject)).expect("the issuer signs a token");
 
     let (status, body) = ask(app, &token).await;

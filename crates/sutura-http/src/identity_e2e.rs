@@ -122,7 +122,6 @@ impl CredentialBroker for ExchangesForTheAsker {
                     // This fake exchanges rather than federating, so there is no second hop for it
                     // to name - see `Presented::SubjectToken`'s own doc for why an absence is an
                     // `Option` and not a fourth posture.
-                    impersonate: None,
                 },
             ));
         }
@@ -204,7 +203,7 @@ impl Warehouse for RecordsWhatItWasHanded {
         // `Send + Sync`, its `send` is not async, and what a test needs is the sequence rather than
         // shared mutable state.
         let material = match *presented {
-            Presented::SubjectToken { ref material, .. } => String::from(material.expose_secret()),
+            Presented::SubjectToken { ref material } => String::from(material.expose_secret()),
             Presented::SubjectPrincipal { ref name } => format!("principal:{name}"),
             Presented::SharedServiceUser { .. } => String::from("the deployment's own identity"),
         };

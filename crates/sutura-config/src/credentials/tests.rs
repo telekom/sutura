@@ -54,7 +54,6 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         audience: String::from(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
         ),
-        impersonate: std::collections::BTreeMap::new(),
         expected_issuer: None,
         expected_audience: None,
         delegation: None,

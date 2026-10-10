@@ -206,26 +206,6 @@ where
     /// reported the answer as impersonated.
     #[error("{presented} was minted for {at}, and this adapter federates a subject's own assertion instead")]
     NoPrincipalSwitch { at: String, presented: &'static str },
-    /// A subject's own credential arrived with no account declared beside it.
-    ///
-    /// **Refused rather than run as the pool principal, which is the half-configured state this
-    /// variant exists to keep off a dataset.** The credential document's
-    /// `service_account_impersonation_url` is what makes a declared account decide anything; with
-    /// no account there is nothing to name, and the alternative to refusing is a question that runs
-    /// as whatever principal the pool resolves the subject to while the deployment's `impersonate`
-    /// map says it runs as somebody specific. `telekom/sutura#929`'s review is explicit that a
-    /// security-critical setting must not be accepted and then ignored - and *silently widened* is
-    /// the same defect from the other side.
-    ///
-    /// Reachable only from a broker that is not `sutura_config::DeclaredPrincipalBroker`: that one mints the
-    /// account off the map it parsed, so a served deployment refuses the declaration at boot
-    /// instead. [`Presented`] is a public port, so the refusal is typed rather than an
-    /// `unreachable!`.
-    #[error(
-        "a subject's own credential was minted for {at} with no account declared to execute as, and \
-         this adapter will not run the question as the pool's own principal instead"
-    )]
-    NoImpersonationTarget { at: String },
     /// The leg's credential and this source's declared posture do not agree.
     #[error("the credential presented for this source does not agree with the posture it was opened under")]
     PresentedDisagreesWithPosture {
@@ -391,23 +371,9 @@ where
     /// refused HERE and not by a transport, because the mechanism it names was deleted from every
     /// transport in this crate.
     ///
-    /// **And the subject shape now has a refusal of its own**, because one of its two fields is an
-    /// `Option` the domain cannot narrow for this adapter: a subject's credential with no declared
-    /// account has no `service_account_impersonation_url` to become, and running the question as
-    /// the pool's own principal instead is the half-configured deployment
-    /// [`BigQueryError::NoImpersonationTarget`] describes.
     fn job_identity<'leg>(presented: &'leg Presented, source: &SourceName) -> Mapped<JobIdentity<'leg>, T::Error> {
         match presented {
-            Presented::SubjectToken {
-                material,
-                impersonate: Some(target),
-            } => Ok(JobIdentity::AsSubject {
-                assertion: material,
-                target,
-            }),
-            Presented::SubjectToken { impersonate: None, .. } => Err(BigQueryError::NoImpersonationTarget {
-                at: String::from(source.as_str()),
-            }),
+            Presented::SubjectToken { material } => Ok(JobIdentity::AsSubject { assertion: material }),
             // **The weaker subject shape, refused because no transport here has a spelling for
             // it.** A principal switch runs the question on a connection the DEPLOYMENT
             // authenticated - this deployment vouching for a subject - and the owner rejected that
@@ -584,7 +550,6 @@ where
             BigQueryError::Endpoint { ref cause } => transport_says(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
-            | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -651,11 +616,9 @@ where
     /// per-subject credential, presented per subject - so `PerSubjectCredential` is the accurate
     /// value and not merely the only workable one.
     ///
-    /// **And the credential is per-subject at BOTH links since `telekom/sutura#929` F3.** The
-    /// document also names the account declared for that subject as its
-    /// `service_account_impersonation_url`, so two subjects declared to two accounts reach the
-    /// dataset as two principals even where one pool resolves both to the same one. A round of this
-    /// adapter accepted that declaration and read only the map's keys.
+    /// **The token Google's token service returns IS the subject's own federated principal**, so
+    /// two subjects reach the dataset as two principals, and the dataset's grants and row policies
+    /// on each decide what that subject reads. There is no second hop to a declared account.
     ///
     /// **Corrected**: a round of this doc said "nothing a subject possesses arrives, only a
     /// principal the deployment becomes on that subject's behalf", which described the deleted
@@ -672,8 +635,8 @@ where
     /// adapter declaring it - `sutura-exec-datafusion`, `sutura-exec-duckdb` - runs in process and
     /// declares `NoPlaceForASubject`, so a two-source answer over those reads both legs as one
     /// operating-system identity. Here each leg is opened as its own source, so
-    /// `DeclaredPrincipalBroker::mint` resolves that source's OWN declared account for the asking
-    /// subject and [`Self::job_identity`] hands each leg its own
+    /// `DeclaredPrincipalBroker::mint` presents the asking subject's own assertion for that source
+    /// and [`Self::job_identity`] hands each leg its own
     /// [`JobIdentity::AsSubject`](crate::transport::JobIdentity::AsSubject) - one mint over both
     /// sources, two credentials.
     ///
@@ -861,7 +824,6 @@ where
             BigQueryError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
-            | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -909,7 +871,6 @@ where
             // this build does not map is not a reply that was too big.
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
-            | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
