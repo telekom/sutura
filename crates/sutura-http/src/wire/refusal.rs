@@ -670,6 +670,14 @@ mod tests {
                 "too_many_dimensions",
             ),
             (
+                RefusalReason::TooManyFilters {
+                    requested: 17,
+                    limit: 16,
+                },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "too_many_filters",
+            ),
+            (
                 RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "time_range_too_long",
