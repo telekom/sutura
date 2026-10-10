@@ -16,10 +16,8 @@ owns the enterprise-IdP half. This project is the (a) Google half.
 ## What it provisions
 
 - a dataset and a table with a grouping column;
-- two service accounts, each granted a **disjoint** row set by a BigQuery row access
-  policy - so the same question answered under each principal returns different rows.
-  The isolation is BigQuery's row-level IAM; sutura's part is only that each job runs
-  under its own bearer;
+- two service accounts, used ONLY to mint each subject's Google id_token (the test IdP). No grant
+  names an account;
 - a Google Workload Identity Federation **pool + OIDC provider**, so a subject's own assertion
   can be federated at Google STS (the (a) token path). **Workload, not workforce** - the
   `external_account` credential document the BigQuery adapter builds makes the driver send an
@@ -27,26 +25,15 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   (and workforce pools do not). Nothing in sutura performs the exchange itself. The exported
   `workload_audience` is what a deployment declares as
   `sources.<alias>.workload_identity.audience`;
-- two `roles/iam.workloadIdentityUser` bindings, one per principal, granting each principal's
-  pool subject the right to impersonate its own service account. Each member is keyed by that
-  principal's own account id (`unique_id`) - the `sub` its minted id_token carries and hence the
-  pool subject it resolves to - so a principal can impersonate only itself.
-
-  **These bindings are load-bearing again, and no resource change was needed to make them so.**
-  They authorize an `iamcredentials.generateAccessToken` hop, which is exactly what
-  `telekom/sutura#929` F3 restored: the shipped credential document now carries
-  `service_account_impersonation_url` naming the account declared for the asking subject, and
-  `roles/iam.workloadIdentityUser` on that account carries `iam.serviceAccounts.getAccessToken`. So
-  the grant that stopped applying and came back is this one, and
-  `roles/iam.serviceAccountTokenCreator` - which the deleted deployment-side switch would have
-  needed - is still not declared anywhere. What remains unexercised is the RUN: the venue is
-  `wired` in `docs/where-identity-is-proven.md` and nobody has dispatched it, so nothing here shows
-  Google accepting either hop;
-- **and the row grants are in play again too.** The two row access policies name
-  `serviceAccount:<email>` grantees, which - since each subject now executes AS its declared
-  account - is the identity the mechanism becomes. The row half of leg 2, two subjects reading two
-  different row sets, is therefore provisioned for by this stack; what is missing is a dispatch and
-  a served surface to ask through, not a resource.
+- BigQuery grants (`jobUser`, `readSessionUser`, `dataViewer`) on each subject's own **pool
+  principal**, `principal://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/subject/<sub>`.
+  The `sub` is the account's numeric `unique_id`, the `sub` its minted id_token carries. The
+  federated token IS that principal, so no service account is impersonated and no
+  `roles/iam.workloadIdentityUser` binding exists;
+- two row access policies, one per pool principal, each granting a **disjoint** row set - so the
+  same question answered under each principal returns different rows. The isolation is
+  BigQuery's row-level IAM; sutura's part is only that each job runs as the caller's own
+  principal.
 
 `workload_audience` carries the project **number**, not the project id: STS's own `audience`
 request parameter refuses the id with `invalid_target`. `workload_allowed_audiences` defaults to

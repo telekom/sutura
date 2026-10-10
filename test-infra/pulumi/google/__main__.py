@@ -3,10 +3,11 @@
 This provisions the (a) Google WIF path and the (3) two-principal row-access
 cell from issue #81:
 
-  * two distinct service accounts with *different* BigQuery row-level grants,
-    so the same question answered under each principal returns different rows -
-    the mechanism issue #81 wants proven in CI (the isolation itself is BigQuery
-    row-level IAM; sutura's part is only that each job runs under its own bearer);
+  * two pool principals (one per subject) with *different* BigQuery row-level
+    grants, so the same question answered under each principal returns different
+    rows (the isolation itself is BigQuery row-level IAM; sutura's part is only
+    that each job runs as the caller's own principal). Two service accounts exist
+    only to mint each subject's id_token;
   * a dataset and a table with a grouping column, plus two BigQuery ROW ACCESS
     POLICIES on that column granting the two principals disjoint rows - a
     first-class `RowAccessPolicy` resource since pulumi_gcp 9.x, no separate gcp
@@ -145,8 +146,7 @@ gcp_provider = gcp.Provider(
 # API bootstrap - `up` enables what it needs on a fresh project, no separate gcloud CLI.
 # --------------------------------------------------------------------------- #
 # Each API the stack touches (identities on `iam`, the dataset/table on `bigquery`, the
-# federation on `sts` and the impersonation hop this stack no longer exercises on
-# `iamcredentials`) is turned on as a Pulumi resource first, and every consumer below waits on the
+# federation on `sts`) is turned on as a Pulumi resource first, and every consumer below waits on the
 # enabling call via `depends_on`.
 # serviceusage.googleapis.com powers the ENABLING call itself, so it is enabled FIRST and the
 # rest depend on it - without it, `up` fails on a fresh project with `SERVICE_DISABLED` on the
@@ -159,12 +159,9 @@ gcp_provider = gcp.Provider(
 # driver from the `external_account` credential document the adapter builds. Without it enabled, a
 # fresh `up` provisions pools and bindings and then every federation answers `SERVICE_DISABLED`.
 #
-# `iamcredentials.googleapis.com` is **not exercised by the shipped mechanism.** It powered the
-# `generateAccessToken` hop that turned a pool principal into a service account, and that hop went
-# with the HTTP transport: the credential document carries no `service_account_impersonation_url`,
-# so the federated credential IS the pool principal. Left enabled rather than removed - dropping a
-# resource from this stack is a change nobody has run against a project, and `down`/`up` on a live
-# venue is not a prose fix - but it is dead surface, not a requirement.
+# `iamcredentials.googleapis.com` is not enabled: the credential document carries no
+# `service_account_impersonation_url`, so the federated credential IS the pool principal and no
+# service account is impersonated.
 _usage = gcp.projects.Service(
     "api-serviceusage.googleapis.com",
     project=project,
@@ -175,14 +172,13 @@ _usage = gcp.projects.Service(
 API_BOOTSTRAP = [_usage]
 # ENABLING AN API IS PROJECT-WIDE, NOT WORKLOAD-SCOPED. `gcp.projects.Service` turns the API on for
 # every resource in this project, and `disable_on_destroy=False` keeps it on after a `down`. These
-# enables by themselves grant nothing - the per-principal `roles/iam.workloadIdentityUser` bindings
-# below hold that - but they are the blast radius of this stack: once `sts`/`iamcredentials` are on,
-# any project member can call them, `iamcredentials` included even though nothing here uses it. That is the accepted cost of a project dedicated to the
-# identity/e2e venue and must not be copy-pasted onto a shared project.
+# enables by themselves grant nothing - the BigQuery grants on each pool principal below hold that -
+# but they are the blast radius of this stack: once `sts` is on, any project member can call it.
+# That is the accepted cost of a project dedicated to the identity/e2e venue and must not be
+# copy-pasted onto a shared project.
 for _api in [
     "bigquery.googleapis.com",
     "iam.googleapis.com",
-    "iamcredentials.googleapis.com",
     "sts.googleapis.com",
 ]:
     API_BOOTSTRAP.append(
@@ -216,8 +212,8 @@ def sutura_name(cfg: pulumi.Config, leaf: str) -> str:
 # (3) Two principals, one table, disjoint rows
 # --------------------------------------------------------------------------- #
 
-# Two service accounts. Their GRANTS differ (set by the row access policy below);
-# sutura's part is only that each job submits under its own bearer.
+# Two service accounts, kept ONLY to mint each subject's Google id_token (the test IdP). No grant
+# names an account: the grants and row policies below name each account's POOL PRINCIPAL.
 sa_a = gcp.serviceaccount.Account(
     "sa-a",
     account_id=sutura_name(cfg, "sa-a"),
@@ -321,60 +317,6 @@ seed = gcp.bigquery.Job(
         provider=gcp_provider, depends_on=[table, *API_BOOTSTRAP]
     ),
 )
-
-# The isolation: principal A is granted rows where the grouping column equals A's value,
-# principal B where it equals B's. Disjoint by construction. Two separate policies (one per
-# principal) so each grant is stated on its own line. `grantees` is the IAM member shape
-# (`serviceAccount:<email>`), taken from the SA's own `member` output; the SQL filter is the
-# row predicate. This is a first-class resource since pulumi_gcp 9.x - no separate gcp CLI.
-#
-# **Bound to names and dependent on the seed job**, so the order above is declared. Unbound, they
-# were resources nothing could be made to wait for, which is how the concurrency arose.
-rap_a = gcp.bigquery.RowAccessPolicy(
-    "rap-a",
-    dataset_id=dataset.dataset_id,
-    table_id=table.table_id,
-    policy_id="rap_a",
-    grantees=[sa_a.member],
-    filter_predicate=f"{group_column} = '{principal_a_rows}'",
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, seed]),
-)
-rap_b = gcp.bigquery.RowAccessPolicy(
-    "rap-b",
-    dataset_id=dataset.dataset_id,
-    table_id=table.table_id,
-    policy_id="rap_b",
-    grantees=[sa_b.member],
-    filter_predicate=f"{group_column} = '{principal_b_rows}'",
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, seed]),
-)
-
-# To RUN a query the principals need `bigquery.jobUser` (submit jobs) and `bigquery.dataViewer`
-# (read the table at all); the two row access policies above then narrow each to its own rows.
-# Without these a job submitted as principal A/B is refused before the RLS filter is ever reached,
-# which is why the two-principal cell needed them added alongside the policies.
-#
-# **The read grant waits for BOTH policies, which is what the two bindings above are for.** A table
-# carrying no row access policy is fully visible to a `dataViewer`, so granting the read before the
-# policies exist opens a window in which either principal can read every row - on a fresh `up`, in
-# the one fixture whose entire point is that they cannot.
-for tag, sa in (("principal-a", sa_a), ("principal-b", sa_b)):
-    gcp.projects.IAMMember(
-        f"{tag}-jobuser",
-        project=project,
-        role="roles/bigquery.jobUser",
-        member=sa.member,
-        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
-    )
-    gcp.bigquery.DatasetIamMember(
-        f"{tag}-dataviewer",
-        dataset_id=dataset.dataset_id,
-        role="roles/bigquery.dataViewer",
-        member=sa.member,
-        opts=pulumi.ResourceOptions(
-            provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]
-        ),
-    )
 
 # Keys are the long-lived bearer each CI run uses. Exported as secrets; never
 # written into the repository.
@@ -533,50 +475,81 @@ workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workload_pool]),
 )
 
-# THE BINDING LEG 2 ACTUALLY RESTS ON, and it is load-bearing for BOTH hops again.
-# `telekom/sutura#929` F3 put `service_account_impersonation_url` back on the shipped credential
-# document, naming the account a deployment declared for the asking subject - so the chain is
-# federate the assertion at STS, then `iamcredentials.generateAccessToken` on that account with the
-# federated credential. `roles/iam.workloadIdentityUser` on the account authorizes exactly that
-# (it carries `iam.serviceAccounts.getAccessToken`), which is why F3 needed NO resource change
-# here: `roles/iam.serviceAccountTokenCreator` is what the deleted DEPLOYMENT-side switch would
-# have needed and is still declared nowhere.
+
+# Each subject's own POOL PRINCIPAL, the identity its questions execute as. The account's minted
+# id_token `sub` is its numeric `unique_id`, and `google.subject <- assertion.sub` makes that the
+# pool subject. The federated token IS this principal, so BigQuery's grants and row policies name it
+# directly and no service account is impersonated. Google requires the project NUMBER in a pool
+# principal (the project id is not accepted).
+def pool_principal(sa: gcp.serviceaccount.Account) -> pulumi.Output[str]:
+    return pulumi.Output.concat(
+        "principal://iam.googleapis.com/projects/",
+        project_number,
+        "/locations/global/workloadIdentityPools/",
+        workload_pool.workload_identity_pool_id,
+        "/subject/",
+        sa.unique_id,
+    )
+
+
+principal_a = pool_principal(sa_a)
+principal_b = pool_principal(sa_b)
+
+# The isolation: principal A is granted rows where the grouping column equals A's value,
+# principal B where it equals B's. Disjoint by construction. Two separate policies (one per
+# principal) so each grant is stated on its own line. `grantees` is the subject's pool principal
+# (`principal://.../subject/<sub>`); the SQL filter is the row predicate. This is a first-class
+# resource since pulumi_gcp 9.x - no separate gcp CLI.
 #
-# WHAT IS STILL UNEXERCISED IS THE RUN, and saying so is the honest state. Nothing in this
-# repository has seen Google accept either hop: the venue is `wired` in
-# `docs/where-identity-is-proven.md` and nobody has dispatched it.
-# `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
-# `the_deployments_own_identity_is_neither_subjects_principal` still compare the two `SESSION_USER()`
-# answers against each other and against the deployment's own, never against an address - equality
-# with the declared address is available now and is deliberately not asserted, because an assertion
-# that has never executed would read as a proven binding.
+# **Bound to names and dependent on the seed job**, so the order above is declared. Unbound, they
+# were resources nothing could be made to wait for, which is how the concurrency arose.
+rap_a = gcp.bigquery.RowAccessPolicy(
+    "rap-a",
+    dataset_id=dataset.dataset_id,
+    table_id=table.table_id,
+    policy_id="rap_a",
+    grantees=[principal_a],
+    filter_predicate=f"{group_column} = '{principal_a_rows}'",
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, seed]),
+)
+rap_b = gcp.bigquery.RowAccessPolicy(
+    "rap-b",
+    dataset_id=dataset.dataset_id,
+    table_id=table.table_id,
+    policy_id="rap_b",
+    grantees=[principal_b],
+    filter_predicate=f"{group_column} = '{principal_b_rows}'",
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, seed]),
+)
+
+# To RUN a query the principals need `bigquery.jobUser` (submit jobs), `bigquery.readSessionUser`
+# (the driver reads results through the Storage Read API) and `bigquery.dataViewer` (read the table
+# at all); the two row access policies above then narrow each to its own rows.
+# Without these a job submitted as principal A/B is refused before the RLS filter is ever reached,
+# which is why the two-principal cell needed them added alongside the policies.
 #
-# AND THE ROW GRANTS ARE IN PLAY AGAIN. `grantees` above is `serviceAccount:<email>` for each
-# account, which since F3 IS the identity each subject's question executes as - so the row half of
-# leg 2, two subjects reading two different row sets, is provisioned for by this stack. What it
-# needs is a dispatch and a served surface to ask through, not a `principal://` grantee shape.
-#
-# Authorized by `roles/iam.workloadIdentityUser`, bound to the pool SUBJECT of that account - the
-# member the account's minted id_token `sub` (its numeric `unique_id`, via
-# `google.subject <- assertion.sub`) resolves to - so each principal may impersonate only itself.
-# The member uses the project NUMBER, the form Google requires for a workload identity pool
-# principal (the project id is not accepted) - `project_number`, resolved above alongside
-# `audience` for the same reason.
-for tag, sa in (("a", sa_a), ("b", sa_b)):
-    gcp.serviceaccount.IAMMember(
-        f"principal-{tag}-workload-identity-user",
-        service_account_id=sa.name,
-        role="roles/iam.workloadIdentityUser",
-        member=pulumi.Output.concat(
-            "principal://iam.googleapis.com/projects/",
-            project_number,
-            "/locations/global/workloadIdentityPools/",
-            workload_pool.workload_identity_pool_id,
-            "/subject/",
-            sa.unique_id,
-        ),
+# **The read grant waits for BOTH policies, which is what the two bindings above are for.** A table
+# carrying no row access policy is fully visible to a `dataViewer`, so granting the read before the
+# policies exist opens a window in which either principal can read every row - on a fresh `up`, in
+# the one fixture whose entire point is that they cannot.
+for tag, member in (("principal-a", principal_a), ("principal-b", principal_b)):
+    for role in ("jobUser", "readSessionUser"):
+        gcp.projects.IAMMember(
+            f"{tag}-{role.lower()}",
+            project=project,
+            role=f"roles/bigquery.{role}",
+            member=member,
+            opts=pulumi.ResourceOptions(
+                provider=gcp_provider, depends_on=API_BOOTSTRAP
+            ),
+        )
+    gcp.bigquery.DatasetIamMember(
+        f"{tag}-dataviewer",
+        dataset_id=dataset.dataset_id,
+        role="roles/bigquery.dataViewer",
+        member=member,
         opts=pulumi.ResourceOptions(
-            provider=gcp_provider, depends_on=[sa, workload_pool]
+            provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]
         ),
     )
 
