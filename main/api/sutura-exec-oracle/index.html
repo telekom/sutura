@@ -3739,7 +3739,7 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
 - <code>PresentedDisagreesWithPosture</code>
 - <code>DeadlineSpent</code> - The deadline was already spent before this call ever reached the driver - see <code>refuse_if_spent</code> for why this is checked rather than forwarded.
 - <code>CallTimeout</code> - <code>Connection::set_call_timeout</code> itself refused the value.
-- <code>PacketTraceOn</code> - The driver's packet trace is switched on - see <code>refuse_packet_trace</code>.</p>
+- <code>PacketTraceOn</code> - The driver's packet trace is switched on - see <code>sutura_runtime::oracle_trace::refuse</code>.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-oraclewarehouse"><code>struct OracleWarehouse</code><a class="headerlink" href="#struct-oraclewarehouse" title="Permanent link">&para;</a></h2>
@@ -3820,11 +3820,6 @@ and there is no orphan-rule obstacle to implementing it for a LOCAL wrapper arou
 type, so this is the newtype rather than a second, string-only error shape.</p>
 <h3 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="use-refuse_packet_trace"><code>use refuse_packet_trace</code><a class="headerlink" href="#use-refuse_packet_trace" title="Permanent link">&para;</a></h2>
-<p>Refuses while the driver's packet trace is switched on. Every dial this adapter makes asks here
-first.</p>
-<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
-<p><code>OracleError::PacketTraceOn</code> while the variable is set.</p>
 <h2 id="constant-dial_deadline"><code>constant DIAL_DEADLINE</code><a class="headerlink" href="#constant-dial_deadline" title="Permanent link">&para;</a></h2>
 <p>How long the TCP connect to the listener may take before the dial is refused.</p>
 <p>The bound covers the connect only: a listener that accepts and then never answers is not bounded
