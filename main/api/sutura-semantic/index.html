@@ -3712,7 +3712,7 @@ as a refusal a caller would retry.</p>
   remote source exists and a remote dimension has a join by construction, so nothing provokes
   this either. It replaces a fabricated <code>RefusalReason::PlanSpansTooManySources { sources: 1,
   limit: 2 }</code> a caller could not have narrowed their way out of.
-- <code>ChainLeavesItsSource</code> - A chain that leaves the metric's data system after its first hop reached the plan stage.</p>
+- <code>ChainLeavesItsSource</code> - A chain that crossed onto another data system and then left it reached the plan stage.</p>
 <p>The bundle should not have assembled: <code>sutura_domain::catalog</code> refuses such a chain at load,
   naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
   buys is the thing the load check alone did not have - a second reader of the same rule, on

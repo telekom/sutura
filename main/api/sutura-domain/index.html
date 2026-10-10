@@ -4233,14 +4233,15 @@ declared relationship - or through a chain of them, in the order the author wrot
 order is load-bearing: hop N's origin must be hop N-1's target, so a chain is a single path and
 not a set of relationships, and the planner renders the joins in that order rather than choosing
 one. <strong>Every hop is refused if it could duplicate rows, and a chain crosses a data system
-boundary at most once, only at its first hop</strong>: hop 1 may cross - a single remote dimension is
-the federated case the plan layer serves, by splitting the question into one link and one lookup
-table - and a later hop is refused unless BOTH its ends sit on the metric's own source. So an
-accepted chain is either wholly local or exactly one crossing hop, which are the two shapes the
-plan layer can render, and no accepted hop changes what a measure sees. <strong>The limit next to the
-claim:</strong> that is <code>Definitions::assemble</code>'s check, so it holds for a bundle that was assembled
-here; <code>sutura_semantic</code>'s plan stage asks the same question again over the resolved chain,
-because a load check alone is one edit away from being bypassed.</p>
+boundary at most once, at any hop</strong>: the hops before the crossing join on the metric's own
+source, the crossing hop is the one link the federated plan carries, and the hops after it join
+inside the lookup leg's statement on the system the chain crossed to. A later hop that lands
+anywhere else - back on the metric's own source or on a third - is refused. So an accepted chain
+is wholly local or crosses once and stays, which are the shapes the plan layer can render, and no
+accepted hop changes what a measure sees. <strong>The limit next to the claim:</strong> that is
+<code>Definitions::assemble</code>'s check, so it holds for a bundle that was assembled here;
+<code>sutura_semantic</code>'s plan stage asks the same question again over the resolved chain, because a
+load check alone is one edit away from being bypassed.</p>
 <p><code>allowed_values</code> is what makes a dimension filterable. <code>None</code> means it can be grouped by and not
 filtered: a filter needs an allowlist, because the alternative is comparing against a value the
 caller supplied, and the pinned bundle is the only thing entitled to say which values exist.</p>
@@ -10076,10 +10077,12 @@ use sutura_domain::warehouse::ParamValue;</p>
 <p>No bucket, no terms, no range and no metric. A dimension table has no time column, so a range
   would be a predicate on a column that is not there; nothing is aggregated, so there is no
   term and no measure label; and the metric belongs to the fact leg.</p>
-<p><strong><code>table</code> is a checked <code>StatementTables</code>, for <code>Fact</code>'s reason</strong>: the one
-  type holds a statement's <code>FROM</code> table and its joins, and refuses two tables answering to one
-  identifier. It serializes <code>#[serde(flatten)]</code> like the fact leg's, so <code>table</code> sits beside
-  <code>joins</code>. Both renderers read its joins as they read the fact leg's; no builder gives a lookup leg one.</p>
+<p><strong>It may join further, inside the data system it reads.</strong> A chain that crosses onto this
+  system and carries on - <code>customers</code> then the <code>regions</code> beside it - is one statement here: the
+  crossing hop's table is the <code>FROM</code> and every later hop is a <code>LEFT JOIN</code> of this leg's own,
+  which is why <code>table</code> is a checked <code>StatementTables</code> and not a bare path, for
+  <code>Fact</code>'s reason. It serializes <code>#[serde(flatten)]</code> like the fact leg's, so
+  <code>table</code> sits beside <code>joins</code>, empty when the dimension is one hop.</p>
 <p><code>bindings</code> may be empty, and whether it is decides the join kind above - INNER for a remote
   dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
   splitter and is deliberately not a field here.</p>
@@ -10224,10 +10227,12 @@ nothing downstream sees the statement. That variant now takes a <code>StatementT
 instead, pinned by a <code>compile_fail</code> doctest with a compiling twin, so a second leg producer cannot
 reintroduce it - <strong>a prediction in a doc comment is not a mechanism, which is the lesson worth
 keeping from this.</strong></p>
-<p>What remains is narrow and stated so it is not mistaken for the above. Two LEGS whose tables
-collide are not this defect: each leg is its own statement on its own data system, so nothing
-binds one identifier to two tables; what the combiner joins on is a label, and a label that
-shadowed a table is
+<p>What remains is narrow and stated so it is not mistaken for the above. A
+<code>Lookup</code> leg takes a <code>StatementTables</code> too, because a chain that
+crosses onto its data system and carries on joins further there. And two LEGS whose tables collide
+are not this defect:
+each leg is its own statement on its own data system, so nothing binds one identifier to two
+tables; what the combiner joins on is a label, and a label that shadowed a table is
 <code>LabelShadowsTable</code>'s refusal at
 load.</p>
 <h4 id="enum-ambiguoustables"><code>enum AmbiguousTables</code><a class="headerlink" href="#enum-ambiguoustables" title="Permanent link">&para;</a></h4>
