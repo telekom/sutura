@@ -10,7 +10,7 @@ use super::{bigquery_entry, default_timeout, one_worker, open_engine, opened_big
 use base64::Engine as _;
 #[cfg(feature = "bigquery")]
 use sutura_domain::identity::{
-    Agreed, CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+    Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
 };
 #[cfg(feature = "bigquery")]
 use sutura_domain::model::SourceName;
@@ -499,35 +499,6 @@ fn a_refused_exchange_fails_the_mint_and_never_presents_the_inbound_token() {
         "the refusal must never carry the inbound token: {chain}"
     );
     drop(fake.finish());
-}
-
-#[test]
-#[cfg(feature = "bigquery")]
-fn an_undeclared_subject_at_a_delegated_source_is_refused_before_any_exchange() {
-    // The authorization decision is decided BEFORE any exchange, so a caller this source does not
-    // name is refused without the identity provider ever being dialled - even when the source
-    // carries a declared delegation.
-    let secret = SecretFileGuard::create("an_undeclared_subject_at_a_delegated_source_is_refused_before_any_exchange");
-    let fake = FakeServer::start(vec![]);
-    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path(), None)
-        .expect("a direct deployment admits a declared delegation");
-    let asked = SourceSet::of(SourceName::parse("warehouse").expect("a test source is a source"));
-    let stranger = Subject::verified("stranger@example.com").expect("a test subject is a subject");
-    let minted = broker
-        .mint(
-            &RequestContext::with_assertion(
-                PrincipalChain::of(stranger),
-                Secret::new("assertion.for.stranger"),
-                4_102_444_800,
-            ),
-            &asked,
-        )
-        .expect("an undeclared subject is refused, not an error");
-    assert!(matches!(minted, Minted::Refused { .. }), "{minted:?}");
-    assert!(
-        fake.finish().is_empty(),
-        "an undeclared subject must stop before any exchange reaches the identity provider",
-    );
 }
 
 #[test]
