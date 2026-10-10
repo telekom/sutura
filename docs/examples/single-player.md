@@ -237,7 +237,7 @@ tools: `describe_catalog` to read the metrics and the glossary, then `ask_metric
 question.
 
 The MCP process gives full access to each client that can start it. Over HTTP, `/mcp` requires an
-identity provider today. Refer to [Serving over HTTP](../serving.md#the-agent-surface-over-http).
+identity provider. Refer to [Serving over HTTP](../serving.md#the-agent-surface-over-http).
 
 ### A chat interface
 
