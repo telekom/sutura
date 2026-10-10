@@ -765,7 +765,7 @@ What a refresh did to the served bundle.
 
 #### Variants
 
-- `Unchanged` - The bundle served is the one served before this call.
+- `Unchanged` - The bundle read has the digest already served; nothing was checked and nothing changed.
 - `Rotated` - A different bundle passed every check and is what the next question reads.
 
 #### Implements
@@ -882,8 +882,9 @@ one call.
 pub fn with_adoption_gate(self, gate: AdoptionGate<W>) -> Self
 ```
 
-Sets the pre-flight a refreshed bundle is to pass - the one the composition root ran over the
-bundle it booted with. Held, not run: this service's `Surface::adopt` keeps the boot bundle.
+Sets the pre-flight a refreshed bundle must pass before `Surface::adopt` validates it - the
+one the composition root ran over the bundle it booted with, so a refresh is held to what boot
+was.
 
 ```rust
 pub const fn with_row_ceilings(self, row_ceilings: RowCeilings) -> Self

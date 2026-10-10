@@ -30,6 +30,14 @@ use fixtures::*;
 /// through `super`.
 mod catalog_prose;
 
+/// Whether the catalog route reads the bundle being served after a refresh swaps it.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's, and this one is
+/// near the line cap. `#[cfg(test)]` is redundant under this file's own gate and present so a bare
+/// `mod` line reads as a test module to `xtask test-causality` (`telekom/sutura#657`).
+#[cfg(test)]
+mod catalog_refresh;
+
 // -------------------------------------------------------------------- health ----
 
 #[tokio::test]
