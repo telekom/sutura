@@ -27,6 +27,8 @@
 //! - `bind` builds the one-row Arrow batch a positional-parameter driver binds from.
 //!   It returns the Arrow error directly; each adapter wraps it into its own error
 //!   type, because the error vocabulary is the adapter's and not the FFI's.
+//! - `table_schema` asks a connection for one table's Arrow schema and reads the
+//!   driver's `NotFound` as the table being absent, the one status every driver shares.
 //! - The driver-option constants, the transport, the identity decision and the result
 //!   drain stay in each adapter. This crate names no data system.
 
@@ -38,9 +40,37 @@ mod location;
 pub use bind::parameter_batch;
 pub use location::{DriverLocation, UnusableDriverPath};
 
-use adbc_core::error::Error as CoreError;
+use std::sync::Arc;
+
+use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::AdbcVersion;
 use adbc_driver_manager::ManagedDriver;
+use arrow_schema::SchemaRef;
+use sutura_domain::model::{ProjectName, QualifiedTable, TableQualifier};
+
+/// The Arrow schema `connection` returns for `table`, `None` where the driver says it has no such
+/// table. The qualifier's project is the catalog and its dataset the schema.
+///
+/// # Errors
+///
+/// [`CoreError`] for every other status, so a source that could not be asked never reads as one
+/// that lacks the table.
+pub fn table_schema<C>(connection: &C, table: &QualifiedTable) -> Result<Option<SchemaRef>, CoreError>
+where
+    C: adbc_core::Connection,
+{
+    let qualifier = table.qualifier();
+    let read = connection.get_table_schema(
+        qualifier.and_then(TableQualifier::project).map(ProjectName::as_str),
+        qualifier.map(|qualifier| qualifier.dataset().as_str()),
+        table.name().as_str(),
+    );
+    match read {
+        Ok(schema) => Ok(Some(Arc::new(schema))),
+        Err(cause) if cause.status == Status::NotFound => Ok(None),
+        Err(cause) => Err(cause),
+    }
+}
 
 /// The `BigQuery` driver this artefact's own link carries, or an error where it carries none.
 ///

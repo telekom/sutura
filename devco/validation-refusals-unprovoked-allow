@@ -2,5 +2,4 @@
 # One per line:
 #
 #   <Variant> <ISO date> <why nothing provokes it, and what would end that>
-ColumnNotAtSource 2026-10-10 no adapter reads a table schema yet; ends when the first adapter that does carries the cell
-SchemaNotRead 2026-10-10 no adapter reads a table schema yet; ends when the first adapter that does carries a read failure
+SchemaNotRead 2026-10-11 no cell makes a data system fail a schema read; ends when an adapter cell or a fake that fails the read carries one

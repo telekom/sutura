@@ -52,6 +52,7 @@
 //! - **A certified answer is handed on unread**, so a `REAL`, a non-finite `DOUBLE` or an unmapped
 //!   type is refused by the domain's reader downstream rather than as a [`DuckDbError`].
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -64,11 +65,12 @@ use adbc_driver_manager::{ManagedDatabase, ManagedDriver, ManagedStatement};
 use arrow_array::{RecordBatch, RecordBatchReader as _};
 use sutura_adbc::parameter_batch;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::TableName;
+use sutura_domain::model::{QualifiedTable, TableName};
 use sutura_domain::plan::Executable;
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::schema::{SchemasByTable, TableSchemas};
 use sutura_domain::warehouse::{
     Accumulating, AnchorRows, ParamValue, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, UnannouncedBatch,
     UnreadableCell, Value, Warehouse,
@@ -151,6 +153,13 @@ pub enum DuckDbError {
     },
     #[error("the statement failed while running")]
     Execute {
+        #[source]
+        cause: CoreError,
+    },
+    /// The driver could not say what columns a table has, for a reason other than not having it.
+    #[error("could not read the schema of {table}")]
+    Schema {
+        table: String,
         #[source]
         cause: CoreError,
     },
@@ -743,6 +752,24 @@ impl Warehouse for DuckDbWarehouse {
         let query = generate_key_probe(&key, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
         let rows = self.run(&query)?;
         KeyUniqueness::read(&rows).map_err(|cause| DuckDbError::KeyCounts { cause })
+    }
+
+    /// Each table's schema as the driver binds it, on one connection. A table the database does not
+    /// have is absent, not an error.
+    fn table_schemas(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
+        let connection = self
+            .database
+            .new_connection()
+            .map_err(|cause| DuckDbError::Connect { cause })?;
+        let mut read = SchemasByTable::new();
+        for table in tables {
+            let schema = sutura_adbc::table_schema(&connection, table).map_err(|cause| DuckDbError::Schema {
+                table: table.to_string(),
+                cause,
+            })?;
+            read.extend(schema.map(|schema| (table.clone(), schema)));
+        }
+        Ok(TableSchemas::Read(read))
     }
 
     /// `None` on a database [`DuckDbWarehouse::in_memory`] opened: it was opened writable, for
