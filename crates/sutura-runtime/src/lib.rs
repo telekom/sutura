@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 //! Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
 //! the banner, the bound on how much executes at once, the audit sink a deployment gets for free,
-//! and the wall clock a caller's relative time range resolves against.
+//! the wall clock a caller's relative time range resolves against, and the refusal to dial Oracle
+//! under its driver's packet trace.
 //!
 //! The sink is here for the same reason everything else is: it writes onto the process subscriber
 //! this crate installs, so it is a *use* of a process-global rather than a second installation of
@@ -72,6 +73,7 @@ pub mod audit;
 pub mod banner;
 pub mod blocking;
 pub mod metrics;
+pub mod oracle_trace;
 pub mod panics;
 pub mod relative_range;
 pub mod shutdown;

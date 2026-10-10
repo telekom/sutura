@@ -89,7 +89,10 @@ disallowed-methods = [
   #
   # Test code is NOT exempt: there is no `allow-disallowed-methods-in-tests`, and the
   # `allow-*-in-tests` switches at the top reach four named lints only. A test's exposure carries
-  # an expectation like any other, and the reason it gives says it is a test.
+  # an expectation like any other, and the reason it gives says it is a test. Three files are the
+  # exception: `sutura-exec-oracle`'s `tests/dial.rs` and `tests/acceptance.rs` and
+  # `sutura-catalog-rdbms`'s `tests/oracle_provisioned.rs` hold one file-level expectation for the
+  # `oracledb` rows below, and it silences every row of this list in those files.
   { path = "sutura_domain::identity::Secret::expose_secret", reason = "the one call that lets credential material out; every exposure carries an #[expect] naming what it is for, so a new one is a visible diff" },
   # The constructor that lets a caller's own text into the message an MCP client renders as an
   # error, on the one channel a caller cannot read as either an answer or a refusal. #783 gave this
@@ -211,6 +214,17 @@ disallowed-methods = [
   # `#[expect]`, and an expectation that the lint does not fulfil is an error under `-D warnings`.
   { path = "adbc_core::Statement::execute_update", reason = "on the PostgreSQL driver this is the simple protocol, which runs every statement in a string; caller text goes through `execute`, and each call here carries an #[expect] naming the text it sends and its source" },
   { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::RenderedCause::into_error_data, the one call this crate makes to this constructor" },
+  # **The Oracle driver's two public dial entry points.** Every product dial asks
+  # `sutura_runtime::oracle_trace::refuse` first, and each call carries an `#[expect]` that says
+  # where it asked. The limits: the row makes a new dial site a visible diff, it does not check
+  # that the site asks `refuse`, and it reaches this workspace's calls only. Three test files hold
+  # one expectation for the whole file, not one per call, and it silences EVERY row of this list
+  # there (`expose_secret` too): an expectation is per lint, not per path.
+  #
+  # VERIFIED TO RESOLVE the way this file's header requires: `connect` by removing one call's
+  # `#[expect]`, `create_pool`, which has no caller, by a probe call; `just lint` rejected both.
+  { path = "oracledb::connect", reason = "dial through a path that asks sutura_runtime::oracle_trace::refuse first, and say where it asked in the #[expect]" },
+  { path = "oracledb::create_pool", reason = "dial through a path that asks sutura_runtime::oracle_trace::refuse first, and say where it asked in the #[expect]" },
   # **Every `ureq::Agent` constructor but `sutura_http_client::agent`**, which holds the one
   # `#[expect]`. That constructor installs the middleware that, on every request, dials a plaintext
   # or loopback target directly whatever proxy the agent or the request carries, and pins no

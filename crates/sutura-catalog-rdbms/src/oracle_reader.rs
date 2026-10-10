@@ -132,7 +132,9 @@ impl OracleReader {
         binds
     }
 
+    /// Opens the read's session, refused before it dials while the driver's packet trace is on.
     fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
+        sutura_runtime::oracle_trace::refuse().map_err(|on| RdbmsError::Read(Box::new(on)))?;
         let login = &self.login;
         #[expect(
             clippy::disallowed_methods,
@@ -145,7 +147,12 @@ impl OracleReader {
             .map_err(read_err)?
             .set_credentials(&login.user, password)
             .set_follow_redirects(false);
-        oracledb::connect(config).map_err(read_err)
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "this function's first line asked `sutura_runtime::oracle_trace::refuse`"
+        )]
+        let connection = oracledb::connect(config);
+        connection.map_err(read_err)
     }
 }
 

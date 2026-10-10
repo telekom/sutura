@@ -19,6 +19,9 @@ sutura-sql = { workspace = true }
 # Oracle's own pure-Rust driver - see the workspace manifest's own entry for what compiling against
 # it measured. Synchronous, so unlike `sutura-exec-postgres` this crate owns no `tokio` runtime.
 oracledb = { workspace = true }
+# The packet-trace refusal every Oracle dial asks before it dials, shared with
+# `sutura-catalog-rdbms`'s Oracle reader: the variable is a process global.
+sutura-runtime = { workspace = true }
 thiserror = { workspace = true }
 # Serializes every call on the one connection - `clippy.toml` disallows `std::sync::Mutex`
 # regardless of whether the surrounding code is async, and this crate has no `tokio` runtime to

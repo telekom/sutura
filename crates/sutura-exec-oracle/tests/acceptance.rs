@@ -1,5 +1,9 @@
 #![cfg(feature = "fixtures")]
 #![forbid(unsafe_code)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test dials the driver directly to observe the driver itself; test code does not ship"
+)]
 
 //! The compose-only Oracle venue. `just oracle-acceptance` (by hand) and `nix run .#oracle-acceptance`
 //! (the `oracle-tier` CI job) start it and run this ignored cell; the nix checks `just validate`
