@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/metrics.rs b/crates/sutura-http/src/metrics.rs
+index 83ffdd24a..b59afde7e 100644
+--- a/crates/sutura-http/src/metrics.rs
++++ b/crates/sutura-http/src/metrics.rs
+@@ -178,7 +178,7 @@ impl QuestionOutcome {
+             } else {
+                 REFUSED
+             },
+-            reason: Some(label(code)),
++            reason: Some(label("result_too_large")),
+             rows: None,
+         }
+     }

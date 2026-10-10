@@ -670,6 +670,14 @@ mod tests {
                 "too_many_dimensions",
             ),
             (
+                RefusalReason::TooManyFilters {
+                    requested: 17,
+                    limit: 16,
+                },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "too_many_filters",
+            ),
+            (
                 RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "time_range_too_long",
@@ -777,6 +785,16 @@ mod tests {
                 "{code} is a refusal code with no `reason` series: {rendered}"
             );
         }
+    }
+
+    #[test]
+    fn a_filter_count_past_the_limit_names_what_was_asked_for_and_the_bound() {
+        let (status, body) = refused(&RefusalReason::TooManyFilters {
+            requested: 17,
+            limit: 16,
+        });
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.detail(), "17 filters were asked for and the maximum is 16");
     }
 
     #[test]
