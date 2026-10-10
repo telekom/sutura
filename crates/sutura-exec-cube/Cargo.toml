@@ -1,0 +1,29 @@
+[package]
+name = "sutura-exec-cube"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "A Warehouse adapter over a Cube metrics serving layer's REST API (`/cubejs-api/v1/load`): Cube computes each metric, sutura plans the question."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# The one round trip per call is synchronous and `ureq` blocks natively - `sutura-exec-clickhouse`'s
+# reason. `sutura-cli`'s default-off `cube` feature is the gate on the composition root's edge.
+ureq = { workspace = true }
+# The one constructor of a `ureq::Agent` (`clippy.toml` bans the others), the endpoint parser that
+# keeps a token off plain text to a host that is not this one, and the bounded error text.
+sutura-http-client = { workspace = true }
+sutura-tls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The loopback fake the HTTP transport cells dial.
+sutura-http-client = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true

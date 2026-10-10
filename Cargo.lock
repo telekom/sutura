@@ -4071,6 +4071,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-exec-cube"
+version = "0.6.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
 name = "sutura-exec-datafusion"
 version = "0.6.1"
 dependencies = [
