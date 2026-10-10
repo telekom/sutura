@@ -48,80 +48,47 @@ hook runner lives in, warms `xtask` so your first commit is not a cold compile, 
 `doctor`. It is idempotent, so re-run it whenever an environment file changes.
 
 **Hook tiers.** A hook that is too slow for its stage gets switched off, so each stage runs only what
-it can afford. `cargo xtask check-hook-tiers` reads `.pre-commit-config.yaml` and nothing else: it
-holds the stages that file declares, not the table below, which can drift from the config with every
-gate green. A hook is bypassable with `--no-verify`, so this is a tier policy rather than an
-invariant.
+it can afford.
 
-| Stage        | Runs                                                                                           | Does not run                                                 |
-| ------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `pre-commit` | fmt, clippy, `cargo check` of the changed packages, the structural gates, text and chart gates | the test suite and doctests, the CRAP score, the fuzz replay |
-| `pre-push`   | the whole-tree secret scan and the supply-chain gate, nothing else                             | anything that compiles                                       |
-| `commit-msg` | the conventional-commit subject                                                                |                                                              |
+| Stage        | Runs                                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `pre-commit` | fmt, clippy, `cargo check` of the changed packages, the structural gates, text and chart gates |
+| `pre-push`   | the whole-tree secret scan and the supply-chain gate, nothing else                             |
+| `commit-msg` | the conventional-commit subject                                                                |
 
 The suite, the doctests and the CRAP score run in `just validate` and in CI. `just ship-check` also
 runs CRAP for a diff that reaches the scored crate, and the fuzz replay (`just fuzz-smoke`) for a diff
-that touches the fuzzed tree; no pull request or merge-queue run replays the seeds, and
-`.github/workflows/fuzz.yml` does on a release tag and a manual dispatch. So a local commit can hold
-a failing test until `just validate` or CI runs it, and CRAP and the replay run only where
-`ship-check` runs.
+that touches the fuzzed tree. A local commit can hold a failing test until `just validate` or CI
+runs it.
 
-Run it before your first commit, because **an uninstalled hook does not complain - it silently never
-fires.** This repo spent a whole session believing hooks ran that had never run: `core.hooksPath`
-pointed at a `.githooks/` directory that had been deleted, so git looked somewhere that did not
-exist while `prek install` wrote to `.git/hooks` where git was not looking. `just setup` now unsets
-a `core.hooksPath` pointing at a missing directory for exactly that reason. If you are unsure
-whether yours are live, `just setup` again and read what it prints.
+Run `just setup` before your first commit, because **an uninstalled hook does not complain - it
+silently never fires.** `just setup` unsets a `core.hooksPath` that points at a missing directory.
+If you are unsure whether your hooks are live, run `just setup` again and read what it prints.
 
 ## Working in parallel worktrees
 
-Stacked branches mean several worktrees at once, so the development service tier is built to run
-**one independent instance per worktree** rather than one shared set you have to take turns on.
+Each worktree runs its own development services. Two worktrees share no container, network, volume or port.
 
 ```bash
-just worktree feat/thing   # an isolated worktree for a stacked change
-just worktrees             # every worktree and its scope
-just ports                 # this worktree's compose project and service ports
-just dev-up                # this worktree's services, provisioned and health-gated
-just dev-endpoints         # where they are listening - the readable table
-just dev-endpoint clickhouse   # one host:port on stdout, for shell substitution
-just dev-down              # remove this worktree's services, network and volumes. Nothing else
-just dev-down-dry          # what that would remove, and what it would spare
+just worktree feat/thing       # a new worktree for a stacked change
+just dev-up                    # start this worktree's services
+just dev-endpoint clickhouse   # print one host:port
+just dev-down                  # remove this worktree's services
 ```
 
-**No host port is written anywhere, and that is the load-bearing part.** `compose.services.yaml`
-names only container ports, so the host port is ephemeral and chosen by docker and the OS;
-`dev-up` reads back what they chose and writes it into a discovery file the harness reads, which is
-why `just dev-endpoint` is the only way to learn a port and there is no constant to hardcode. A hash
-into a port range cannot promise disjoint blocks, and "check whether the port is free, then bind" is
-a race whose window belongs to whatever else is on the host.
+Docker chooses each host port. Read a port with `just dev-endpoint`, and never write one into a file.
 
-Isolation comes from the compose **project name**, derived from the worktree's canonical path, so
-containers, network and named volumes are all per-worktree and two worktrees running the same file
-share nothing. Nobody has to remember to change a value. Every service declares a healthcheck,
-because provisioning gates on health rather than sleeping.
+The services are ClickHouse, and Keycloak with `just dev-up-identity`. `just test` provisions PostgreSQL
+from Nix. Without docker, the services skip locally and fail in CI. To add a service, add a row to
+`sutura_dev::scope::SERVICES` and a block to `compose.services.yaml`.
 
-The tier provisions ClickHouse today, plus Keycloak behind an `identity` profile that is off by
-default (`just dev-up-identity`). Postgres is not here: `just test` provisions it from nix instead.
-A missing docker **skips** locally and **fails** in CI, both from one flag. Adding a service is a
-registration - a row in `sutura_dev::scope::SERVICES` and a block in `compose.services.yaml` - and
-the file itself records which services are deferred and why. Orchestration lives in `xtask` and the
-worktree and port commands in `sutura-dev`, deliberately: docker orchestration inside a release
-artifact would be test scaffolding shipped to users, and neither of those crates is packaged.
+**Other routes.** The dev container runs the same shell in Docker:
+`docker compose -f compose.dev.yaml run --rm dev`. Use it on Windows without WSL2. Bare `rustup` compiles
+and tests, but the hooks and gates come from Nix, so you see their failures only on the pull request.
+With no direct internet egress, read
+[Building without direct internet egress](https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md).
 
-**Two other routes, if that one is closed to you.** The dev container is the same shell in Docker -
-`docker compose -f compose.dev.yaml run --rm dev` - and is the answer on Windows without WSL2. Bare
-`rustup` compiles and tests (`rust-toolchain.toml` is the pin and rustup honours it), but `just`,
-the hooks, the secret scan and the supply-chain gate all come from Nix and pixi, so on that route
-you find out on the pull request instead of before it. On a network with no direct egress, read
-[Building without direct internet egress](https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md)
-first: nothing that fetches is hardcoded, and every location is read from the environment.
-
-**The dev shell's bare `cargo` is the nightly toolchain**, the same one every gate and CI use now
-
-- the stable/nightly split is gone, so a bare `cargo clippy` reports the lints CI sees. Run
-  `just lint` anyway, because it also adds `-D warnings`. The trap and its siblings are in
-  [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
+Run `just lint`, not a bare `cargo clippy`: the task adds `-D warnings`.
 
 ## Using AI-generated code
 
@@ -180,7 +147,7 @@ version is 0.x (`breaking_always_bump_major = false` in `cliff.toml`).
 ```bash
 just test           # the gate's own invocation - never hand-write the cargo line
 just check-changed  # does what I touched compile
-just causality      # red-before-green proof
+just causality      # a new test fails on the base and passes with your change
 just ship-check     # the finishing sequence; run this before saying done
 just validate       # THE gate: the site build, then the nix checks, which build their own tree copy
 ```
@@ -193,23 +160,18 @@ reaches one - the gate says so and asks for evidence instead: the command you ra
 before the fix, the pass after. That goes in the pull request. **Do not skip it silently.** An
 added or modified test PINNING behaviour the base tree already provides is the one shape the base
 run can never redden, so its place is a declared claim cell: add a `Claim-Cell: <test-fn-name>`
-commit trailer AND a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`,
-and the gate applies the mutation, requires the cell to fail, and accepts
-`ok - claim cells: N declared, N killed` - a declared cell with no killing mutation is refused.
-In the not-separable case above an undeclared pin passes like any other test, because no base run
-exists to redden it. An added test the base run produced no result for (`not run at base`) is
+commit trailer AND a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`.
+The gate applies the mutation and requires the cell to fail. A declared cell with no killing
+mutation is refused. An added test the base run produced no result for (`not run at base`) is
 refused by name: make it run at base, or list it with a reason in
-`devco/causality-no-base-exemptions`. Two limits: the key is the bare fn name, so one entry exempts
-every scoped test of that name; and when the per-test lines do not account for nextest's summary the
-gate cannot name the missing tests and refuses none of them.
+`devco/causality-no-base-exemptions`.
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already
 had - a MOVED test, which the gate reads out of the base tree because a diff cannot tell a move from
 an addition. A harness move and a changed public signature that a test file kept at HEAD calls both
-land there too, so it is not a defect in your change - but nothing about causality was proven
-either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
-Read the verdict line, never a step's colour.
+land there too. Substitute a mutation run, or scope the gate per commit, and say which in the pull
+request. Read the verdict line, never a step's colour.
 
 **Splitting a test file that hit the 1000-line cap has two answers, and the cheap one comes first.**
 Move the assertions into a new module and declare it `#[cfg(test)] mod <name>;` - that form keeps
@@ -224,8 +186,7 @@ added side: a `#[cfg(test)]`, a `mod` declaration that resolves into the same di
 `super::`-relative `use`. So move the imports the new module needs from `super::`, keep every other
 line byte-identical, and put anything else in a second commit. **The trailer is a claim, not a
 permission**: one added, deleted or reworded line - a comment and an attribute included - and the
-gate fails and names it. `sutura/gates` carries the five conditions and what that pass does not
-prove.
+gate fails and names it.
 
 **The gate measures the MERGE BASE, it says which commit that was, and on a stack it derives it.**
 It resolves `git merge-base <ref> HEAD` itself, so a base branch that has moved on cannot put other
@@ -235,32 +196,12 @@ stack. The printed line names the commit, the parent branch and the commit it re
 retargeted parent falls back to the ref you named rather than moving the base off your history.
 `SHIP_CHECK_BASE_REF`, or a commit as the recipe's argument, still overrides both.
 
-**One parent is refused rather than used, and it is one you can easily have:** a branch that already
-CONTAINS yours - because you merged yours into it to check the merge, or because the metadata points
-at the branch above. Its fork point with your HEAD *is* your HEAD, and a base equal to HEAD would
-make the diff your uncommitted working tree alone: exit 0 over every file you changed. The line says
-so, and the gate measures the ref you named instead.
-
-A changed page, recipe or nix file IS an implementation to the gate and gets reverted like any
-other; **a manifest or a lockfile is not** - it is held at HEAD and named as `not reverted:` on
-whichever arm you land on, because reverting one changes what cargo RESOLVES rather than what the
-tests measure. So a change whose only implementation is a manifest reads as *tests changed but no
-implementation did*, at exit 0, with the manifest named beside it: that is the gate saying it could
-not see your change, not that there was nothing to see. **One manifest change does fail, though:**
-declaring a feature name the base did not, where a `#[cfg(feature = ..)] mod ..;` this diff does not
-otherwise touch gates a module that holds tests. That compiles a whole module of pre-existing tests
-with no added `.rs` line, and neither run can measure them - so state the evidence instead.
-
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
 
-`just validate` is the only thing that counts as verified, because its nix checks build a
-git-derived copy of the tree - so `git add -N` a new file immediately, or it compiles locally and
-does not exist in the sandbox. It does not run `check-default-features` or
-`check-default-feature-tests`, though - `just gates` does, per `github.com/telekom/sutura#866`'s
-option 2, chosen 2026-09-18: those two close the compile-and-lint gap on the default feature set,
-not the link gap, since neither links - the `cross` matrix legs stay the authority on a musl link.
-Gate stages, what each one covers and where a green run means less than it looks are all in
+`just validate` builds a git-derived copy of the tree in its nix checks - so `git add -N` a new file
+immediately, or it compiles locally and does not exist in the sandbox. `just gates` runs
+`check-default-features` and `check-default-feature-tests`. Each gate stage is described in
 [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
 ## Pull requests
@@ -335,18 +276,16 @@ what a consumer of the artifacts reads.
 
 - **LF line endings, no trailing whitespace, one final newline.** `just fmt` fixes what is
   mechanically fixable.
-- **No em dashes.** Plain hyphens, in prose and in comments. A gate rather than a request, because
-  the convention was stated from the start and one shipped anyway.
+- **No em dashes.** Plain hyphens, in prose and in comments.
 - **No first-party `unsafe`.** `deny` in the workspace lint table and `#![forbid(unsafe_code)]` at
-  every crate root but `sutura-adbc`'s, held by `check-unsafe`, so a crate cannot re-allow it locally.
+  every crate root but `sutura-adbc`'s.
 - **`#[expect(.., reason = "..")]` over `#[allow]`**, so a suppression cannot outlive its cause -
   except on the three count-threshold lints, where `check-expect-thresholds` refuses an `#[expect]`:
   split the function or raise the threshold in `clippy.toml`. A workspace-wide exception is an
   `= "allow"` row in the workspace lint table instead.
 - **No file over 1000 lines**, and no exemption under `crates/` or `xtask/` - the only way past it
   is to split the file.
-- **No dependency declared and unused.** Declaring one to satisfy a document is what that gate
-  exists to stop.
+- **No dependency declared and unused.**
 - **`--all-features` on every lint and test entry point.** Several crates declare features now, so
   an entry point missing the flag lints and tests nothing behind them. The scoped
   `cargo check -p sutura-domain --no-default-features` is the fast inner loop, never the gate.
@@ -363,22 +302,13 @@ just docs-deploy   # one version to gh-pages
 
 The site is mkdocs-material versioned by [mike](https://github.com/jimporter/mike), built with
 `--strict`, and every command goes through pixi's isolated `docs` environment. `nav` in `mkdocs.yml`
-is explicit rather than derived, and `cargo xtask check-docs` fails on a page in no nav entry, a nav
-entry with no file, or an asset that stopped resolving. A page that is deliberately not part of the
-site - the implementation plans are the case - is named in `exclude_docs` instead, and the same gate
-fails an exclusion naming no page, a page both navigated to and excluded, and a pattern that is
-neither one page nor one whole directory written `/dir/` (`/adr/` keeps the decision records off
-the site). It fails an `<iframe src>`, an `<img src>` or a `![](src)` image whose file is not under
-`docs/`, and it does not check a remote URL. It also fails a published page that LINKS an excluded
-one. That is not `--strict`'s job: mkdocs logs such a link at INFO and exits 0, measured. It fails a
-published page that names a path inside the decision-record directory, in a link or in prose, or
-cites a decision record by its number.
-**This file is one of those published
-pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
-here resolves against that page's URL rather than the repository root, and the gate reads this file
-to judge it. `just validate` renders the site as its first step, so a page that cannot render fails
-before the nix closure rather than after a merge; `just docs` is the same build, reached on its own.
-If the docs environment cannot be materialised at all - a cold package cache with no network - that
-step says SKIPPED in one line and the recipe fails at the end instead of losing every other check.
+is explicit rather than derived, so a new page needs an entry. A page that is deliberately not part
+of the site - the implementation plans are the case - is named in `exclude_docs` instead (`/adr/`
+keeps the decision records off the site). A published page does not link an excluded one, and does
+not name a path inside the decision-record directory or cite a decision record by its number.
+**This file is one of those published pages:** `docs/contributing.md` pulls it in with
+`pymdownx.snippets`, so a relative link written here resolves against that page's URL rather than
+the repository root. `just validate` renders the site as its first step, and `just docs` is the
+same build, reached on its own.
 [Publishing the docs](https://github.com/telekom/sutura/blob/main/docs/publishing.md) covers the
 versioning and the one repository setting it needs.

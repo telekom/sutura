@@ -72,7 +72,7 @@ where
         1 << 30,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::RowCeilings::DEFAULT,
     )
 }
 
@@ -525,6 +525,10 @@ mod spend_test;
 /// `#[cfg(test)]` for `not_validated`'s reason above.
 #[cfg(test)]
 mod mapped_refusals;
+
+/// A refresh through `Surface::adopt`. `#[cfg(test)]` for `not_validated`'s reason above.
+#[cfg(test)]
+mod adopt;
 
 #[test]
 fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversion() {

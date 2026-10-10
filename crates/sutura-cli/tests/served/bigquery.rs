@@ -61,17 +61,12 @@ mod tests {
     const MOVED_MODEL: &str = "daily_usage.md";
 
     /// A `bigquery` source entry, with every key `sutura_config` requires of one.
-    ///
-    /// The credential file names nothing and that is deliberate: the ADBC driver authenticates
-    /// itself, so a boot that read this path would be reading a file no transport in this build
-    /// wants - which is a second thing these cells would catch.
     fn bigquery_entry() -> String {
         format!(
             "  {BQ_SOURCE}:\n    \
                kind: \"bigquery\"\n    \
                billing_project: \"acme-analytics\"\n    \
                dataset: \"warehouse\"\n    \
-               credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
                max_bytes_billed: 1073741824\n    \
                posture: \"shared-service-user\"\n"
         )

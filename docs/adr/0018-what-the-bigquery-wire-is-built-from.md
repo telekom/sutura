@@ -1823,3 +1823,7 @@ darwin host link no DuckDB archive: they mount the `libduckdb` that `SUTURA_DUCK
 names, which a Nix build on Apple silicon presets. **No shipped artefact has been observed
 answering a `kind: duckdb` source**: the linked-driver test build answers `SELECT 1` from the
 archive on x86_64 musl and nothing more.
+
+## Twenty-second amendment, 2026-10-09: `workload_identity.scope` is gone
+
+`sources.<alias>.workload_identity.scope` no longer exists: `github.com/telekom/sutura#1328` refuses the key by name instead of parsing a value that reaches nothing, so the eleventh amendment's "`scope` still reaches nothing" and the sixth amendment's addendum describe a setting that is gone.

@@ -12,7 +12,7 @@ as PostgreSQL SQL and runs it through the ADBC PostgreSQL driver, which uses lib
 ## When to use it
 
 - Your data is in PostgreSQL, and one database role may read it for all callers.
-- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool-over-the-postgres-source-above)
+- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool)
   over a database. Each raw statement runs in a read-only transaction that sutura rolls back.
 
 ## Settings
@@ -38,11 +38,10 @@ accepted as loopback. `verified` and `mutual` need `host`, not `unix_socket`.
 
 Related settings:
 
-| Setting                           | Default | Meaning                                                                 |
-| --------------------------------- | ------- | ----------------------------------------------------------------------- |
-| `tools.run_sql.enabled`           | `false` | Turns on the raw SQL tool. Refused with `security.identity: multi-user` |
-| `SUTURA_POSTGRES_ADBC_DRIVER`     | not set | An absolute path to the driver, for a build that links no driver        |
-| `SUTURA_DEV_STATEMENT_TIMEOUT_MS` | `15000` | The longest statement time. A request can only make it shorter          |
+| Setting                       | Default | Meaning                                                                 |
+| ----------------------------- | ------- | ----------------------------------------------------------------------- |
+| `tools.run_sql.enabled`       | `false` | Turns on the raw SQL tool. Refused with `security.identity: multi-user` |
+| `SUTURA_POSTGRES_ADBC_DRIVER` | not set | An absolute path to the driver, for a build that links no driver        |
 
 The musl release binaries link the PostgreSQL driver with libpq. Other builds load the driver that
 `SUTURA_POSTGRES_ADBC_DRIVER` names. `sutura doctor` shows which driver the process opens.
@@ -76,3 +75,7 @@ This data system supports `shared-service-user` only.
 sutura signs in as the one role in `user`, with the password or, for `mutual`, with the client
 certificate. Every caller's query runs as that role. The source must use
 `posture: shared-service-user`. Grants and row-level security of that role apply to every answer.
+
+Give the role `CONNECT`, `USAGE` and `SELECT` only. Do not use an owner, a superuser, a role that can create roles or
+databases, or a role with `BYPASSRLS`. One static role is one identity for every caller, so row-level security cannot
+tell callers apart. Make the password file readable by the service account only.

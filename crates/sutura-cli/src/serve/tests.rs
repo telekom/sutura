@@ -133,7 +133,7 @@ pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
 pub(super) fn wif() -> &'static str {
     "    workload_identity:\n      audience: \
      \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
-     providers/sso\"\n      scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n"
+     providers/sso\"\n"
 }
 
 mod support;
@@ -318,16 +318,43 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
     assert_eq!(opened.attached, tables(&["dim_customer"]));
 }
 
+#[test]
+fn a_refreshed_bundle_naming_a_table_the_engine_did_not_attach_is_refused() {
+    // What a refresh on a `files` source is held to: the table set the engine opened with. Without
+    // it a refreshed model over a file the engine never attached is stored and fails its first
+    // question, where boot would have refused it.
+    let customers = ("customers", ENGINE_SOURCE, "dim_customer");
+    let opened = files(open_engine(
+        &bundle_over(&[customers]),
+        &engine_declared(),
+        one_worker(),
+        default_timeout(),
+        None,
+    ));
+    let gate = super::adoption_gate(Some(opened.attached.clone()), false).expect("a files source holds a refresh to a table set");
+
+    gate(&bundle_over(&[customers]), &opened.engines).expect("the attached tables are the served ones");
+    let refused = gate(
+        &bundle_over(&[customers, ("products", ENGINE_SOURCE, "dim_product")]),
+        &opened.engines,
+    )
+    .expect_err("dim_product was not attached when the engine opened");
+    assert!(
+        refused.to_string().contains("dim_product"),
+        "the refusal names the table: {refused}"
+    );
+    assert!(
+        super::adoption_gate::<sutura_exec_datafusion::DataFusionWarehouse>(None, false).is_none(),
+        "an arm boot ran no pre-flight for has none to hold a refresh to"
+    );
+}
+
 /// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.
 ///
-/// The credential file points at a path that is not there ON PURPOSE, and the tests below say what
-/// each of them is proving with it: a refusal naming that key is proof the composition reached the
-/// credential layer, which is the furthest a test with no project can get.
 fn bigquery_entry(alias: &str, posture: &str, extra: &str) -> String {
     format!(
         "  {alias}:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
-         \"warehouse\"\n    credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
-         max_bytes_billed: 1073741824\n    posture: \"{posture}\"\n{extra}"
+         \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"{posture}\"\n{extra}"
     )
 }
 

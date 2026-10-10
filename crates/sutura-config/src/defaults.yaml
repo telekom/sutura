@@ -319,3 +319,12 @@ prompt:
 #
 # governance:
 #   top_row_ceiling: 10000
+#
+# `federated_row_ceiling` is absent by default too, which resolves to the same `MAX_ROWS`. It bounds
+# how many rows a two-source answer may return whole, a two-source `top` included (over the combined
+# set it ranks, after `top_row_ceiling`); one row over is a refusal naming the number, never a
+# truncation. It has a hard maximum (1000000) and a larger value does not load. It does not
+# bound memory - the working set does - and the single-source cap stays compiled.
+#
+# governance:
+#   federated_row_ceiling: 10000

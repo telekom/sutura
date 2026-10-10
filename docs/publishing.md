@@ -89,15 +89,14 @@ light mode.
 !!! warning "Mermaid is not bundled"
 
     Material's bundle loads the mermaid library from a public CDN at runtime, so a diagram does not
-    render for a reader with no direct egress, and the fence degrades to a code block. No page may
-    depend on a diagram to be understood until mermaid is vendored under `docs/assets`.
+    render for a reader with no direct egress, and the fence degrades to a code block.
 
 ## Brand assets
 
 `docs/css/telekom.css` makes Telekom magenta (`#E20074`) the Material `custom` primary, with a
 darker or lifted shade of it as the accent. Eight `--md-*` variables set the header, links and hover
 states. The two colour schemes differ only because `#E20074` clears WCAG AA on Material's light
-background and not on its dark background. The measured ratios sit next to each value.
+background and not on its dark background.
 
 An original mark fills both image slots, and no Telekom trademark is used:
 
@@ -120,9 +119,6 @@ site uses Material's own font stack instead.
 Material's header carries the brand magenta in *both* colour schemes, so a magenta mark on it is
 invisible. `brightness(0) invert(1)` flattens the artwork and turns it white, so it matches the
 header text. This is one filter, not a second white-only file to keep in sync.
-
-`cargo xtask check-docs` validates both keys, so a path that stops resolving fails a gate and does
-not silently render nothing.
 
 ## Running it by hand
 

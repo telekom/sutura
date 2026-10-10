@@ -149,12 +149,12 @@ impl LegTerm {
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
 /// use sutura_domain::model::{QualifiedTable, SourceName};
-/// use sutura_domain::plan::{LegPlan, PlanBindings};
+/// use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 ///
 /// fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
-///         table,
+///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         bindings: PlanBindings::none(),
 ///         range,
@@ -164,12 +164,12 @@ impl LegTerm {
 ///
 /// ```
 /// use sutura_domain::model::{QualifiedTable, SourceName};
-/// use sutura_domain::plan::{LegPlan, PlanBindings};
+/// use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 ///
 /// fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
-///         table,
+///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         bindings: PlanBindings::none(),
 ///     }
@@ -184,13 +184,13 @@ impl LegTerm {
 ///
 /// ```compile_fail,E0559
 /// use sutura_domain::model::{QualifiedTable, SourceName};
-/// use sutura_domain::plan::{LegPlan, PlanFilter};
+/// use sutura_domain::plan::{LegPlan, PlanFilter, StatementTables};
 /// use sutura_domain::warehouse::ParamValue;
 ///
 /// fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
-///         table,
+///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         filters,
 ///         params,
@@ -200,7 +200,7 @@ impl LegTerm {
 ///
 /// ```
 /// use sutura_domain::model::{QualifiedTable, SourceName};
-/// use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter};
+/// use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter, StatementTables};
 /// use sutura_domain::warehouse::ParamValue;
 ///
 /// fn _parsed(
@@ -211,7 +211,7 @@ impl LegTerm {
 /// ) -> Result<LegPlan, IncoherentBindings> {
 ///     Ok(LegPlan::Lookup {
 ///         source,
-///         table,
+///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         bindings: PlanBindings::parse(filters, params)?,
 ///     })
@@ -332,12 +332,18 @@ pub enum LegPlan {
     /// would be a predicate on a column that is not there; nothing is aggregated, so there is no
     /// term and no measure label; and the metric belongs to the fact leg.
     ///
+    /// **`table` is a checked [`StatementTables`], for [`Fact`](LegPlan::Fact)'s reason**: the one
+    /// type holds a statement's `FROM` table and its joins, and refuses two tables answering to one
+    /// identifier. It serializes `#[serde(flatten)]` like the fact leg's, so `table` sits beside
+    /// `joins`. Both renderers read its joins as they read the fact leg's; no builder gives a lookup leg one.
+    ///
     /// `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
     /// dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
     /// splitter and is deliberately not a field here.
     Lookup {
         source: SourceName,
-        table: QualifiedTable,
+        #[serde(flatten)]
+        table: StatementTables,
         keys: Vec<PlanKey>,
         /// A parsed set, for [`Fact`](LegPlan::Fact)'s reason. `PlanBindings::none` is the
         /// no-filter spelling, which is what a remote dimension the question did not filter carries.
@@ -358,6 +364,15 @@ impl LegPlan {
         }
     }
 
+    /// The tables this leg's statement reads: the `FROM` table and one per join.
+    #[inline]
+    pub const fn tables(&self) -> &StatementTables {
+        match *self {
+            Self::Fact { ref tables, .. } => tables,
+            Self::Lookup { ref table, .. } => table,
+        }
+    }
+
     /// Where the table this leg reads lives: the whole path, which is what its `FROM` names.
     ///
     /// A leg qualifies exactly as a whole-answer plan does, and it shares `generate`'s rendering to
@@ -365,10 +380,7 @@ impl LegPlan {
     /// differ, which is the drift `sutura_sql::generate`'s own header is written against.
     #[inline]
     pub const fn table(&self) -> &QualifiedTable {
-        match *self {
-            Self::Fact { ref tables, .. } => tables.table(),
-            Self::Lookup { ref table, .. } => table,
-        }
+        self.tables().table()
     }
 
     /// The table's own name, which is what this leg's columns are qualified by.

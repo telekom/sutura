@@ -4,22 +4,21 @@
 command brings the server up over `examples/single-player` beside a chat interface, with the browser
 URL read out of the development tier's discovery file rather than written down anywhere.
 
-**This page is a demonstration, not a deployment.** The chat client is UNGOVERNED: it chooses which
-tool to call and how to phrase the answer, and no guarantee lives there. Every number it shows came
-from a certified question the runtime answered, or from a refusal the runtime decided - the client
-is a renderer and nothing more. And it is a SINGLE-USER demo: the deployment reads the example as
-one shared service user, acknowledged by the operator, so it proves **neither caller identity nor
-source impersonation**. [Inbound identity](integrations/identity.md) describes what sutura
-verifies about a caller.
+**This page is a demonstration, not a deployment.** The chat client is ungoverned: it chooses which
+tool to call and how to phrase the answer. Every number it shows came from a certified question the
+runtime answered, or from a refusal the runtime decided - the client is a renderer and nothing
+more. The deployment is single-user: it reads the example as one shared service user, acknowledged
+by the operator. [Inbound identity](integrations/identity.md) describes what sutura verifies about
+a caller.
 
 ## What it brings up
 
 `just demo` builds and starts ONE container holding two supervised processes:
 
-| Process         | What it is                                                                                   |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| `sutura serve`  | The shipped HTTP server, over `examples/single-player` - the same binary a release publishes |
-| The chat client | Open WebUI v0.11.3, pointed at a language model you configure                                |
+| Process         | What it is                                                                           |
+| --------------- | ------------------------------------------------------------------------------------ |
+| `sutura serve`  | The HTTP server, over `examples/single-player` - the same binary a release publishes |
+| The chat client | Open WebUI v0.11.3, pointed at a language model you configure                        |
 
 The client is registered against the server through Open WebUI's **native OpenAPI connection** -
 `type: openapi`, the server's loopback URL, `path: openapi.json`, a bearer `auth_type`, and

@@ -12,7 +12,7 @@ and the source kind is `duckdb`. sutura renders each plan as DuckDB SQL.
 ## When to use it
 
 - Your data is in one DuckDB file.
-- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool-over-a-duckdb-source) without a
+- You want the [raw SQL tool](../../serving.md#the-raw-sql-tool) without a
   database server.
 
 ## Settings

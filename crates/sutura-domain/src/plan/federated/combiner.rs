@@ -333,7 +333,7 @@ mod tests {
     fn lookup_plan() -> LegPlan {
         LegPlan::Lookup {
             source: source("geo"),
-            table: table("dim_region"),
+            table: table("dim_region").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),
         }

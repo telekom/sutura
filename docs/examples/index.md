@@ -7,7 +7,7 @@ description: Complete sutura setups you can run, each with its configuration and
 
 Each example is a directory in
 [`examples/`](https://github.com/telekom/sutura/tree/main/examples) with a catalog, data and the
-configuration to serve it. CI runs the commands on the single player page.
+configuration to serve it.
 
 | Example                           | Metadata         | Data            | Identity                                     |
 | --------------------------------- | ---------------- | --------------- | -------------------------------------------- |

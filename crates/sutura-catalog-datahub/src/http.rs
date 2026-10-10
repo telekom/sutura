@@ -52,8 +52,8 @@
 //!
 //! A personal access token as a [`Secret`], sent as `Authorization: Bearer <token>` on every
 //! request. The token is a constructor argument here; a composition root reads it from a settings-
-//! declared file at boot (`token_file`, the naming convention `credential_file`/`password_file`
-//! already hold), never inline in a settings document.
+//! declared file at boot (`token_file`, the naming convention `password_file` already holds),
+//! never inline in a settings document.
 //!
 //! # Paging
 //!

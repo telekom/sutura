@@ -54,8 +54,8 @@ this fails the render rather than shipping a Deployment that crash-loops on the 
 
 {{/*
 `runtime.engineWorkerThreads`, derived from `resources.limits.cpu` when the operator has not
-set it explicitly - #149 branch 3. `available_parallelism` (docs/serving.md, "The engine's
-width") reports the HOST's core count, which over-counts under a CPU quota; this closes that
+set it explicitly - #149 branch 3. `available_parallelism` (`runtime.engine_worker_threads` in
+docs/serving.md) reports the HOST's core count, which over-counts under a CPU quota; this closes that
 trap the same way an operator would by hand, by rounding the limit up to a whole thread. An
 explicit `runtime.engineWorkerThreads` always wins, and an absent limit leaves the key unset -
 the binary's own "as many threads as this machine reports" default, unchanged from before this
@@ -86,12 +86,13 @@ limit that parses to no cores at all fails the render rather than silently deriv
 
 {{/*
 `runtime.workingSetMaxBytes`, derived from `resources.limits.memory` when the operator has not
-set it explicitly - #149 branch 3, the second trap `docs/serving.md` names: the shipped default
-is one provisional gibibyte, unrelated to whatever memory limit the Deployment actually carries.
+set it explicitly - #149 branch 3, the second trap: `runtime.working_set_max_bytes` in
+`docs/serving.md` ships at one provisional gibibyte, unrelated to whatever memory limit the
+Deployment actually carries.
 An explicit `runtime.workingSetMaxBytes` always wins; an absent limit leaves the key unset.
 
 Reserves a fixed fraction of the limit rather than handing over all of it: `docs/serving.md`'s
-"422 rather than 503" distinction only holds if the ceiling trips before the kernel OOM-kills
+`resources_exhausted` refusal (`422`) only comes back if the ceiling trips before the kernel OOM-kills
 the container at the cgroup limit, and this process's own RSS (binary, thread stacks, page
 cache) is never zero. 0.75 is a chosen headroom, not a measurement - the same status
 `WorkingSetCeiling::DEFAULT_BYTES` itself carries - and the escape hatch for a deployment that

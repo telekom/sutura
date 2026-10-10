@@ -74,3 +74,18 @@ fn a_null_refresh_seconds_is_refused_naming_the_key_and_the_file() {
         "the error should name the file: {rendered}"
     );
 }
+
+#[test]
+fn a_declared_refresh_seconds_reaches_the_catalog_settings() {
+    // `#975`'s wiring, `crate::settings::catalogs::parse_catalogs` line 69-71 - the exact same
+    // gap the deadline test above closed for `deadline_seconds`/`max_response_bytes` after
+    // PR-750: `with_refresh_seconds` lives at the builder layer only, so a settings file
+    // declaring `refresh_seconds:` had no cell proving the parsed key reaches
+    // `CatalogSettings::refresh_seconds()`.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "catalogs:\n  - name: catalog\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n    refresh_seconds: 300\n",
+    );
+    let settings = Settings::load(&sources).expect("a markdown catalog with a refresh interval loads");
+    let catalog = settings.catalogs().each().next().expect("the declared catalog is present");
+    assert_eq!(catalog.refresh_seconds(), Some(300));
+}

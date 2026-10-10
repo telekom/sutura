@@ -234,9 +234,9 @@ pub(crate) fn run() -> Result<(), String> {
     // remedy for a heterogeneous set, and it is `W` for the `Mixed` arm alone.
     let (service, attached) = match opened {
         OpenedSources::Files(files) => {
-            // The table set the boot check below compares against. The gate checks no table yet, so
-            // this clone is dropped when `adoption_gate` returns; the next change adds the `files`
-            // table check that keeps it.
+            // The same table set the boot check below compares against, held by the service so a
+            // refreshed bundle is held to it too. Cloned once, at boot: two owners, the service for
+            // its lifetime and the check below for this statement.
             let gate = adoption_gate(Some(files.attached.clone()), false);
             (
                 shared_identity_service(&catalogs, files.engines, gate, &settings)?,
@@ -260,8 +260,8 @@ pub(crate) fn run() -> Result<(), String> {
             // is no credential to read, and `AdbcBigQuery::new` takes a `DriverLocation`. So the
             // first half of the order is held by NOTHING today.** What `open_bigquery` still reads
             // at boot is the driver this artefact carries (or the one a source build mounted) and
-            // the declared scope, so an unusable one of either is a startup failure; that is a
-            // smaller claim than the one this comment used to make.
+            // the declared pool audience, so an unusable one of either is a startup failure; that
+            // is a smaller claim than the one this comment used to make.
             //
             // **The second half is held by `check-boot-order`**, which `just hygiene` runs, and it
             // is there because this comment used to close by calling the order *a convention this
@@ -782,17 +782,18 @@ where
     )
 }
 
-/// The pre-flight a refreshed bundle is to pass before it is served: the checks boot ran over the
-/// first one, with the same functions and the same refusal text. The service holds it and does not
-/// run it yet - its `adopt` keeps the bundle it booted with.
+/// The pre-flight a refreshed bundle must pass before it is served: the checks boot ran over the
+/// first one, run again over the next, with the same functions and the same refusal text.
 ///
-/// Which checks apply is what boot decided per arm: `asks_data_systems` is the table listing a
-/// `bigquery` registry or a mix is asked ([`boot::refuse_absent_tables`]). A `files` arm (`attached`)
-/// gets a gate that checks no table yet. `None` for an arm boot ran neither for.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "the `files` arm's table check is what consumes `attached`, and this arm checks no table yet"
-)]
+/// **A service started with this refuses a bundle that would answer from a table this process does
+/// not hold**, instead of storing it and failing the first question against the new model. Which
+/// checks apply is what boot decided per arm: `attached` is the table set a `files` engine was
+/// opened with ([`sutura_app::preflight::refuse_unattached`]), `asks_data_systems` is the table
+/// listing a `bigquery` registry or a mix is asked ([`boot::refuse_absent_tables`]). `None` for an arm
+/// boot ran neither for.
+///
+/// **A new model on a `files` source is therefore refused until restart**: its table was not
+/// attached when the engine opened.
 fn adoption_gate<W>(
     attached: Option<std::collections::BTreeSet<sutura_domain::model::TableName>>,
     asks_data_systems: bool,
@@ -806,6 +807,9 @@ where
     Some(Box::new(move |next, engines| {
         if asks_data_systems {
             boot::refuse_absent_tables(next, engines)?;
+        }
+        if let Some(attached) = &attached {
+            sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(next), attached)?;
         }
         Ok(())
     }))

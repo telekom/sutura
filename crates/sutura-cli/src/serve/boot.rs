@@ -64,7 +64,7 @@ use super::flatten;
 /// read a file - and that died with the HTTP wire: the alias is
 /// `BigQueryWarehouse<adbc::AdbcBigQuery>` now and the driver authenticates itself, so nothing on
 /// the BIGQUERY way to this function reads a credential.
-/// What `open_bigquery` still reads at boot is a driver path and the declared scope.
+/// What `open_bigquery` still reads at boot is a driver path and the declared pool audience.
 ///
 /// **That qualifier is `telekom/sutura#929`'s eighth round, and without it the sentence was false.**
 /// It read *nothing on the way to this function reads a credential at all*, and a `postgres`

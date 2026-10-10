@@ -46,12 +46,6 @@ document that names an operation a deployment does not mount costs the agent the
 discover the absence. A document that lists a metric the bundle does not define costs the agent a
 refusal. Neither can happen here, because there is no place for either to come from.
 
-The refusal section has a mechanism of its own. The mapping from a `RefusalReason` variant to its
-guidance is a total match in the `prompt::refusal` module of `sutura-app`. **A refusal variant added
-to the domain does not compile until somebody has written what an agent should do about it.** The
-mechanism does not force the list of instances that the assertion walks. So the set equality the
-assertion checks is a second net, not the first.
-
 ## What it deliberately does not say
 
 **Nothing about composing SQL against the certified surface.** The reference implementation that
@@ -76,14 +70,12 @@ advertise `run_sql`. That is worse than either sentence alone.
 **No measure expression.** Of what a metric *is*, the document renders what `GET /v1/catalog`
 renders, and no further field. A caller needs a metric's name, prose, grains, dimensions and
 permitted values to ask a valid question. It needs no column name for that, and a column name in an
-agent's context is a name the agent will eventually try to use. This is asserted, not only
-intended. A test renders a bundle whose model, table and column names appear in no prose, and checks
-that none of those names reaches the output by default. An operator can enable
+agent's context is a name the agent will eventually try to use. By default no model,
+table or column name reaches the output. An operator can enable
 `prompt.list_physical_schema` to list descriptive model, table and column metadata. That listing
 does not make a physical name queryable, and it does not certify a metric.
 
-That is a claim about *fields of a metric*. It is not a claim that the document is a rendering of
-the endpoint. The two claims are separate. The document carries four sections for which the catalog
+The document carries four sections for which the catalog
 body has no field at all, listed in the table above: the glossary, the terms recorded as not
 defined, what this deployment records about its own definitions, and the worked questions. It also
 carries any caveat, under the metric it is about. All five are knowledge from the pinned bundle, and
@@ -92,8 +84,7 @@ that model or column, whether or not `prompt.list_physical_schema` is on. The mo
 decides who sees it.
 
 **Nothing about identity.** There is none. The bearer token authenticates the *deployment*, not the
-caller - see [Serving over HTTP](serving.md). A document that described per-caller scoping would
-describe a control that does not exist.
+caller - see [Serving over HTTP](serving.md).
 
 ## Configuration
 
@@ -150,16 +141,14 @@ itself.
 
 Whoever authored the catalog writes a metric's description. This repository's threat model treats
 catalog content as untrusted. A description that contains a sentence aimed at the agent rather than
-at a human is prompt injection through the catalog. Three measures address this, and the first is
-the honest limit.
+at a human is prompt injection through the catalog. Three measures address this.
 
 **A delimiter cannot separate instruction from data, because the content can contain the
 delimiter.** [Concepts](concepts.md#provenance) already says
 so. So the mitigation is not a fence. It is a per-line prefix that sutura applies: sutura emits
 every line of prose with `>` in front of it. **No line of catalog text can reach the document at
 column zero.** Catalog text cannot emit a heading, close a block, or open something that reads as a
-new section. That is checkable: a test provokes it with a description whose lines are a heading, a
-fence and a bare instruction.
+new section.
 
 **The trust boundary is named in the text**, immediately above the quoted block, in terms an agent
 can act on. The block is data. A sentence inside it that reads as an instruction is content, not an
@@ -171,22 +160,7 @@ tool's `describe_catalog` and the HTTP `GET /v1/catalog` body honour the same se
 path carries a description that the deployment declined to render to a reader. The body says which
 way the setting points, so an absent description is a fact and not an empty catalog.
 
-None of these measures solves prose that *persuades* without escaping: a description that reads as
-plausible guidance and is not. No mechanism here can catch it. Two facts bound it. A catalog is
-reviewed, authored content whose digest moves when a description changes. And an operator command
-generates this document, so the document is not assembled from a caller's input. To state the
-exposure precisely: under the default setting, metric and dimension descriptions already reach any
-token-holder through `GET /v1/catalog`, so the document adds framing, not reach. Under `omitted`,
-neither the document nor `GET /v1/catalog` carries them. That makes the setting a decision about the
-deployment, not a preference about one document.
-
-## The consumer that exists, and the one that does not
-
-`sutura prompt` is built. An endpoint on the `v1` tree, behind the same bearer gate as everything
-else, is not built. The reason is which of the two makes the feature reachable. An operator who
-wires an agent needs the text once, at configuration time, in a shell where they can read it before
-an agent does. That is a command. An endpoint is the right shape for an agent that fetches its own
-instructions at startup. Nothing here uses that deployment pattern yet. An endpoint would also put a
-document assembled from untrusted catalog prose on the network, not in front of a person. It is a
-small addition when a caller needs it: the renderer takes a bundle and a resolved set of inputs, and
-a handler would pass the same two.
+Under the default setting, metric and dimension descriptions reach any token-holder through
+`GET /v1/catalog`, so the document adds framing, not reach. Under `omitted`, neither the document
+nor `GET /v1/catalog` carries them. That makes the setting a decision about the deployment, not a
+preference about one document.

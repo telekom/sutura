@@ -46,7 +46,6 @@ pub(super) fn parse_placement(
                 [
                     ("billing_project", written(entry.billing_project)),
                     ("dataset", written(entry.dataset)),
-                    ("credential_file", written(entry.credential_file)),
                     ("max_bytes_billed", entry.max_bytes_billed.is_some()),
                 ]
                 .into_iter()
@@ -79,12 +78,7 @@ pub(super) fn parse_placement(
                     cause,
                 }
             })?;
-            let credential_file = parse_absolute(
-                alias,
-                "credential_file",
-                required(alias, kind, "credential_file", entry.credential_file)?,
-            )?;
-            // Required, and the refusal is `MissingForKind` like the three keys above it - so an
+            // Required, and the refusal is `MissingForKind` like the two keys above it - so an
             // operator who left it out is told the same thing about the same kind rather than being
             // handed a range error about a zero nobody wrote. The RANGE is the adapter's, checked
             // where the source is opened; see `SourcePlacement::BigQuery::max_bytes_billed`.
@@ -96,7 +90,6 @@ pub(super) fn parse_placement(
             Ok(SourcePlacement::BigQuery {
                 billing_project,
                 dataset,
-                credential_file,
                 max_bytes_billed,
             })
         }
@@ -111,7 +104,6 @@ pub(super) fn parse_placement(
                     ("data_dir", written(entry.data_dir)),
                     ("billing_project", written(entry.billing_project)),
                     ("dataset", written(entry.dataset)),
-                    ("credential_file", written(entry.credential_file)),
                     ("max_bytes_billed", entry.max_bytes_billed.is_some()),
                     ("service_name", written(entry.service_name)),
                 ],
@@ -205,7 +197,6 @@ pub(super) fn parse_placement(
                     ("data_dir", written(entry.data_dir)),
                     ("billing_project", written(entry.billing_project)),
                     ("dataset", written(entry.dataset)),
-                    ("credential_file", written(entry.credential_file)),
                     ("max_bytes_billed", entry.max_bytes_billed.is_some()),
                 ]
                 .into_iter()

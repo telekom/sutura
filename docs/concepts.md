@@ -8,9 +8,6 @@ description: The words on the tool surface, and what each one commits to.
 The words on the tool surface, and what each one commits to.
 [Architecture](architecture.md) says how the pieces fit.
 
-A claim marked **Enforced today** is held by a type, a lint, a gate or a test. The mechanism is
-named beside the claim.
-
 ## A question, and what it is made of
 
 A question names a **metric**, some **dimensions**, a **grain** and a bounded **time range**.
@@ -33,13 +30,11 @@ revenue and monthly revenue are the same metric at two grains, not two metrics.
 table scan with a plausible name. It must also be short enough to be worth answering: two real
 dates ten thousand years apart are a full scan that parses cleanly.
 
-**Enforced today.** `Query` carries no field for SQL, a table, a predicate or a row id, so an
-uncertified question is unrepresentable, not refused. `deny_unknown_fields` makes a question
-carrying `sql:` an error naming the field, not one silently dropped. `TimeRange` has no unbounded
-form, so an unbounded range fails to deserialize at all. Tests in `sutura-catalog-local` assert
-both, with a real format parser to provoke them. The span cap is separate and sits one layer in,
-at resolution, where the range is demonstrably a caller's, not an author's. The table under
-[What you cannot ask for](#what-you-cannot-ask-for) says what it does and does not bound.
+`Query` carries no field for SQL, a table, a predicate or a row id, so an uncertified question is
+unrepresentable, not refused. `deny_unknown_fields` makes a question carrying `sql:` an error
+naming the field, not one silently dropped. `TimeRange` has no unbounded form, so an unbounded
+range fails to deserialize at all. The span cap is separate and sits one layer in, at resolution,
+where the range is demonstrably a caller's, not an author's.
 
 **Telling an agent all of this is a separate job from enforcing it.** An agent that has not been
 told what this surface is looks for a field to put SQL in, and then reads a refusal as an outage
@@ -54,28 +49,27 @@ A **definition** is what a metric means: the measure it computes, the model it r
 it supports, the dimensions it may be broken down by, and the filters that are part of its
 meaning.
 
-**Enforced today.** That meaning is a closed vocabulary, not an expression language, so no field
+That meaning is a closed vocabulary, not an expression language, so no field
 exists where a catalogue could write an arbitrary expression. `Measure` is an enum of two shapes
 over a `Term` enum of two terms. `RequiredFilter` is an enum of four operators.
 `deny_unknown_fields` applies at every depth. sutura generates the whole statement from that, in
 `sutura-semantic`, so neither caller-authored nor catalogue-authored SQL is on the path at all.
 
-**Loaded and refused at boot, and named so it cannot be quiet.** A metric may instead carry
+**Authored SQL.** A metric may instead carry
 `authored_sql:` - a SQL expression a catalogue author wrote, for what the closed vocabulary cannot
 say: a window function, a percentile, an expression over two columns. It is a *sibling* of
 `measure:`, not a field on it, and exactly one of the two may be present. The fragment is admitted
 as text: present, bounded, one fragment rather than a script, free of control and invisible
-characters. It is pinned under the definition digest exactly as written. **It is not compiled.**
-Nothing published parses it, checks it against the model's columns or renders it. Every adapter
-this workspace ships refuses to start on a bundle that carries one, naming the metric. A caller
-still has no field for SQL, and the agent prompt still never sees any.
+characters. It is pinned under the definition digest exactly as written. sutura does not compile
+it. No adapter this workspace ships executes it, so a bundle that carries one is refused at
+startup, naming the metric. A caller still has no field for SQL, and the agent prompt never sees
+any.
 
-An **anchor** is a known result for a metric. **Enforced today:** `sutura_app::verify_and_validate`
-re-executes every metric that declares one. It returns the bundle as `Validated` only if every
-anchor it declares was checked and matched. A bundle whose anchors were never checked cannot reach
-the query path. That function is the only thing anywhere that produces a `Validated`, and it takes
-the data system as an argument, so the type cannot be obtained unless a data system was asked. A
-`compile_fail` doctest holds it.
+An **anchor** is a known result for a metric. `sutura_app::verify_and_validate` re-executes every
+metric that declares one. It returns the bundle as `Validated` only if every anchor it declares was
+checked and matched. A bundle whose anchors were never checked cannot reach the query path. That
+function is the only thing anywhere that produces a `Validated`, and it takes the data system as an
+argument, so the type cannot be obtained unless a data system was asked.
 
 ## The pinned snapshot
 
@@ -87,11 +81,10 @@ with a version and a **digest** over the text. Two consequences follow:
 - The catalogue cannot see who is asking. The load path takes no request context, so it cannot
   return one definition to one caller and a different one to another.
 
-**Enforced today.** `SemanticCatalog::load` takes no argument at all, so there is no request
+`SemanticCatalog::load` takes no argument at all, so there is no request
 context to pass it and none to leave out. Dimension validation reads the pinned bundle, not a live
 view. The digest is taken over the canonical form of the parsed definitions. Reformatting a
-document does not move it, and changing what a metric means does move it. A golden asserts each
-case.
+document does not move it, and changing what a metric means does move it.
 
 A result carries the version and digest of the definitions that produced it, so a number traces
 back to the text that defined it. That makes "certified" checkable, not asserted.
@@ -105,19 +98,17 @@ Reasons are typed, not prose, because the variant is the contract and the messag
 dimension that does not resolve, a value outside the allowlist, a plan that would need two data
 systems, a data system this process did not open: each is its own `RefusalReason` variant.
 
-**Enforced today.** A refusal is `ToolOutcome::Refusal { reason }`, a variant of the result rather
-than an `Err`, and the golden suite provokes every variant a question can reach. A rejected value
+A refusal is `ToolOutcome::Refusal { reason }`, a variant of the result rather
+than an `Err`. A rejected value
 is never echoed back. `DimensionValueNotAllowed` names the dimension and stops there, so caller
 text cannot be reflected into a log, a UI or an agent's context.
 
-**The limit is the deployment's rather than ours.** Every outcome - a refusal as much
-as an answer - is written to an `AuditSink` before it is returned, and the record carries the
-principal chain. `sutura-runtime` ships the structured writer that a deployment gets when it
-attaches nothing else. Two things are not the same as attribution. First, sutura **retains
-nothing**, so what a record is worth is what the deployment's sink is worth. Second, the subject in
-that chain is only as strong as what established it. A deployment behind the shared bearer token
-alone records the *deployment*, because that is who asked as far as anything can tell. A
-deployment that declares `security.inbound` records the caller, from a signature.
+**Audit.** Every outcome - a refusal as much as an answer - is written to an `AuditSink` before
+it is returned, and the record carries the principal chain. `sutura-runtime` provides the
+structured writer that a deployment gets when it attaches nothing else. sutura **retains
+nothing**: the sink the deployment attaches keeps the record. A deployment behind the shared bearer
+token alone records the *deployment* as the subject. A deployment that declares `security.inbound`
+records the caller, from a signature.
 
 The record names who asked and which identity each leg ran under.
 
@@ -128,8 +119,10 @@ The **subject** is the identity that the data system sees: the person, not the s
 
 A leg runs in one of two ways:
 
-- **secure-impersonation** (BigQuery). The leg runs as the subject. sutura mints a credential for
-  each request.
+- **secure-impersonation** (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery, the
+  caller's verified token is exchanged for the service account that the operator declares for that
+  subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  ClickHouse user that the operator declares for that subject (`EXECUTE AS`).
 - **shared-service-user** (files, Postgres). The leg runs as the deployment's own identity for
   that source. An operator declares this in the configuration.
 
@@ -155,65 +148,27 @@ disagree with the original, with no way to tell which one is right.
 
 ## Catalogue and data system
 
-Two ports, deliberately separate.
+sutura has two separate ports.
 
-A **catalogue** supplies definitions: metrics, dimensions, the glossary, lineage. A directory of
-documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait.
-Both exist, and more beside them. `sutura-catalog-local` reads a directory.
-`sutura-catalog-datahub` and `sutura-catalog-openmetadata` read a metadata catalogue over HTTP.
-The other `sutura-catalog-*` crates read further declaration sources.
+A **catalogue** supplies the definitions: metrics, dimensions, the glossary and lineage. Each catalogue adapter reads one
+kind of source: a directory of documents, a metadata platform such as DataHub or OpenMetadata, or another declaration
+format. See [Integrations](integrations/index.md).
 
-A **data system** executes. The port is named `Warehouse`, and the name says nothing about what
-sits behind it. Its adapters are different kinds of thing. `sutura-exec-datafusion` is **the
-engine**: it reads CSV, Parquet and NDJSON files itself, executes the plan over Arrow and
-generates no SQL. Every build links it. `sutura-exec-duckdb` is a **data source**: it renders the
-plan into `DuckDB` SQL and pushes the statement down. Postgres, ClickHouse, Oracle and BigQuery
-are data sources too, each behind a default-off feature. The release binary enables DuckDB,
-BigQuery, Postgres and ClickHouse. A musl release links the DuckDB driver, and any other build
-mounts the `libduckdb` that `SUTURA_DUCKDB_ADBC_DRIVER` names. The golden suite executes the
-example corpus against Postgres and ClickHouse on a server their nix tier starts beside the suite.
-BigQuery's golden cells run against a real dataset in the `bigquery-conformance` CI job and skip
-elsewhere under a named exemption. Oracle's skip under one because no gate provisions an Oracle.
+A **data system** runs the query. It has two kinds of adapter:
 
-A plan resolves to **one** data system per leg. Spanning two is not a bigger version of the same
-problem: it is a second identity to satisfy. A plan whose legs cannot all run as one subject is
-refused, not run partly as somebody else.
+- **The engine** (`sutura-exec-datafusion`) reads CSV, Parquet and NDJSON files and runs the plan itself. Every build
+  links it.
+- **A data source** (DuckDB, PostgreSQL, ClickHouse, BigQuery, Oracle) receives the plan as SQL in its own dialect and
+  runs it.
 
-**Answered today, for two sources.** The plan stage collects the source of the metric's own model
-and of every model reached through a join into a set. Three or more sources refuse as
-`PlanSpansTooManySources`. Exactly two are split into a fact leg and a lookup leg. Each leg
-executes against its own data system, and the legs are joined and re-aggregated above them. The
-count is computed from the plan, not asserted about it afterwards. A golden builds a two-source
-catalogue to provoke the split.
+**Two sources in one question.** sutura splits the plan into legs, runs each leg on its own source, and joins the
+results. It refuses a plan with three or more sources (`PlanSpansTooManySources`). A ClickHouse source cannot run a
+leg, so a two-source question that names one is refused (`FederationNotExecutable`).
 
-**Two sources are not two identities, and that is the limit to read this with.** Every adapter a
-released binary links declares that it has nowhere for a subject to arrive. So both legs of a
-two-source answer run under the one identity the process itself has, and the answer records that
-same shared identity twice, not two different ones. This is *single-player* federation: one
-asker's question reaching two data systems, not two data systems each applying that asker's own
-grants. Nothing here tests that two subjects get different rows, and nothing can until a source
-can execute as the asker.
-
-**A combined answer MAY be made of two different kinds of identity, and it says which leg was
-which.** Where one leg runs under a source's acknowledged shared identity and the other as the
-asking subject, the answer carries one `executed_as` entry per source naming that leg's own
-posture. Only one adapter can carry a per-subject credential, so every federation across two
-*different* data systems is cross-posture by construction.
-
-**What that does and does not answer for.** A total made of rows one identity was permitted to see
-plus rows another identity was permitted to see is a number neither of them is entitled to. That
-arithmetic is unchanged, and the disclosure is not what answers for it: an answer's execution
-record and its rows arrive in one body on both transports, so a caller who is told already has the
-rows. What answers for it is that an operator declared each source's posture in writing on its own
-entry before the process started. A deployment with a shared source and no acknowledgement does
-not boot at all. What is *not* decidable either way is whether two legs under the same shared
-posture are the same identity. Nothing here names which shared identity a source is read as.
-
-**A deployment still holds one KIND of data system.** Two `files` sources are a two-source
-deployment. A `files` source beside a warehouse is refused at startup, naming both entries. A
-build whose only linked adapter cannot run a leg - which is any build without the in-process
-engine - refuses a two-source question as `FederationNotExecutable` rather than answering half of
-it.
+**Identity for each leg.** Each leg runs in the identity mode of its source: `shared-service-user` or
+secure-impersonation. The answer records one `executed_as` entry for each source. A combined total can include rows that
+one identity can see and the other cannot. In a multi-user deployment, the operator accepts this in the configuration,
+on each `shared-service-user` source. Without that, the deployment does not start.
 
 ## Provenance
 
@@ -228,15 +183,14 @@ result is still not separable from what defined it.
 
 ## What you cannot ask for
 
-Absences by design. The last column says what holds each one, because an absence written down and
-an absence enforced are not the same thing:
+Absences by design:
 
-| Not available                                   | Why                                                                                                           | What holds it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQL, a table name, a filter expression, row ids | The tool surface has no field for any of them. An uncertified question is unrepresentable, not merely refused | **Enforced.** `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| A cached result                                 | Under row-level security a query-keyed cache is a cross-user leak. There is no cache to key                   | **Enforced by absence.** No mechanism can prove one: adding any cache of rows is an architecture decision, keyed on subject first or not at all                                                                                                                                                                                                                                                                                                                                                                                                            |
-| An edit to a definition                         | Editing one forks the definition from the number it certifies. Definitions are authored upstream              | **Enforced.** Nothing on the query path writes to the catalogue. The bundle is hashed, so an edit moves the digest that travels with the answer                                                                                                                                                                                                                                                                                                                                                                                                            |
-| A query as the service identity                 | A leg that cannot run as the subject should be refused rather than downgraded                                 | **Enforced.** `Warehouse::execute` takes a credential a broker minted for that source and has no signature that omits one, so there is no fallback to downgrade through. A subject with no credential is refused as `credential_unavailable`. An adapter handed material it cannot use returns an error rather than answering. A `files` or `postgres` leg runs as this process (shared-service-user), by declaration, and the answer records that it did                                                                                                  |
-| An unbounded time range                         | A range has to be bounded to resolve at all                                                                   | **Enforced.** `TimeRange` has no unbounded form, so an absent bound fails to deserialize and the refusal is unprovokable                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| A range too long to be worth answering          | A bounded range still permits a full scan: two real dates can be ten thousand years apart                     | **Enforced, on the caller's path only.** Resolution refuses a span over ten years as `TimeRangeTooLong`, carrying two derived integers and nothing of the caller's text. It is checked there rather than in the type, because the same type carries a metric's anchor range, which an author writes and no caller can reach. **What it does not bound:** the work inside a permitted span, or a caller asking three permitted questions in a row. A per-caller budget needs a clock and a subject, which is the same absent port as the identity row above |
-| A definitional filter removed or renamed        | A metric's required filters are part of what it means                                                         | **Enforced.** They are compiled into every plan for the metric and marked as definitional. A caller has no field that could name, select or remove one                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Not available                                   | Why                                                                                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SQL, a table name, a filter expression, row ids | The tool surface has no field for any of them. An uncertified question is unrepresentable, not merely refused                                                            |
+| A cached result                                 | Under row-level security a query-keyed cache is a cross-user leak. There is no cache to key                                                                              |
+| An edit to a definition                         | Editing one forks the definition from the number it certifies. Definitions are authored upstream                                                                         |
+| A query as the service identity                 | A leg that cannot run as the subject should be refused rather than downgraded                                                                                            |
+| An unbounded time range                         | A range has to be bounded to resolve at all                                                                                                                              |
+| A range too long to be worth answering          | A bounded range still permits a full scan: two real dates can be ten thousand years apart. Resolution refuses a span over ten years as `TimeRangeTooLong`                |
+| A definitional filter removed or renamed        | A metric's required filters are part of what it means. They are compiled into every plan for the metric, and a caller has no field that could name, select or remove one |

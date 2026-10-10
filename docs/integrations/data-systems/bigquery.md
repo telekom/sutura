@@ -9,8 +9,7 @@ description: Answer questions over a BigQuery dataset, as one service account or
 
 The `bigquery` data system answers questions over a BigQuery dataset. sutura renders each plan as
 GoogleSQL and runs it through the ADBC BigQuery driver. The crate is `sutura-exec-bigquery`, and
-the source kind is `bigquery`. It is the one data system with a path to run a query as the caller.
-See [Identity](#identity).
+the source kind is `bigquery`. It can run a query as the caller. See [Identity](#identity).
 
 ## When to use it
 
@@ -25,19 +24,17 @@ See [Identity](#identity).
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                | Type          | Default  | Meaning                                                                                              |
-| ------------------ | ------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `billing_project`  | string        | required | The project that BigQuery bills the job to. 6 to 30 characters: `a-z`, `0-9`, `-`                    |
-| `dataset`          | string        | required | The dataset where unqualified table names resolve. It must be in `billing_project`                   |
-| `credential_file`  | absolute path | required | Required as an absolute path. The driver finds its own credential, so sutura does not read this file |
-| `max_bytes_billed` | integer       | required | The most bytes that one job may bill for. 1 byte to 1 TiB                                            |
+| Key                | Type    | Default  | Meaning                                                                            |
+| ------------------ | ------- | -------- | ---------------------------------------------------------------------------------- |
+| `billing_project`  | string  | required | The project that BigQuery bills the job to. 6 to 30 characters: `a-z`, `0-9`, `-`  |
+| `dataset`          | string  | required | The dataset where unqualified table names resolve. It must be in `billing_project` |
+| `max_bytes_billed` | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                          |
 
 `impersonation-at-source` needs a `workload_identity` block:
 
 | Key                                               | Type          | Default  | Meaning                                                                                                                                          |
 | ------------------------------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `workload_identity.audience`                      | string        | required | The workload identity pool provider: `//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
-| `workload_identity.scope`                         | string        | required | Write `https://www.googleapis.com/auth/bigquery`                                                                                                 |
 | `workload_identity.impersonate`                   | map           | required | Caller subject (`sub`) to service account email. A caller who is not in the map is refused                                                       |
 | `workload_identity.delegation.token_endpoint`     | URL           | none     | The token endpoint of your identity provider, for a token exchange                                                                               |
 | `workload_identity.delegation.client_id`          | string        | none     | The client ID that sutura uses for the exchange                                                                                                  |
@@ -49,8 +46,15 @@ the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `d
 sends the caller's verified token to the pool as it is. Do not write `expected_issuer` or
 `expected_audience`: sutura refuses to start with them.
 
-The musl and glibc release binaries link the BigQuery driver. A `cargo` build loads the driver
-from the absolute path in `SUTURA_BIGQUERY_ADBC_DRIVER`.
+The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
+build can select the feature:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+That build links no driver. It loads the driver from the absolute path in
+`SUTURA_BIGQUERY_ADBC_DRIVER`.
 
 ## Example
 
@@ -62,12 +66,10 @@ sources:
     kind: "bigquery"
     billing_project: "my-project"
     dataset: "sutura_example"
-    credential_file: "/nonexistent/not-read.json"
     max_bytes_billed: 1073741824
     posture: "impersonation-at-source"
     workload_identity:
       audience: "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/sutura/providers/keycloak"
-      scope: "https://www.googleapis.com/auth/bigquery"
       impersonate:
         0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01: "sutura-mp-alice@my-project.iam.gserviceaccount.com"
         0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02: "sutura-mp-bob@my-project.iam.gserviceaccount.com"

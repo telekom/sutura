@@ -77,7 +77,7 @@ sutura doctor
 
 `sha256sum -c` makes sure that the file is complete. `gh attestation verify` makes sure that the
 release workflow of this repository built the file. [Verifying a release](verifying-a-release.md)
-tells what these checks do not prove.
+explains these checks.
 
 There is no binary for macOS or Windows. Use Docker Compose or Nix.
 
@@ -239,5 +239,4 @@ sources:
 ```
 
 Then `sutura query catalog/ question.yaml` takes no data directory. For BigQuery, Postgres and
-ClickHouse sources, refer to [Serving over HTTP](serving.md#sources) and
-[Integrations](integrations.md#data-systems).
+ClickHouse sources, refer to [Integrations](integrations.md#data-systems).

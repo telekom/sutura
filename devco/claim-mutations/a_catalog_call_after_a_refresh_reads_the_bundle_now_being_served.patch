@@ -34,9 +34,10 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
              asking,
              prose,
              list_physical_schema: false,
-@@ -383,7 +389,7 @@
+@@ -394,8 +400,8 @@
          let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref())
-             .listing_physical_schema(self.list_physical_schema);
+             .listing_physical_schema(self.list_physical_schema)
+             .row_ceilings(self.row_ceilings);
          std::future::ready(self.asked(&context).and_then(|asked| {
 -            let definitions = self.service.definitions();
 +            let definitions = Arc::clone(&self.boot);

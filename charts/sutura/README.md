@@ -38,7 +38,7 @@ Every credential-shaped setting is a Kubernetes Secret, mounted or injected, nev
 | `tls.secretName`                    | `server.tls_certificate` / `server.tls_key` | volume, a `kubernetes.io/tls` Secret |
 | `security.inbound.keySetSecretName` | `security.inbound.key_set_file`             | volume, an opaque Secret             |
 
-A source's own credential (`sources.<alias>.credential_file`, `password_file`,
+A source's own credential (`sources.<alias>.password_file`,
 `client_certificate`, `client_key`) has no dedicated value: point `extraVolumes` /
 `extraVolumeMounts` at a Secret, then name the mount path in `config.base.sources.<alias>`.
 
@@ -57,7 +57,7 @@ override file, so it is a lower bound on what will actually refuse, not a replac
 
 `GET /health` is the liveness path, and there is deliberately no readiness route - the boot
 sequence re-verifies every catalog anchor before the listener opens, so an open port already
-means a verified bundle (`docs/serving.md`, "What is not built"). This chart wires `/health` as
+means a verified bundle (`docs/serving.md`, "Endpoints"). This chart wires `/health` as
 both the `startupProbe` (with a generous failure budget: anchor verification against a
 networked source is a round trip per anchor) and the `livenessProbe`, and configures no
 `readinessProbe`.
@@ -70,7 +70,7 @@ Setting `resources.limits.cpu`/`.memory` derives `runtime.engineWorkerThreads` /
 `testdata/values/resource-limits.yaml`. A CPU limit rounds up to a whole thread; a memory limit
 keeps 75% of itself as the ceiling, leaving headroom for what that ceiling does not count
 (the process's own RSS) so it trips before the kernel OOM-kills the container at the cgroup
-limit - `docs/serving.md`'s "422 rather than 503" distinction. Setting either `runtime.*` key
+limit - `docs/serving.md`'s `resources_exhausted` refusal (`422`). Setting either `runtime.*` key
 directly always overrides the derivation.
 
 ## A catalog to serve
@@ -100,16 +100,10 @@ pushed reference with `cosign` the way every image reference already is -
 helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version>
 ```
 
-**Artifact Hub indexes it for discovery; it does not host it.** Three things only a human with
-console access can do, and CI cannot fake either:
+**Artifact Hub indexes it for discovery; it does not host it.** The repository is listed there as
+`sutura`, and `charts/sutura/artifacthub-repo.yml` holds its `repositoryID` (that key only - no
+`owners` block). `release.yml` pushes that file under the registry's `artifacthub.io` tag on every
+release.
 
-1. Register `oci://ghcr.io/telekom/charts/sutura` as a repository in the Artifact Hub console,
-   signed in as the owning account. That alone makes verified-publisher status available -
-   nothing here needs to *claim* a repository nobody else has added.
-2. Commit the `repositoryID` Artifact Hub then issues into `charts/sutura/artifacthub-repo.yml`
-   (that key only - no `owners` block: `AGENTS.md` refuses a name or email in this public repo,
-   and a console-registered repository has nothing to claim). Once that file exists,
-   `release.yml` pushes it under the registry's `artifacthub.io` tag on every subsequent
-   release; until it exists, that step logs why it did nothing and does not fail the release.
-3. Make the `ghcr.io/telekom/charts` package publicly readable - private by default even for a
-   public repository, and the most likely reason a first attempt looks broken.
+The `ghcr.io/telekom/charts` package must be publicly readable - private by default even for a
+public repository, and the most likely reason a first attempt looks broken.
