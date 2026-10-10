@@ -1,10 +1,13 @@
+diff --git a/crates/sutura-http/src/metrics.rs b/crates/sutura-http/src/metrics.rs
+index 83ffdd24a..b59afde7e 100644
 --- a/crates/sutura-http/src/metrics.rs
 +++ b/crates/sutura-http/src/metrics.rs
-@@ -113,7 +113,6 @@
-     label("source_unavailable"),
-     label("time_range_too_long"),
-     label("too_many_dimensions"),
--    label("too_many_filters"),
-     label("too_many_metrics"),
-     label("top_over_uncertified_rows"),
- ];
+@@ -178,7 +178,7 @@ impl QuestionOutcome {
+             } else {
+                 REFUSED
+             },
+-            reason: Some(label(code)),
++            reason: Some(label("result_too_large")),
+             rows: None,
+         }
+     }
