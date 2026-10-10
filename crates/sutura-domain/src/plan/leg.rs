@@ -335,7 +335,7 @@ pub enum LegPlan {
     /// **`table` is a checked [`StatementTables`], for [`Fact`](LegPlan::Fact)'s reason**: the one
     /// type holds a statement's `FROM` table and its joins, and refuses two tables answering to one
     /// identifier. It serializes `#[serde(flatten)]` like the fact leg's, so `table` sits beside
-    /// `joins`. No builder gives a lookup leg a join and no renderer reads one from it.
+    /// `joins`. Both renderers read its joins as they read the fact leg's; no builder gives a lookup leg one.
     ///
     /// `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
     /// dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
