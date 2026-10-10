@@ -213,7 +213,7 @@ mod tests {
             ("<SCRIPT", r#"<svg><SCRIPT SRC="x"></SCRIPT></svg>"#),
             ("on*=", r#"<svg onload="alert(1)"><path d="M0 0"/></svg>"#),
             ("on*= no space", "<svg/onload=alert(1)>"),
-            ("<foreignObject", "<svg><foreignObject><div/></foreignObject></svg>"),
+            ("<foreignObject", "<svg><foreignObject/></svg>"),
             ("href https", r#"<svg><use href="https://example.com/x.svg#a"/></svg>"#),
             (
                 "xlink:href js",
@@ -222,13 +222,10 @@ mod tests {
             ("href data", r#"<svg><image href="data:image/png;base64,AA"/></svg>"#),
             ("url()", r#"<svg><path style="fill:url(https://example.com/x)"/></svg>"#),
             ("@import", r#"<svg><style>@import "https://example.com/x.css";</style></svg>"#),
-            (
-                "<set",
-                r#"<svg><a><set attributeName="href" to="javascript:alert(1)"/></a></svg>"#,
-            ),
+            ("<set", r#"<svg><set attributeName="href" to="javascript:alert(1)"/></svg>"#),
             (
                 "<animate",
-                r#"<svg><a><animate attributeName="href" values="javascript:alert(1)"/></a></svg>"#,
+                r#"<svg><animate attributeName="href" values="javascript:alert(1)"/></svg>"#,
             ),
             ("iframe javascript", r#"<svg><iframe src="javascript:alert(1)"/></svg>"#),
             ("iframe", "<svg><iframe/></svg>"),
