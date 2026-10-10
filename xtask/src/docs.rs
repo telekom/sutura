@@ -37,8 +37,8 @@
 //! markdown image to a file under the docs directory, and carries what it does not read.
 //!
 //! An icon that holds more than drawing is the fifth. Material pastes an SVG under `overrides/.icons`
-//! into the page, so [`icons`] refuses an element outside plain SVG drawing, an event attribute or a
-//! reference that leaves the page.
+//! into the page, so [`icons`] refuses an element outside plain SVG drawing, an event attribute, an escape
+//! sequence or a reference that leaves the page.
 //!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:

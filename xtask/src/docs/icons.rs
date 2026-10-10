@@ -1,5 +1,5 @@
 //! The icon half of the docs gate: an SVG under `overrides/.icons` may hold only plain SVG drawing
-//! elements, and nothing that fetches or runs, once it is part of a page.
+//! elements, and none of the forms below, once it is part of a page.
 //!
 //! **Why this is a gate.** `pymdownx.emoji`'s `to_svg` pastes the file into the page's HTML, so an
 //! icon is not an image: what it holds is HTML in the page. An icon is copied from another project,
@@ -14,8 +14,10 @@
 //! | an `on*=`, `src`, `srcdoc`, `data`, `action` or `formaction` attribute | runs or fetches |
 //! | `href` or `xlink:href` to anything but a `#fragment` | fetches or navigates |
 //! | `url(..)`, `image-set(` or `@import` to anything but a `#fragment` | fetches |
+//! | a `\` or an `&` anywhere | an escape (`u\72l(`, `@\69mport`, `u&#114;l(`) hides a form above from a text match |
 //!
-//! **The limits, next to the claim.** NOT covered: a `<style>` rule, which is global once inlined, so
+//! **The limits, next to the claim.** The check names forms and does not prove an icon inert: a form
+//! it does not name passes. NOT covered: a `<style>` rule, which is global once inlined, so
 //! an icon whose class names collide with another icon restyles it; an icon that is huge, which
 //! only costs a reader bandwidth; and a file that is not `.svg`, which `to_svg` does not read.
 //! Case is ignored. A file that cannot be read as text, a symlink and a configured directory that is
@@ -79,6 +81,9 @@ fn refusals(svg: &str) -> Vec<String> {
     }
     if leaves_the_document(&lower, "url(", Some) || lower.contains("@import") || lower.contains("image-set(") {
         out.push("a `url(..)`, `image-set(` or `@import` to anything but a `#fragment`".to_owned());
+    }
+    if lower.contains(['\\', '&']) {
+        out.push("an escape sequence (a `\\` or an `&`)".to_owned());
     }
     out
 }
@@ -208,7 +213,7 @@ mod tests {
 
     #[test]
     fn each_refused_form_is_named_and_a_clean_icon_is_not() {
-        let forms: [(&str, &str); 27] = [
+        let forms: [(&str, &str); 30] = [
             ("<script", "<svg><script>alert(1)</script></svg>"),
             ("<SCRIPT", r#"<svg><SCRIPT SRC="x"></SCRIPT></svg>"#),
             ("on*=", r#"<svg onload="alert(1)"><path d="M0 0"/></svg>"#),
@@ -240,6 +245,18 @@ mod tests {
             ("action", r#"<svg><path action="x"/></svg>"#),
             ("image-set", r#"<svg><path style="fill:image-set('x' 1x)"/></svg>"#),
             ("formaction", r#"<svg><path formaction="x"/></svg>"#),
+            (
+                "u\\72l( escaped",
+                r#"<svg><path style="fill:u\72l(https://example.com/x)"/></svg>"#,
+            ),
+            (
+                "@\\69mport escaped",
+                r#"<svg><style>@\69mport "https://example.com/x.css";</style></svg>"#,
+            ),
+            (
+                "character reference",
+                r#"<svg><path style="fill:u&#114;l(https://example.com/x)"/></svg>"#,
+            ),
             ("on*= after a quote", r#"<svg a="b"onload="alert(1)"/>"#),
             ("on*= after a single quote", r#"<svg a='b'onload="alert(1)"/>"#),
         ];
