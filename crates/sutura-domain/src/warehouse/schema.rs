@@ -1,10 +1,12 @@
 //! The Arrow schema a data system returns for the tables a bundle names, pinned beside the bundle.
 //!
 //! A catalog's column `data_type` is text for a person and never a cast, so the Arrow type of a
-//! column comes from the data system. [`Warehouse::table_schemas`](super::Warehouse::table_schemas)
-//! reads it at the load and at each refresh, under the deployment's configured identity, because no
-//! caller exists at either. [`PinnedSchemas`] holds what was read for the columns the bundle names,
-//! and nothing else: a column the source returns and the bundle does not name is not pinned.
+//! column comes from the data system.
+//! [`Warehouse::table_schemas`](crate::warehouse::Warehouse::table_schemas) reads it at the load
+//! and at each refresh, under the deployment's configured identity, because no caller exists at
+//! either. [`PinnedSchemas`](crate::warehouse::schema::PinnedSchemas) holds what was read for the
+//! columns the bundle names, and nothing else: a column the source returns and the bundle does not
+//! name is not pinned.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
