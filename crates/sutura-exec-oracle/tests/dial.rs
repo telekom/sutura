@@ -1,4 +1,8 @@
 #![forbid(unsafe_code)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test dials the driver directly to observe the driver itself; test code does not ship"
+)]
 
 //! The dial, against loopback listeners rather than an Oracle: what the declared anchors admit, how
 //! long a connect that is never answered may take, what a listener's answer is refused for, and

@@ -147,7 +147,12 @@ impl OracleReader {
             .map_err(read_err)?
             .set_credentials(&login.user, password)
             .set_follow_redirects(false);
-        oracledb::connect(config).map_err(read_err)
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "this function's first line asked `sutura_runtime::oracle_trace::refuse`"
+        )]
+        let connection = oracledb::connect(config);
+        connection.map_err(read_err)
     }
 }
 

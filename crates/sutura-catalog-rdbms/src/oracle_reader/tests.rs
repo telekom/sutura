@@ -249,7 +249,7 @@ fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
 /// **With the driver's packet trace switched on, a dictionary read is refused.** The cell runs
 /// itself again in a child process with the trace switched on. There it reads through a login on a
 /// loopback port nothing listens on, so a read that dialled would fail as a refused connection
-/// rather than as the trace.
+/// rather than as the trace, and asserts the refusal's whole shape: `Read` over `PacketTraceOn`.
 #[test]
 fn with_the_packet_trace_switched_on_a_dictionary_read_is_refused() {
     if std::env::var_os("RSO_DEBUG_PACKETS").is_some() {
@@ -270,9 +270,10 @@ fn with_the_packet_trace_switched_on_a_dictionary_read_is_refused() {
             .read_dictionary()
             .map(drop)
             .expect_err("no read runs with the trace on");
-        assert!(
-            format!("{refused:?}").contains("PacketTraceOn"),
-            "the read failed for another reason: {refused:?}"
+        assert_eq!(
+            format!("{refused:?}"),
+            r#"Read(PacketTraceOn { variable: "RSO_DEBUG_PACKETS" })"#,
+            "the read failed for another reason"
         );
         return;
     }

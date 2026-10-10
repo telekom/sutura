@@ -321,8 +321,9 @@ impl TokenSessions {
                       driver once, here; nothing on this path logs or formats it"
         )]
         let token = String::from(token.expose_secret());
-        let config = self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token));
-        oracledb::connect(config).map_err(connect_err)
+        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
+        let session = oracledb::connect(self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token)));
+        session.map_err(connect_err)
     }
 }
 
@@ -384,6 +385,7 @@ impl OracleWarehouse {
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         let dialled = TokenSessions::new(dial)?;
+        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
         let connection = oracledb::connect(dialled.0.clone().set_credentials(user, password)).map_err(connect_err)?;
         let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
         Ok(Self {
