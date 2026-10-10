@@ -41,7 +41,8 @@ by anything here. No test in this repository runs them.
 ## The settings
 
 Everything the [Postgres page](../../docs/integrations/data-systems/postgres.md) already says about
-`transport_mode`, the password file and the role grant applies unchanged. One block is new:
+`transport_mode`, the password file and the role grant applies unchanged. The role guidance is in its
+[Identity](../../docs/integrations/data-systems/postgres.md#identity) section. One block is new:
 
 ```yaml
 security:

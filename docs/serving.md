@@ -73,6 +73,7 @@ Every row below is a refusal to start, not a warning. sutura reports all refusal
 | `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                 | Use a posture the adapter supports                                                          |
 | An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                  | Declare `verification_identity`, or remove the anchor                                       |
 | `tools.run_sql.enabled: true` with `security.identity: multi-user`                                              | Use `single-user`, or leave the tool off                                                    |
+| A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                | Remove them from `security.outbound`, or serve that source from a deployment without them   |
 | A feature that the build lacks (`tls`, `agent`, or a data system or catalog adapter)                            | The message names the feature. Use a build that has it                                      |
 
 Before it opens the listener, sutura asks each data system whether it holds the tables of the catalog. A missing
@@ -203,7 +204,7 @@ deployment instead. The fix is a grant at the data system. A `403` with no `outc
 
 Other failures have one shape, `{"code", "status", "detail"}`. These codes are common: `unauthorized` (`401`),
 `too_large` (`413`, the request body), `host_not_allowed` (`403`), `unavailable` and `identity_unavailable` (`503`),
-and `at_capacity` (`503` with `Retry-After`). A request that waits longer than `server.request_timeout_seconds` gets
+`rate_limited` (`429`), and `at_capacity` (`503` with `Retry-After`). A request that waits longer than `server.request_timeout_seconds` gets
 `408`. A body with a key that the question does not declare, such as `sql`, gets `400` and the name of the key. A
 `500` has no detail.
 
@@ -255,8 +256,10 @@ OpenMetadata readers. These are re-read on the same interval. The old material s
 
 ## The log
 
-`telemetry.format` is `bunyan` (one JSON object per line) or `pretty`. The default is `bunyan` in production and `pretty`
-elsewhere. `telemetry.filter` is `info` by default, and `RUST_LOG` overrides it. The log goes to standard output.
+`telemetry.format` is `bunyan` (one JSON object per line) or `pretty`. `json` and `human` are accepted spellings of the
+same two. The default is `bunyan` in production and `pretty` elsewhere. `telemetry.service_name` (default `sutura`) is
+the `name` field of each bunyan record. `telemetry.filter` is `info` by default, and `RUST_LOG` overrides it. The log
+goes to standard output.
 
 ```yaml
 telemetry:

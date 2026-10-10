@@ -237,8 +237,8 @@ pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
 ///
 /// **The limit stated here rather than left for a reader to discover.** `examples/raw-sql/README.md`
 /// shows the `CREATE ROLE`/`GRANT` an operator runs to give this source a role that can only
-/// `SELECT` - `docs/serving.md`'s own guidance for every Postgres source, restated there for this
-/// one. This fixture cannot demonstrate that role actually existing: the tier publishes exactly one
+/// `SELECT` - the identity guidance of `docs/integrations/data-systems/postgres.md`, restated there
+/// for this one. This fixture cannot demonstrate that role actually existing: the tier publishes exactly one
 /// credential (`SUTURA_POSTGRES_TIER_USER`, the database owner - see `nix/postgres-tier.nix`), which
 /// carries no `CREATEROLE` attribute, so nothing running as it may create a second role to connect
 /// as instead. Provisioning a dedicated reader role for this tier is future work and not a decision
