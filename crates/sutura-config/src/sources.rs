@@ -447,13 +447,20 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: crate::sources::placement::InvalidImpersonate,
     },
-    /// An `oracle` source's `subjects` are not usable.
-    #[error("`sources.{alias}.subjects` is not usable")]
-    OracleSubjects {
+    /// An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+    #[error("`sources.{alias}.delegation` is not usable")]
+    OracleDelegation {
         alias: SourceName,
         #[source]
-        cause: crate::sources::placement::InvalidOracleSubjects,
+        cause: crate::sources::placement::InvalidOracleDelegation,
     },
+    /// The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still
+    /// declaring one is refused rather than read as if it still narrowed who is served.
+    #[error(
+        "`sources.{alias}.subjects` is removed: every verified caller's exchanged token is sent and the \
+         database decides what that caller may read - remove the key"
+    )]
+    SubjectsRemoved { alias: SourceName },
     /// A workload-identity block was declared on a source that is not impersonating.
     ///
     /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -556,7 +563,9 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) verification_identity: Option<&'raw str>,
     pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
     pub(crate) impersonate: Option<&'raw std::collections::BTreeMap<String, String>>,
-    pub(crate) subjects: Option<&'raw [String]>,
+    /// Whether the removed `subjects` key is written - see [`InvalidSourceRegistry::SubjectsRemoved`].
+    pub(crate) subjects: bool,
+    pub(crate) delegation: Option<&'raw [crate::raw::RawDelegation]>,
     pub(crate) host: Option<&'raw str>,
     pub(crate) unix_socket: Option<&'raw str>,
     pub(crate) port: Option<u16>,
@@ -728,7 +737,14 @@ fn parse_entry(
             .with_delegation(
                 raw.delegation
                     .as_ref()
-                    .map(|delegation| workload_identity::DelegationDeclared::of(alias, delegation))
+                    .map(|delegation| {
+                        workload_identity::DelegationDeclared::of(
+                            alias,
+                            delegation,
+                            "workload_identity.delegation.token_endpoint",
+                            "workload_identity.delegation.client_secret_file",
+                        )
+                    })
                     .transpose()?,
             ),
         ),

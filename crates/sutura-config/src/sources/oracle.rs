@@ -10,10 +10,10 @@ use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
 use crate::sources::placement::{
-    HostName, InvalidOracleSubjects, OracleChannel, OracleServiceName, OracleSubjects, SourcePlacement, TlsServerName,
+    HostName, InvalidOracleDelegation, OracleChannel, OracleServiceName, SourcePlacement, TlsServerName,
 };
 use crate::sources::transport::{SourceTransport, TrustAnchors};
-use sutura_domain::identity::SubjectKey;
+use crate::sources::workload_identity::DelegationDeclared;
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
@@ -28,8 +28,9 @@ use sutura_domain::model::SourceName;
 /// The connection stays on that host: a listener's redirect is refused before authentication, held
 /// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
 ///
-/// An `impersonation-at-source` entry also names its `subjects`, whose own verified token opens each
-/// of their sessions, and must be `verified`: a token is never sent over `plaintext`.
+/// An `impersonation-at-source` entry also declares the `delegation` each caller's verified token is
+/// exchanged through for the token that opens their session, and must be `verified`: a token is
+/// never sent over `plaintext`.
 ///
 /// # Why `mutual` and `transport_anchors: system` are refused
 ///
@@ -43,8 +44,8 @@ use sutura_domain::model::SourceName;
 /// A key that belongs to another kind; a missing `host`, `port`, `service_name`, `user`,
 /// `password_file` or `transport_mode`; a `host` that is not a usable host; a relative
 /// `password_file`; a transport declaration that is not usable, `mutual`, or `verified` against the
-/// host store; a non-loopback host declared `plaintext`; and `subjects` that are missing on an
-/// impersonating entry, written on any other, unparsable, or declared over `plaintext`.
+/// host store; a non-loopback host declared `plaintext`; and a `delegation` that is missing on an
+/// impersonating entry, written on any other, unusable, or declared over `plaintext`.
 pub(super) fn parse_placement(
     alias: &SourceName,
     kind: SourceKind,
@@ -110,7 +111,7 @@ pub(super) fn parse_placement(
         } => return Err(refused("verified with `transport_anchors: system`")),
         SourceTransport::Mutual { .. } => return Err(refused("mutual")),
     };
-    let subjects = parse_subjects(alias, kind, entry, &channel)?;
+    let delegation = parse_delegation(alias, kind, entry, &channel)?;
     Ok(SourcePlacement::Oracle {
         host,
         port,
@@ -118,36 +119,36 @@ pub(super) fn parse_placement(
         user,
         password_file,
         channel,
-        subjects,
+        delegation,
     })
 }
 
-/// The subjects whose own token opens a session: required and non-empty on an
-/// `impersonation-at-source` entry, which must be `verified`, and refused on any other - and never
-/// beside `workload_identity`, which only `bigquery` reads.
-fn parse_subjects(
+/// The hops each caller's token is exchanged through: required on an `impersonation-at-source`
+/// entry, which must be `verified`, and refused on any other - and never beside
+/// `workload_identity`, which only `bigquery` reads.
+fn parse_delegation(
     alias: &SourceName,
     kind: SourceKind,
     entry: &RawSourceEntry<'_>,
     channel: &OracleChannel,
-) -> Result<OracleSubjects, InvalidSourceRegistry> {
+) -> Result<Vec<DelegationDeclared>, InvalidSourceRegistry> {
     super::refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
-    let invalid = |cause| InvalidSourceRegistry::OracleSubjects {
+    let invalid = |cause| InvalidSourceRegistry::OracleDelegation {
         alias: alias.clone(),
         cause,
     };
-    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.subjects) {
-        (false, None) => return Ok(OracleSubjects::new()),
-        (false, Some(_)) => return Err(invalid(InvalidOracleSubjects::NotImpersonating)),
-        (true, None | Some([])) => return Err(invalid(InvalidOracleSubjects::Missing)),
+    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.delegation) {
+        (false, None) => return Ok(Vec::new()),
+        (false, Some(_)) => return Err(invalid(InvalidOracleDelegation::NotImpersonating)),
+        (true, None | Some([])) => return Err(invalid(InvalidOracleDelegation::Missing)),
         (true, Some(declared)) => declared,
     };
     if *channel == OracleChannel::Plaintext {
-        return Err(invalid(InvalidOracleSubjects::Plaintext));
+        return Err(invalid(InvalidOracleDelegation::Plaintext));
     }
     declared
         .iter()
-        .map(|subject| SubjectKey::parse(subject).map_err(|cause| invalid(InvalidOracleSubjects::Subject { cause })))
+        .map(|hop| DelegationDeclared::of(alias, hop, "delegation.token_endpoint", "delegation.client_secret_file"))
         .collect()
 }
 
@@ -172,6 +173,7 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     use crate::security::DeploymentIdentity;
+    use crate::sources::workload_identity::DelegationGrant;
     use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceKind, SourceRegistry, placement};
 
     fn alias(name: &str) -> SourceName {
@@ -210,7 +212,8 @@ mod tests {
             client_certificate: None,
             client_key: None,
             impersonate: None,
-            subjects: None,
+            subjects: false,
+            delegation: None,
         }
     }
 
@@ -228,10 +231,10 @@ mod tests {
                 user,
                 password_file,
                 channel,
-                subjects,
+                delegation,
             } => {
                 assert_eq!(*channel, placement::OracleChannel::Plaintext);
-                assert!(subjects.is_empty(), "a shared source declares no subjects");
+                assert!(delegation.is_empty(), "a shared source declares no delegation");
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 1521);
                 assert_eq!(service_name.as_str(), "FREEPDB1");
@@ -501,58 +504,75 @@ mod tests {
         .expect("letters, digits, `_` and `.` are a service name");
     }
 
-    /// An impersonating entry over `verified`, naming `subjects`. A test changes one field at a time.
-    fn impersonating(subjects: &[String]) -> RawSourceEntry<'_> {
+    fn hop(audience: &str, grant: DelegationGrant) -> crate::raw::RawDelegation {
+        crate::raw::RawDelegation {
+            token_endpoint: String::from("https://idp.example.com/token"),
+            client_id: String::from("sutura"),
+            client_secret_file: String::from("/etc/sutura/client-secret"),
+            audience: String::from(audience),
+            grant,
+        }
+    }
+
+    /// An impersonating entry over `verified`, declaring `delegation`. A test changes one field at a time.
+    fn impersonating(delegation: &[crate::raw::RawDelegation]) -> RawSourceEntry<'_> {
         RawSourceEntry {
             host: Some("db.example.com"),
             transport_mode: Some("verified"),
             transport_anchors: Some("/etc/sutura/ca.pem"),
             posture: "impersonation-at-source",
             acknowledged_because: None,
-            subjects: Some(subjects),
+            delegation: Some(delegation),
             ..oracle("warehouse")
         }
     }
 
-    /// An impersonating source names the subjects whose own token opens a session, and the
-    /// placement carries exactly those.
+    /// An impersonating source declares the hops each caller's token is exchanged through, and the
+    /// placement carries them in the order written, each with its own grant.
     #[test]
-    fn an_impersonating_oracle_source_declares_the_subjects_whose_token_opens_a_session() {
-        let declared = [String::from("analyst-a@example.com")];
+    fn an_impersonating_oracle_source_declares_its_delegation_hops_in_order() {
+        let declared = [
+            hop("sutura-app", DelegationGrant::TokenExchange),
+            hop("https://db.example.com", DelegationGrant::OnBehalfOf),
+        ];
         let registry = SourceRegistry::parse(&[impersonating(&declared)], Some(&single_user()))
             .expect("an impersonating oracle entry parses");
         let configured = registry.get(&alias("warehouse")).expect("the entry is there");
-        let placement::SourcePlacement::Oracle { subjects, .. } = configured.placement() else {
+        let placement::SourcePlacement::Oracle { delegation, .. } = configured.placement() else {
             panic!("expected an oracle placement, got {:?}", configured.placement());
         };
-        let analyst = sutura_domain::identity::SubjectKey::parse("analyst-a@example.com").expect("a test subject is a key");
-        assert_eq!(subjects.iter().collect::<Vec<_>>(), vec![&analyst]);
+        let hops: Vec<_> = delegation.iter().map(|hop| (hop.audience(), hop.grant())).collect();
+        assert_eq!(
+            hops,
+            vec![
+                ("sutura-app", DelegationGrant::TokenExchange),
+                ("https://db.example.com", DelegationGrant::OnBehalfOf)
+            ]
+        );
     }
 
-    /// **Each way `subjects` is refused**: missing or empty on an impersonating entry, written on a
-    /// shared one, over `plaintext`, not a subject, and beside a `workload_identity` block.
+    /// **Each way `delegation` is refused**: missing or empty on an impersonating entry, written on a
+    /// shared one, over `plaintext`, and beside a `workload_identity` block.
     #[test]
-    fn oracle_subjects_are_refused_unless_an_impersonating_verified_source_declares_them() {
-        use placement::InvalidOracleSubjects;
+    fn an_oracle_delegation_is_refused_unless_an_impersonating_verified_source_declares_it() {
+        use placement::InvalidOracleDelegation;
 
-        let none: [String; 0] = [];
-        let one = [String::from("analyst-a@example.com")];
-        let blank = [String::from(" ")];
+        let one = [hop("https://db.example.com", DelegationGrant::OnBehalfOf)];
         let cases = [
             (
                 RawSourceEntry {
-                    subjects: None,
+                    delegation: None,
                     ..impersonating(&one)
                 },
-                InvalidOracleSubjects::Missing,
+                InvalidOracleDelegation::Missing,
             ),
-            (impersonating(&none), InvalidOracleSubjects::Missing),
+            (impersonating(&[]), InvalidOracleDelegation::Missing),
             (
                 RawSourceEntry {
-                    subjects: Some(&one),
+                    delegation: Some(&one),
                     ..oracle("warehouse")
                 },
-                InvalidOracleSubjects::NotImpersonating,
+                InvalidOracleDelegation::NotImpersonating,
             ),
             (
                 RawSourceEntry {
@@ -561,28 +581,16 @@ mod tests {
                     transport_anchors: None,
                     ..impersonating(&one)
                 },
-                InvalidOracleSubjects::Plaintext,
+                InvalidOracleDelegation::Plaintext,
             ),
         ];
         for (entry, expected) in cases {
-            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the subjects are refused");
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the delegation is refused");
             assert!(
-                matches!(error, InvalidSourceRegistry::OracleSubjects { ref cause, .. } if *cause == expected),
+                matches!(error, InvalidSourceRegistry::OracleDelegation { ref cause, .. } if *cause == expected),
                 "{expected:?}: {error}"
             );
         }
-        let error =
-            SourceRegistry::parse(&[impersonating(&blank)], Some(&single_user())).expect_err("a blank subject is refused");
-        assert!(
-            matches!(
-                error,
-                InvalidSourceRegistry::OracleSubjects {
-                    cause: InvalidOracleSubjects::Subject { .. },
-                    ..
-                }
-            ),
-            "{error}"
-        );
         let with_a_pool = RawSourceEntry {
             workload_identity: Some(crate::raw::RawWorkloadIdentity {
                 audience: String::from("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q"),
@@ -606,21 +614,41 @@ mod tests {
         );
     }
 
-    /// `subjects` is `oracle`'s alone: written on any other kind it is refused, not read.
+    /// `delegation` is `oracle`'s alone among these kinds, and the removed `subjects` is refused by
+    /// name on every kind rather than read.
     #[test]
-    fn subjects_on_any_other_kind_are_refused() {
-        let one = [String::from("analyst-a@example.com")];
-        let entry = RawSourceEntry {
+    fn delegation_on_another_kind_and_subjects_on_any_kind_are_refused() {
+        let one = [hop("https://db.example.com", DelegationGrant::TokenExchange)];
+        let postgres = |entry: RawSourceEntry<'static>| RawSourceEntry {
             kind: "postgres",
             database: Some("sutura"),
             service_name: None,
-            subjects: Some(&one),
-            ..oracle("warehouse")
+            ..entry
         };
-        let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("subjects are refused here");
+        let error = SourceRegistry::parse(
+            &[postgres(RawSourceEntry {
+                delegation: Some(&[]),
+                ..oracle("warehouse")
+            })],
+            Some(&single_user()),
+        )
+        .expect_err("a delegation is refused here");
         assert!(
-            matches!(error, InvalidSourceRegistry::KeyNotForKind { key: "subjects", .. }),
+            matches!(error, InvalidSourceRegistry::KeyNotForKind { key: "delegation", .. }),
             "{error}"
         );
+        for entry in [
+            postgres(RawSourceEntry {
+                subjects: true,
+                ..oracle("warehouse")
+            }),
+            RawSourceEntry {
+                subjects: true,
+                ..impersonating(&one)
+            },
+        ] {
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("`subjects` is refused");
+            assert!(matches!(error, InvalidSourceRegistry::SubjectsRemoved { .. }), "{error}");
+        }
     }
 }

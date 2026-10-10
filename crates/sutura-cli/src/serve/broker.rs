@@ -3,8 +3,8 @@
 //! thing that is genuinely its own logic reads next to the refusals that guard it.
 //!
 //! The whole file is behind the three impersonating adapters' features in `serve.rs`'s
-//! `mod broker;`, and the `workload_identity` half behind `bigquery` alone: only that adapter's `wire`
-//! client can compose a delegation exchange.
+//! `mod broker;`, and the `workload_identity` half behind `bigquery` alone. `delegation` composes
+//! the one exchange client, `sutura_http_client::delegation`, for a `bigquery` or `oracle` source.
 //!
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
@@ -52,8 +52,11 @@ use sutura_domain::source::SourcePosture;
 pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     #[cfg_attr(
-        not(feature = "bigquery"),
-        expect(unused_variables, reason = "only a `bigquery` source composes a delegation over it")
+        not(any(feature = "bigquery", feature = "oracle")),
+        expect(
+            unused_variables,
+            reason = "only a `bigquery` or `oracle` source composes a delegation over it"
+        )
     )]
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
@@ -67,8 +70,11 @@ pub(crate) fn build_broker(
             broker = broker.switching(alias.clone(), declared);
         }
         #[cfg(feature = "oracle")]
-        if let Some(declared) = crate::oracle::declared_subjects(alias, source)? {
-            broker = broker.authenticating(alias.clone(), declared);
+        if let [first, then @ ..] = crate::oracle::declared_delegation(source) {
+            broker = broker.authenticating(
+                alias.clone(),
+                delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
+            );
         }
         #[cfg(feature = "bigquery")]
         {
@@ -122,52 +128,74 @@ fn impersonating(
         .map_err(|cause| format!("`sources.{alias}.workload_identity.impersonate` is unusable: {cause}"))?;
     Ok(match workload.delegation() {
         None => broker.impersonating(alias.clone(), declared),
-        Some(declaration) => broker.impersonating_delegated(alias.clone(), declared, delegation(alias, declaration, outbound)?),
+        Some(declaration) => broker.impersonating_delegated(
+            alias.clone(),
+            declared,
+            delegation(
+                &format!("sources.{alias}.workload_identity.delegation"),
+                declaration,
+                &[],
+                outbound,
+            )?,
+        ),
     })
 }
 
-/// What one source's declared delegation exchange is composed into: the real RFC 8693 client at
-/// the caller's identity provider, over `security.outbound`'s rotating agent.
+/// What one source's declared delegation hops are composed into: one client per hop at its
+/// identity provider, chained in declaration order, over `security.outbound`'s rotating agent.
 ///
 /// **Every value is parsed by the adapter that sends it, here at boot**, so an unusable one stops
-/// the process naming its key. The client secret is read once, from its file, into a `Secret`; no
+/// the process naming its key. Each client secret is read once, from its file, into a `Secret`; no
 /// refusal below carries it, the subject token, or the file's contents.
 ///
-/// One client per source rather than one per deployment: nothing here is shared that would need
+/// One agent per source rather than one per deployment: nothing here is shared that would need
 /// to be, and a second declared source pays one more TLS agent.
-#[cfg(feature = "bigquery")]
+#[cfg(any(feature = "bigquery", feature = "oracle"))]
 fn delegation(
-    alias: &sutura_domain::model::SourceName,
-    declared: &sutura_config::sources::workload_identity::DelegationDeclared,
+    key: &str,
+    first: &sutura_config::sources::workload_identity::DelegationDeclared,
+    then: &[sutura_config::sources::workload_identity::DelegationDeclared],
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<sutura_domain::identity::Delegation, String> {
-    use sutura_domain::identity::{Delegation, RequestedAudience};
-    use sutura_exec_bigquery::delegation::{ExchangeClient, OverHttp, ReadBounds, TokenEndpoint, rotating_agent};
+    use sutura_config::sources::workload_identity::DelegationGrant;
+    use sutura_domain::identity::{Delegation, DelegationExchange, RequestedAudience};
+    use sutura_http_client::delegation::{ExchangeClient, Grant, OverHttp, TokenEndpoint};
+    use sutura_http_client::{ReadBounds, rotating_agent};
 
-    let key = format!("sources.{alias}.workload_identity.delegation");
-    let endpoint = TokenEndpoint::parse(declared.token_endpoint())
-        .map_err(|cause| format!("`{key}.token_endpoint` is not an endpoint this exchange can dial: {cause}"))?;
-    let audience = RequestedAudience::parse(declared.audience())
-        .map_err(|cause| format!("`{key}.audience` is not an audience this exchange can ask for: {cause}"))?;
-    let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), declared.client_secret_file())?;
-    let client =
-        ExchangeClient::new(declared.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
     let bounds = ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
         .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
     let (agent, rotator) = rotating_agent(bounds, outbound.cloned())
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (delegation exchange)", rotator);
-    Ok(Delegation::through(
-        std::sync::Arc::new(OverHttp::new(endpoint, client, agent, bounds)),
-        audience,
-    ))
+    let hop = |declared: &sutura_config::sources::workload_identity::DelegationDeclared| {
+        let endpoint = TokenEndpoint::parse(declared.token_endpoint())
+            .map_err(|cause| format!("`{key}.token_endpoint` is not an endpoint this exchange can dial: {cause}"))?;
+        let audience = RequestedAudience::parse(declared.audience())
+            .map_err(|cause| format!("`{key}.audience` is not an audience this exchange can ask for: {cause}"))?;
+        let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), declared.client_secret_file())?;
+        let client = ExchangeClient::new(declared.client_id(), secret)
+            .map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
+        let grant = match declared.grant() {
+            DelegationGrant::TokenExchange => Grant::TokenExchange,
+            DelegationGrant::OnBehalfOf => Grant::OnBehalfOf,
+        };
+        let exchange: std::sync::Arc<dyn DelegationExchange> =
+            std::sync::Arc::new(OverHttp::new(endpoint, client, agent.clone(), bounds).granting(grant));
+        Ok::<_, String>((exchange, audience))
+    };
+    let (exchange, audience) = hop(first)?;
+    then.iter()
+        .try_fold(Delegation::through(exchange, audience), |chain, declared| {
+            let (exchange, audience) = hop(declared)?;
+            Ok(chain.then(exchange, audience))
+        })
 }
 
-#[cfg(feature = "bigquery")]
+#[cfg(any(feature = "bigquery", feature = "oracle"))]
 /// How long one exchange may take. Fixed rather than declared: it runs inside a question's own
 /// request timeout, so a key for it would be a second bound on the same wait.
 const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
 
-#[cfg(feature = "bigquery")]
+#[cfg(any(feature = "bigquery", feature = "oracle"))]
 /// A token response is a few kilobytes; this bounds a misbehaving endpoint, not a real answer.
 const EXCHANGE_MAX_ANSWER_BYTES: u64 = 64 * 1024;

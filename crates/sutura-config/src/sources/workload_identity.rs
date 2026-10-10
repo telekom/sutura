@@ -84,29 +84,48 @@ pub struct DelegationDeclared {
     client_id: String,
     client_secret_file: std::path::PathBuf,
     audience: String,
+    grant: DelegationGrant,
+}
+
+/// Which request a [`DelegationDeclared`] exchange sends its endpoint.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DelegationGrant {
+    /// RFC 8693 token exchange, asking for `audience`.
+    #[default]
+    TokenExchange,
+    /// Microsoft Entra ID's on-behalf-of request, asking for the scope `<audience>/.default`.
+    OnBehalfOf,
 }
 
 impl DelegationDeclared {
+    /// `endpoint_key` and `secret_file_key` are the two keys a refusal names, as written under the
+    /// source.
     pub(crate) fn of(
         alias: &sutura_domain::model::SourceName,
         raw: &crate::raw::RawDelegation,
+        endpoint_key: &'static str,
+        secret_file_key: &'static str,
     ) -> Result<Self, super::InvalidSourceRegistry> {
         if raw.token_endpoint.contains('@') {
             return Err(super::InvalidSourceRegistry::CredentialsInUrl {
                 alias: alias.clone(),
-                key: "workload_identity.delegation.token_endpoint",
+                key: endpoint_key,
             });
         }
         Ok(Self {
             token_endpoint: raw.token_endpoint.clone(),
             client_id: raw.client_id.clone(),
-            client_secret_file: super::parse_absolute(
-                alias,
-                "workload_identity.delegation.client_secret_file",
-                &raw.client_secret_file,
-            )?,
+            client_secret_file: super::parse_absolute(alias, secret_file_key, &raw.client_secret_file)?,
             audience: raw.audience.clone(),
+            grant: raw.grant,
         })
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn grant(&self) -> DelegationGrant {
+        self.grant
     }
 
     /// The identity provider's token endpoint. **Not tied to the inbound issuer:** the operator

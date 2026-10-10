@@ -1,28 +1,27 @@
-//! The real [`DelegationExchange`]: RFC 8693 over the shared outbound client, behind the
-//! default-off `wire` feature so a lean build links no exchange at all.
+//! The real [`DelegationExchange`] over the shared outbound client: an RFC 8693 token exchange, or
+//! Microsoft Entra ID's on-behalf-of request - see [`Grant`].
 //!
 //! What is checked on the answer, and what is not:
 //!
-//! - `issued_token_type` is the access token this asked for and `token_type` is `Bearer`;
+//! - `token_type` is `Bearer` and, for a token exchange, `issued_token_type` is the access token
+//!   this asked for (an on-behalf-of answer carries no `issued_token_type`);
 //! - the token is a compact JWT whose payload `aud` carries the requested audience and whose `exp`
 //!   lies after the instant of the check.
 //!
 //! **The payload is decoded, not verified.** It arrived over TLS from the endpoint the deployment
-//! declared, and the signature is the pool's to verify - Google's token service does, against the
-//! provider's own keys. So the claim checks catch an identity provider configured to issue the wrong audience;
-//! they are not a defence against the identity provider itself.
+//! declared, and the signature is the data system's to verify, against the issuer's own keys. So
+//! the claim checks catch an identity provider configured to issue the wrong audience; they are
+//! not a defence against the identity provider itself.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::{Budget, Endpoint, InvalidEndpoint, ReadBounds, ShownEndpoint};
 use base64::Engine as _;
 use sutura_domain::identity::{Delegated, DelegationExchange, DelegationFailed, RequestedAudience, Secret};
-use sutura_http_client::{Budget, Endpoint, InvalidEndpoint, ShownEndpoint};
-/// The bounds and the rotating agent [`OverHttp`] dials over, so a composition root builds them
-/// without naming the shared client crate itself.
-pub use sutura_http_client::{ReadBounds, rotating_agent};
 use ureq::http::Uri;
 
-const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
+const TOKEN_EXCHANGE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
+const JWT_BEARER: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 
 /// The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
@@ -31,7 +30,7 @@ const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 /// path, and it refuses a query, a fragment and any `@` - in the authority or, where an unencoded
 /// `/` in a password ends the parsed authority early, in the path.
 ///
-/// A loopback endpoint is dialled directly, never through a proxy - [`sutura_http_client::agent`]'s
+/// A loopback endpoint is dialled directly, never through a proxy - [`crate::agent`]'s
 /// own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
 /// an egress proxy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +109,16 @@ impl ExchangeClient {
     }
 }
 
+/// Which request an [`OverHttp`] sends its endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grant {
+    /// RFC 8693: the subject token, asking for `audience`.
+    TokenExchange,
+    /// Microsoft Entra ID's on-behalf-of: the subject token as the `assertion`, asking for the
+    /// scope `<audience>/.default`.
+    OnBehalfOf,
+}
+
 /// [`DelegationExchange`] over HTTP.
 #[derive(Debug)]
 pub struct OverHttp {
@@ -117,9 +126,11 @@ pub struct OverHttp {
     client: ExchangeClient,
     agent: sutura_tls::Rotating<ureq::Agent>,
     bounds: ReadBounds,
+    grant: Grant,
 }
 
 impl OverHttp {
+    /// An RFC 8693 token exchange; [`Self::granting`] asks another way.
     #[must_use]
     pub const fn new(
         endpoint: TokenEndpoint,
@@ -132,28 +143,49 @@ impl OverHttp {
             client,
             agent,
             bounds,
+            grant: Grant::TokenExchange,
         }
+    }
+
+    #[must_use]
+    pub const fn granting(mut self, grant: Grant) -> Self {
+        self.grant = grant;
+        self
     }
 }
 
 impl DelegationExchange for OverHttp {
     fn exchange(&self, subject: &Secret, audience: &RequestedAudience) -> Result<Delegated, DelegationFailed> {
         let unreachable = |cause: ureq::Error| DelegationFailed::Unreachable { cause: Box::new(cause) };
+        let scope;
         #[expect(
             clippy::disallowed_methods,
             reason = "the subject token and the client secret are the two values this request exists \
                       to send; they go into one form body over the declared endpoint and nowhere \
                       else, and no error built below carries either"
         )]
-        let form = [
-            ("grant_type", GRANT_TYPE),
-            ("subject_token", subject.expose_secret()),
-            ("subject_token_type", ACCESS_TOKEN),
-            ("requested_token_type", ACCESS_TOKEN),
-            ("audience", audience.as_str()),
-            ("client_id", self.client.id.as_str()),
-            ("client_secret", self.client.secret.expose_secret()),
-        ];
+        let form: &[(&str, &str)] = match self.grant {
+            Grant::TokenExchange => &[
+                ("grant_type", TOKEN_EXCHANGE),
+                ("subject_token", subject.expose_secret()),
+                ("subject_token_type", ACCESS_TOKEN),
+                ("requested_token_type", ACCESS_TOKEN),
+                ("audience", audience.as_str()),
+                ("client_id", self.client.id.as_str()),
+                ("client_secret", self.client.secret.expose_secret()),
+            ],
+            Grant::OnBehalfOf => {
+                scope = format!("{}/.default", audience.as_str());
+                &[
+                    ("grant_type", JWT_BEARER),
+                    ("assertion", subject.expose_secret()),
+                    ("requested_token_use", "on_behalf_of"),
+                    ("scope", scope.as_str()),
+                    ("client_id", self.client.id.as_str()),
+                    ("client_secret", self.client.secret.expose_secret()),
+                ]
+            }
+        };
         let mut response = self
             .agent
             .current()
@@ -161,7 +193,7 @@ impl DelegationExchange for OverHttp {
             .config()
             .timeout_global(Some(Budget::socket(self.bounds.timeout())))
             .build()
-            .send_form(form)
+            .send_form(form.iter().copied())
             .map_err(unreachable)?;
         let cap = self.bounds.max_response_bytes();
         let text = response
@@ -176,12 +208,18 @@ impl DelegationExchange for OverHttp {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(u64::MAX, |since| since.as_secs());
-        answered(response.status().as_u16(), &text, audience, now)
+        answered(self.grant, response.status().as_u16(), &text, audience, now)
     }
 }
 
 /// Validates the identity provider's answer at `now`. Pure, so every refusal has a cell without a socket.
-pub(crate) fn answered(status: u16, text: &str, audience: &RequestedAudience, now: u64) -> Result<Delegated, DelegationFailed> {
+pub(crate) fn answered(
+    grant: Grant,
+    status: u16,
+    text: &str,
+    audience: &RequestedAudience,
+    now: u64,
+) -> Result<Delegated, DelegationFailed> {
     let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
     let field = |name: &str| body.as_ref()?.get(name)?.as_str();
     if !(200..300).contains(&status) {
@@ -195,7 +233,7 @@ pub(crate) fn answered(status: u16, text: &str, audience: &RequestedAudience, no
     if body.is_none() {
         return Err(DelegationFailed::Malformed { what: "not JSON" });
     }
-    if field("issued_token_type") != Some(ACCESS_TOKEN)
+    if (grant == Grant::TokenExchange && field("issued_token_type") != Some(ACCESS_TOKEN))
         || !field("token_type").is_some_and(|kind| kind.eq_ignore_ascii_case("bearer"))
     {
         return Err(DelegationFailed::WrongTokenType);

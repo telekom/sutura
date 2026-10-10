@@ -277,7 +277,8 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     assert_eq!(
         *refusals,
         vec![NotFitToServe::DelegationWithoutDirectInbound {
-            alias: SourceName::parse("local").expect("a legal identifier")
+            alias: SourceName::parse("local").expect("a legal identifier"),
+            key: "workload_identity.delegation",
         }]
     );
     assert_eq!(
@@ -300,7 +301,8 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     assert_eq!(
         *refusals,
         vec![NotFitToServe::DelegationWithoutDirectInbound {
-            alias: SourceName::parse("local").expect("a legal identifier")
+            alias: SourceName::parse("local").expect("a legal identifier"),
+            key: "workload_identity.delegation",
         }]
     );
 

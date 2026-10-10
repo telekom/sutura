@@ -125,7 +125,8 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             client_certificate: source.client_certificate.as_deref(),
             client_key: source.client_key.as_deref(),
             impersonate: source.impersonate.as_ref(),
-            subjects: source.subjects.as_deref(),
+            subjects: source.subjects.is_some(),
+            delegation: source.delegation.as_deref(),
         })
         .collect();
     SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })

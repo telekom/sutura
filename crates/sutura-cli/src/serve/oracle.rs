@@ -113,7 +113,7 @@ mod tests {
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
-    /// **An impersonating source passes the posture cross-check.** Declared with its `subjects`
+    /// **An impersonating source passes the posture cross-check.** Declared with its `delegation`
     /// over `verified`, it stops at its own password file - before anything is dialled.
     #[test]
     #[cfg(feature = "oracle")]
@@ -122,7 +122,10 @@ mod tests {
                      service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    \
                      password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
                      transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
-                     posture: \"impersonation-at-source\"\n    subjects: [\"analyst-a@example.com\"]\n";
+                     posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \
+                     \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+                     client_secret_file: \"/nonexistent/sutura-test-oracle-client-secret\"\n        \
+                     audience: \"https://db.example.com\"\n";
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "dim_customer")]),
@@ -272,54 +275,5 @@ mod tests {
         let _ignored = std::fs::remove_dir_all(&directory);
         assert!(plaintext.contains("unknown packet type 3"), "{plaintext}");
         assert!(!verified.contains("unknown packet type 3"), "{verified}");
-    }
-
-    /// **The broker serves an impersonating source through its declared subjects**: a declared
-    /// subject is presented their own assertion, with no principal beside it, and anyone else is
-    /// refused rather than answered on the boot session.
-    #[test]
-    #[cfg(feature = "oracle")]
-    fn the_broker_presents_a_declared_subjects_own_token_and_refuses_an_undeclared_one() {
-        use sutura_domain::identity::{
-            Agreed, CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
-        };
-
-        let entry = "  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
-                     service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    \
-                     password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
-                     transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
-                     posture: \"impersonation-at-source\"\n    subjects: [\"analyst-a@example.com\"]\n";
-        let broker = crate::serve::broker::build_broker(&registry(entry), None).expect("the declared subjects build a broker");
-        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
-        let asked = SourceSet::of(at.clone());
-        let ask = |subject: &str| {
-            let chain = PrincipalChain::of(Subject::verified(subject).expect("a test subject"));
-            broker
-                .mint(
-                    &RequestContext::with_assertion(chain, Secret::new(format!("token.for.{subject}")), u64::MAX),
-                    &asked,
-                )
-                .expect("a mint answers")
-        };
-        let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject");
-        let Ok(Agreed::Granted { credentials }) = ask("analyst-a@example.com").agreeing_with(&asked_by, &asked, 0) else {
-            panic!("the declared subject is served");
-        };
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a cell asserting WHOSE token the leg carries needs its text"
-        )]
-        let presented = match credentials.presented_for(&at) {
-            Ok(Presented::SubjectToken {
-                material,
-                impersonate: None,
-            }) => String::from(material.expose_secret()),
-            other => panic!("expected the asker's own token and no principal, got {other:?}"),
-        };
-        assert_eq!(presented, "token.for.analyst-a@example.com");
-        assert!(
-            matches!(ask("someone-else@example.com"), Minted::Refused { ref source } if *source == at),
-            "an undeclared subject is refused"
-        );
     }
 }

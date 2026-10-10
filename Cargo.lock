@@ -4020,18 +4020,13 @@ dependencies = [
  "adbc_driver_manager",
  "arrow-array",
  "arrow-schema",
- "base64 0.23.1",
  "getrandom 0.4.3",
  "serde_json",
  "sutura-adbc",
  "sutura-conformance",
- "sutura-dev",
  "sutura-domain",
- "sutura-http-client",
  "sutura-sql",
- "sutura-tls",
  "thiserror 2.0.21",
- "ureq",
 ]
 
 [[package]]

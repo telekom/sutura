@@ -150,7 +150,9 @@ mod tests {
             "    kind: oracle\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"FREEPDB1\"\n    \
              user: \"sutura\"\n    password_file: \"/nonexistent/sutura-cli-test-oracle-pass\"\n    \
              transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-cli-test-oracle-ca.pem\"\n    \
-             subjects: [\"analyst-a@example.com\"]\n",
+             delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+             client_secret_file: \"/nonexistent/sutura-cli-test-oracle-client-secret\"\n        \
+             audience: \"https://db.example.com\"\n",
             "impersonation-at-source",
         );
         let error = open_engine(&bundle_naming("warehouse"), &impersonating, runtime(), timeout(), None, None)
