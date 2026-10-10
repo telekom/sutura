@@ -42,7 +42,7 @@
 //!
 //! **Nothing about identity.** There is none - the deployment token authenticates the deployment and
 //! not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
-//! not exist. `AGENTS.md` and `SECURITY.md` record why.
+//! not exist. `docs/integrations/identity.md` records when that holds.
 //!
 //! # Tone
 //!

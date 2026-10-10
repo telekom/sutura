@@ -76,9 +76,15 @@ Every row below is a refusal to start, not a warning. sutura reports all refusal
 | A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                | Remove them from `security.outbound`, or serve that source from a deployment without them   |
 | A feature that the build lacks (`tls`, `agent`, or a data system or catalog adapter)                            | The message names the feature. Use a build that has it                                      |
 
-Before it opens the listener, sutura asks each data system whether it holds the tables of the catalog. A missing
-table, a refused listing and an inconsistent listing refuse to start. A data system that cannot be asked gives a
-`WARN` in the log, and the server starts.
+Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
+refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a `WARN`, and
+the server starts. A `files` source refuses to start when the catalog names a table that the engine did not attach.
+The other data systems do not report their tables at start, so a missing table fails on the first question against it.
+The log has `INFO` lines about the check in two cases. When BigQuery is the only kind, each BigQuery source that a
+model of the catalog reads gets one line: every table is there. When there is more than one kind of data system, the
+check runs over every source, and each source that a model reads gets one line. BigQuery says that every table is
+there. Every other kind, `files` included, says that the adapter does not report which tables it holds. A deployment of
+one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle or DuckDB) logs no line about tables.
 
 ## Who is asking
 
@@ -105,7 +111,7 @@ The `scope` claim of the token decides which operations the caller can use:
 | `sutura:metrics.ask`  | `POST /v1/query`                     |
 | `sutura:sql.run`      | `POST /v1/sql/run`, the raw SQL tool |
 
-A verified token with none of these scopes gets `403` with `code: insufficient_scope`, and the detail names the
+A verified token that lacks the scope of the operation that it calls gets `403` with `code: insufficient_scope`, and the detail names the
 scope to grant. A scope decides which operations the caller can use, not which rows an answer holds. The posture of
 the source decides whose access governs the rows.
 
@@ -219,8 +225,8 @@ Other failures have one shape, `{"code", "status", "detail"}`. These codes are c
 | `rate_limit.enabled`                                    | on in production, else off     | The request limiter                                                                                       |
 | `rate_limit.probe_per_second`, `rate_limit.probe_burst` | `2`, `5`                       | Liveness, protected-resource metadata and the interface description                                       |
 | `rate_limit.api_per_second`, `rate_limit.api_burst`     | `10`, `20`                     | The versioned API                                                                                         |
-| `rate_limit.client_address`                             | `peer`                         | `peer` or `forwarded`: what a bucket counts                                                               |
-| `rate_limit.trusted_proxies`                            | none                           | The hops whose `X-Forwarded-For` sutura believes. `forwarded` needs it                                    |
+| `rate_limit.client_address`                             | `peer`                         | `peer` or `forwarded`: what a bucket counts. Behind an ingress, `peer` is one bucket for every caller     |
+| `rate_limit.trusted_proxies`                            | none                           | The hops whose `X-Forwarded-For` sutura believes. `forwarded` with none is refused at start               |
 
 `server.request_timeout_seconds`, less a one-second margin, is also the deadline that each data system adapter
 receives. One concurrency bound covers `/v1` and the agent surface together.
