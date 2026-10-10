@@ -7,10 +7,10 @@ description: How sutura verifies who asks - a token from your identity provider,
 
 Inbound identity tells sutura who asks. sutura checks a signed token from your identity provider
 and gets a verified subject, its scopes and its groups. sutura uses the subject for the audit
-record and for the scope check. A source with `posture: impersonation-at-source` also
-runs the query as the identity that its map names for that subject: a service account on BigQuery, a
-user on ClickHouse. sutura refuses a subject that the map does not name. No other data system
-supports this posture.
+record and for the scope check. A source with `posture: impersonation-at-source` also runs the
+query as the caller: on BigQuery as the caller's own principal in a workload identity pool, on
+ClickHouse as the user that the source's map names for that subject, and on Oracle in a session
+opened with the caller's own token. No other data system supports this posture.
 
 The settings are under `security.inbound`. There are two modes, and there is no default:
 
