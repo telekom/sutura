@@ -45,6 +45,6 @@
   "cards": [
     { "dot": "cyan", "title": "Closed question", "items": ["A question names metrics, dimensions, a grain and a time range", "No tool takes SQL, a table name or a filter"] },
     { "dot": "emerald", "title": "Pinned definitions", "items": ["A catalog loads without the caller's identity", "The snapshot digest goes with every answer"] },
-    { "dot": "rose", "title": "Identity", "items": ["sutura verifies the caller's token (leg 1)", "BigQuery and ClickHouse can run as the caller (leg 2)", "Other data systems run as one declared identity"] }
+    { "dot": "rose", "title": "Identity", "items": ["sutura verifies the caller's token (leg 1)", "BigQuery, ClickHouse and Oracle can run as the caller (leg 2)", "Other data systems run as one declared identity"] }
   ]
 }

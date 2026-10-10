@@ -12,8 +12,8 @@ the finance definition. Second, the rows come back as the service account can re
 so row-level security has no effect.
 
 sutura prevents both. The agent can ask only for certified definitions, and every value binds as a parameter. With
-secure-impersonation (BigQuery, ClickHouse), the data system runs the query as the caller. A `shared-service-user`
-source runs it as the one identity that the operator declares.
+secure-impersonation (BigQuery, ClickHouse, Oracle), the data system runs the query as the caller. A
+`shared-service-user` source runs it as the one identity that the operator declares.
 
 ## Why is a refusal not an error?
 

@@ -59,13 +59,13 @@ parts. ClickHouse cannot run a part of a federated question.
 The data systems are a map under `sources:`. The key is the alias that a model names in `source:`.
 Every entry has these keys:
 
-| Key                     | Type   | Default  | Meaning                                                                                                                              |
-| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse` or `oracle`                                                                  |
-| `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery and ClickHouse) |
-| `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`             |
-| `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                             |
-| `workload_identity`     | block  | not set  | The token exchange of an `impersonation-at-source` source. See [BigQuery](integrations/data-systems/bigquery.md)                     |
+| Key                     | Type   | Default  | Meaning                                                                                                                                      |
+| ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse` or `oracle`                                                                          |
+| `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery, ClickHouse and Oracle) |
+| `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`                     |
+| `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                                     |
+| `workload_identity`     | block  | not set  | The token exchange of an `impersonation-at-source` source. See [BigQuery](integrations/data-systems/bigquery.md)                             |
 
 `security.identity` is required as soon as one source is declared: `single-user` with
 `security.single_user_because`, or `multi-user`. In `single-user` mode, the reason in

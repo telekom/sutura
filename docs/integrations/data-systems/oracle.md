@@ -84,3 +84,5 @@ caller who is not in `subjects`, and closes the session when the query ends. The
 `transport_mode: verified`. sutura also connects as `user` at startup to check the source, and no
 caller's query runs on that connection. Configure the database to accept the tokens of your
 identity provider.
+
+sutura refuses to start when the Oracle driver's packet trace is switched on.
