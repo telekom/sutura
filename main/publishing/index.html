@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="How every version of this site stays published, and the one setting no workflow can make.">
+        <meta name="description" content="Which versions of this site are published, and the one setting no workflow can make.">
       
       
       
@@ -3347,12 +3347,12 @@
 
 
 <h1 id="publishing-the-docs">Publishing the docs<a class="headerlink" href="#publishing-the-docs" title="Permanent link">&para;</a></h1>
-<p>Every version of this site stays published. <code>main</code> has a directory, each release has its own, and a
-URL somebody cited a year ago still resolves to the text they read.</p>
-<p><a href="https://github.com/jimporter/mike">mike</a> does this. <code>.github/workflows/docs.yml</code> builds the site
-with mkdocs-material and hands it to mike. mike owns the <code>gh-pages</code> branch: the version directories,
-<code>versions.json</code>, the root redirect and the <code>.nojekyll</code> marker. The header's version selector is
-Material's own, and <code>extra.version.provider: mike</code> in <code>mkdocs.yml</code> drives it.</p>
+<p>The site holds <code>main</code> and one version for each release. A release URL somebody cited a year ago
+still resolves to the text they read.</p>
+<p><a href="https://github.com/jimporter/mike">mike</a> publishes the versions. <code>.github/workflows/docs.yml</code>
+builds the site with mkdocs-material and hands it to mike. mike owns the <code>gh-pages</code> branch: the
+version directories, <code>versions.json</code>, the root redirect and the <code>.nojekyll</code> marker. The header's
+version selector is Material's own, and <code>extra.version.provider: mike</code> in <code>mkdocs.yml</code> drives it.</p>
 <p>Both tools come from pixi's isolated <code>docs</code> environment. A local build therefore uses the versions
 that CI uses, and there is no pip and no npm in the path.</p>
 <h2 id="the-layout-mike-produces">The layout mike produces<a class="headerlink" href="#the-layout-mike-produces" title="Permanent link">&para;</a></h2>
@@ -3396,9 +3396,9 @@ that CI uses, and there is no pip and no npm in the path.</p>
 </tr>
 </tbody>
 </table>
-<p>Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
-the job fail, and the publish does not overwrite. You can recover from a failed job, but you cannot
-recover a deleted version.</p>
+<p>A deploy of <code>main</code> deletes every version directory that is neither <code>main</code> nor a release. No other
+deploy deletes one. The publish never force-pushes. A concurrent publish makes the job fail, and the
+publish does not overwrite.</p>
 <p><code>latest</code> is the main branch and <code>X.Y.Z/</code> is a release. The root redirect points at <code>latest</code>. If a
 release tag is published before main is published for the first time, the root redirect points at
 the directory of that release. The site therefore has a working root from the first deployment.
