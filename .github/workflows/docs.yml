@@ -331,6 +331,32 @@ jobs:
             nix run .#pixi -- run --frozen -e docs mike deploy --push "$VERSION"
           fi
 
+      # The site keeps `main` and one directory per release, and nothing else. A tag publishes
+      # `X.Y.Z` (the tag's `v` dropped, a prerelease suffix kept), so any other version on the branch
+      # is a leftover and goes, whatever deployed it. Only a main deploy prunes: a tag deploy
+      # publishes and never deletes. The filter names what to delete, so an empty or unreadable
+      # list deletes nothing, and an empty result is a no-op. `mike list --json` prints
+      # `[{"version": "main", "title": "main", "aliases": ["latest"]}, ...]`.
+      - name: Prune the versions that are neither main nor a release
+        if: steps.target.outputs.version == 'main'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # The deploy above pushed, so the branch exists: unlike there, a failed fetch is an error.
+          git fetch origin gh-pages:gh-pages
+          mike=(nix run .#pixi -- run --frozen -e docs mike)
+          stale="$("${mike[@]}" list --json |
+            jq -r '.[].version | select(. != "main" and (test("^[0-9]+\\.[0-9]+\\.[0-9]+([-+].+)?$") | not))')"
+          if [ -z "$stale" ]; then
+            echo "no stale versions"
+            exit 0
+          fi
+          while IFS= read -r version; do
+            echo "deleting $version"
+            "${mike[@]}" delete --push "$version"
+          done <<<"$stale"
+
       # The root follows `latest`, which only a push to main sets. A tag deploy leaves the root
       # alone once `latest` exists, so a release can neither move nor drop it. Before main has
       # published anything, a tag points the root at its own directory, so the site has a root.
@@ -363,7 +389,7 @@ jobs:
           cat >>"$GITHUB_STEP_SUMMARY" <<SUMMARY
           ## Deployed \`gh-pages/$VERSION/\`
 
-          mike keeps every version on that branch, maintains \`versions.json\` for the selector
+          mike keeps the versions on that branch, maintains \`versions.json\` for the selector
           in the header, and writes the root redirect.
 
           ### The one-time repository setting
