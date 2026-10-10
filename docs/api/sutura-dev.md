@@ -1561,6 +1561,18 @@ before its type.
 
 A listener that cannot bind or has no local address.
 
+### `fn marking_then_data`
+
+```rust
+pub fn marking_then_data() -> std::io::Result<u16>
+```
+
+`marking`, with a DATA packet after the short marker, so the connection stays open past it.
+
+# Errors
+
+A listener that cannot bind or has no local address.
+
 ### `type_alias Listening`
 
 A listener's port, and what the client sent it after the ACCEPT: its first authentication

@@ -186,6 +186,18 @@ pub fn marking() -> std::io::Result<u16> {
     after_accept(Some, answer).map(|(port, _sent)| port)
 }
 
+/// [`marking`], with a DATA packet after the short marker, so the connection stays open past it.
+///
+/// # Errors
+///
+/// A listener that cannot bind or has no local address.
+pub fn marking_then_data() -> std::io::Result<u16> {
+    let mut answer = negotiated(12, &[1, 0, 1]);
+    answer.extend(negotiated(12, &[1]));
+    answer.extend(negotiated(6, &[0]));
+    after_accept(Some, answer).map(|(port, _sent)| port)
+}
+
 /// Binds a listener on `127.0.0.1` that ACCEPTs ONE client's CONNECT over the session `open`
 /// opens, answers the client's next message with `answer`, closes after the message after that,
 /// and returns its port and what the client sent after the ACCEPT.

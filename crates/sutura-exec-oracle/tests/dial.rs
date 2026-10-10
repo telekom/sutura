@@ -220,6 +220,25 @@ mod dial {
         assert!(cause.contains("shorter than its header"), "{cause}");
     }
 
+    /// A packet whose length says six bytes: two short of any packet's header.
+    #[test]
+    fn a_packet_shorter_than_any_header_is_refused_typed() {
+        let port = sutura_dev::tns_listener::sending(vec![0, 6, 0, 0, 2, 0]).expect("the fake listener binds");
+        let returned = connect_catching(port).expect("the connect returns rather than unwinding");
+        let cause = driver_cause(returned);
+        assert!(cause.contains("shorter than its header"), "{cause}");
+    }
+
+    /// The same short marker with a DATA packet after it: the driver still waits for a RESET, so it
+    /// discards that packet rather than answering from it, and the close after it ends the reset.
+    #[test]
+    fn a_marker_too_short_to_name_its_type_is_not_read_as_a_reset() {
+        let port = sutura_dev::tns_listener::marking_then_data().expect("the fake listener binds");
+        let returned = connect_catching(port).expect("the connect returns rather than unwinding");
+        let cause = driver_cause(returned);
+        assert!(cause.contains("unable to recover"), "{cause}");
+    }
+
     /// A BREAK marker makes the driver reset the connection and wait for a RESET marker; the next
     /// marker ends before its type, so it is not one, and the listener then closes.
     #[test]
