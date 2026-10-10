@@ -189,13 +189,19 @@ fn a_chain_that_leaves_its_source_is_refused_at_plan_time() {
     );
 }
 
+/// A chain that crosses onto one data system and on to a third is refused at plan time as well.
+#[test]
+fn a_chain_that_crosses_and_on_to_a_third_system_is_refused_at_plan_time() {
+    let corpus = Corpus::placed("elsewhere", "third", "local");
+    let got = plan(&corpus.asking(vec![corpus.key("region")])).err();
+    assert!(matches!(got, Some(PlanError::ChainLeavesItsSource { hop: 2, .. })), "{got:?}");
+}
+
 /// A chain that crosses at its FIRST hop and carries on is one lookup statement.
 ///
-/// `customers` and `regions` both on `elsewhere`: hop 1 is the link, so the fact leg joins nothing
-/// and links on its own table; hop 2 is a join the LOOKUP leg makes, from the table hop 1 landed on,
-/// and the dimension is read from `regions`. A splitter that drops the lookup's joins projects a
-/// column its statement does not read, and one that qualifies the lookup's keys by the crossing
-/// table asks `customers` for a column only `regions` has.
+/// `customers` and `regions` both on `elsewhere`: hop 1 is the link, so the fact leg joins nothing;
+/// hop 2 is a join the LOOKUP leg makes from the table hop 1 landed on, and the dimension is read
+/// from `regions`, so dropping the lookup's joins projects a column its statement does not read.
 #[test]
 fn a_chain_that_crosses_and_carries_on_joins_inside_the_lookup_leg() {
     let corpus = Corpus::placed("elsewhere", "elsewhere", "local");

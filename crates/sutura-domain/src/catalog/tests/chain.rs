@@ -182,6 +182,58 @@ fn a_chain_that_crosses_to_a_data_system_and_on_to_a_third_is_refused() {
     );
 }
 
+/// `orders` → `customers` → `regions` → `countries`, each placed on the source given: the fixture
+/// for a chain whose crossing is not its first hop and which carries on after it.
+fn four_models(customers: &str, regions: &str, countries: &str) -> ModelsAndJoins {
+    let (mut models, mut relationships) = three_models();
+    models[1] = model("customers", customers, &["id", "region_code"]);
+    models[2] = model("regions", regions, &["code", "label", "country_code"]);
+    models.push(model("countries", countries, &["code", "name"]));
+    relationships.push(Relationship::new(
+        relationship_name("regions_countries"),
+        model_name("regions"),
+        model_name("countries"),
+        JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("country_code"),
+            target: column("code"),
+        }])
+        .expect("a test relationship declares one key"),
+    ));
+    (models, relationships)
+}
+
+fn four_hops_placed(customers: &str, regions: &str, countries: &str) -> Result<Definitions, InconsistentDefinitions> {
+    let (models, relationships) = four_models(customers, regions, countries);
+    let metric = metric(
+        "revenue",
+        vec![dimension(
+            "country",
+            "name",
+            Some(&["orders_customer", "customers_regions", "regions_countries"]),
+            Some(&["austria"]),
+        )],
+    );
+    Definitions::assemble(models, relationships, vec![metric])
+}
+
+#[test]
+fn a_chain_that_crosses_at_a_later_hop_and_then_leaves_is_refused() {
+    // Hop 2 crosses onto `elsewhere`, so hop 3 landing on `third` leaves the system it crossed to. The
+    // refusal names hop 3's relationship and the system the chain crossed to: a check that only
+    // recognised a crossing at hop 1 would never know hop 2 crossed and would accept it.
+    assert_eq!(
+        four_hops_placed("local", "elsewhere", "third").unwrap_err(),
+        InconsistentDefinitions::HopCrossesSource {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("country"),
+            relationship: relationship_name("regions_countries"),
+            own: SourceName::parse("local").expect("a test source is a source"),
+            target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
+        }
+    );
+}
+
 #[test]
 fn a_chain_that_crosses_a_data_system_and_comes_back_is_refused() {
     // The hole the target-only comparison left, and it was a WRONG ANSWER rather than an error:
@@ -189,7 +241,8 @@ fn a_chain_that_crosses_a_data_system_and_comes_back_is_refused() {
     // a check reading the target alone accepted the chain. `sutura_semantic` reads a chain's source
     // off its LAST hop, so this loaded as a purely local dimension and the whole-answer plan put
     // `elsewhere`'s table into one `local` statement - under a certified metric name, with no
-    // refusal anywhere. Hop 2's ORIGIN is what gives it away, which is why both ends are compared.
+    // refusal anywhere. Hop 2's target is compared with the system hop 1 crossed to, which is what
+    // catches it.
     let (mut models, relationships) = three_models();
     models[1] = model("customers", "elsewhere", &["id", "region_code"]);
     assert_eq!(
@@ -199,8 +252,8 @@ fn a_chain_that_crosses_a_data_system_and_comes_back_is_refused() {
             dimension: dimension_name("region"),
             relationship: relationship_name("customers_regions"),
             own: SourceName::parse("local").expect("a test source is a source"),
-            // `elsewhere` is where the hop STARTS here, not where it ends: the field names the
-            // system that is not the metric's, at whichever end of the hop it turned up.
+            // `elsewhere` is where hop 1 crossed to, and hop 2 leaves it: the field names the system
+            // the chain left.
             target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
         }
     );

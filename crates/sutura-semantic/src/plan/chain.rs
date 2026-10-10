@@ -1,5 +1,5 @@
 //! What a dimension chain IS, read off a resolution: which data system it ends on, which table
-//! qualifies each hop's origin column, and which hop - if any - leaves the metric's own source.
+//! qualifies each hop's origin column, and which hop - if any - leaves the system the chain crossed to.
 //!
 //! **A module rather than six functions in `plan.rs`, and the seam is the concept.** Every plan
 //! shape asks the same questions of a chain, and the whole-answer path and the fact leg each

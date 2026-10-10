@@ -38,7 +38,7 @@ pub(super) fn bounds(row_ceilings: RowCeilings) -> String {
              group: `by` is `metric` or `period`, `direction` is `desc` or `asc`, and `n` may not \
              exceed {top_rows} - a larger `n` is the same refusal as an unbounded question this \
              wide. On a question spanning two data systems `top` ranks the combined answer; it is \
-             refused when that combined set had already reached the row ceiling."
+             refused when that combined set had already gone over the row ceiling."
         ),
     ];
     let mut lines = vec![
