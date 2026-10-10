@@ -809,9 +809,9 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             }
             tables.joins()
         }
-        // No bucket, no terms, no joins. It projects its keys and groups by them, which is the
-        // distinct set of dimension rows surviving its own filters.
-        LegPlan::Lookup { .. } => &[],
+        // No bucket, no terms. It projects its keys and groups by them, which is the distinct set
+        // of dimension rows surviving its own filters, and joins whatever its tables carry.
+        LegPlan::Lookup { ref table, .. } => table.joins(),
     };
 
     let mut statement = joined(

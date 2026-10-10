@@ -1,13 +1,13 @@
 diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
-index 70377d0cc..5b938b94e 100644
+index 3c6942c82..cef219c74 100644
 --- a/crates/sutura-sql/src/generate.rs
 +++ b/crates/sutura-sql/src/generate.rs
-@@ -822,7 +822,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
+@@ -807,7 +807,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
                      term.label(),
                  )?);
              }
 -            tables.joins()
 +            &[]
          }
-         // No bucket, no terms, no joins. It projects its keys and groups by them, which is the
-         // distinct set of dimension rows surviving its own filters.
+         // No bucket, no terms. It projects its keys and groups by them, which is the distinct set
+         // of dimension rows surviving its own filters, and joins whatever its tables carry.

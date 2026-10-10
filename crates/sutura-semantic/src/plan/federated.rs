@@ -241,7 +241,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
 
     let lookup = sutura_domain::plan::LegPlan::Lookup {
         source: remote_source.clone(),
-        table: remote_path.clone(),
+        table: remote_path.clone().into(),
         keys: lookup_keys,
         bindings: lookup_bindings,
     };
