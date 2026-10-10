@@ -54,10 +54,12 @@
 //! reintroduce it - **a prediction in a doc comment is not a mechanism, which is the lesson worth
 //! keeping from this.**
 //!
-//! What remains is narrow and stated so it is not mistaken for the above. Two LEGS whose tables
-//! collide are not this defect: each leg is its own statement on its own data system, so nothing
-//! binds one identifier to two tables; what the combiner joins on is a label, and a label that
-//! shadowed a table is
+//! What remains is narrow and stated so it is not mistaken for the above. A
+//! [`Lookup`](crate::plan::LegPlan::Lookup) leg takes a [`StatementTables`] too, because a chain that
+//! crosses onto its data system and carries on joins further there. And two LEGS whose tables collide
+//! are not this defect:
+//! each leg is its own statement on its own data system, so nothing binds one identifier to two
+//! tables; what the combiner joins on is a label, and a label that shadowed a table is
 //! [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable)'s refusal at
 //! load.
 

@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
 --- a/crates/sutura-semantic/src/plan/federated.rs
 +++ b/crates/sutura-semantic/src/plan/federated.rs
-@@ -40,7 +40,7 @@
+@@ -41,7 +41,7 @@
      let own_table = model.table_name();
  
      // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
 -    let federation = Federation::of_metric(closed, model.name());
 +    let federation = Federation::of(closed);
-     // One remote data system (more are refused upstream); its dimensions must all be reached through
-     // one first hop, because the combiner links the legs on a single column - and a remote
-     // dimension's HOP 1 is what the link is: it is the hop that crosses into the remote system, and
+     // One remote data system (more are refused upstream); its dimensions must all cross through one
+     // relationship, because the combiner links the legs on a single column - and a remote
+     // dimension's CROSSING hop is what the link is: the hop that lands on the remote system. The

@@ -810,7 +810,8 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             tables.joins()
         }
         // No bucket, no terms. It projects its keys and groups by them, which is the distinct set
-        // of dimension rows surviving its own filters, and joins whatever its tables carry.
+        // of dimension rows surviving its own filters, and joins whatever the chain carried on to
+        // after it crossed onto this system.
         LegPlan::Lookup { ref table, .. } => table.joins(),
     };
 

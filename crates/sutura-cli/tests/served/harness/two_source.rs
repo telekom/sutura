@@ -44,14 +44,14 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
 
 /// Drops the one dimension the example reaches through a CHAIN, which this topology cannot carry.
 ///
-/// **Not a convenience: a federated plan carries one link and one lookup TABLE.** `sales_area` is
-/// reached `subscription_customer` then `customer_region`; hop 1 is the link into the second data
-/// system and there is nowhere for hop 2 to be planned. With `customers` moved onto
-/// [`LOOKUP_SOURCE`] the chain would cross at hop 1 and come back at hop 2 -
-/// `sutura_domain::catalog` refuses that bundle by name, so `sutura serve` would stop at boot
-/// rather than answer, which is exactly what it did before this call existed. The caveat written
-/// about `customer_region` goes with it: `sales_area` was the one dimension reached through that
-/// relationship, so the caveat would reach no metric and the load would refuse it by name.
+/// **Not a convenience: a chain crosses one data system boundary and stays there.** `sales_area` is
+/// reached `subscription_customer` then `customer_region`. With only `customers` moved onto
+/// [`LOOKUP_SOURCE`] the chain would cross at hop 1 and come back at hop 2, onto `regions` on
+/// [`LOCAL_SOURCE`] - `sutura_domain::catalog` refuses that bundle by name, so `sutura serve` would
+/// stop at boot rather than answer, which is exactly what it did before this call existed. The
+/// caveat written about `customer_region` goes with it: `sales_area` was the one dimension reached
+/// through that relationship, so the caveat would reach no metric and the load would refuse it by
+/// name.
 ///
 /// Applied only here, and not inside [`derived_catalog`]: `two_kind`'s and `bigquery.rs`'s
 /// deployments move `daily_usage` instead, and [`without_the_product_family_dimension`] is their
@@ -82,11 +82,12 @@ const CHAINED_DIMENSION: &str = "  - name: sales_area\n    column: sales_area\n 
 ///
 /// **`daily_usage` is no longer the model with no `via` relationship at all.** Since
 /// `usage_subscription` landed, `product_family` reaches through it and then
-/// `subscription_product` - hop 1 crosses into whichever source `daily_usage` moves to, and hop 2
-/// stays on `subscriptions`'s own source. Moving `daily_usage` off [`LOCAL_SOURCE`] (`bigquery.rs`'s
-/// and `two_kind`'s own deployments both do) makes hop 2 cross AGAIN, back onto the model's own
-/// source - `sutura_domain::catalog::Definitions::assemble` refuses that bundle by name, the same
-/// shape [`without_the_chained_dimension`] exists for. Called wherever `daily_usage.md` moves.
+/// `subscription_product`. Moving `daily_usage` off [`LOCAL_SOURCE`] (`bigquery.rs`'s and
+/// `two_kind`'s own deployments both do) makes hop 1 the crossing, and that hop is the compound
+/// `usage_subscription`: a federated plan links on one key, and a compound crossing is refused by
+/// name (`a_compound_crossing_relationship_is_refused_by_its_own_name`), so `product_family` would
+/// not be answered here. Called wherever `daily_usage.md` moves, so those deployments carry the
+/// dimensions they can answer.
 #[cfg(feature = "postgres")]
 pub(crate) fn without_the_product_family_dimension(root: &Path) {
     let metric = root.join("metrics").join("voice_minutes.md");

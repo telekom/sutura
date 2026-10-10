@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-semantic/src/plan/chain.rs b/crates/sutura-semantic/src/plan/chain.rs
+index 3f353488e..5b8520847 100644
+--- a/crates/sutura-semantic/src/plan/chain.rs
++++ b/crates/sutura-semantic/src/plan/chain.rs
+@@ -51,7 +51,7 @@ pub(super) fn chain_leaving_its_crossing<'a>(resolution: &Resolution<'a>) -> Opt
+         let hops = resolved.join.as_ref()?;
+         let cut = crossing(hops, own)?;
+         let landed = cut.hop.model.source();
+-        let (offset, _) = cut.after.iter().enumerate().find(|(_, hop)| hop.model.source() != landed)?;
++        let (offset, _) = cut.after.iter().enumerate().find(|(_, hop)| hop.model.source() != landed && hop.model.source() == own)?;
+         // Hops before the crossing, the crossing itself, the offset into what follows it, 1-based.
+         let hop = cut.before.len().saturating_add(2).saturating_add(offset);
+         Some((resolved.dimension.name(), hop))

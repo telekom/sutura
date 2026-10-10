@@ -472,6 +472,11 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
     // The same shape with an UNMATCHED row in that same-source join, which is the only case in this
     // corpus that observes the leg's own join kind - see `corpus::DATA_CASES`.
     ("two-source-a-same-source-orphan-beside-a-remote-one", Reached::Agreed),
+    // A chain that crosses at its FIRST hop and carries on: `customers`, then the `regions` beside
+    // it, both on the second data system - the lookup leg joins inside itself.
+    ("recurring-revenue-by-sales-area", Reached::Agreed),
+    // A chain that crosses at its SECOND hop: the fact leg joins `subscriptions`, then links on it.
+    ("two-source-a-chain-that-crosses-at-its-second-hop", Reached::Agreed),
     // Six buckets and two keys, which is where a key-then-bucket ordering could disagree.
     ("subscription-months-by-region-and-term", Reached::Agreed),
     // The whole reduction table above the legs.

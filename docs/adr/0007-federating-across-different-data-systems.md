@@ -350,7 +350,8 @@ refuses two remote dimensions joined through two relationships on one source as
 the path that lets the lookup leg carry a second link - one lookup per remote dimension model on its
 own data system - which is the shape the count above describes. Adding that is a change to the
 `FederatedPlan` shape (the combiner's single link column) and to the splitter's relationship check,
-not a change to the leg vocabulary.
+not a change to the leg vocabulary. *The thirteenth amendment changes the leg vocabulary once, for
+a different reason: a `Lookup` leg may join.*
 
 ### Three leg shapes, and what each costs
 
@@ -1216,7 +1217,8 @@ off a `BigQuery` one, until each gets the same instance-method escape `executes_
 fact restated. It now holds an ordered chain of relationships: hop 1 starts at the metric's model,
 and hop N's origin must be hop N-1's target, so a chain is a single path rather than a set.
 `Definitions::assemble` refuses every hop that could duplicate rows and every hop from the second on
-that crosses a data system boundary - so the statement above keeps its shape, with one widening: a
+that crosses a data system boundary (*the thirteenth amendment replaces that refusal: a chain may
+cross at any hop, once*) - so the statement above keeps its shape, with one widening: a
 chain's joins are planned **in declared chain order** rather than alphabetically, and the plan
 carries one join per hop. The single-hop case is unchanged, and a hop 1 that crosses a source
 boundary remains the federated case the splitter serves - the cross-source refusal exists for what a
@@ -1432,3 +1434,28 @@ inline note pointing here; this is the correction.
 
 **What this amendment does not touch.** The transport bullet and the join-key bullet in the same list
 wait on owner decisions and stay as they are.
+
+## Thirteenth amendment, 2026-10-09: a chain may cross one data system boundary at any hop
+
+**The refusal narrows from "after the first hop" to "after the crossing".** The third amendment has
+`Definitions::assemble` refuse every hop from the second on that lands on another data system. A chain
+now crosses one boundary at any hop and stays on the system it crossed to: a later hop that lands
+anywhere else, back on the metric's own system or on a third, is refused, by
+`HopCrossesSource` at load and `ChainLeavesItsSource` at plan time.
+
+**The crossing hop is the link, and the chain is cut there.** The hops before it join on the fact
+leg, as they did. The crossing hop is what the two legs link on. The hops after it join inside the
+lookup leg. The fact leg's link column belongs to the table the hop before the crossing landed on,
+which is the metric's own table only when the chain crosses at its first hop, and a key or a filter
+on a dimension after the crossing is qualified by that dimension's own table.
+
+**The leg vocabulary changes in one place.** A `Lookup` leg takes the checked table set a `Fact`
+leg takes instead of one table, so that it can carry those joins: the table-and-joins pair is
+serialized flat beside `keys`, and a lookup that joins nothing now serializes an empty `joins`. Two legs, the limit of two data systems, and the combiner port are unchanged, because
+every hop after the crossing runs on the one system the lookup leg already reads.
+
+**What stays refused.** A crossing relationship with more than one key is still refused
+(`FederationLinkCompound`), so a chain whose crossing hop is a compound join does not federate. A
+two-fact ratio whose second fact has no relationship into the model the chain crossed to is still
+refused (`CrossModelRatioWithoutSharedDimension`). Two tables of one lookup statement that answer to
+one identifier are refused (`PlanTablesShareAnIdentifier`), as they are on the fact leg.

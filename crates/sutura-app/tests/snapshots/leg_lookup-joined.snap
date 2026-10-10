@@ -1,0 +1,30 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: leg
+---
+lookup:
+  source: crm
+  table: dim_customer
+  joins:
+    - relationship: customer_region
+      table: dim_region
+      join_type: many_to_one
+      keys:
+        - Equal:
+            origin:
+              table: dim_customer
+              column: region_code
+            target:
+              table: dim_region
+              column: region_code
+  keys:
+    - label: 0_link
+      column:
+        table: dim_customer
+        column: customer_key
+    - label: sales_area
+      column:
+        table: dim_region
+        column: sales_area
+  filters: []
+  params: []

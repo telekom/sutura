@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT "dim_customer"."customer_key" AS "0_link", "dim_region"."sales_area" AS "sales_area" FROM "dim_customer" LEFT JOIN "dim_region" ON "dim_customer"."region_code" = "dim_region"."region_code" GROUP BY "dim_customer"."customer_key", "dim_region"."sales_area" ORDER BY "dim_customer"."customer_key" NULLS LAST, "dim_region"."sales_area" NULLS LAST

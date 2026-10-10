@@ -1,12 +1,13 @@
 diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
+index 6e9bc62b8..4c7907ff4 100644
 --- a/crates/sutura-sql/src/generate.rs
 +++ b/crates/sutura-sql/src/generate.rs
-@@ -807,7 +807,7 @@
-                     term.label(),
-                 )?);
-             }
--            tables.joins()
-+            &[]
-         }
+@@ -812,7 +812,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
          // No bucket, no terms. It projects its keys and groups by them, which is the distinct set
          // of dimension rows surviving its own filters, and joins whatever the chain carried on to
+         // after it crossed onto this system.
+-        LegPlan::Lookup { ref table, .. } => table.joins(),
++        LegPlan::Lookup { .. } => &[],
+     };
+ 
+     let mut statement = joined(

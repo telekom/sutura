@@ -382,9 +382,11 @@ fn a_sum_beside_a_distinct_count_adds_at_the_finer_grain() {
 
 /// **`-0.0` is `0.0` and every NaN is one value, whichever engine produced the leg.** `DuckDB`
 /// answers `COUNT(DISTINCT x)` over `{0.0, -0.0, NaN, -NaN, 1.5}` as 3, so a leg from it may hold
-/// either zero under either link. In a lone distinct count the grouped `DataFusion` plan merges the
-/// zeros itself and keeps the NaN payloads apart (`apache/datafusion#26091`), so without the NaN fold
-/// this cell counts 4. The zero fold is held by the two-distinct ratio cell below.
+/// either zero under either link. In a lone distinct count the grouped `DataFusion` plan keeps the
+/// NaN payloads apart (`apache/datafusion#26091`), so without the NaN fold this cell counts 4.
+/// Whether it merges the zeros itself depends on the key expression, so this cell also counts 4 when
+/// the zero arm's condition is made never true. The zero fold is held by the two-distinct ratio cell
+/// below.
 #[test]
 fn a_distinct_count_over_floats_counts_zeros_and_nans_by_sql_equality() {
     const POSITIVE_NAN: u64 = 0x7ff8_0000_0000_0001;

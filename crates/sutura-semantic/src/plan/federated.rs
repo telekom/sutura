@@ -18,15 +18,16 @@ use sutura_domain::plan::{
 use sutura_domain::query::RefusalReason;
 
 use super::PlanError;
-use super::chain::{chain_joins, column_of, every_remote_dimension, hop_join, is_remote};
+use super::chain::{chain_joins, column_of, crossing, every_remote_dimension, hop_join, is_remote, lookup_joins};
 use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
 
 /// Splits a two-source question into a fact leg and a lookup leg.
 ///
 /// The metric's own rows (and any same-source dimension) form the fact leg; everything on the one
-/// remote data system forms the lookup leg. The link between them is the relationship's join column,
-/// grouped into the fact leg and projected from the lookup leg under the same label - so the combiner
-/// can find it. A measure that cannot decompose (a distinct count) is pulled up: the fact leg
+/// remote data system forms the lookup leg. The link between them is the crossing relationship's join
+/// column, grouped into the fact leg and projected from the lookup leg under the same label - so the
+/// combiner can find it. A chain's hops before the crossing join on the fact leg and its hops after
+/// it join inside the lookup leg. A measure that cannot decompose (a distinct count) is pulled up: the fact leg
 /// carries its column as one more key and the combine counts the distinct values above.
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
@@ -41,32 +42,35 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
 
     // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
     let federation = Federation::of_metric(closed, model.name());
-    // One remote data system (more are refused upstream); its dimensions must all be reached through
-    // one first hop, because the combiner links the legs on a single column - and a remote
-    // dimension's HOP 1 is what the link is: it is the hop that crosses into the remote system, and
-    // from the second hop on a chain is same-source by the consistency check, so a remote chain's
-    // hops 2..n would live ON the lookup leg, which the splitter does not plan (see below). The
-    // guards below are unreachable - `plan` calls this only for exactly one remote source, and a
-    // remote dimension has a chain by construction - but a panic here would be reachable from a
-    // catalog plus a question, so they refuse instead.
+    // One remote data system (more are refused upstream); its dimensions must all cross through one
+    // relationship, because the combiner links the legs on a single column - and a remote
+    // dimension's CROSSING hop is what the link is: the hop that lands on the remote system. The
+    // hops before it are same-source joins of the fact leg, and the hops after it are joins of the
+    // lookup leg. The guards below are unreachable - `plan` calls this only for exactly one remote
+    // source, and a remote dimension has a crossing by construction - but a panic here would be
+    // reachable from a catalog plus a question, so they refuse instead.
     //
     // A2: neither guard fabricates a `RefusalReason` any more - see `PlanError::NoRemoteJoin`.
     let Some(first_remote) = every_remote_dimension(resolution).next() else {
         return Err(PlanError::NoRemoteJoin);
     };
-    // `.first`: the link into the remote leg is the chain's first hop.
-    let Some(first_join) = first_remote.join.as_ref().and_then(|hops| hops.first()) else {
+    let Some(first) = first_remote.join.as_ref().and_then(|hops| crossing(hops, model.source())) else {
         return Err(PlanError::NoRemoteJoin);
     };
+    let first_join = first.hop;
     let relationship = first_join.relationship;
     let remote_path = first_join.model.table();
     let remote_table = first_join.model.table_name();
     let remote_source = first_join.model.source();
+    // The fact leg's table that holds the link's origin column: the one the crossing hop starts at,
+    // which is the metric's own table when the chain crosses at its first hop. Every dimension
+    // crossing through this relationship starts it from the same model, so one table serves them all.
+    let link_table = first.before.last().map_or(own_table, |hop| hop.model.table_name());
     for dim in every_remote_dimension(resolution) {
-        let Some(join) = dim.join.as_ref().and_then(|hops| hops.first()) else {
+        let Some(cut) = dim.join.as_ref().and_then(|hops| crossing(hops, model.source())) else {
             continue;
         };
-        if join.relationship.name() != relationship.name() {
+        if cut.hop.relationship.name() != relationship.name() {
             return Err(PlanError::Refused(RefusalReason::FederationLinkAmbiguous {
                 source: remote_source.clone(),
             }));
@@ -105,7 +109,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     }
     fact_keys.push(PlanKey::new(
         link_label.clone(),
-        PlanColumn::new(own_table.clone(), crossing_key.origin().clone()),
+        PlanColumn::new(link_table.clone(), crossing_key.origin().clone()),
     ));
 
     // The lookup leg projects the join target plus the remote dimension keys.
@@ -116,7 +120,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
         lookup_keys.push(PlanKey::new(
             ResultLabel::dimension(key.dimension.name()),
-            PlanColumn::new(remote_table.clone(), key.dimension.column().clone()),
+            column_of(key, remote_table),
         ));
     }
 
@@ -184,10 +188,9 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
 
     // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg. Each
     // chain stops at its crossing hop, which is the link the lookup leg above carries rather than a
-    // `JOIN` on this leg's statement - and no hop may follow it, which `plan` refuses before
-    // dispatching here. Same builder as the whole-answer path: two copies of "one join per hop,
-    // qualified by the previous hop's target" is how one of them came to be qualified by the
-    // metric's table instead.
+    // `JOIN` on this leg's statement; the hops after it are the lookup leg's joins, built below. Same
+    // builder as the whole-answer path: two copies of "one join per hop, qualified by the previous
+    // hop's target" is how one of them came to be qualified by the metric's table instead.
     let mut joins = chain_joins(resolution, own_table, model.source());
     if let Some(cross) = resolution.cross.as_ref() {
         joins.push(hop_join(cross.own_to_calendar, own_table, cross.calendar));
@@ -239,9 +242,18 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         range: resolution.range,
     };
 
+    // **The lookup leg's tables are the same checked set as the fact leg's, for the same reason:** a
+    // chain that crossed and carries on joins inside this statement, so two tables answering to one
+    // identifier there would render one implicit alias.
+    let lookup_tables =
+        StatementTables::parse(remote_path.clone(), lookup_joins(resolution, model.source())).map_err(|ambiguous| {
+            RefusalReason::PlanTablesShareAnIdentifier {
+                table: ambiguous.alias().clone(),
+            }
+        })?;
     let lookup = sutura_domain::plan::LegPlan::Lookup {
         source: remote_source.clone(),
-        table: remote_path.clone().into(),
+        table: lookup_tables,
         keys: lookup_keys,
         bindings: lookup_bindings,
     };

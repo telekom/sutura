@@ -10,3 +10,4 @@
 # The key is the bare fn name, so one entry exempts every scoped test of that name. Delete an entry
 # with its reason once its test runs at base - nothing refuses one that merely stopped being needed.
 the_distinct_key_pull_up_answers_and_reserves_working_set # linux-only cell (cfg target_os = linux); no linux base run here; old name stated the opposite
+every_corpus_question_has_one_fresh_child_outcome_in_each_topology # #[cfg(target_os = "linux")]: not compiled on a macOS causality run; runs in the nix checks / CI on Linux
