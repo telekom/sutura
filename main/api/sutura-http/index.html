@@ -5041,13 +5041,13 @@ be the only bound at. An unbounded input is a denial-of-service primitive whatev
 <h2 id="module-metrics">Module <code>metrics</code><a class="headerlink" href="#module-metrics" title="Permanent link">&para;</a></h2>
 <p>The metric series the HTTP surface observes, and the one place their labels are closed.</p>
 <h1 id="it-is-a-boundary-not-a-pass-through">It is a boundary, not a pass-through<a class="headerlink" href="#it-is-a-boundary-not-a-pass-through" title="Permanent link">&para;</a></h1>
-<p>This module owns the transport's half of the architecture decision's series table: the outcome counters,
-the duration histogram, the admission series, the rate-limit visibility, the unauthorized
-counter and the answer-rows histogram. The registry lives in <code>sutura-runtime</code>; this type holds
-the handles and names the series. Every labeled registration and update accepts
-<code>sutura_runtime::metrics::Label</code>; the values are chosen here from the transport's own fixed code
-vocabulary and the complete set is registered at boot, so an unknown observation cannot mint a
-series (Decision 5).</p>
+<p>This module owns the transport's half of the architecture decision's series table: the outcome counters
+(questions by <code>code</code>, refusals by <code>reason</code>), the duration histogram, the admission series, the
+rate-limit visibility, the unauthorized counter and the answer-rows histogram. The registry
+lives in <code>sutura-runtime</code>; this type holds the handles and names the series. Every labeled
+registration and update accepts <code>sutura_runtime::metrics::Label</code>; the values are chosen here
+from the transport's own fixed code vocabulary and the complete set is registered at boot, so an
+unknown observation cannot mint a series (Decision 5).</p>
 <h1 id="registration-is-boot-only-and-this-type-is-the-whole-of-it-here">Registration is boot-only, and this type is the WHOLE of it here<a class="headerlink" href="#registration-is-boot-only-and-this-type-is-the-whole-of-it-here" title="Permanent link">&para;</a></h1>
 <p><code>Metrics::install</code> is the only place in this crate that registers a series, and it takes a
 <code>sutura_runtime::metrics::RegistryBuilder</code> to do it - never a built
