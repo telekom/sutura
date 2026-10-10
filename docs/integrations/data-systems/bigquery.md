@@ -47,8 +47,15 @@ the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `d
 sends the caller's verified token to the pool as it is. Do not write `expected_issuer` or
 `expected_audience`: sutura refuses to start with them.
 
-The musl and glibc release binaries link the BigQuery driver. A `cargo` build loads the driver
-from the absolute path in `SUTURA_BIGQUERY_ADBC_DRIVER`.
+The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
+build can select the feature:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+That build links no driver. It loads the driver from the absolute path in
+`SUTURA_BIGQUERY_ADBC_DRIVER`.
 
 ## Example
 
