@@ -1,0 +1,6 @@
+# `NotValidated` variants nothing provokes yet, checked by `cargo xtask check-refusal-coverage`.
+# One per line:
+#
+#   <Variant> <ISO date> <why nothing provokes it, and what would end that>
+ColumnNotAtSource 2026-10-10 no adapter reads a table schema yet; ends when the first adapter that does carries the cell
+SchemaNotRead 2026-10-10 no adapter reads a table schema yet; ends when the first adapter that does carries a read failure

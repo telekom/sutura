@@ -77,7 +77,11 @@ fn a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves() {
         },
     );
     let provenance = two_metric_bundle()
-        .provenance_for(executed_as, asked.iter())
+        .provenance_for(
+            sutura_domain::warehouse::schema::PinnedSchemas::default().digest(),
+            executed_as,
+            asked.iter(),
+        )
         .expect("both metrics are defined");
 
     let rows = RowSet::new(vec![String::from("customers")], vec![vec![Value::Integer(3)]]).expect("one column and one cell");

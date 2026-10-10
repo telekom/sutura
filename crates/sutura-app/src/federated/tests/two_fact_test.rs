@@ -180,7 +180,7 @@ fn answered(plan: &sutura_domain::plan::FederatedPlan, fact: RowSet, second: Row
     .and(crate::tests_support::LegsWarehouse::answering(source("geo"), shared, lookup))
     .expect("three sources, one registry");
     answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -302,7 +302,7 @@ fn a_two_fact_answer_records_all_three_sources_in_executed_as() {
     let broker = crate::tests_support::AcknowledgingBroker::over(&postures);
     let plan = two_fact_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &broker,
@@ -352,7 +352,7 @@ fn a_two_fact_answer_whose_second_source_lacks_a_warehouse_is_refused() {
     .expect("two sources, one registry - the second fact source is missing");
 
     let refused = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &two_fact_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -399,7 +399,7 @@ fn a_second_fact_whose_credential_disagrees_with_its_adapters_posture_never_exec
     .expect("three sources, one registry");
 
     let failure = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &two_fact_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -572,7 +572,7 @@ fn a_two_fact_plan_with_a_minimum_leaf_is_not_combined() {
     ))
     .expect("three sources, one registry");
     let failure = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &two_fact_plan_of(sutura_domain::model::Aggregate::Min, ZeroDenominator::Null),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,

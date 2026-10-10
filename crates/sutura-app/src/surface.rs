@@ -90,6 +90,7 @@ use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 
+use crate::proof::{pin_schemas, validate_with};
 use crate::spend::SpendLedger;
 use crate::warehouses::Warehouses;
 use crate::{ServiceError, Validated, verify_and_validate};
@@ -113,8 +114,8 @@ pub trait Surface: Send + Sync + 'static {
 
     /// Replaces the served bundle with a freshly loaded one, or says why it did not.
     ///
-    /// A bundle with the digest already served is [`Adopted::Unchanged`] and costs nothing. Any other
-    /// is held to what boot holds the first one to - every anchor, every declared key, and the
+    /// A bundle with the digest already served, over the schema set already served, is
+    /// [`Adopted::Unchanged`] and costs one schema read. Any other is held to what boot holds the first one to - every anchor, every declared key, and the
     /// deployment's own pre-flight - and only a bundle that passed all of it is stored, **whole**.
     /// A refusal leaves the bundle already served in place: a question never sees a partial or an
     /// unvalidated one.
@@ -312,9 +313,10 @@ pub enum SurfaceFailure {
 /// What a refresh did to the served bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Adopted {
-    /// The bundle read has the digest already served; nothing was checked and nothing changed.
+    /// The bundle read and its schema set have the digests already served; nothing changed.
     Unchanged,
-    /// A different bundle passed every check and is what the next question reads.
+    /// A different bundle, or the same one over a different schema set, passed every check and is
+    /// what the next question reads. The two digests are equal where only the schema set changed.
     Rotated {
         /// The digest that was served until now.
         previous: DefinitionDigest,
@@ -594,13 +596,17 @@ where
 
     fn adopt(&self, next: PinnedDefinitions) -> Result<Adopted, NotAdopted> {
         let current = self.snapshot();
-        if next.digest() == current.get().digest() {
-            return Ok(Adopted::Unchanged);
-        }
-        if let Some(gate) = &self.adoption_gate {
+        let bundle_changed = next.digest() != current.get().digest();
+        if bundle_changed && let Some(gate) = &self.adoption_gate {
             gate(&next, &self.warehouses).map_err(|cause| NotAdopted::Preflight { cause })?;
         }
-        let validated = verify_and_validate(next, &self.warehouses).map_err(|cause| NotAdopted::NotValidated { cause })?;
+        // Read at every refresh, because the snapshot key is both digests: an unchanged bundle over
+        // a changed source keeps its `DefinitionDigest`.
+        let schemas = pin_schemas(&next, &self.warehouses).map_err(|cause| NotAdopted::NotValidated { cause })?;
+        if !bundle_changed && schemas.digest() == current.schemas().digest() {
+            return Ok(Adopted::Unchanged);
+        }
+        let validated = validate_with(next, schemas, &self.warehouses).map_err(|cause| NotAdopted::NotValidated { cause })?;
         let digest = validated.get().digest().clone();
         // One poller calls this; a second concurrent caller would at worst store a bundle that is
         // itself fully validated, last writer winning - never a partial one.

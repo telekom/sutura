@@ -326,7 +326,12 @@ where
             continue;
         }
         let asked: BTreeSet<QualifiedTable> = behind.keys().copied().cloned().collect();
-        let verdict = match engine.preflight(&asked) {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "every pre-flight reaches the port method that lists tables with no credential through this one call site"
+        )]
+        let answered = engine.preflight(&asked);
+        let verdict = match answered {
             Ok(TablesPresent::All) => Verdict::Present { asked: asked.len() },
             Ok(TablesPresent::NotAsked) => Verdict::NotReported { asked: asked.len() },
             Ok(TablesPresent::AllBut(missing)) => Verdict::Absent(AbsentBehind(
