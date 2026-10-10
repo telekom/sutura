@@ -1,109 +1,29 @@
 # sutura
 
-A Helm chart for `sutura serve` - the identity-aware semantic data runtime, over HTTP.
+This chart deploys sutura, an identity-aware semantic data runtime.
+It runs `sutura serve` over HTTP as one `Deployment`.
+The chart also creates a `Service` and a settings `ConfigMap`.
 
-## What this chart is not
+## Install
 
-**Single player only.** Every query this deployment answers runs as one shared service-user
-identity, whatever `config.base`/`config.environment` declare it to be. `security.inbound`
-(off by default) establishes WHO is asking a question - leg 1, `docs/adr/0014` - and nothing
-more: no adapter in the published binary can execute a query AS the caller (leg 2), so turning
-`security.inbound` on narrows nothing about which rows a source returns. Do not read a
-`ServiceAccount` per tenant, a `NetworkPolicy` per namespace or anything else here as
-multi-tenant isolation - none of that changes what identity a source sees.
+Install a released version of the chart from the OCI registry:
 
-**Not an operator.** This chart deploys one `Deployment`; it does not reconcile a catalog or a
-source declaration. Multiple replicas share nothing - no budget, no replay window - so scaling
-`replicaCount` up gives N independent processes, not a shared ceiling on either. See
-`docs/adr/0030` and `crates/sutura-http/src/inbound/token.rs` if you were about to assume
-otherwise.
-
-## What it configures, and how
-
-The settings tree this chart feeds is `sutura-config`'s own: a directory of files, then
-`SUTURA__*` environment variables, both layered on top of the binary's embedded defaults
-(`crates/sutura-config/src/defaults.yaml`). This chart adds nothing to that surface - see
-`values.yaml`'s own comments for what each key maps to and why some settings-tree keys (any
-list or map: `security.inbound.algorithms`, `rate_limit.trusted_proxies`, `sources`,
-`catalogs`) are only reachable through `config.base`, never through a chart value, because the
-environment-variable layer here carries no list separator.
-
-Every credential-shaped setting is a Kubernetes Secret, mounted or injected, never a literal in
-`values.yaml`:
-
-| Value                               | Settings key                                | Kubernetes shape                     |
-| ----------------------------------- | ------------------------------------------- | ------------------------------------ |
-| `security.accessToken`              | `security.access_token`                     | env, from a Secret key               |
-| `security.metricsToken`             | `security.metrics_token`                    | env, from a Secret key               |
-| `tls.secretName`                    | `server.tls_certificate` / `server.tls_key` | volume, a `kubernetes.io/tls` Secret |
-| `security.inbound.keySetSecretName` | `security.inbound.key_set_file`             | volume, an opaque Secret             |
-
-A source's own credential (`sources.<alias>.password_file`,
-`client_certificate`, `client_key`) has no dedicated value: point `extraVolumes` /
-`extraVolumeMounts` at a Secret, then name the mount path in `config.base.sources.<alias>`.
-
-## The refusals this chart mirrors before `kubectl apply` does
-
-This chart's `Service` always makes the pod reachable off-host, which is exactly the shape
-`crates/sutura-config/src/settings.rs`'s `Settings::refusals` refuses to start without a
-declared TLS termination, an access token, a metrics token and an enabled rate limiter.
-`helm template` (and `helm install`) fails the render on the first three - `templates/_helpers.tpl`'s
-`sutura.requireOffHostPosture` - rather than shipping a `Deployment` that crash-loops on the
-binary's own refusal five seconds later. This is a chart-side heuristic that reads only
-`values.yaml`, not the binary's own check: it cannot see a Secret's contents or an environment
-override file, so it is a lower bound on what will actually refuse, not a replacement for it.
-
-## Probes
-
-`GET /health` is the liveness path, and there is deliberately no readiness route - the boot
-sequence re-verifies every catalog anchor before the listener opens, so an open port already
-means a verified bundle (`docs/serving.md`, "Endpoints"). This chart wires `/health` as
-both the `startupProbe` (with a generous failure budget: anchor verification against a
-networked source is a round trip per anchor) and the `livenessProbe`, and configures no
-`readinessProbe`.
-
-## Resource limits size the runtime
-
-Setting `resources.limits.cpu`/`.memory` derives `runtime.engineWorkerThreads` /
-`workingSetMaxBytes` when those are left empty - `templates/_helpers.tpl`'s
-`sutura.engineWorkerThreads`/`workingSetMaxBytes`, exercised by
-`testdata/values/resource-limits.yaml`. A CPU limit rounds up to a whole thread; a memory limit
-keeps 75% of itself as the ceiling, leaving headroom for what that ceiling does not count
-(the process's own RSS) so it trips before the kernel OOM-kills the container at the cgroup
-limit - `docs/serving.md`'s `resources_exhausted` refusal (`422`). Setting either `runtime.*` key
-directly always overrides the derivation.
-
-## A catalog to serve
-
-The image carries no catalog, and `sutura serve` refuses to start without one (the embedded
-default `catalogs[0].dir` is a relative `catalog` that does not exist in the container). Mount
-the catalog and its data with `extraVolumes`/`extraVolumeMounts` and point `config.base` at the
-mount paths - `catalogs:`, `sources:` and `security.identity` are maps and lists, so they belong
-in `config.base`, not in a `SUTURA__*` variable. `nix/kind-smoke.nix` is a working example: it
-serves `examples/single-player` from two ConfigMaps.
-
-## What is not in this branch
-
-- No Ingress: this chart declares no opinion about how traffic reaches the cluster edge: set
-  `security.tlsTermination: ingress` and bring your own.
-
-## Distribution
-
-Published as an OCI artefact on `ghcr.io`, beside the images - owner decision on #149, recorded
-so it is not re-derived: same registry, same auth as `sutura`'s own images, no second
-distribution surface. A tagged release pushes `sutura-<version>.tgz` (version = the release tag)
-with the SAME pinned `helm` `checks.helm-chart` lints and renders this chart with, and signs the
-pushed reference with `cosign` the way every image reference already is -
-`.github/workflows/release.yml`.
-
-```
-helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version>
+```sh
+helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version> -f values.yaml
 ```
 
-**Artifact Hub indexes it for discovery; it does not host it.** The repository is listed there as
-`sutura`, and `charts/sutura/artifacthub-repo.yml` holds its `repositoryID` (that key only - no
-`owners` block). `release.yml` pushes that file under the registry's `artifacthub.io` tag on every
-release.
+The values file must set `environment`, `security.accessToken.secretName`,
+`security.metricsToken.secretName` and `security.tlsTermination`.
+Each secret name refers to a Kubernetes Secret.
 
-The `ghcr.io/telekom/charts` package must be publicly readable - private by default even for a
-public repository, and the most likely reason a first attempt looks broken.
+## Configure
+
+Set every option in `values.yaml`.
+Each key has a one-line comment.
+The chart passes `config.base` and `config.environment` to sutura as its settings files.
+
+## Learn more
+
+- [Configuration](https://telekom.github.io/sutura/latest/configuration/)
+- [Serving over HTTP](https://telekom.github.io/sutura/latest/serving/)
+- [Verify a release (images and chart)](https://telekom.github.io/sutura/latest/verifying-a-release/)
