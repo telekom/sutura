@@ -3049,13 +3049,12 @@
 <p><code>sutura</code> speaks HTTP, and a chat client can call it as a tool server. This page runs that: one
 command brings the server up over <code>examples/single-player</code> beside a chat interface, with the browser
 URL read out of the development tier's discovery file rather than written down anywhere.</p>
-<p><strong>This page is a demonstration, not a deployment.</strong> The chat client is UNGOVERNED: it chooses which
-tool to call and how to phrase the answer, and no guarantee lives there. Every number it shows came
-from a certified question the runtime answered, or from a refusal the runtime decided - the client
-is a renderer and nothing more. And it is a SINGLE-USER demo: the deployment reads the example as
-one shared service user, acknowledged by the operator, so it proves <strong>neither caller identity nor
-source impersonation</strong>. <a href="../integrations/identity/">Inbound identity</a> describes what sutura
-verifies about a caller.</p>
+<p><strong>This page is a demonstration, not a deployment.</strong> The chat client is ungoverned: it chooses which
+tool to call and how to phrase the answer. Every number it shows came from a certified question the
+runtime answered, or from a refusal the runtime decided - the client is a renderer and nothing
+more. The deployment is single-user: it reads the example as one shared service user, acknowledged
+by the operator. <a href="../integrations/identity/">Inbound identity</a> describes what sutura verifies about
+a caller.</p>
 <h2 id="what-it-brings-up">What it brings up<a class="headerlink" href="#what-it-brings-up" title="Permanent link">&para;</a></h2>
 <p><code>just demo</code> builds and starts ONE container holding two supervised processes:</p>
 <table>
@@ -3068,7 +3067,7 @@ verifies about a caller.</p>
 <tbody>
 <tr>
 <td><code>sutura serve</code></td>
-<td>The shipped HTTP server, over <code>examples/single-player</code> - the same binary a release publishes</td>
+<td>The HTTP server, over <code>examples/single-player</code> - the same binary a release publishes</td>
 </tr>
 <tr>
 <td>The chat client</td>

@@ -3183,48 +3183,36 @@ stages (<code>pre-commit</code>, <code>pre-push</code>, <code>commit-msg</code>)
 hook runner lives in, warms <code>xtask</code> so your first commit is not a cold compile, and ends with
 <code>doctor</code>. It is idempotent, so re-run it whenever an environment file changes.</p>
 <p><strong>Hook tiers.</strong> A hook that is too slow for its stage gets switched off, so each stage runs only what
-it can afford. <code>cargo xtask check-hook-tiers</code> reads <code>.pre-commit-config.yaml</code> and nothing else: it
-holds the stages that file declares, not the table below, which can drift from the config with every
-gate green. A hook is bypassable with <code>--no-verify</code>, so this is a tier policy rather than an
-invariant.</p>
+it can afford.</p>
 <table>
 <thead>
 <tr>
 <th>Stage</th>
 <th>Runs</th>
-<th>Does not run</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>pre-commit</code></td>
 <td>fmt, clippy, <code>cargo check</code> of the changed packages, the structural gates, text and chart gates</td>
-<td>the test suite and doctests, the CRAP score, the fuzz replay</td>
 </tr>
 <tr>
 <td><code>pre-push</code></td>
 <td>the whole-tree secret scan and the supply-chain gate, nothing else</td>
-<td>anything that compiles</td>
 </tr>
 <tr>
 <td><code>commit-msg</code></td>
 <td>the conventional-commit subject</td>
-<td></td>
 </tr>
 </tbody>
 </table>
 <p>The suite, the doctests and the CRAP score run in <code>just validate</code> and in CI. <code>just ship-check</code> also
 runs CRAP for a diff that reaches the scored crate, and the fuzz replay (<code>just fuzz-smoke</code>) for a diff
-that touches the fuzzed tree; no pull request or merge-queue run replays the seeds, and
-<code>.github/workflows/fuzz.yml</code> does on a release tag and a manual dispatch. So a local commit can hold
-a failing test until <code>just validate</code> or CI runs it, and CRAP and the replay run only where
-<code>ship-check</code> runs.</p>
-<p>Run it before your first commit, because <strong>an uninstalled hook does not complain - it silently never
-fires.</strong> This repo spent a whole session believing hooks ran that had never run: <code>core.hooksPath</code>
-pointed at a <code>.githooks/</code> directory that had been deleted, so git looked somewhere that did not
-exist while <code>prek install</code> wrote to <code>.git/hooks</code> where git was not looking. <code>just setup</code> now unsets
-a <code>core.hooksPath</code> pointing at a missing directory for exactly that reason. If you are unsure
-whether yours are live, <code>just setup</code> again and read what it prints.</p>
+that touches the fuzzed tree. A local commit can hold a failing test until <code>just validate</code> or CI
+runs it.</p>
+<p>Run <code>just setup</code> before your first commit, because <strong>an uninstalled hook does not complain - it
+silently never fires.</strong> <code>just setup</code> unsets a <code>core.hooksPath</code> that points at a missing directory.
+If you are unsure whether your hooks are live, run <code>just setup</code> again and read what it prints.</p>
 <h2 id="working-in-parallel-worktrees">Working in parallel worktrees<a class="headerlink" href="#working-in-parallel-worktrees" title="Permanent link">&para;</a></h2>
 <p>Stacked branches mean several worktrees at once, so the development service tier is built to run
 <strong>one independent instance per worktree</strong> rather than one shared set you have to take turns on.</p>
@@ -3334,7 +3322,7 @@ version is 0.x (<code>breaking_always_bump_major = false</code> in <code>cliff.t
 <h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>just<span class="w"> </span><span class="nb">test</span><span class="w">           </span><span class="c1"># the gate's own invocation - never hand-write the cargo line</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>just<span class="w"> </span>check-changed<span class="w">  </span><span class="c1"># does what I touched compile</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>just<span class="w"> </span>causality<span class="w">      </span><span class="c1"># red-before-green proof</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>just<span class="w"> </span>causality<span class="w">      </span><span class="c1"># a new test fails on the base and passes with your change</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>just<span class="w"> </span>ship-check<span class="w">     </span><span class="c1"># the finishing sequence; run this before saying done</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>just<span class="w"> </span>validate<span class="w">       </span><span class="c1"># THE gate: the site build, then the nix checks, which build their own tree copy</span>
 </span></code></pre></div>
@@ -3346,22 +3334,17 @@ reaches one - the gate says so and asks for evidence instead: the command you ra
 before the fix, the pass after. That goes in the pull request. <strong>Do not skip it silently.</strong> An
 added or modified test PINNING behaviour the base tree already provides is the one shape the base
 run can never redden, so its place is a declared claim cell: add a <code>Claim-Cell: &lt;test-fn-name&gt;</code>
-commit trailer AND a committed killing mutation at <code>devco/claim-mutations/&lt;test-fn-name&gt;.patch</code>,
-and the gate applies the mutation, requires the cell to fail, and accepts
-<code>ok - claim cells: N declared, N killed</code> - a declared cell with no killing mutation is refused.
-In the not-separable case above an undeclared pin passes like any other test, because no base run
-exists to redden it. An added test the base run produced no result for (<code>not run at base</code>) is
+commit trailer AND a committed killing mutation at <code>devco/claim-mutations/&lt;test-fn-name&gt;.patch</code>.
+The gate applies the mutation and requires the cell to fail. A declared cell with no killing
+mutation is refused. An added test the base run produced no result for (<code>not run at base</code>) is
 refused by name: make it run at base, or list it with a reason in
-<code>devco/causality-no-base-exemptions</code>. Two limits: the key is the bare fn name, so one entry exempts
-every scoped test of that name; and when the per-test lines do not account for nextest's summary the
-gate cannot name the missing tests and refuses none of them.</p>
+<code>devco/causality-no-base-exemptions</code>.</p>
 <p><strong>Exit 3 means the gate measured nothing</strong>, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already
 had - a MOVED test, which the gate reads out of the base tree because a diff cannot tell a move from
 an addition. A harness move and a changed public signature that a test file kept at HEAD calls both
-land there too, so it is not a defect in your change - but nothing about causality was proven
-either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
-Read the verdict line, never a step's colour.</p>
+land there too. Substitute a mutation run, or scope the gate per commit, and say which in the pull
+request. Read the verdict line, never a step's colour.</p>
 <p><strong>Splitting a test file that hit the 1000-line cap has two answers, and the cheap one comes first.</strong>
 Move the assertions into a new module and declare it <code>#[cfg(test)] mod &lt;name&gt;;</code> - that form keeps
 the declaring file at HEAD, so the base tree still has the declaration and the new module is not
@@ -3375,8 +3358,7 @@ added side: a <code>#[cfg(test)]</code>, a <code>mod</code> declaration that res
 <code>super::</code>-relative <code>use</code>. So move the imports the new module needs from <code>super::</code>, keep every other
 line byte-identical, and put anything else in a second commit. <strong>The trailer is a claim, not a
 permission</strong>: one added, deleted or reworded line - a comment and an attribute included - and the
-gate fails and names it. <code>sutura/gates</code> carries the five conditions and what that pass does not
-prove.</p>
+gate fails and names it.</p>
 <p><strong>The gate measures the MERGE BASE, it says which commit that was, and on a stack it derives it.</strong>
 It resolves <code>git merge-base &lt;ref&gt; HEAD</code> itself, so a base branch that has moved on cannot put other
 people's commits into the diff - and on a stacked branch it takes the fork point from the parent
@@ -3384,29 +3366,11 @@ branch <code>st</code> recorded instead, because the trunk's merge base there is
 stack. The printed line names the commit, the parent branch and the commit it replaced; a stale or
 retargeted parent falls back to the ref you named rather than moving the base off your history.
 <code>SHIP_CHECK_BASE_REF</code>, or a commit as the recipe's argument, still overrides both.</p>
-<p><strong>One parent is refused rather than used, and it is one you can easily have:</strong> a branch that already
-CONTAINS yours - because you merged yours into it to check the merge, or because the metadata points
-at the branch above. Its fork point with your HEAD <em>is</em> your HEAD, and a base equal to HEAD would
-make the diff your uncommitted working tree alone: exit 0 over every file you changed. The line says
-so, and the gate measures the ref you named instead.</p>
-<p>A changed page, recipe or nix file IS an implementation to the gate and gets reverted like any
-other; <strong>a manifest or a lockfile is not</strong> - it is held at HEAD and named as <code>not reverted:</code> on
-whichever arm you land on, because reverting one changes what cargo RESOLVES rather than what the
-tests measure. So a change whose only implementation is a manifest reads as <em>tests changed but no
-implementation did</em>, at exit 0, with the manifest named beside it: that is the gate saying it could
-not see your change, not that there was nothing to see. <strong>One manifest change does fail, though:</strong>
-declaring a feature name the base did not, where a <code>#[cfg(feature = ..)] mod ..;</code> this diff does not
-otherwise touch gates a module that holds tests. That compiles a whole module of pre-existing tests
-with no added <code>.rs</code> line, and neither run can measure them - so state the evidence instead.</p>
 <p>Ports get <strong>fakes</strong>, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.</p>
-<p><code>just validate</code> is the only thing that counts as verified, because its nix checks build a
-git-derived copy of the tree - so <code>git add -N</code> a new file immediately, or it compiles locally and
-does not exist in the sandbox. It does not run <code>check-default-features</code> or
-<code>check-default-feature-tests</code>, though - <code>just gates</code> does, per <code>github.com/telekom/sutura#866</code>'s
-option 2, chosen 2026-09-18: those two close the compile-and-lint gap on the default feature set,
-not the link gap, since neither links - the <code>cross</code> matrix legs stay the authority on a musl link.
-Gate stages, what each one covers and where a green run means less than it looks are all in
+<p><code>just validate</code> builds a git-derived copy of the tree in its nix checks - so <code>git add -N</code> a new file
+immediately, or it compiles locally and does not exist in the sandbox. <code>just gates</code> runs
+<code>check-default-features</code> and <code>check-default-feature-tests</code>. Each gate stage is described in
 <a href="https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md">the <code>gates</code> skill</a>.</p>
 <h2 id="pull-requests">Pull requests<a class="headerlink" href="#pull-requests" title="Permanent link">&para;</a></h2>
 <p><strong><code>main</code> is the sole trunk.</strong> Pull requests are squashed, leaving one conventional commit for
@@ -3469,18 +3433,16 @@ what a consumer of the artifacts reads.</p>
 <ul>
 <li><strong>LF line endings, no trailing whitespace, one final newline.</strong> <code>just fmt</code> fixes what is
   mechanically fixable.</li>
-<li><strong>No em dashes.</strong> Plain hyphens, in prose and in comments. A gate rather than a request, because
-  the convention was stated from the start and one shipped anyway.</li>
+<li><strong>No em dashes.</strong> Plain hyphens, in prose and in comments.</li>
 <li><strong>No first-party <code>unsafe</code>.</strong> <code>deny</code> in the workspace lint table and <code>#![forbid(unsafe_code)]</code> at
-  every crate root but <code>sutura-adbc</code>'s, held by <code>check-unsafe</code>, so a crate cannot re-allow it locally.</li>
+  every crate root but <code>sutura-adbc</code>'s.</li>
 <li><strong><code>#[expect(.., reason = "..")]</code> over <code>#[allow]</code></strong>, so a suppression cannot outlive its cause -
   except on the three count-threshold lints, where <code>check-expect-thresholds</code> refuses an <code>#[expect]</code>:
   split the function or raise the threshold in <code>clippy.toml</code>. A workspace-wide exception is an
   <code>= "allow"</code> row in the workspace lint table instead.</li>
 <li><strong>No file over 1000 lines</strong>, and no exemption under <code>crates/</code> or <code>xtask/</code> - the only way past it
   is to split the file.</li>
-<li><strong>No dependency declared and unused.</strong> Declaring one to satisfy a document is what that gate
-  exists to stop.</li>
+<li><strong>No dependency declared and unused.</strong></li>
 <li><strong><code>--all-features</code> on every lint and test entry point.</strong> Several crates declare features now, so
   an entry point missing the flag lints and tests nothing behind them. The scoped
   <code>cargo check -p sutura-domain --no-default-features</code> is the fast inner loop, never the gate.</li>
@@ -3494,23 +3456,14 @@ what a consumer of the artifacts reads.</p>
 </span></code></pre></div>
 <p>The site is mkdocs-material versioned by <a href="https://github.com/jimporter/mike">mike</a>, built with
 <code>--strict</code>, and every command goes through pixi's isolated <code>docs</code> environment. <code>nav</code> in <code>mkdocs.yml</code>
-is explicit rather than derived, and <code>cargo xtask check-docs</code> fails on a page in no nav entry, a nav
-entry with no file, or an asset that stopped resolving. A page that is deliberately not part of the
-site - the implementation plans are the case - is named in <code>exclude_docs</code> instead, and the same gate
-fails an exclusion naming no page, a page both navigated to and excluded, and a pattern that is
-neither one page nor one whole directory written <code>/dir/</code> (<code>/adr/</code> keeps the decision records off
-the site). It fails an <code>&lt;iframe src&gt;</code>, an <code>&lt;img src&gt;</code> or a <code>![](src)</code> image whose file is not under
-<code>docs/</code>, and it does not check a remote URL. It also fails a published page that LINKS an excluded
-one. That is not <code>--strict</code>'s job: mkdocs logs such a link at INFO and exits 0, measured. It fails a
-published page that names a path inside the decision-record directory, in a link or in prose, or
-cites a decision record by its number.
-<strong>This file is one of those published
-pages:</strong> <code>docs/contributing.md</code> pulls it in with <code>pymdownx.snippets</code>, so a relative link written
-here resolves against that page's URL rather than the repository root, and the gate reads this file
-to judge it. <code>just validate</code> renders the site as its first step, so a page that cannot render fails
-before the nix closure rather than after a merge; <code>just docs</code> is the same build, reached on its own.
-If the docs environment cannot be materialised at all - a cold package cache with no network - that
-step says SKIPPED in one line and the recipe fails at the end instead of losing every other check.
+is explicit rather than derived, so a new page needs an entry. A page that is deliberately not part
+of the site - the implementation plans are the case - is named in <code>exclude_docs</code> instead (<code>/adr/</code>
+keeps the decision records off the site). A published page does not link an excluded one, and does
+not name a path inside the decision-record directory or cite a decision record by its number.
+<strong>This file is one of those published pages:</strong> <code>docs/contributing.md</code> pulls it in with
+<code>pymdownx.snippets</code>, so a relative link written here resolves against that page's URL rather than
+the repository root. <code>just validate</code> renders the site as its first step, and <code>just docs</code> is the
+same build, reached on its own.
 <a href="https://github.com/telekom/sutura/blob/main/docs/publishing.md">Publishing the docs</a> covers the
 versioning and the one repository setting it needs.</p>
 

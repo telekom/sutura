@@ -2910,7 +2910,7 @@
 
 <h1 id="sutura">sutura<a class="headerlink" href="#sutura" title="Permanent link">&para;</a></h1>
 <p>sutura answers questions about data with metric definitions that somebody certified. It answers
-as the person or agent that asks, where the data system can do this (BigQuery). When it cannot answer correctly, it refuses.</p>
+as the person or agent that asks, where the data system can do this (BigQuery, ClickHouse). When it cannot answer correctly, it refuses.</p>
 <p>An agent with a plain database connection writes its own SQL and runs it with the credential of
 the service. This causes two problems. Nobody certified the number, so "revenue" can mean
 something different from what finance means. And the rows are the rows that the service may read,
@@ -2921,29 +2921,24 @@ not the rows that the caller may read, so row-level security has no effect.</p>
 <tr>
 <th>Property</th>
 <th>Mechanism</th>
-<th>Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>You cannot ask it to run SQL</td>
-<td>The question type has no field for SQL, a table or a filter</td>
-<td>Enforced. <code>deny_unknown_fields</code> refuses an extra field, and every value becomes a bind parameter</td>
+<td>The question type has no field for SQL, a table or a filter. An extra field is refused, and every value becomes a bind parameter</td>
 </tr>
 <tr>
 <td>Definitions come from a catalog</td>
-<td>Definitions arrive as a pinned, hashed snapshot. sutura does not edit them</td>
-<td>Enforced. The catalog load has no request context, and every anchor runs again before sutura serves</td>
+<td>Definitions arrive as a pinned, hashed snapshot. sutura does not edit them. The catalog load has no request context, and every anchor runs again before sutura serves</td>
 </tr>
 <tr>
 <td>A refusal is an answer</td>
-<td>A refusal is a result with a reason, not an error to retry</td>
-<td>Enforced. Every outcome goes to the audit sink before sutura returns it. The sink writes to the log, and sutura keeps nothing. Behind the shared bearer token alone, the recorded subject is the deployment</td>
+<td>A refusal is a result with a reason, not an error to retry. Every outcome goes to the audit sink before sutura returns it. The sink writes to the log, and sutura keeps nothing. Behind the shared bearer token alone, the recorded subject is the deployment</td>
 </tr>
 <tr>
 <td>Every query runs as the caller</td>
-<td>A credential for each data system and caller. A leg that cannot run as the caller is refused</td>
-<td>BigQuery: secure-impersonation. Every other data system runs as one identity that the operator declares (shared-service-user)</td>
+<td>A leg that cannot run as the caller is refused. BigQuery exchanges the caller's token for a declared service account. ClickHouse runs each statement as a declared user. Every other data system runs as one identity that the operator declares</td>
 </tr>
 </tbody>
 </table>

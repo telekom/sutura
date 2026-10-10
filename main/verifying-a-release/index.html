@@ -1816,17 +1816,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#what-none-of-this-establishes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What none of this establishes
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -3139,17 +3128,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#what-none-of-this-establishes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What none of this establishes
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -3173,15 +3151,12 @@
 <h1 id="verifying-a-release">Verifying a release<a class="headerlink" href="#verifying-a-release" title="Permanent link">&para;</a></h1>
 <p>The tagged-release workflow signs artefacts and records SLSA provenance as described below.
 Signature and provenance bundles carry the evidence; they do not attest themselves.
-This page explains the checks and what they do <strong>not</strong> say.</p>
+This page explains the checks.</p>
 <h2 id="read-this-part-first">Read this part first<a class="headerlink" href="#read-this-part-first" title="Permanent link">&para;</a></h2>
-<p><strong>A signature answers "did this pipeline produce these bytes". It does not answer "are these bytes
-good".</strong> Provenance is an <em>identity</em> claim, and the whole of what it establishes is that the file in
-your hand is byte-for-byte what the release workflow of <code>github.com/telekom/sutura</code> emitted at a
-tag, and not something a mirror, a proxy or a compromised download page substituted. It says
-nothing about whether the code is correct, whether a dependency has an advisory, or whether the
-release is fit for your use. The gates say the first, <code>cargo-deny</code> says the second, and nothing
-says the third.</p>
+<p><strong>A signature answers "did this pipeline produce these bytes".</strong> Provenance is an <em>identity</em> claim:
+the file in your hand is byte-for-byte what the release workflow of <code>github.com/telekom/sutura</code>
+emitted at a tag, and not something a mirror, a proxy or a compromised download page
+substituted.</p>
 <p><strong>The SBOM inventories the crate graph. It is read out of the binary, not out of a lock file.</strong>
 The reason is under <a href="#what-the-sbom-covers">What the SBOM covers</a>.</p>
 <h2 id="what-a-release-publishes">What a release publishes<a class="headerlink" href="#what-a-release-publishes" title="Permanent link">&para;</a></h2>
@@ -3211,9 +3186,7 @@ You choose the libc with the tag: <code>:latest-musl</code> for the static pair,
 links the HTTP surface, the caller-token verification, the rate limiter and the generated interface
 description. It also carries every entry of the <code>features</code> list in that file. A deployment uses an
 adapter through a settings-tree entry, not through a build. A binary with fewer adapters is a source
-build, and a feature that is not in that list is available in a source build only.
-<code>nix build .#checks.x86_64-linux.shipped-features</code> asserts the list against the dependency list
-that is embedded in the shipped binary, not against a manifest.</p>
+build, and a feature that is not in that list is available in a source build only.</p>
 <p><strong>The musl pair also carries OpenSSL 3</strong>, statically, inside the PostgreSQL ADBC driver that it
 links. libpq has no other TLS backend. Its fixes arrive with a <code>nixpkgs</code> bump, not with rustls. That
 libpq signs in with Kerberos through a static MIT krb5, and has no OAuth flow. <code>sutura doctor</code>
@@ -3362,7 +3335,7 @@ original assets. It contains five Sigstore bundles: one multi-subject asset atte
 manifest-list attestations. It is not a new signing policy. The collector checks the required
 JSON, DSSE and SLSA fields and the exact, unique name and digest pairs against <code>subjects.sha256</code> and
 <code>image-digests.txt</code>. It writes the asset only after all inputs pass. It does <strong>not</strong> verify
-signatures, certificates or transparency proofs. A missing export blocks the draft publication.</p>
+signatures, certificates or transparency proofs.</p>
 <p>Choose the expected tag and the full source commit independently of the downloaded bundle. Supply a
 trusted-root file from your trusted distribution channel. Do not trust a file only because a mirror
 put it beside the artefact. This example assumes that you already set those values:</p>
@@ -3416,7 +3389,7 @@ identity. You can run <code>cosign</code> from the flake pin with <code>nix run 
 Sigstore bundle asset. No Helm <code>.prov</code> file exists, so <code>helm install --verify</code> does not apply.
 Whether the registry package is readable without a login is a registry setting.</p>
 <h2 id="what-the-sbom-covers">What the SBOM covers<a class="headerlink" href="#what-the-sbom-covers" title="Permanent link">&para;</a></h2>
-<p>Each leaf image ships two inventories of the same scan - CycloneDX and SPDX, so the two cannot
+<p>Each leaf image carries two inventories of the same scan - CycloneDX and SPDX, so the two cannot
 disagree - attached to the release and, for CycloneDX, attached to the image itself:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cosign<span class="w"> </span>verify-attestation<span class="w"> </span>--type<span class="w"> </span>cyclonedx<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
@@ -3435,18 +3408,13 @@ executable. The obvious way to produce this list is the wrong one:</p>
 <li>It is also the <strong>wrong list</strong>. <code>Cargo.lock</code> records what cargo <em>resolved</em>, not what the linker
   <em>kept</em>. <code>sutura-exec-oracle</code> sits behind a default-off feature that no release enables, so the
   Oracle adapter is in the resolve graph and never in the binary. A workspace-wide document names it
-  anyway, and so overstates what ships.</li>
+  anyway, and so lists a crate that is not in the binary.</li>
 <li>There is one SBOM per image, not one per release.</li>
 </ul>
 <p>So the list is put <strong>inside the artefact at build time</strong> and read back out of the bytes that the
-scan reads. It cannot drift from the binary, because it is the binary. The release job checks that
-the section is there. Without that check, a build that stops producing the section still passes the
-scan and still writes valid CycloneDX that names three files, and nothing downstream can tell that
-apart from a correct run.</p>
-<p><strong>The list is not a statement about those crates.</strong> It says which versions were compiled in.
-<code>cargo-deny</code> checks them against the RustSec database in CI on every dependency change and weekly.
-That is a run, not a property of the artefact. <code>cargo audit --bin</code> reads this section and answers
-the question against the file you have.</p>
+scan reads. It cannot drift from the binary, because it is the binary.</p>
+<p>The list says which crate versions were compiled in. <code>cargo audit --bin</code> reads this section and
+checks them against the RustSec database for the file you have.</p>
 <h2 id="the-licence-statement">The licence statement<a class="headerlink" href="#the-licence-statement" title="Permanent link">&para;</a></h2>
 <p>The release carries the workspace-wide attribution document beside the per-binary SBOMs.</p>
 <table>
@@ -3475,62 +3443,19 @@ the question against the file you have.</p>
 <p><strong>The attribution document is deliberately WIDER than the SBOM.</strong> The SBOM says what is <em>in</em> one
 binary, so an overstated SBOM is a false statement about the file in your hand. That is why the list
 lives inside the executable. The attribution document discharges a licence obligation, and there the
-two errors differ. A crate that did not ship costs you one line to read. A crate that shipped and is
-missing is the failure that the document exists to prevent. So it names every crate that the
-workspace resolves at all features, which is more than <code>sutura-cli</code> links.</p>
+two errors differ. A crate that is not in the binary costs you one line to read. A crate that is in
+the binary and is missing is the failure that the document exists to prevent. So it names every
+crate that the workspace resolves at all features, which is more than <code>sutura-cli</code> links.</p>
 <p><strong>The release generates the document, and nobody commits it.</strong> A committed derived file falls behind
 <code>Cargo.lock</code> as soon as a dependency moves, and Dependabot runs with a read-only token and cannot
 regenerate it. The release generates the document from the <code>Cargo.lock</code> of the tag that it
-publishes. Three mechanisms hold it:</p>
-<table>
-<thead>
-<tr>
-<th>Mechanism</th>
-<th>What it holds</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>cargo xtask check-attribution</code></td>
-<td>a generation names every third-party package in <code>Cargo.lock</code> and carries a <strong>declared licence for each one</strong> - a crate that declares none is a refusal</td>
-</tr>
-<tr>
-<td><code>cargo xtask check-attribution-owner</code></td>
-<td>no committed <code>ATTRIBUTION.md</code> comes back, and <code>release.yml</code> still generates the asset rather than copying one</td>
-</tr>
-<tr>
-<td>the release's own count floor</td>
-<td>the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing</td>
-</tr>
-</tbody>
-</table>
-<p>A new dependency's declared licence does not show up in a pull-request diff. <code>cargo deny check</code>
-refuses a licence that is not on the allowlist, and the first gate above refuses a missing one.</p>
+publishes.</p>
 <p><strong>It names vendored code too.</strong> The two crates under <code>vendor/mimalloc_rust</code> are path dependencies,
 not registry crates, and <code>sutura-cli</code> links the allocator on Linux. They are rows like any other
 third-party code. A row depends on the crate not being a workspace member, never on where the code
 came from.</p>
 <p><strong>Neither document carries the notice text of each dependency.</strong> The <code>NOTICE</code> file of an Apache-2.0
 crate lives in its source tree, not in its metadata, so nothing that reads metadata can render it.</p>
-<h2 id="what-none-of-this-establishes">What none of this establishes<a class="headerlink" href="#what-none-of-this-establishes" title="Permanent link">&para;</a></h2>
-<p>A verified release does not mean the following.</p>
-<ul>
-<li><strong>The build is not reproducible by you.</strong> The provenance records which workflow ran. It is not a
-  rebuild recipe that you can run. The build is pinned with Nix.</li>
-<li><strong>The dependencies can still have known advisories.</strong> <code>cargo-deny</code> checks them against the
-  RustSec database in CI on every dependency change and weekly. Its verdict is a CI run, not an
-  artefact that you can check offline.</li>
-<li><strong>The licence obligations are not fully discharged.</strong> The attribution document is signed. The
-  notice text of each Apache-2.0 dependency is in its source, not in its metadata, and the document
-  does not carry it. The allowlist in <code>deny.toml</code> is a policy check.</li>
-<li><strong>The crate list does not cover everything in the binary.</strong> It is what <code>cargo</code> compiled in. C that
-  a build script compiled, such as the allocator, is linked into the executable and is not a crate.
-  It appears in the image inventory as a file and not in the crate list as a package.</li>
-<li><strong>A transparency-log entry does not prove that the log was honest.</strong> <code>cosign</code> checks an inclusion
-  proof against Rekor and does not audit Rekor.</li>
-<li><strong>A verified image is not an image that you should run.</strong> It is the image that this pipeline
-  built. Whether to trust that pipeline is a question about this repository.</li>
-</ul>
 
 
 

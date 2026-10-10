@@ -3092,8 +3092,6 @@
 <h1 id="concepts">Concepts<a class="headerlink" href="#concepts" title="Permanent link">&para;</a></h1>
 <p>The words on the tool surface, and what each one commits to.
 <a href="../architecture/">Architecture</a> says how the pieces fit.</p>
-<p>A claim marked <strong>Enforced today</strong> is held by a type, a lint, a gate or a test. The mechanism is
-named beside the claim.</p>
 <h2 id="a-question-and-what-it-is-made-of">A question, and what it is made of<a class="headerlink" href="#a-question-and-what-it-is-made-of" title="Permanent link">&para;</a></h2>
 <p>A question names a <strong>metric</strong>, some <strong>dimensions</strong>, a <strong>grain</strong> and a bounded <strong>time range</strong>.
 That is the whole vocabulary. There is no field for SQL, a table, a filter expression or a list
@@ -3110,13 +3108,11 @@ revenue and monthly revenue are the same metric at two grains, not two metrics.<
 <p><strong>Time range.</strong> Bounded, always, in two senses. It must have both ends: an unbounded range is a
 table scan with a plausible name. It must also be short enough to be worth answering: two real
 dates ten thousand years apart are a full scan that parses cleanly.</p>
-<p><strong>Enforced today.</strong> <code>Query</code> carries no field for SQL, a table, a predicate or a row id, so an
-uncertified question is unrepresentable, not refused. <code>deny_unknown_fields</code> makes a question
-carrying <code>sql:</code> an error naming the field, not one silently dropped. <code>TimeRange</code> has no unbounded
-form, so an unbounded range fails to deserialize at all. Tests in <code>sutura-catalog-local</code> assert
-both, with a real format parser to provoke them. The span cap is separate and sits one layer in,
-at resolution, where the range is demonstrably a caller's, not an author's. The table under
-<a href="#what-you-cannot-ask-for">What you cannot ask for</a> says what it does and does not bound.</p>
+<p><code>Query</code> carries no field for SQL, a table, a predicate or a row id, so an uncertified question is
+unrepresentable, not refused. <code>deny_unknown_fields</code> makes a question carrying <code>sql:</code> an error
+naming the field, not one silently dropped. <code>TimeRange</code> has no unbounded form, so an unbounded
+range fails to deserialize at all. The span cap is separate and sits one layer in, at resolution,
+where the range is demonstrably a caller's, not an author's.</p>
 <p><strong>Telling an agent all of this is a separate job from enforcing it.</strong> An agent that has not been
 told what this surface is looks for a field to put SQL in, and then reads a refusal as an outage
 and retries. The types stop the damage but cannot stop the loop. So the vocabulary above is also
@@ -3127,26 +3123,25 @@ what an operator can layer on top.</p>
 <p>A <strong>definition</strong> is what a metric means: the measure it computes, the model it reads, the grains
 it supports, the dimensions it may be broken down by, and the filters that are part of its
 meaning.</p>
-<p><strong>Enforced today.</strong> That meaning is a closed vocabulary, not an expression language, so no field
+<p>That meaning is a closed vocabulary, not an expression language, so no field
 exists where a catalogue could write an arbitrary expression. <code>Measure</code> is an enum of two shapes
 over a <code>Term</code> enum of two terms. <code>RequiredFilter</code> is an enum of four operators.
 <code>deny_unknown_fields</code> applies at every depth. sutura generates the whole statement from that, in
 <code>sutura-semantic</code>, so neither caller-authored nor catalogue-authored SQL is on the path at all.</p>
-<p><strong>Loaded and refused at boot, and named so it cannot be quiet.</strong> A metric may instead carry
+<p><strong>Authored SQL.</strong> A metric may instead carry
 <code>authored_sql:</code> - a SQL expression a catalogue author wrote, for what the closed vocabulary cannot
 say: a window function, a percentile, an expression over two columns. It is a <em>sibling</em> of
 <code>measure:</code>, not a field on it, and exactly one of the two may be present. The fragment is admitted
 as text: present, bounded, one fragment rather than a script, free of control and invisible
-characters. It is pinned under the definition digest exactly as written. <strong>It is not compiled.</strong>
-Nothing published parses it, checks it against the model's columns or renders it. Every adapter
-this workspace ships refuses to start on a bundle that carries one, naming the metric. A caller
-still has no field for SQL, and the agent prompt still never sees any.</p>
-<p>An <strong>anchor</strong> is a known result for a metric. <strong>Enforced today:</strong> <code>sutura_app::verify_and_validate</code>
-re-executes every metric that declares one. It returns the bundle as <code>Validated</code> only if every
-anchor it declares was checked and matched. A bundle whose anchors were never checked cannot reach
-the query path. That function is the only thing anywhere that produces a <code>Validated</code>, and it takes
-the data system as an argument, so the type cannot be obtained unless a data system was asked. A
-<code>compile_fail</code> doctest holds it.</p>
+characters. It is pinned under the definition digest exactly as written. sutura does not compile
+it. No adapter this workspace ships executes it, so a bundle that carries one is refused at
+startup, naming the metric. A caller still has no field for SQL, and the agent prompt never sees
+any.</p>
+<p>An <strong>anchor</strong> is a known result for a metric. <code>sutura_app::verify_and_validate</code> re-executes every
+metric that declares one. It returns the bundle as <code>Validated</code> only if every anchor it declares was
+checked and matched. A bundle whose anchors were never checked cannot reach the query path. That
+function is the only thing anywhere that produces a <code>Validated</code>, and it takes the data system as an
+argument, so the type cannot be obtained unless a data system was asked.</p>
 <h2 id="the-pinned-snapshot">The pinned snapshot<a class="headerlink" href="#the-pinned-snapshot" title="Permanent link">&para;</a></h2>
 <p>Definitions do not arrive live. They arrive as a <strong>pinned snapshot</strong>: a bundle of definitions
 with a version and a <strong>digest</strong> over the text. Two consequences follow:</p>
@@ -3156,11 +3151,10 @@ with a version and a <strong>digest</strong> over the text. Two consequences fol
 <li>The catalogue cannot see who is asking. The load path takes no request context, so it cannot
   return one definition to one caller and a different one to another.</li>
 </ul>
-<p><strong>Enforced today.</strong> <code>SemanticCatalog::load</code> takes no argument at all, so there is no request
+<p><code>SemanticCatalog::load</code> takes no argument at all, so there is no request
 context to pass it and none to leave out. Dimension validation reads the pinned bundle, not a live
 view. The digest is taken over the canonical form of the parsed definitions. Reformatting a
-document does not move it, and changing what a metric means does move it. A golden asserts each
-case.</p>
+document does not move it, and changing what a metric means does move it.</p>
 <p>A result carries the version and digest of the definitions that produced it, so a number traces
 back to the text that defined it. That makes "certified" checkable, not asserted.</p>
 <h2 id="refusal">Refusal<a class="headerlink" href="#refusal" title="Permanent link">&para;</a></h2>
@@ -3169,26 +3163,26 @@ caller cannot mistake it for a transport hiccup and retry until something works.
 <p>Reasons are typed, not prose, because the variant is the contract and the message is not. A
 dimension that does not resolve, a value outside the allowlist, a plan that would need two data
 systems, a data system this process did not open: each is its own <code>RefusalReason</code> variant.</p>
-<p><strong>Enforced today.</strong> A refusal is <code>ToolOutcome::Refusal { reason }</code>, a variant of the result rather
-than an <code>Err</code>, and the golden suite provokes every variant a question can reach. A rejected value
+<p>A refusal is <code>ToolOutcome::Refusal { reason }</code>, a variant of the result rather
+than an <code>Err</code>. A rejected value
 is never echoed back. <code>DimensionValueNotAllowed</code> names the dimension and stops there, so caller
 text cannot be reflected into a log, a UI or an agent's context.</p>
-<p><strong>The limit is the deployment's rather than ours.</strong> Every outcome - a refusal as much
-as an answer - is written to an <code>AuditSink</code> before it is returned, and the record carries the
-principal chain. <code>sutura-runtime</code> ships the structured writer that a deployment gets when it
-attaches nothing else. Two things are not the same as attribution. First, sutura <strong>retains
-nothing</strong>, so what a record is worth is what the deployment's sink is worth. Second, the subject in
-that chain is only as strong as what established it. A deployment behind the shared bearer token
-alone records the <em>deployment</em>, because that is who asked as far as anything can tell. A
-deployment that declares <code>security.inbound</code> records the caller, from a signature.</p>
+<p><strong>Audit.</strong> Every outcome - a refusal as much as an answer - is written to an <code>AuditSink</code> before
+it is returned, and the record carries the principal chain. <code>sutura-runtime</code> provides the
+structured writer that a deployment gets when it attaches nothing else. sutura <strong>retains
+nothing</strong>: the sink the deployment attaches keeps the record. A deployment behind the shared bearer
+token alone records the <em>deployment</em> as the subject. A deployment that declares <code>security.inbound</code>
+records the caller, from a signature.</p>
 <p>The record names who asked and which identity each leg ran under.</p>
 <h2 id="principal-subject-and-running-as-the-caller">Principal, subject, and running as the caller<a class="headerlink" href="#principal-subject-and-running-as-the-caller" title="Permanent link">&para;</a></h2>
 <p>The <strong>principal</strong> is who is asking. When an agent asks for a person, the principals form a chain.
 The <strong>subject</strong> is the identity that the data system sees: the person, not the service.</p>
 <p>A leg runs in one of two ways:</p>
 <ul>
-<li><strong>secure-impersonation</strong> (BigQuery). The leg runs as the subject. sutura mints a credential for
-  each request.</li>
+<li><strong>secure-impersonation</strong> (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery, the
+  caller's verified token is exchanged for the service account that the operator declares for that
+  subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  ClickHouse user that the operator declares for that subject (<code>EXECUTE AS</code>).</li>
 <li><strong>shared-service-user</strong> (files, Postgres). The leg runs as the deployment's own identity for
   that source. An operator declares this in the configuration.</li>
 </ul>
@@ -3269,51 +3263,42 @@ with an enforced row width, not a text blob. An answer carries <code>Provenance<
 field, not as text mixed into the rows. The definition version and digest travel there, so a
 result is still not separable from what defined it.</p>
 <h2 id="what-you-cannot-ask-for">What you cannot ask for<a class="headerlink" href="#what-you-cannot-ask-for" title="Permanent link">&para;</a></h2>
-<p>Absences by design. The last column says what holds each one, because an absence written down and
-an absence enforced are not the same thing:</p>
+<p>Absences by design:</p>
 <table>
 <thead>
 <tr>
 <th>Not available</th>
 <th>Why</th>
-<th>What holds it</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>SQL, a table name, a filter expression, row ids</td>
 <td>The tool surface has no field for any of them. An uncertified question is unrepresentable, not merely refused</td>
-<td><strong>Enforced.</strong> <code>Query</code> declares no such field, and <code>deny_unknown_fields</code> makes an attempt an error naming it</td>
 </tr>
 <tr>
 <td>A cached result</td>
 <td>Under row-level security a query-keyed cache is a cross-user leak. There is no cache to key</td>
-<td><strong>Enforced by absence.</strong> No mechanism can prove one: adding any cache of rows is an architecture decision, keyed on subject first or not at all</td>
 </tr>
 <tr>
 <td>An edit to a definition</td>
 <td>Editing one forks the definition from the number it certifies. Definitions are authored upstream</td>
-<td><strong>Enforced.</strong> Nothing on the query path writes to the catalogue. The bundle is hashed, so an edit moves the digest that travels with the answer</td>
 </tr>
 <tr>
 <td>A query as the service identity</td>
 <td>A leg that cannot run as the subject should be refused rather than downgraded</td>
-<td><strong>Enforced.</strong> <code>Warehouse::execute</code> takes a credential a broker minted for that source and has no signature that omits one, so there is no fallback to downgrade through. A subject with no credential is refused as <code>credential_unavailable</code>. An adapter handed material it cannot use returns an error rather than answering. A <code>files</code> or <code>postgres</code> leg runs as this process (shared-service-user), by declaration, and the answer records that it did</td>
 </tr>
 <tr>
 <td>An unbounded time range</td>
 <td>A range has to be bounded to resolve at all</td>
-<td><strong>Enforced.</strong> <code>TimeRange</code> has no unbounded form, so an absent bound fails to deserialize and the refusal is unprovokable</td>
 </tr>
 <tr>
 <td>A range too long to be worth answering</td>
-<td>A bounded range still permits a full scan: two real dates can be ten thousand years apart</td>
-<td><strong>Enforced, on the caller's path only.</strong> Resolution refuses a span over ten years as <code>TimeRangeTooLong</code>, carrying two derived integers and nothing of the caller's text. It is checked there rather than in the type, because the same type carries a metric's anchor range, which an author writes and no caller can reach. <strong>What it does not bound:</strong> the work inside a permitted span, or a caller asking three permitted questions in a row. A per-caller budget needs a clock and a subject, which is the same absent port as the identity row above</td>
+<td>A bounded range still permits a full scan: two real dates can be ten thousand years apart. Resolution refuses a span over ten years as <code>TimeRangeTooLong</code></td>
 </tr>
 <tr>
 <td>A definitional filter removed or renamed</td>
-<td>A metric's required filters are part of what it means</td>
-<td><strong>Enforced.</strong> They are compiled into every plan for the metric and marked as definitional. A caller has no field that could name, select or remove one</td>
+<td>A metric's required filters are part of what it means. They are compiled into every plan for the metric, and a caller has no field that could name, select or remove one</td>
 </tr>
 </tbody>
 </table>
