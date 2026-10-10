@@ -62,6 +62,8 @@ pub(super) fn open(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "oracle")]
+    use crate::sources::declaring_direct;
     use crate::sources::{bundle_naming, declaring, open_engine, runtime, timeout};
 
     /// One `sources:` entry for an Oracle database, with every key that kind is opened with. The
@@ -145,7 +147,7 @@ mod tests {
     #[test]
     #[cfg(feature = "oracle")]
     fn an_impersonating_oracle_source_is_refused_by_the_command_that_attaches_no_broker_for_it() {
-        let impersonating = declaring(
+        let impersonating = declaring_direct(
             "warehouse",
             "    kind: oracle\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"FREEPDB1\"\n    \
              user: \"sutura\"\n    password_file: \"/nonexistent/sutura-cli-test-oracle-pass\"\n    \
