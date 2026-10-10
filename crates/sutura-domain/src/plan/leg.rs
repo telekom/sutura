@@ -332,10 +332,12 @@ pub enum LegPlan {
     /// would be a predicate on a column that is not there; nothing is aggregated, so there is no
     /// term and no measure label; and the metric belongs to the fact leg.
     ///
-    /// **`table` is a checked [`StatementTables`], for [`Fact`](LegPlan::Fact)'s reason**: the one
-    /// type holds a statement's `FROM` table and its joins, and refuses two tables answering to one
-    /// identifier. It serializes `#[serde(flatten)]` like the fact leg's, so `table` sits beside
-    /// `joins`. Both renderers read its joins as they read the fact leg's; no builder gives a lookup leg one.
+    /// **It may join further, inside the data system it reads.** A chain that crosses onto this
+    /// system and carries on - `customers` then the `regions` beside it - is one statement here: the
+    /// crossing hop's table is the `FROM` and every later hop is a `LEFT JOIN` of this leg's own,
+    /// which is why `table` is a checked [`StatementTables`] and not a bare path, for
+    /// [`Fact`](LegPlan::Fact)'s reason. It serializes `#[serde(flatten)]` like the fact leg's, so
+    /// `table` sits beside `joins`, empty when the dimension is one hop.
     ///
     /// `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
     /// dimension carrying a filter, LEFT for one that does not. That derivation belongs to the

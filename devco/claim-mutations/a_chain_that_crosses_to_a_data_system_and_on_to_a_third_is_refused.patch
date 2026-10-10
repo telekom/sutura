@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index 3213e4d02..94b1ee4b6 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -692,7 +692,7 @@ impl Definitions {
+                     }
+                 })?;
+                 match crossed {
+-                    Some(crossed_to) if target.source() != crossed_to => {
++                    Some(crossed_to) if target.source() == model.source() => {
+                         return Err(InconsistentDefinitions::HopCrossesSource {
+                             metric: metric.name.clone(),
+                             dimension: dimension.name.clone(),

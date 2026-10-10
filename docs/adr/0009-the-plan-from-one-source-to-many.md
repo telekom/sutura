@@ -1035,3 +1035,14 @@ What this does not show:
   only. A float distinct column was not run through the catalog and the two-engine differential: the
   corpus has none.
 - The sixth amendment said the pull-up is still refused before execution. That is no longer true.
+
+## Eighth amendment, 2026-10-09: the float zero fold depends on the key expression, not only on the plan shape
+
+The seventh amendment says the combine's grouped aggregate counts `-0.0` with `0.0` in a lone
+distinct count, so that only the NaN fold shows there. That holds for some key expressions only.
+Whether `DataFusion` merges the zeros depends on the key expression as well as on the plan shape,
+and a key whose zero arm does not fire can count them apart.
+
+The zero arm is therefore needed in general, in a lone distinct count as well as in a ratio of two
+distinct counts. This paragraph replaces the narrower wording of the seventh amendment. The arm is
+in the code, so no answer changes.

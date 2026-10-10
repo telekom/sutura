@@ -1,11 +1,11 @@
 //! The derived corpus: the shared example bytes, plus the declared edits that make a topology the
 //! quickstart cannot state.
 //!
-//! The baseline has **one data directory, two catalogs over it, differing in exactly one line** - whether
-//! the `customers` model sits on the metric's own data system. That width is
-//! [`the_two_catalogs_differ_in_one_document`], and it is the control on the baseline instrument:
-//! without it, a corpus asymmetry would be reported by `super` as a federation defect, which is the
-//! most expensive kind of false positive because the diagnosis names the wrong subsystem.
+//! The baseline has **one data directory, two catalogs over it, differing only in which data system
+//! holds the dimension models**: `ON_A_SECOND_DATA_SYSTEM` is applied to the two-source catalog and
+//! to nothing else, and every case here is applied to both. A corpus asymmetry would be reported by
+//! `super` as a federation defect, which is the most expensive kind of false positive because the
+//! diagnosis names the wrong subsystem.
 //! The refusal-only variants also move products, under distinct stems without mutating the baseline.
 //!
 //! **Derived rather than committed, and that is a scope decision.** Placing the dimension model on a
@@ -69,8 +69,6 @@ pub(crate) enum Edit {
     Added(&'static str),
     /// Rows appended to a shared file.
     Appended(&'static str),
-    /// A shared document, deleted. Absent, the derivation panics, for [`Self::Rewrite`]'s reason.
-    Removed,
 }
 
 /// The one-sided edit's shape, and it is a REWRITE of a document both catalogs already have.
@@ -96,15 +94,26 @@ impl OneSided {
     }
 }
 
-/// **The one difference between the two bundles**: which data system holds the dimension model.
+/// **The one difference between the two bundles**: which data system holds the dimension models.
 ///
-/// Applied to the two-source catalog and to nothing else. Every case below is applied to BOTH,
-/// so this line is the whole of what the differential varies.
-pub(crate) const ON_A_SECOND_DATA_SYSTEM: OneSided = OneSided {
-    at: "models/customers.md",
-    find: "source: local",
-    with: "source: geo",
-};
+/// `customers` and the `regions` beside it, so a chain that crosses onto the second system at
+/// `customers` and carries on to `regions` is a question the differential asks; one chain per
+/// crossing position is what every case below needs, and a chain that crosses at a LATER hop is the
+/// `voice_minutes` case in [`CATALOG_CASES`]. Applied to the two-source catalog and to nothing else.
+/// Every case below is applied to BOTH, so these lines are the whole of what the differential
+/// varies.
+pub(crate) const ON_A_SECOND_DATA_SYSTEM: [OneSided; 2] = [
+    OneSided {
+        at: "models/customers.md",
+        find: "source: local",
+        with: "source: geo",
+    },
+    OneSided {
+        at: "models/regions.md",
+        find: "source: local",
+        with: "source: geo",
+    },
+];
 
 /// The cases the shared corpus does not carry, derived into BOTH catalogs.
 ///
@@ -123,28 +132,6 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
             with: "  - name: customer_key\n    column: status\n    values: [active, terminated]\n    description: >\n      A legal dimension whose NAME is the remote join target's column, backed by a different\n      column. It is here so the splitter's internal link label has something to collide with.\nanchor:\n  range:",
         },
     ),
-    // **The shared corpus's one CHAINED dimension, removed - and the reason is a limit of the
-    // splitter rather than a convenience.** `sales_area` is reached through `subscription_customer`
-    // then `customer_region`, and a federated plan carries exactly one link and one lookup TABLE:
-    // hop 1 is the link, and there is nowhere for hop 2 to be planned. So the topology this file
-    // derives cannot state that dimension at all - with `customers` on the second data system the
-    // chain would cross at hop 1 and come back at hop 2, which
-    // `sutura_domain::catalog::Definitions::assemble` refuses by name and which
-    // `sutura_semantic::plan` refuses again. Removed from BOTH catalogs, so the derivation stays
-    // one document wide, and the shared question that asks for it is then refused identically on
-    // both sides and skipped. A two-hop dimension's evidence is the shared corpus's own golden and
-    // executed cells, which this file does not replace.
-    (
-        "metrics/recurring_revenue.md",
-        Edit::Rewrite {
-            find: "  - name: sales_area\n    column: sales_area\n    via: [subscription_customer, customer_region]\n    values: [central, north_east, south_west]\n    description: >\n      Which sales area the customer's region rolls up into. The one dimension here\n      reached through a chain of two relationships rather than one.\n",
-            with: "",
-        },
-    ),
-    // The caveat written about `customer_region`, removed with the dimension above: `sales_area`
-    // was the one dimension reached through it, so it would reach no metric and the load would
-    // refuse both catalogs by name.
-    ("knowledge/caveats/sales-area-as-of-today.md", Edit::Removed),
     // A zero denominator in ONE subgroup, under `fails`: the answer this metric's own document
     // argues for is a failure rather than a figure, and grouping it by a REMOTE attribute is
     // what makes the guard fire above two legs instead of inside one statement.
@@ -192,18 +179,17 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
             "---\nkind: metric\nname: smallest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: min, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nThe smallest recurring amount any one subscription carried in the period.\n\nThe other end of `largest_subscription_mrr`, for the other arm of the same table.\n",
         ),
     ),
-    // `voice_minutes`'s own chained dimension, removed for the same reason `sales_area` is above:
-    // `product_family` is reached through `usage_subscription` (hop 1, `daily_usage` to
-    // `subscriptions`, both local) then `subscription_product` (hop 2, `subscriptions` to
-    // `products`) - and `remote_products` moves `products` to a second data system, which makes
-    // hop 2 cross where only hop 1 of a chain may. Removed from BOTH catalogs so this derivation
-    // stays the one line `the_two_catalogs_differ_in_one_document` measures; the compound join's
-    // own evidence is the shared corpus's golden and executed cells, not this file.
+    // **A chain that crosses at its SECOND hop, which the shared corpus has no dimension for.**
+    // `voice_minutes` is on `daily_usage`, and `region` is reached through `usage_subscription` - a
+    // same-source hop onto `subscriptions` - and then `subscription_customer`, which lands on
+    // `customers`. With `customers` on the second data system the link is the SECOND hop: the fact
+    // leg joins `subscriptions` and links on a column of THAT table, which a splitter that
+    // qualified the link by the metric's own table would ask `daily_usage` for.
     (
         "metrics/voice_minutes.md",
         Edit::Rewrite {
-            find: "dimensions:\n  - name: product_family\n    column: product_family\n    via: [usage_subscription, subscription_product]\n    values: [convergent, fixed_internet, mobile, tv]\n    description: >\n      The kind of product the subscription that used the minutes belongs to. Reached through\n      `usage_subscription` - the compound join from a usage day to the monthly snapshot -\n      and then on to the product. Grouping by it does not multiply the minutes, because the\n      compound key stops every usage day from joining every month that subscription existed.\n",
-            with: "",
+            find: "existed.\n---\nOutgoing voice minutes.",
+            with: "existed.\n  - name: region\n    column: region\n    via: [usage_subscription, subscription_customer]\n    values: [central, east, north, south, west]\n    description: Where the customer who held the subscription is.\n---\nOutgoing voice minutes.",
         },
     ),
     // A distinct value that genuinely SPANS join keys: several customers subscribe to one product,
@@ -367,6 +353,11 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
         "two-source-a-same-source-orphan-beside-a-remote-one",
         "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region, product_family]\n",
     ),
+    // A chain that crosses at its second hop: the fact leg joins `subscriptions` and links on it.
+    (
+        "two-source-a-chain-that-crosses-at-its-second-hop",
+        "metrics: [voice_minutes]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
+    ),
     // A distinct value spanning join keys: pulled up, and answered the same as one source.
     (
         "two-source-a-distinct-value-spanning-join-keys",
@@ -527,10 +518,9 @@ fn derive_into(stem: &str) -> Derived {
         apply(&derived.one_source.join(at), edit);
         apply(&derived.two_source.join(at), edit);
     }
-    apply(
-        &derived.two_source.join(ON_A_SECOND_DATA_SYSTEM.at),
-        &ON_A_SECOND_DATA_SYSTEM.edit(),
-    );
+    for one_sided in &ON_A_SECOND_DATA_SYSTEM {
+        apply(&derived.two_source.join(one_sided.at), &one_sided.edit());
+    }
     derived
 }
 
@@ -575,9 +565,6 @@ fn apply(to: &Path, edit: &Edit) {
             text.push_str(rows);
             write(to, &text);
         }
-        Edit::Removed => {
-            std::fs::remove_file(to).unwrap_or_else(|e| panic!("could not remove {}: {e}", to.display()));
-        }
     }
 }
 
@@ -597,65 +584,6 @@ pub(crate) fn every_question() -> Vec<(String, Query)> {
         all.push((String::from(name), query));
     }
     all
-}
-
-/// The width of the difference between the two bundles, as a property rather than a comment.
-///
-/// If a case were derived into one catalog and not the other, this file would report a corpus
-/// asymmetry as a federation defect - the most expensive kind of false positive a differential
-/// can have, because the diagnosis names the wrong subsystem.
-#[test]
-fn the_two_catalogs_differ_in_one_document() {
-    let derived = derived();
-    let mut differing: Vec<String> = Vec::new();
-    // **Both roots, and that direction is the whole assertion.** Walking `one_source` alone left a
-    // document only `two_source` has in neither set - not in the walk, and not in `CATALOG_CASES`
-    // unless it happened to name that path - so a one-sided ADDITION passed while a one-sided
-    // rewrite reddened. Review measured it: a metric added to the two-source catalog only left this
-    // binary at `15 tests run: 15 passed`. `OneSided` now makes that particular addition
-    // unrepresentable; this walk is what catches one arriving any other way.
-    for (root, path) in [&derived.one_source, &derived.two_source]
-        .into_iter()
-        .flat_map(|root| every_document(root).into_iter().map(move |path| (root, path)))
-    {
-        let at = path
-            .strip_prefix(root)
-            .expect("the walk started at this root")
-            .to_string_lossy()
-            .into_owned();
-        compare_document(derived, &at, &mut differing);
-    }
-    differing.sort();
-    differing.dedup();
-    assert_eq!(
-        differing,
-        vec![String::from(ON_A_SECOND_DATA_SYSTEM.at)],
-        "the two catalogs must differ in exactly the document that moves the dimension model"
-    );
-}
-
-fn compare_document(derived: &Derived, at: &str, differing: &mut Vec<String>) {
-    let here = std::fs::read_to_string(derived.one_source.join(at)).unwrap_or_default();
-    let there = std::fs::read_to_string(derived.two_source.join(at)).unwrap_or_default();
-    if here != there {
-        differing.push(at.replace('\\', "/"));
-    }
-}
-
-fn every_document(root: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(&directory).unwrap_or_else(|e| panic!("could not read {}: {e}", directory.display())) {
-            let entry = entry.expect("a directory entry is readable");
-            if entry.file_type().expect("an entry has a type").is_dir() {
-                pending.push(entry.path());
-            } else {
-                found.push(entry.path());
-            }
-        }
-    }
-    found
 }
 
 /// Which join keys one (month, region, product) triple was seen under.

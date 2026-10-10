@@ -45,7 +45,7 @@ use crate::resolve::{Resolution, ResolvedFilter, ResolvedFilterValue};
 mod chain;
 mod federated;
 
-use chain::{chain_joins, chain_leaving_its_source, column_of, every_dimension, every_remote_dimension, is_remote};
+use chain::{chain_joins, chain_leaving_its_crossing, column_of, every_dimension, every_remote_dimension, is_remote};
 use federated::federated_plan;
 
 /// What the plan stage decided to execute.
@@ -117,26 +117,28 @@ pub(crate) enum PlanError {
     /// wiring, which is why this is not a [`RefusalReason`] at all.
     #[error("the federated splitter found no remote dimension to join the fact leg through")]
     NoRemoteJoin,
-    /// A resolved chain that leaves the metric's data system anywhere but at its first hop.
+    /// A resolved chain that crossed onto another data system and then left it: back onto the
+    /// metric's own, or onto a third.
     ///
     /// **The plan-time half of a refusal that used to exist only at load, and the reason for two is
     /// that the load one was wrong in a way nothing downstream could see.** It compared each hop's
     /// TARGET against the metric's source, so a chain crossing at hop 1 and returning at hop 2 was
     /// accepted; [`chain::is_remote`] then read that chain off its last hop, called it local, and
     /// [`mono_plan`] rendered the other system's table into one statement under a certified metric
-    /// name. `sutura_domain::catalog::Definitions::assemble` compares both ends of every later hop
-    /// now, which is the mechanism - and this is what holds if a bundle ever reaches the plan stage
-    /// without having been through it.
+    /// name. `sutura_domain::catalog::Definitions::assemble` walks the chain remembering where it
+    /// crossed to now, which is the mechanism - and this is what holds if a bundle ever reaches the
+    /// plan stage without having been through it.
     ///
     /// A [`PlanError`] rather than a [`RefusalReason`], for [`NoRemoteJoin`](Self::NoRemoteJoin)'s
     /// reason: a caller cannot narrow their question out of a catalog this workspace admitted, so
     /// telling them to ask differently would be telling them to retry our defect. `hop` is 1-based,
     /// matching the number the load-time report gives a catalog author.
     ///
-    /// **Unlike the three arms above it, this one is provoked** - `a_chain_that_leaves_its_source`
-    /// in this module's tests builds the resolution by hand, which is the only way past the load
-    /// check, and that is also the negative control for the load check being the real mechanism.
-    #[error("dimension {dimension} of metric {metric} leaves its data system at hop {hop} of its chain")]
+    /// **Unlike the three arms above it, this one is provoked** -
+    /// `a_chain_that_leaves_its_source_is_refused_at_plan_time` in this module's tests
+    /// builds the resolution by hand, which is the only way past the load check, and that is also
+    /// the negative control for the load check being the real mechanism.
+    #[error("dimension {dimension} of metric {metric} leaves the data system it crossed to at hop {hop} of its chain")]
     ChainLeavesItsSource {
         metric: MetricName,
         dimension: DimensionName,
@@ -172,8 +174,8 @@ impl From<RefusalReason> for PlanError {
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
 ///
-/// **A third thing is checked before either, and it is not a refusal:** a chain that leaves the
-/// metric's data system after its first hop cannot be rendered by either plan shape, and neither
+/// **A third thing is checked before either, and it is not a refusal:** a chain that crossed onto
+/// another data system and then leaves it cannot be rendered by either plan shape, and neither
 /// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // Every metric has now resolved exactly as one was checked - every one's grain, every
@@ -246,7 +248,7 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             }));
         }
     }
-    if let Some((dimension, hop)) = chain_leaving_its_source(resolution) {
+    if let Some((dimension, hop)) = chain_leaving_its_crossing(resolution) {
         return Err(PlanError::ChainLeavesItsSource {
             metric: resolution.metric.name().clone(),
             dimension: dimension.clone(),
@@ -575,7 +577,7 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
     for filter in requested {
-        let column = PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone());
+        let column = column_of(&filter.dimension, remote_table);
         let predicate = requested_predicate(filter, column, &mut params);
         filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
     }
