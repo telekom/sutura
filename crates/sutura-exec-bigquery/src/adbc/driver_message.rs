@@ -27,10 +27,12 @@ impl DriverMessage {
 
     /// Did the data system refuse the identity this call ran as?
     ///
-    /// `Unauthorized` is what the pinned driver's `errToAdbcErr` (`go/util.go`) gives a `403`, a
-    /// job's `accessDenied`, a gRPC `PermissionDenied` from the Storage Read API and a `401` from
-    /// the token exchange - each refused again on every retry until a grant or the pool changes.
-    /// Every other status is a failure a retry may answer.
+    /// `Unauthorized` is what the pinned driver's `errToAdbcErr` (`go/util.go`) gives a job's
+    /// `accessDenied`, a gRPC `PermissionDenied` from the Storage Read API and a `401` from the
+    /// token exchange, and what `nix/bigquery-adbc-forbidden.patch` adds for a REST `403` whose
+    /// reason is `accessDenied`, `billingNotEnabled` or `blocked` - each refused again on every
+    /// retry until a grant or the pool changes. Every other status, a `403` for a rate or a quota
+    /// among them, is a failure a retry may answer.
     pub(crate) const fn refused_the_identity(&self) -> bool {
         matches!(self.status, Status::Unauthorized)
     }

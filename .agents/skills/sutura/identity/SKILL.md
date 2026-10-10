@@ -222,7 +222,9 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   `roles/iam.workloadIdentityUser` or `roles/iam.serviceAccountTokenCreator` is involved; the
   grants that matter are BigQuery roles and row access policies whose member is
   `principal://.../subject/<sub>`. **Limit:** nothing here sees a live IAM policy, so a caller with
-  no grant fails at BigQuery on their FIRST QUESTION (`source_refused`), never at boot; and no run
+  no grant fails at BigQuery on their FIRST QUESTION (`source_refused`), never at boot - a REST
+  `403` access denial reads as `Unauthorized` only through `nix/bigquery-adbc-forbidden.patch`
+  (upstream maps it to `Internal`, which answers 503 `unavailable`); and no run
   has shown Google accepting the federation.
 - **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
   a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no

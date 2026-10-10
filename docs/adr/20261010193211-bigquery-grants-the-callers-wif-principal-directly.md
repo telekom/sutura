@@ -37,8 +37,10 @@ configuration that still writes it is refused as an unknown key.
 
 **No subject allow-list.** A federating source presents every verified caller's own token. The
 pool provider's attribute conditions and BigQuery IAM decide who reaches data. A caller with no
-grant is refused by BigQuery, and sutura reports it as `source_refused`. An anonymous request is
-refused before any source is asked, and no question runs as the deployment.
+grant is refused by BigQuery, and sutura reports it as `source_refused`: the vendored driver gives
+BigQuery's REST `403` access denial the status `Unauthorized`, as it already does for a job's
+`accessDenied` (`VENDOR.md`). A `403` for a rate or a quota stays a failure a retry may answer. An
+anonymous request is refused before any source is asked, and no question runs as the deployment.
 
 ## Options considered
 
