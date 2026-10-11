@@ -66,11 +66,15 @@ use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, Real, Re
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
+use crate::datetime::{date_cell, oracle_date};
+
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
 /// Behind the default-off `fixtures` feature - see that module's own header for why.
 #[cfg(feature = "fixtures")]
 pub mod fixture;
+
+mod datetime;
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -515,10 +519,15 @@ impl OracleWarehouse {
                 .get::<Option<String>>(index)
                 .map_err(decode_err)?
                 .map_or(Value::Null, Value::Text))
+        } else if db_type == oracledb::DB_TYPE_TIMESTAMP_LTZ {
+            Err(OracleError::UnsupportedType {
+                column: String::from(label),
+                oracle_type: "TIMESTAMP WITH LOCAL TIME ZONE; the driver hands it in the session zone with no offset",
+            })
         } else if db_type.is_date_type() {
             row.get::<Option<oracledb::OracleTimestamp>>(index)
                 .map_err(decode_err)?
-                .map_or(Ok(Value::Null), |ts| date_cell(&ts))
+                .map_or(Ok(Value::Null), |ts| date_cell(&ts, db_type))
         } else if db_type == oracledb::DB_TYPE_BINARY_DOUBLE {
             row.get::<Option<f64>>(index).map_err(decode_err)?.map_or_else(
                 || Ok(Value::Null),
@@ -617,30 +626,6 @@ impl OracleParam {
             Self::Date(ref d) => d,
         }
     }
-}
-
-/// A domain [`sutura_domain::calendar::Date`], as the driver's `OracleTimestamp::new_date` wants
-/// it - via the date's own ISO text rather than a day-offset arithmetic, because
-/// [`sutura_domain::calendar::Date`] exposes no field accessors and its ISO form is fixed-width.
-fn oracle_date(date: sutura_domain::calendar::Date) -> oracledb::OracleTimestamp {
-    let iso = date.to_iso();
-    let mut parts = iso.split('-');
-    let year: i16 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let month: u8 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
-    let day: u8 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
-    oracledb::OracleTimestamp::new_date(year, month, day)
-}
-
-/// The reverse of [`oracle_date`]: a `DATE`/`TIMESTAMP` column, back to a domain
-/// [`Value::Text`] carrying its ISO day - the domain's Arrow reader renders a Postgres `DATE` the
-/// same way.
-fn date_cell(ts: &oracledb::OracleTimestamp) -> Result<Value, OracleError> {
-    sutura_domain::calendar::Date::new(ts.year(), ts.month(), ts.day())
-        .map(|date| Value::Text(date.to_iso()))
-        .map_err(|_cause| OracleError::UnsupportedType {
-            column: String::from("<date>"),
-            oracle_type: "a date this build cannot represent",
-        })
 }
 
 /// Maps a decoded `NUMBER` exactly: a value whose driver-rendered base-10 text parses as an `i64`
