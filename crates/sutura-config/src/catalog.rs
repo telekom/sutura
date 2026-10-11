@@ -724,7 +724,14 @@ mod tests {
 
     #[test]
     fn an_openmetadata_entry_missing_either_required_field_is_refused_naming_it() {
-        let base = settings("metrics");
+        let base = CatalogSettings::parse(
+            name("metrics"),
+            CatalogKind::Openmetadata,
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version(),
+        )
+        .expect("a declared catalog is a catalog");
         let missing_endpoint = base
             .clone()
             .with_http_reader(String::new(), PathBuf::from("/nowhere/token"))

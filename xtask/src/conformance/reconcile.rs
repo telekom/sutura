@@ -446,16 +446,20 @@ mod tests {
     /// A registered adapter with no binding and no exemption is a failure that NAMES it.
     #[test]
     fn an_unbound_registered_adapter_is_reported_by_name() {
-        // `oracle` rides along, held exactly as the REAL `UNBOUND` const declares
-        // it: `problems()` checks that const against whatever registry this fixture built, and a
+        // `oracle` and `cube` ride along, held exactly as the REAL `UNBOUND` const declares
+        // them: `problems()` checks that const against whatever registry this fixture built, and a
         // fixture that named only `ghost` would read the real entries as excusing nothing this
         // registry registered - a second, unrelated problem this test is not about. Matching them
         // here is what keeps the fixture's own registry the only thing under test.
-        let entries = vec![entry("ghost", "sutura-exec-ghost"), entry("oracle", "sutura-exec-oracle")];
+        let entries = vec![
+            entry("ghost", "sutura-exec-ghost"),
+            entry("oracle", "sutura-exec-oracle"),
+            entry("cube", "sutura-exec-cube"),
+        ];
         let decided: Vec<_> = core::iter::once(Held::Unheld)
             .chain(UNBOUND.iter().map(Held::Exempt))
             .collect();
-        let reconciled = Reconciled::of(entries, decided).expect("two entries, two decisions");
+        let reconciled = Reconciled::of(entries, decided).expect("three entries, three decisions");
         let problems = reconciled.problems(&[]);
         let named = problems
             .iter()

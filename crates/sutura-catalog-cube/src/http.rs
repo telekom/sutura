@@ -115,14 +115,18 @@ impl HttpMetaReader {
             .call()
             .map_err(|cause| HttpReaderError::Unreachable(Box::new(cause)))?;
         let status = response.status();
-        // `ureq`'s `limit` is a backstop above the cap; the length check below is the cap itself.
+        // `ureq`'s `limit` is a backstop above the cap, refused as the cap is; the length check
+        // below is the cap itself.
         let cap = self.bounds.max_response_bytes();
         let text = response
             .body_mut()
             .with_config()
             .limit(cap.saturating_add(cap.max(1024)))
             .read_to_string()
-            .map_err(|cause| HttpReaderError::Unreadable(Box::new(cause)))?;
+            .map_err(|cause| match cause {
+                ureq::Error::BodyExceedsLimit(_) => HttpReaderError::TooLarge { cap },
+                cause => HttpReaderError::Unreadable(Box::new(cause)),
+            })?;
         if text.len() as u64 > cap {
             return Err(HttpReaderError::TooLarge { cap });
         }
