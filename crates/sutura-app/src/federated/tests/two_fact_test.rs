@@ -334,6 +334,72 @@ fn a_two_fact_answer_records_all_three_sources_in_executed_as() {
 }
 
 #[test]
+fn the_ledger_charges_every_leg_of_the_cut_before_any_leg_runs() {
+    // `docs/adr/0030`'s all-or-nothing over the whole cut: three legs at 400 each sum to 1200,
+    // over the 1000 ceiling, while any two of them (800) are under it. A cut that dropped the
+    // second fact from what is charged would admit 800 and run all three legs.
+    let source = |name: &str| SourceName::parse(name).expect("a test source");
+    let shared = shared();
+    let warehouses = Warehouses::of(crate::tests_support::PricedWarehouse::pricing(
+        source("facts"),
+        shared.clone(),
+        revenue_rows(),
+        Some(400),
+    ))
+    .and(crate::tests_support::PricedWarehouse::pricing(
+        source("orders"),
+        shared.clone(),
+        visit_rows(),
+        Some(400),
+    ))
+    .expect("two sources so far")
+    .and(crate::tests_support::PricedWarehouse::pricing(
+        source("geo"),
+        shared,
+        north_rows(),
+        Some(400),
+    ))
+    .expect("three sources, one registry");
+    let ledger = SpendLedger::new(Some(crate::spend::SpendBudget::new(
+        1_000,
+        std::time::Duration::from_secs(60),
+    )));
+    let outcome = answer_federated(
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
+        &two_fact_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &ledger,
+        sutura_domain::plan::RowCeilings::DEFAULT,
+    )
+    .expect("a refusal is an Ok")
+    .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::BudgetExhausted { .. }
+            }
+        ),
+        "the three legs' summed estimate (1200) is over the ceiling (1000): {outcome:?}"
+    );
+    for leg in ["facts", "orders", "geo"] {
+        assert_eq!(
+            warehouses
+                .get(&source(leg))
+                .expect("all three legs are registered")
+                .executions(),
+            0,
+            "a cut refused for spend never reaches the `execute` of {leg}"
+        );
+    }
+}
+
+#[test]
 fn a_two_fact_answer_whose_second_source_lacks_a_warehouse_is_refused() {
     // A two-fact plan needs a warehouse for its second fact's source, and the orchestrator looks
     // it up BEFORE any credential is minted - so a registry that omits it declines with

@@ -358,6 +358,10 @@ is one operating-system identity, so a combine runs as the deployment. What the 
 per subject instead is a `ComputeContext` - see
 `Self::for_subject`.
 
+## `use SourceProvider`
+
+The provider for `subject`'s scans of `source`.
+
 ## Module `measurement`
 
 Opt-in peak recording for measurement-only children, excluded from default builds.

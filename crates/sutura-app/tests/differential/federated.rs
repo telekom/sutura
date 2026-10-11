@@ -345,6 +345,53 @@ fn two_sources_of_two_kinds_answer_the_same_rows_as_one_source_over_the_same_dat
     harness::differential(&one, &two, "two kinds: duckdb and the engine");
 }
 
+/// **Every federated question answers through the combiner's cut and leg runner as one source
+/// answers it**, on both sides whose legs the shipped engine holds. Only `differential`'s
+/// row-disagreement verdict - the panic whose message opens `on {topology}, ` - is caught, so its
+/// reason is printed above and the verdict is this cell's assertion. Every other panic, in
+/// production or in the harness's coverage checks, is re-raised by `resume_unwind`, which runs no
+/// panic hook, so it carries no site in this cell. The match is on message text.
+#[test]
+fn every_federated_question_answers_through_the_leg_runner_as_one_source_does() {
+    let derived = derived();
+    let one = harness::one_source(harness::bundle(&derived.one_source));
+    let engines = harness::two_engines(harness::bundle(&derived.two_source));
+    let kinds = two_kinds(harness::bundle(&derived.two_source));
+    let differs = |topology: &str, run: &dyn Fn()| {
+        let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) else {
+            return false;
+        };
+        let verdict = format!("on {topology}, ");
+        let judged = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .is_some_and(|message| message.starts_with(&verdict));
+        if !judged {
+            std::panic::resume_unwind(payload);
+        }
+        true
+    };
+    let (in_process, two_of_a_kind) = ("two in-process engines", "two kinds: duckdb and the engine");
+    let disagreed: Vec<&str> = [
+        (
+            in_process,
+            differs(in_process, &|| harness::differential(&one, &engines, in_process)),
+        ),
+        (
+            two_of_a_kind,
+            differs(two_of_a_kind, &|| harness::differential(&one, &kinds, two_of_a_kind)),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(side, differed)| differed.then_some(side))
+    .collect();
+    assert!(
+        disagreed.is_empty(),
+        "the leg runner answered differently from one source on {disagreed:?}; the harness's reason is printed above"
+    );
+}
+
 /// **Two kinds whose catalog declares the one join key as two different kinds of value are refused
 /// before either leg runs, and the same question over the same data answers when it does not**
 /// (`telekom/sutura#138`).

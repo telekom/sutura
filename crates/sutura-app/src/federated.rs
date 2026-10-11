@@ -39,10 +39,12 @@
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
+use std::marker::PhantomData;
+
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeilings};
+use sutura_domain::plan::{ExecuteError, FederatedPlan, FederationCombiner, LegPlan, RowCeilings};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -90,7 +92,7 @@ pub(crate) type LegCleared<W, B, C> =
 type Recorded<W, B, C> =
     Result<ExecutedAs, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
-/// The leg pre-flight's return type, named for the same `type_complexity` reason [`LegResult`] is.
+/// The leg pre-flight's return type, named for the same `type_complexity` reason [`LegAnswer`] is.
 pub(crate) type LegPreflight<W, B, C> =
     Result<PreFlight, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
@@ -209,11 +211,19 @@ where
         Agreed::Granted { credentials } => credentials,
     };
 
-    // Every leg pre-flighted, and what they priced charged as one sum, before any leg executes -
-    // `docs/adr/0030`'s all-or-nothing, under the SAME `Deadline` (`docs/adr/0029` decision 3).
-    let every_leg = [(plan.fact(), fact_warehouse), (plan.lookup(), lookup_warehouse)]
-        .into_iter()
-        .chain(second_fact);
+    // **The cut, then the charge, then the legs** (`docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md`
+    // decision 4). `plan` executes nothing. Every leg of the cut is pre-flighted, and what they
+    // priced is charged as one sum before any leg executes - `docs/adr/0030`'s all-or-nothing,
+    // under the SAME `Deadline` (`docs/adr/0029` decision 3).
+    let cut = combiner.plan(plan);
+    let every_leg = match cut
+        .legs()
+        .map(|leg| warehouses.get(leg.source()).map(|warehouse| (leg, warehouse)).ok_or(leg))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(every_leg) => every_leg,
+        Err(leg) => return Ok(Answered::under(&credentials, source_unavailable(leg.source()))),
+    };
     match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
         Ok(()) => {}
         Err(LegError::Refusal(reason)) => {
@@ -221,119 +231,36 @@ where
         }
         Err(LegError::Failure(error)) => return Err(error),
     }
-    // **The legs' results never become rows, and that is `docs/adr/0039` step 2's whole point
-    // meeting step 3's.** Each `LegResult` is tagged with the side its own `LegPlan` names, so the
-    // pair the combiner receives cannot have the two legs swapped - which would group the fact
-    // leg's measure by the lookup leg's keys and answer a wrong number under a certified name.
+    // **The legs run through the combiner, which calls back into `run_leg` through the leg runner
+    // port**, so each leg keeps its credential, deadline and refusal mapping here. The combiner runs
+    // the lookup leg on one scoped OS thread beside the fact leg on THIS thread: `answer_federated`
+    // already holds the blocking-pool thread a transport spawned, and a pool task per leg would
+    // deadlock on the pool's own slots at the configured ceiling. A failed fact leg does not cancel
+    // a started lookup leg, which still runs, billed at the source under the caller's identity.
     //
-    // **The two legs run CONCURRENTLY, and that is the whole of this change.** `answer_federated`
-    // runs on the ONE blocking task a transport already spawned through
-    // `sutura_runtime::spawn_carrying_span` - a request already holds a blocking-pool thread, so
-    // two more pool tasks would triple the admission cost and, at the configured ceiling, deadlock
-    // on each other's slots (a parent waiting on a child slot the pool has no thread to fill; the
-    // issue's "run them as two blocking tasks" wording is superseded for that reason). So no pool
-    // task is spawned at all: the fact leg runs INLINE on the request's own thread, and the lookup
-    // leg runs on ONE scoped OS thread ([`std::thread::Builder::spawn_scoped`]) inside a
-    // [`std::thread::scope`]. Scoped threads borrow non-`'static` data, so the warehouses, the
-    // credential and the legs need no `Arc`, no clone, no new `'static` bound and no new
-    // dependency edge - and the pool is not touched, so an admitted federated request cannot
-    // deadlock it.
-    //
-    // **A failed fact leg no longer cancels the lookup leg.** The lookup thread is spawned before
-    // the fact leg runs inline, so when the fact leg refuses or fails the lookup leg has already
-    // started and still executes - billed at the source and under the caller's identity. On the
-    // sequential path it never started. The [`std::thread::scope`] below always joins it, so its
-    // outcome is still inspected; a fact-leg failure simply wins for the caller, exactly as it did
-    // when sequential.
-    //
-    // **One `Deadline`, shared by both legs, exactly as the sequential path shared it**
-    // (`docs/adr/0029` decision 3): `Deadline` is `Copy`, so both closures hold the same instant
-    // and both compare it against the same budget. A leg ages the deadline out at its own
-    // `still_usable_at`/`run_leg` check; the scope still joins the slower one, because a started
-    // scoped thread cannot be aborted.
-    //
-    // Captured on THIS thread, before the scoped thread starts - `Span::current()` reads the
-    // request's own span here; called inside the new OS thread it would see no context at all,
-    // since a bare `std::thread` carries none across by itself. `Span` is `Sync`, so the scoped
-    // thread below borrows it (no move, no clone) the same way it borrows the warehouses, the
-    // credentials and the plan. Bound to a local rather than entered inline, because `enter()`
-    // borrows `self` and a call-expression's own temporary does not outlive the statement that
-    // creates it (`rustc --explain E0716`).
-    let leg_span = tracing::Span::current();
-    let (fact, lookup) = std::thread::scope(|scope| {
-        let lookup_thread = std::thread::Builder::new()
-            .name(String::from("federated-lookup-leg"))
-            .spawn_scoped(scope, || {
-                // Carry the request's tracing span onto the scoped thread so this leg's log lines
-                // stay attributable to the same question - the same reason
-                // `sutura_runtime::spawn_carrying_span` exists, done by hand here because no pool
-                // task is being spawned and the ban is on `spawn_blocking`, not on `std::thread`.
-                let _entered = leg_span.enter();
-                run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline)
-            });
-        // The fact leg runs INLINE, on this thread, while the lookup thread runs beside it.
-        let fact = run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline);
-        match lookup_thread {
-            // Joining here, inside the scope, so the borrows the scope held outlive the join.
-            Ok(thread) => match thread.join() {
-                Ok(lookup) => (fact, lookup),
-                // A panicking lookup leg aborts the process under `panic = "abort"`; this arm is
-                // reachable only in unwind test builds. Re-panicking propagates the failure rather
-                // than fabricating a leg outcome, because there is none: the leg did not answer.
-                Err(panic) => std::panic::resume_unwind(panic),
-            },
-            // The OS refused a thread - not the data system. Fall back to running the lookup leg
-            // sequentially after the fact leg (which already ran), so a question that could have
-            // been answered is not dropped for want of a thread.
-            Err(error) => {
-                tracing::warn!(
-                    error = ?error,
-                    "federated lookup leg: OS refused a scoped thread, running it sequentially after the fact leg"
-                );
-                (
-                    fact,
-                    run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline),
-                )
-            }
-        }
-    });
-    let fact = match fact {
-        Ok(batches) => LegResult::of(plan.fact(), batches),
-        Err(LegError::Refusal(reason)) => {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
-        Err(LegError::Failure(error)) => return Err(error),
+    // **The combine.** The row cap applies to the ANSWER and not to a leg - a leg carries none - and
+    // a leg's refusal wins over a combine failure. The two governance outcomes are taken off the
+    // combiner's error FIRST, in the order the mono path asks its own adapter: the ceiling, then a
+    // deterministic refusal about what the legs returned, then this workspace's own defect.
+    let runner = LegsAtTheirSources::<W, B, C> {
+        warehouses,
+        credentials: &credentials,
+        deadline,
+        span: tracing::Span::current(),
+        ports: PhantomData,
     };
-    let lookup = match lookup {
-        Ok(batches) => LegResult::of(plan.lookup(), batches),
-        Err(LegError::Refusal(reason)) => {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
-        Err(LegError::Failure(error)) => return Err(error),
-    };
-    // The second fact leg runs after both, sequentially.
-    let second_fact_result = match second_fact
-        .map(|(leg, warehouse)| run_leg::<_, B, C>(warehouse, &credentials, leg, deadline).map(|rows| LegResult::of(leg, rows)))
-        .transpose()
-    {
-        Ok(result) => result,
-        Err(LegError::Refusal(reason)) => {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
-        Err(LegError::Failure(error)) => return Err(error),
-    };
-    let legs = Legs::of(&fact, &lookup)
-        .and_then(|legs| legs.with_second_fact(second_fact_result.as_ref()))
-        .map_err(|cause| ServiceError::Miswired {
-            cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
-        })?;
-    // **The combine, through the port.** The row cap applies to the ANSWER and not to a leg - a leg
-    // carries none - and the two governance outcomes are taken off the combiner's error FIRST, in
-    // the order the mono path asks its own adapter: the ceiling, then a deterministic refusal about
-    // what the legs returned, then this workspace's own defect.
-    let assembled = match combiner.combine(plan, legs, working_set_bytes) {
+    let assembled = match combiner.execute(cut, &runner, working_set_bytes) {
         Ok(batches) => batches,
-        Err(cause) => {
+        Err(ExecuteError::Leg(LegError::Refusal(reason))) => {
+            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        }
+        Err(ExecuteError::Leg(LegError::Failure(error))) => return Err(error),
+        Err(ExecuteError::Miswired(cause)) => {
+            return Err(ServiceError::Miswired {
+                cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
+            });
+        }
+        Err(ExecuteError::Combine(cause)) => {
             if let Some(ceiling_bytes) = combiner.working_set_exhausted(&cause) {
                 return Ok(Answered::under(
                     &credentials,
@@ -531,7 +458,7 @@ where
     }
 }
 
-pub(crate) use leg::{preflight_and_charge, run_leg};
+pub(crate) use leg::{LegsAtTheirSources, preflight_and_charge};
 mod leg;
 
 /// The federated answer orchestration: the two-source answer path exercised above fake leg-executing

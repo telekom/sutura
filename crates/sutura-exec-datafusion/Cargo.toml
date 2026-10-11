@@ -15,6 +15,8 @@ sutura-domain = { workspace = true }
 # the compiler for its last stage because it speaks SQL; this one executes the plan directly, so
 # there is no dialect to render for, no identifier to quote and no placeholder to position.
 datafusion = { workspace = true }
+# The provider a source and a subject give the federation optimizer. Not yet in a cut.
+datafusion-federation = { workspace = true }
 # One runtime, built once and kept beside the session context. See the struct.
 #
 # `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what

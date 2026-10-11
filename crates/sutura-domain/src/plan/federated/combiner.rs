@@ -177,6 +177,60 @@ impl LegsAreNotOneOfEach {
     }
 }
 
+/// The legs a federated plan runs at their sources, and the plan the combine runs above them.
+///
+/// [`FederationCombiner::execute`] takes it by value and only this crate builds one, so the value
+/// it takes came from [`FederationCombiner::plan`]. The type does not hold which legs run.
+#[derive(Debug)]
+pub struct Cut<'p> {
+    plan: &'p FederatedPlan,
+}
+
+impl<'p> Cut<'p> {
+    /// Every leg of the cut, each once: the fact, the lookup, then the second fact if the plan has
+    /// one.
+    pub fn legs(&self) -> impl Iterator<Item = &'p LegPlan> + use<'p> {
+        [self.plan.fact(), self.plan.lookup()]
+            .into_iter()
+            .chain(self.plan.second_fact())
+    }
+}
+
+/// Runs one leg at its source, under every guard the application holds for a leg.
+///
+/// **The driven port a combiner calls back into.** The combiner runs the cut's
+/// legs through it, so the credential per leg, the deadline and the refusal mapping stay in the
+/// application, and an adapter still never calls another adapter. `sutura_app` implements it.
+pub trait LegRunner {
+    /// Why a leg did not answer: the application's own type, which a combiner carries out of
+    /// [`FederationCombiner::execute`] unchanged and never maps.
+    type Error;
+
+    /// The batches one leg returned.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::Error`].
+    fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error>;
+}
+
+/// Why [`FederationCombiner::execute`] gave no answer.
+///
+/// The combine runs only after every leg answered, so a leg's error wins over the combine's.
+#[derive(Debug)]
+pub enum ExecuteError<L, C> {
+    /// A leg did not answer. The runner's own error, unchanged.
+    Leg(L),
+    /// The leg results were not one of each side: this workspace's own defect.
+    Miswired(LegsAreNotOneOfEach),
+    /// The combine failed, which [`FederationCombiner`]'s two predicates classify.
+    Combine(C),
+}
+
+/// What [`FederationCombiner::execute`] returns, named so its signature is not a
+/// `type_complexity` finding.
+pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::Error, <C as FederationCombiner>::Error>>;
+
 /// Joins two legs' results and re-aggregates the answer above them.
 ///
 /// **The second driven port, declared beside [`Warehouse`](crate::warehouse::Warehouse) and
@@ -185,7 +239,7 @@ impl LegsAreNotOneOfEach {
 /// An adapter never calls another adapter and this does not change that: the combine is called from
 /// the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
 ///
-/// # Every method is required, and that is the mechanism
+/// # Every method but the cut's two is required, and that is the mechanism
 ///
 /// [`Warehouse`](crate::warehouse::Warehouse) defaults its four classifying predicates, because an
 /// adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
@@ -255,6 +309,61 @@ pub trait FederationCombiner {
     /// caused them and none can fix them. Required rather than defaulted - see the trait's own
     /// header.
     fn answer_not_well_formed(&self, error: &Self::Error) -> Option<FederatedAnswerRefusal>;
+
+    /// The cut of `plan`: the legs that run at their sources. Executes nothing.
+    ///
+    /// Provided, unlike the methods above, because today's cut is the splitter's own legs and this
+    /// crate holds it: every implementor cuts the same way until an engine cuts the plan itself.
+    fn plan<'p>(&self, plan: &'p FederatedPlan) -> Cut<'p> {
+        Cut { plan }
+    }
+
+    /// Runs the cut's legs through `runner`, then [`Self::combine`]s their results.
+    ///
+    /// The fact leg runs on this thread while the lookup leg runs beside it on one scoped thread,
+    /// and a second fact runs after both. Scoped, so the runner and the plan are borrowed and
+    /// nothing is cloned. If the OS refuses the thread, the lookup leg runs after the fact leg on
+    /// this thread. The fact leg's error wins over the lookup leg's, both over the second fact's,
+    /// and every leg's over the combine's.
+    ///
+    /// Provided, for the reason [`Self::plan`] is.
+    ///
+    /// # Errors
+    ///
+    /// [`ExecuteError`].
+    fn execute<R>(&self, cut: Cut<'_>, runner: &R, working_set_bytes: u64) -> Executed<R, Self>
+    where
+        R: LegRunner + Sync,
+        R::Error: Send,
+    {
+        let plan = cut.plan;
+        let (fact, lookup) = std::thread::scope(|scope| {
+            let lookup = std::thread::Builder::new()
+                .name(String::from("federated-lookup-leg"))
+                .spawn_scoped(scope, || runner.run(plan.lookup()));
+            let fact = runner.run(plan.fact());
+            match lookup {
+                Ok(thread) => match thread.join() {
+                    Ok(lookup) => (fact, lookup),
+                    // A panicking leg aborts the process under `panic = "abort"`, so this arm is
+                    // reachable only in an unwinding test build. There is no leg outcome to return.
+                    Err(panic) => std::panic::resume_unwind(panic),
+                },
+                Err(_refused) => (fact, runner.run(plan.lookup())),
+            }
+        });
+        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
+        let lookup = LegResult::of(plan.lookup(), lookup.map_err(ExecuteError::Leg)?);
+        let second_fact = plan
+            .second_fact()
+            .map(|leg| runner.run(leg).map(|batches| LegResult::of(leg, batches)))
+            .transpose()
+            .map_err(ExecuteError::Leg)?;
+        let legs = Legs::of(&fact, &lookup)
+            .and_then(|legs| legs.with_second_fact(second_fact.as_ref()))
+            .map_err(ExecuteError::Miswired)?;
+        self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)
+    }
 }
 
 /// A combiner that answers nothing, for a transport's own tests.

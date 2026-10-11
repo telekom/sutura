@@ -7301,6 +7301,24 @@ two.
 
 One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
 
+### `use Cut`
+
+The legs a federated plan runs at their sources, and the plan the combine runs above them.
+
+`FederationCombiner::execute` takes it by value and only this crate builds one, so the value
+it takes came from `FederationCombiner::plan`. The type does not hold which legs run.
+
+### `use ExecuteError`
+
+Why `FederationCombiner::execute` gave no answer.
+
+The combine runs only after every leg answered, so a leg's error wins over the combine's.
+
+### `use Executed`
+
+What `FederationCombiner::execute` returns, named so its signature is not a
+`type_complexity` finding.
+
 ### `use FederatedAnswerRefusal`
 
 A federated answer that could not be computed as asked, told apart from a wiring defect.
@@ -7367,7 +7385,7 @@ Joins two legs' results and re-aggregates the answer above them.
 An adapter never calls another adapter and this does not change that: the combine is called from
 the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
 
-# Every method is required, and that is the mechanism
+# Every method but the cut's two is required, and that is the mechanism
 
 `Warehouse` defaults its four classifying predicates, because an
 adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
@@ -7505,6 +7523,14 @@ One leg's result, tagged with the side the `LegPlan` it was executed from named.
 **The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
 variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
 `Legs` exists to make unrepresentable one level up.
+
+### `use LegRunner`
+
+Runs one leg at its source, under every guard the application holds for a leg.
+
+**The driven port a combiner calls back into.** The combiner runs the cut's
+legs through it, so the credential per leg, the deadline and the refusal mapping stay in the
+application, and an adapter still never calls another adapter. `sutura_app` implements it.
 
 ### `use LegSide`
 
@@ -8487,6 +8513,24 @@ Why a federated plan could not be built.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `use Cut`
+
+The legs a federated plan runs at their sources, and the plan the combine runs above them.
+
+`FederationCombiner::execute` takes it by value and only this crate builds one, so the value
+it takes came from `FederationCombiner::plan`. The type does not hold which legs run.
+
+#### `use ExecuteError`
+
+Why `FederationCombiner::execute` gave no answer.
+
+The combine runs only after every leg answered, so a leg's error wins over the combine's.
+
+#### `use Executed`
+
+What `FederationCombiner::execute` returns, named so its signature is not a
+`type_complexity` finding.
+
 #### `use FederationCombiner`
 
 Joins two legs' results and re-aggregates the answer above them.
@@ -8497,7 +8541,7 @@ Joins two legs' results and re-aggregates the answer above them.
 An adapter never calls another adapter and this does not change that: the combine is called from
 the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
 
-# Every method is required, and that is the mechanism
+# Every method but the cut's two is required, and that is the mechanism
 
 `Warehouse` defaults its four classifying predicates, because an
 adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
@@ -8534,6 +8578,14 @@ One leg's result, tagged with the side the `LegPlan` it was executed from named.
 **The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
 variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
 `Legs` exists to make unrepresentable one level up.
+
+#### `use LegRunner`
+
+Runs one leg at its source, under every guard the application holds for a leg.
+
+**The driven port a combiner calls back into.** The combiner runs the cut's
+legs through it, so the credential per leg, the deadline and the refusal mapping stay in the
+application, and an adapter still never calls another adapter. `sutura_app` implements it.
 
 #### `use Legs`
 
@@ -8920,6 +8972,62 @@ constructor would have rejected, and this one is only ever minted by `Legs::of`.
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+##### `struct Cut`
+
+```rust
+pub struct Cut<'p>
+```
+
+The legs a federated plan runs at their sources, and the plan the combine runs above them.
+
+`FederationCombiner::execute` takes it by value and only this crate builds one, so the value
+it takes came from `FederationCombiner::plan`. The type does not hold which legs run.
+
+###### Methods
+
+```rust
+pub fn legs(&self) -> impl Iterator<Item> + use<..>
+```
+
+Every leg of the cut, each once: the fact, the lookup, then the second fact if the plan has
+one.
+
+###### Implements
+
+`Debug`
+
+##### `trait LegRunner`
+
+```rust
+pub trait LegRunner
+```
+
+Runs one leg at its source, under every guard the application holds for a leg.
+
+**The driven port a combiner calls back into.** The combiner runs the cut's
+legs through it, so the credential per leg, the deadline and the refusal mapping stay in the
+application, and an adapter still never calls another adapter. `sutura_app` implements it.
+
+##### `enum ExecuteError`
+
+```rust
+pub enum ExecuteError<L, C>
+```
+
+Why `FederationCombiner::execute` gave no answer.
+
+The combine runs only after every leg answered, so a leg's error wins over the combine's.
+
+###### Variants
+
+- `Leg` - A leg did not answer. The runner's own error, unchanged.
+- `Miswired` - The leg results were not one of each side: this workspace's own defect.
+- `Combine` - The combine failed, which `FederationCombiner`'s two predicates classify.
+
+###### Implements
+
+`Debug`
+
 ##### `trait FederationCombiner`
 
 ```rust
@@ -8934,7 +9042,7 @@ Joins two legs' results and re-aggregates the answer above them.
 An adapter never calls another adapter and this does not change that: the combine is called from
 the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
 
-# Every method is required, and that is the mechanism
+# Every method but the cut's two is required, and that is the mechanism
 
 `Warehouse` defaults its four classifying predicates, because an
 adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
@@ -9000,6 +9108,11 @@ What `RefusingCombiner` answers with.
 ###### Implements
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+##### `type_alias Executed`
+
+What `FederationCombiner::execute` returns, named so its signature is not a
+`type_complexity` finding.
 
 #### Module `label`
 

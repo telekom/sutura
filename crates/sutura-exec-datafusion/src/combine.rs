@@ -85,8 +85,11 @@ use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 use crate::collect::outputs;
 use crate::pool::{self, WorkingSet};
 
+/// The provider a source and a subject give the plan cutter.
+mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
+pub use provider::SourceProvider;
 
 use schema::{FACT, LOOKUP, LeafKind, LegSchema, agreeing_link};
 

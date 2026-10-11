@@ -72,7 +72,7 @@ use crate::plan::leg::LegPlan;
 use crate::query::{Top, TopBy, TopDirection};
 use crate::warehouse::{MalformedRowSet, RowSet, Value};
 
-pub use combiner::{FederationCombiner, LegResult, Legs, LegsAreNotOneOfEach};
+pub use combiner::{Cut, ExecuteError, Executed, FederationCombiner, LegResult, LegRunner, Legs, LegsAreNotOneOfEach};
 #[cfg(any(test, feature = "fixtures"))]
 pub use combiner::{NothingCombined, RefusingCombiner};
 pub use failure::FederatedAnswerRefusal;

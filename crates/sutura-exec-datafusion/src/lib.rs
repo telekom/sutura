@@ -826,7 +826,7 @@ impl Warehouse for DataFusionWarehouse {
 /// per-question argument.
 mod combine;
 
-pub use crate::combine::{CombineError, DataFusionCombiner};
+pub use crate::combine::{CombineError, DataFusionCombiner, SourceProvider};
 
 /// How wide the engine runs, in its own file for the same reason.
 #[cfg(test)]

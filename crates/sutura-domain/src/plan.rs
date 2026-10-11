@@ -42,8 +42,8 @@ pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
 pub use crate::plan::ceiling::{FederatedRowCeiling, InvalidFederatedRowCeiling, RowCeilings};
 pub use crate::plan::federated::{
-    AnswerKey, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner, InternalLabel, LegResult, LegSide,
-    Legs, LegsAreNotOneOfEach, LinkKind, QuotedColumnType, labels,
+    AnswerKey, Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner,
+    InternalLabel, LegResult, LegRunner, LegSide, Legs, LegsAreNotOneOfEach, LinkKind, QuotedColumnType, labels,
 };
 #[cfg(any(test, feature = "fixtures"))]
 pub use crate::plan::federated::{NothingCombined, RefusingCombiner};

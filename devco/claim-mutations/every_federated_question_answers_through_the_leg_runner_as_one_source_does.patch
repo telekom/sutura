@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
+--- a/crates/sutura-domain/src/plan/federated/combiner.rs
++++ b/crates/sutura-domain/src/plan/federated/combiner.rs
+@@ -344,7 +344,7 @@ pub trait FederationCombiner {
+             let fact = runner.run(plan.fact());
+             match lookup {
+                 Ok(thread) => match thread.join() {
+-                    Ok(lookup) => (fact, lookup),
++                    Ok(lookup) => (lookup, fact),
+                     // A panicking leg aborts the process under `panic = "abort"`, so this arm is
+                     // reachable only in an unwinding test build. There is no leg outcome to return.
+                     Err(panic) => std::panic::resume_unwind(panic),

@@ -430,7 +430,7 @@ pub(crate) const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
     //
     // **THE LIMIT, and it is the name.** `reaches` compares the resolved name EXACTLY, so this row
     // holds the umbrella crate and not each `datafusion-*` member. Every route that matters passes
-    // through the umbrella - a plan needs a `SessionContext`, and `datafusion-federation 0.5.6`
+    // through the umbrella - a plan needs a `SessionContext`, and `datafusion-federation`
     // declares `datafusion` itself - so a combiner assembled out of `datafusion-physical-plan`
     // alone is the shape this row does not see, and a reviewer is what catches that.
     ForbiddenEdge {

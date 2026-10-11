@@ -1,23 +1,13 @@
-diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
---- a/crates/sutura-app/src/federated.rs
-+++ b/crates/sutura-app/src/federated.rs
-@@ -320,15 +320,15 @@ where
+diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
+--- a/crates/sutura-domain/src/plan/federated/combiner.rs
++++ b/crates/sutura-domain/src/plan/federated/combiner.rs
+@@ -352,8 +352,8 @@ pub trait FederationCombiner {
+                 Err(_refused) => (fact, runner.run(plan.lookup())),
              }
-         }
-     });
--    let fact = match fact {
--        Ok(batches) => LegResult::of(plan.fact(), batches),
-+    let lookup = match lookup {
-+        Ok(batches) => LegResult::of(plan.lookup(), batches),
-         Err(LegError::Refusal(reason)) => {
-             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-         }
-         Err(LegError::Failure(error)) => return Err(error),
-     };
--    let lookup = match lookup {
--        Ok(batches) => LegResult::of(plan.lookup(), batches),
-+    let fact = match fact {
-+        Ok(batches) => LegResult::of(plan.fact(), batches),
-         Err(LegError::Refusal(reason)) => {
-             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-         }
+         });
+-        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
+         let lookup = LegResult::of(plan.lookup(), lookup.map_err(ExecuteError::Leg)?);
++        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
+         let second_fact = plan
+             .second_fact()
+             .map(|leg| runner.run(leg).map(|batches| LegResult::of(leg, batches)))

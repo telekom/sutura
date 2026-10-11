@@ -318,6 +318,11 @@ datafusion = { version = "55.0.0", default-features = false, features = [
   "datetime_expressions",
   "compression",
 ] }
+# The plan cutter and table provider `docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md`
+# decides on. WITHOUT its `sql` feature, which is `datafusion/sql` and would undo the property the
+# entry above states. Its `datafusion` requirement is `^55` with default features off, so it adds
+# no second engine.
+datafusion-federation = { version = "0.5.7", default-features = false }
 
 # The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
 # async from the first table lookup to the last batch collected, and `futures::executor::block_on`

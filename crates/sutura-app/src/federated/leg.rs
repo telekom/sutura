@@ -11,16 +11,16 @@
 //! is a property of the credential and the adapter rather than of which call is about to run - the
 //! mono path's own `sutura_app::answer` checks it once too, before its own `dry_run`.
 
+use std::marker::PhantomData;
 use std::time::Instant;
 
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext};
-use sutura_domain::plan::FederationCombiner;
-use sutura_domain::plan::{Executable, LegPlan};
+use sutura_domain::plan::{Executable, FederationCombiner, LegPlan, LegRunner};
 use sutura_domain::query::{RefusalReason, ResultBound};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{PreFlight, Warehouse};
+use sutura_domain::warehouse::{PreFlight, ResultBatches, Warehouse};
 
-use crate::{ServiceError, SpendLedger, deadline_exceeded, now_in_unix_seconds};
+use crate::{ServiceError, SpendLedger, Warehouses, deadline_exceeded, now_in_unix_seconds};
 
 use super::{LegAnswer, LegCleared, LegError, LegPreflight};
 
@@ -164,4 +164,41 @@ where
     priced
         .and_then(|total| crate::charge_subject(ledger, context, total, Instant::now()))
         .map_or(Ok(()), |reason| Err(LegError::Refusal(reason)))
+}
+
+/// [`run_leg`] behind the leg runner port, for the combiner to call once for each leg of the cut.
+///
+/// Built on the request's own thread, so `span` is the request's span, and each leg enters it:
+/// a leg the combiner runs on a scoped thread is still attributable to the question it belongs to.
+pub(crate) struct LegsAtTheirSources<'a, W, B, C> {
+    pub(crate) warehouses: &'a Warehouses<W>,
+    pub(crate) credentials: &'a BoundToTheRequest,
+    pub(crate) deadline: Deadline,
+    pub(crate) span: tracing::Span,
+    pub(crate) ports: Ports<B, C>,
+}
+
+/// The broker and combiner the runner's error is typed by, held as a type and never as a value.
+pub(crate) type Ports<B, C> = PhantomData<fn() -> (B, C)>;
+
+impl<W, B, C> LegRunner for LegsAtTheirSources<'_, W, B, C>
+where
+    W: Warehouse + Sync,
+    W::Error: Send,
+    B: CredentialBroker,
+    B::Error: Send,
+    C: FederationCombiner,
+    C::Error: Send,
+{
+    type Error = super::LegError<W::Error, B::Error, C::Error>;
+
+    fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error> {
+        let _entered = self.span.enter();
+        let Some(warehouse) = self.warehouses.get(leg.source()) else {
+            return Err(LegError::Refusal(RefusalReason::SourceUnavailable {
+                source: leg.source().clone(),
+            }));
+        };
+        run_leg::<_, B, C>(warehouse, self.credentials, leg, self.deadline)
+    }
 }
