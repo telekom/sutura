@@ -340,3 +340,26 @@ fn a_signing_in_source_presents_the_verified_name_and_the_exchanged_token() {
     );
     assert_eq!(asked.try_iter().count(), 0, "a refused caller reaches no identity provider");
 }
+
+/// A signing-in source refuses a verified caller with no assertion: there is no token to exchange,
+/// so the caller's name alone never signs in.
+#[test]
+fn a_signing_in_source_refuses_a_caller_with_no_assertion_and_asks_no_idp() {
+    let (idp, asked) = fake(false);
+    let broker = DeclaredPrincipalBroker::empty().signing_in(
+        source("warehouse"),
+        PrincipalName::parse("sutura").expect("a test principal is a principal"),
+        Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
+    );
+    let refused = broker
+        .mint(
+            &super::no_assertion("analyst-a@example.com"),
+            &SourceSet::of(source("warehouse")),
+        )
+        .expect("a refusal, not an error");
+    assert!(
+        matches!(refused, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+        "{refused:?}"
+    );
+    assert_eq!(asked.try_iter().count(), 0, "a refused caller reaches no identity provider");
+}

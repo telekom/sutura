@@ -300,6 +300,17 @@ mod tests {
                 impersonate: true,
                 ..clickhouse("warehouse")
             },
+            RawSourceEntry {
+                kind: "files",
+                data_dir: Some("/srv/sutura/data"),
+                host: None,
+                port: None,
+                user: None,
+                password_file: None,
+                transport_mode: None,
+                impersonate: true,
+                ..clickhouse("warehouse")
+            },
         ] {
             let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the removed map is refused");
             assert!(matches!(error, InvalidSourceRegistry::ImpersonateRemoved { .. }), "{error}");

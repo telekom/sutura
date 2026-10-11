@@ -215,4 +215,40 @@ mod tests {
             "the service user's own name is refused"
         );
     }
+
+    /// A source that declares `delegation` signs each caller in, so a caller with no assertion has
+    /// nothing to exchange and is refused; the same source without it switches to that caller.
+    #[test]
+    #[cfg(feature = "clickhouse")]
+    fn a_declared_delegation_signs_callers_in_and_its_absence_switches_to_them() {
+        use sutura_domain::identity::{CredentialBroker as _, Minted, PrincipalChain, RequestContext, SourceSet, Subject};
+
+        let file = password_file();
+        let secret = std::env::temp_dir().join(format!("sutura-cli-ch-client-secret-{}", std::process::id()));
+        std::fs::write(&secret, "idp-client-secret\n").expect("a scratch client secret file writes");
+        let delegated = format!(
+            "{}    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+             client_id: \"sutura\"\n        client_secret_file: \"{}\"\n        audience: \"clickhouse\"\n",
+            impersonating_entry(&file),
+            secret.display()
+        );
+        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let without_assertion = RequestContext::of(PrincipalChain::of(
+            Subject::verified("analyst-a@example.com").expect("a test subject"),
+        ));
+        let minted = |entry: &str| {
+            crate::serve::broker::build_broker(&registry(entry), None)
+                .expect("the source builds a broker")
+                .mint(&without_assertion, &SourceSet::of(at.clone()))
+                .expect("a mint answers")
+        };
+        let signing_in = minted(&delegated);
+        let switching = minted(&impersonating_entry(&file));
+        let _ignored = (std::fs::remove_file(&file), std::fs::remove_file(&secret));
+        assert!(
+            matches!(signing_in, Minted::Refused { ref source } if *source == at),
+            "{signing_in:?}"
+        );
+        assert!(matches!(switching, Minted::Granted { .. }), "{switching:?}");
+    }
 }
