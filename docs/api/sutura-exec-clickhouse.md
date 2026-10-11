@@ -538,7 +538,7 @@ their verified assertion was exchanged for as the password.
 #### Methods
 
 ```rust
-pub const fn new(user: &'a str, token: &'a sutura_domain::identity::Secret) -> Self
+pub const fn new(user: &'a crate::execute_as::ClickHouseUser, token: &'a sutura_domain::identity::Secret) -> Self
 ```
 
 The caller's verified name as the user, and the token they sign in with.
