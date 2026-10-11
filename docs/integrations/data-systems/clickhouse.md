@@ -120,13 +120,14 @@ GET <uri>
 Authorization: Basic base64(<sub>:<token>)
 ```
 
-The request has no body. The checker must:
+The request has no body. For each request, the checker:
 
-1. Verify the token: the signature with the JWKS of your identity provider, and the `iss`, `aud`
-   and `exp` claims.
-2. Make sure that the `sub` of the token is the Basic user. Do not skip this check: without it, a
-   caller's token can sign in as a different user.
-3. Send `200` to accept the sign-in, or `401` to refuse it.
+1. Reads the user and the token from `Authorization: Basic`.
+2. Verifies the signature of the token with the JWKS of the issuer.
+3. Verifies the `iss` and `exp` claims, and that `aud` is the ClickHouse audience: the `audience`
+   of the last hop in `delegation`.
+4. Makes sure that the `sub` of the token is the Basic user.
+5. Sends `200` if all checks pass, or `401` if one fails.
 
 For Keycloak, see [ClickHouse token checker](../identity.md#clickhouse-token-checker).
 

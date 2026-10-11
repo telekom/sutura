@@ -92,10 +92,11 @@ and its introspection endpoint expects `POST` with client authentication.
 Run a small checker in front of Keycloak. For each request, the checker:
 
 1. Reads the user and the token from `Authorization: Basic`.
-2. Verifies the token: with the JWKS of the realm and the `iss`, `aud` and `exp` claims, or by
-   calling the userinfo endpoint of the realm with the token as `Authorization: Bearer`.
-3. Makes sure that the `sub` of the token is the user.
-4. Sends `200` if all checks pass, or `401` if one fails.
+2. Verifies the signature of the token with the JWKS of the issuer.
+3. Verifies the `iss` and `exp` claims, and that `aud` is the ClickHouse audience: the `audience`
+   of the last hop in `delegation`.
+4. Makes sure that the `sub` of the token is the Basic user.
+5. Sends `200` if all checks pass, or `401` if one fails.
 
 Keycloak puts the ID of the user in `sub`, so each ClickHouse user is named by that ID.
 
