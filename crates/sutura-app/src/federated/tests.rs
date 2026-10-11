@@ -300,6 +300,11 @@ mod two_fact_test;
 #[cfg(test)]
 mod dry_run_count_test;
 
+/// The leg runner's refusal of a leg the charged cut did not give out, split out for the same
+/// `max-lines` reason; its counting fake lives there for the reason `dry_run_count_test` states.
+#[cfg(test)]
+mod charged_leg_test;
+
 #[test]
 fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
     let shared = shared();

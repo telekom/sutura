@@ -45,3 +45,22 @@ impl FederationProvider for SourceProvider {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_subjects_providers_are_not_equal() {
+        let source = SourceName::parse("warehouse").expect("a test source is a source");
+        let subject = |raw| Subject::verified(raw).expect("a test subject is a subject");
+        let one = SourceProvider::of(&source, &subject("user@example.com"));
+        let other = SourceProvider::of(&source, &subject("other@example.com"));
+        assert_eq!(one.name(), other.name(), "one source names one provider");
+        assert_ne!(
+            one.compute_context(),
+            other.compute_context(),
+            "two subjects' scans of one source must never fuse into one cut node"
+        );
+    }
+}

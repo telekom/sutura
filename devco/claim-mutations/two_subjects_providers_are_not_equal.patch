@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/provider.rs b/crates/sutura-exec-datafusion/src/combine/provider.rs
+--- a/crates/sutura-exec-datafusion/src/combine/provider.rs
++++ b/crates/sutura-exec-datafusion/src/combine/provider.rs
+@@ -37,7 +37,7 @@
+     }
+ 
+     fn compute_context(&self) -> Option<String> {
+-        Some(self.context.as_str().to_owned())
++        None
+     }
+ 
+     /// No optimizer of its own: the cut is the workspace's rule, not a provider's.

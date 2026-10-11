@@ -81,9 +81,10 @@ impl<E, Q, C> From<ServiceError<E, Q, C>> for LegError<E, Q, C> {
 pub(crate) type LegAnswer<W, B, C> =
     Result<ResultBatches, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
-/// Every leg pre-flighted and charged, or why not - named for the same `type_complexity` reason.
-pub(crate) type LegCleared<W, B, C> =
-    Result<(), LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
+/// The token of every leg pre-flighted and charged, or why not - named for the same
+/// `type_complexity` reason.
+pub(crate) type LegCleared<'p, W, B, C> =
+    Result<leg::Charged<'p>, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
 /// The execution record of every leg, or the miswiring that kept one out of it.
 type Recorded<W, B, C> =
@@ -221,13 +222,13 @@ where
         Ok(every_leg) => every_leg,
         Err(leg) => return Ok(Answered::under(&credentials, source_unavailable(leg.source()))),
     };
-    match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
-        Ok(()) => {}
+    let charged = match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
+        Ok(charged) => charged,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
-    }
+    };
     // **The legs run through the combiner, which calls back into `run_leg` through the leg runner
     // port**, so each leg keeps its credential, deadline and refusal mapping here. The combiner runs
     // the lookup leg on one scoped OS thread beside the fact leg on THIS thread: `answer_federated`
@@ -240,6 +241,7 @@ where
     // combiner's error FIRST, in the order the mono path asks its own adapter: the ceiling, then a
     // deterministic refusal about what the legs returned, then this workspace's own defect.
     let runner = LegsAtTheirSources::<W, B, C> {
+        charged,
         warehouses,
         credentials: &credentials,
         deadline,

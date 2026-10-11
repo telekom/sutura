@@ -12,6 +12,7 @@
 //! mono path's own `sutura_app::answer` checks it once too, before its own `dry_run`.
 
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext};
@@ -140,19 +141,22 @@ where
 /// Only a priced leg is counted, and a leg that priced nothing contributes nothing - "not counted",
 /// never "free". Nothing is charged at all when NO leg priced, so an all-`None` federated answer
 /// (every adapter but `BigQuery`, today) never touches the ledger.
+///
+/// What it returns is one token for each leg it cleared, which the leg runner spends.
 pub(crate) fn preflight_and_charge<'a, W, B, C>(
     legs: impl IntoIterator<Item = (&'a LegPlan, &'a W)>,
     credentials: &BoundToTheRequest,
     deadline: Deadline,
     ledger: &SpendLedger,
     context: &RequestContext,
-) -> LegCleared<W, B, C>
+) -> LegCleared<'a, W, B, C>
 where
     W: Warehouse + 'a,
     B: CredentialBroker,
     C: FederationCombiner,
 {
     let mut priced: Option<u64> = None;
+    let mut cleared = Vec::new();
     for (leg, warehouse) in legs {
         if let PreFlight::Accepted {
             estimated_bytes: Some(bytes),
@@ -160,17 +164,37 @@ where
         {
             priced = Some(priced.unwrap_or(0).saturating_add(bytes.bytes()));
         }
+        cleared.push((leg, AtomicBool::new(false)));
     }
     priced
         .and_then(|total| crate::charge_subject(ledger, context, total, Instant::now()))
-        .map_or(Ok(()), |reason| Err(LegError::Refusal(reason)))
+        .map_or(Ok(Charged(cleared)), |reason| Err(LegError::Refusal(reason)))
+}
+
+/// One token for each leg the charge cleared, each spent once by the leg runner.
+///
+/// A leg is its address in the plan the cut borrows, so a leg a combiner built for itself, even an
+/// equal one, has no token.
+pub(crate) struct Charged<'p>(Vec<(&'p LegPlan, AtomicBool)>);
+
+impl Charged<'_> {
+    /// Spends `leg`'s token: `false` for a leg the charged cut did not give out, or one spent before.
+    fn spend(&self, leg: &LegPlan) -> bool {
+        self.0
+            .iter()
+            .any(|(given, spent)| core::ptr::eq(*given, leg) && !spent.swap(true, Ordering::Relaxed))
+    }
 }
 
 /// [`run_leg`] behind the leg runner port, for the combiner to call once for each leg of the cut.
 ///
 /// Built on the request's own thread, so `span` is the request's span, and each leg enters it:
 /// a leg the combiner runs on a scoped thread is still attributable to the question it belongs to.
+///
+/// A leg without a token from `charged` is refused as this workspace's own defect, before its
+/// warehouse is looked up or its credential read: it was never charged.
 pub(crate) struct LegsAtTheirSources<'a, W, B, C> {
+    pub(crate) charged: Charged<'a>,
     pub(crate) warehouses: &'a Warehouses<W>,
     pub(crate) credentials: &'a BoundToTheRequest,
     pub(crate) deadline: Deadline,
@@ -194,6 +218,13 @@ where
 
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error> {
         let _entered = self.span.enter();
+        if !self.charged.spend(leg) {
+            return Err(LegError::Failure(ServiceError::Miswired {
+                cause: crate::FederationMiswired::LegNotGivenOut {
+                    at: leg.source().clone(),
+                },
+            }));
+        }
         let Some(warehouse) = self.warehouses.get(leg.source()) else {
             return Err(LegError::Refusal(RefusalReason::SourceUnavailable {
                 source: leg.source().clone(),
