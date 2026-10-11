@@ -19,6 +19,9 @@ The example is in
 | `keycloak/realm.json`               | The realm with the callers `alice` and `bob`, and four clients   |
 | `cube/model.yml`                    | The Cube data model, with an access policy on `orders`           |
 | `clickhouse/init.sql`               | The tables that Cube reads                                       |
+| `compose.yaml`                      | A live DataHub, and the loader that writes the catalog into it   |
+| `loader/load.py`                    | The catalog that the loader writes into DataHub                  |
+| `setup.sh`                          | Writes the secrets of the local DataHub to `.env`                |
 
 All data is synthetic.
 
@@ -85,6 +88,22 @@ it runs at startup. `verification_identity` names the identity of those checks, 
 sutura sends the token of the `sutura-deployment` client on every request. Every caller reads
 `412345`, the answer of the deployment. `acknowledged_because` on the source records why every
 caller reads as one identity.
+
+## A live DataHub
+
+`compose.yaml` in the example runs DataHub on `127.0.0.1:8081`, the catalog `endpoint` in both
+settings files. Its loader writes the `orders` and `customers` datasets, the relationship
+`orders_to_customer` and the metric `revenue` into DataHub. From `examples/metrics-layer`:
+
+```sh
+./setup.sh
+docker compose up -d --wait datahub
+docker compose run --rm loader
+```
+
+`setup.sh` writes the secrets of this DataHub to `.env`. The loader writes a DataHub token for
+sutura to `.local/datahub-token`. Give sutura that file as `/run/sutura/datahub-token`, the catalog
+`token_file` in both settings files. Every port of this DataHub binds to `127.0.0.1` only.
 
 ## Related
 

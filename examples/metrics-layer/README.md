@@ -11,7 +11,21 @@ computes each metric, and Cube decides which rows each caller reads. Read the wa
 | `keycloak/realm.json`               | Two callers, `alice` (region `north`) and `bob` (region `south`), and the clients |
 | `cube/model.yml`                    | The `orders` and `customers` cubes, and the access policy on `orders`             |
 | `clickhouse/init.sql`               | The tables that Cube reads                                                        |
+| `compose.yaml`                      | A live DataHub, and the loader that writes the catalog into it                    |
+| `loader/load.py`                    | The datasets, the relationship and the metric that the loader writes              |
+| `setup.sh`                          | Writes the secrets of the local DataHub to `.env`                                 |
 
 `just dev-up-cube` starts the services in the `cube` profile of `compose.services.yaml`:
 `cube-keycloak` with this realm, and `cube-metrics`, which serves `cube/model.yml` and verifies each
 token with the keys of the realm.
+
+A live DataHub, from this directory:
+
+```sh
+./setup.sh
+docker compose up -d --wait datahub
+docker compose run --rm loader
+```
+
+The loader writes a DataHub token for sutura to `.local/datahub-token`. Give sutura that file as
+`/run/sutura/datahub-token`. Both settings files read DataHub at `http://127.0.0.1:8081`.
