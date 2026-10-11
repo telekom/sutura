@@ -34,22 +34,24 @@ pub(crate) fn query(
     let batches = connection
         .query_arrow_batches(sql, sets.as_slice())
         .map_err(execute_err_mapped)?;
-    if let Some(column) = batches
-        .columns()
-        .iter()
-        .find(|column| column.db_type() == oracledb::DB_TYPE_TIMESTAMP_LTZ)
-    {
-        return Err(local_zone_refused(column.name()));
-    }
+    let numbers = number_columns(batches.columns().iter().map(|column| (column.name(), column.db_type())))?;
     let schema = batches.schema();
-    let numbers: Vec<usize> = batches
-        .columns()
-        .iter()
-        .enumerate()
-        .filter(|&(_, column)| column.db_type() == oracledb::DB_TYPE_NUMBER)
-        .map(|(index, _)| index)
-        .collect();
     read(batches, &schema, &numbers, stop, before_fetch)
+}
+
+/// The indexes of the `NUMBER` columns among `columns`, each a name and its type; a `TIMESTAMP
+/// WITH LOCAL TIME ZONE` column is refused by name.
+fn number_columns<'a>(columns: impl IntoIterator<Item = (&'a str, &'a oracledb::DbType)>) -> Result<Vec<usize>, OracleError> {
+    let mut numbers = Vec::new();
+    for (index, (name, db_type)) in columns.into_iter().enumerate() {
+        if db_type == oracledb::DB_TYPE_TIMESTAMP_LTZ {
+            return Err(local_zone_refused(name));
+        }
+        if db_type == oracledb::DB_TYPE_NUMBER {
+            numbers.push(index);
+        }
+    }
+    Ok(numbers)
 }
 
 /// Where a read stops: past the byte budget (refused), or at `most_rows` (the answer witness).
@@ -212,7 +214,7 @@ mod tests {
     use arrow_schema::{DataType, Field, Fields, Schema, SchemaRef, TimeUnit};
     use sutura_domain::warehouse::{ResultBudget, RowSet, Value};
 
-    use super::{Stop, read};
+    use super::{Stop, number_columns, read};
     use crate::OracleError;
 
     fn text_batch(values: &[&str]) -> RecordBatch {
@@ -255,6 +257,40 @@ mod tests {
             "{answer:?}"
         );
         assert_eq!(pulled, 1, "the second round trip was asked for after the budget was spent");
+    }
+
+    #[test]
+    fn every_batch_of_an_answer_is_read() {
+        let (answer, pulled) = read_counting(
+            vec![text_batch(&["1", "2"]), text_batch(&["3"])],
+            &[],
+            stop(1 << 20, None),
+            || Ok(()),
+        );
+        let rows = answer.expect("three rows fit");
+        assert_eq!(rows.rows(), &[text("1"), text("2"), text("3")]);
+        assert_eq!(pulled, 2);
+    }
+
+    #[test]
+    fn only_a_number_column_is_read_as_an_integer() {
+        let columns = [
+            ("N", oracledb::DB_TYPE_NUMBER),
+            ("CODE", oracledb::DB_TYPE_VARCHAR),
+            ("M", oracledb::DB_TYPE_NUMBER),
+        ];
+        let numbers = number_columns(columns).expect("no column is refused");
+        assert_eq!(numbers, [0, 2], "a VARCHAR2 holding '007' would read as 7");
+    }
+
+    #[test]
+    fn a_local_time_zone_column_is_refused_by_name() {
+        let columns = [("N", oracledb::DB_TYPE_NUMBER), ("SEEN", oracledb::DB_TYPE_TIMESTAMP_LTZ)];
+        let refused = number_columns(columns);
+        assert!(
+            matches!(&refused, Err(OracleError::UnsupportedType { column, .. }) if column == "SEEN"),
+            "{refused:?}"
+        );
     }
 
     #[test]

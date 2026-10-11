@@ -19,3 +19,6 @@ a_date_with_a_time_of_day_keeps_it_in_its_batch # names the streamed-batch read 
 only_midnight_with_no_fraction_reads_as_the_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
 a_time_of_day_before_1970_lands_on_its_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
 a_zoned_timestamp_keeps_its_own_offset # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+every_batch_of_an_answer_is_read # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+only_a_number_column_is_read_as_an_integer # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_local_time_zone_column_is_refused_by_name # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
