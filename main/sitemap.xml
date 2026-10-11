@@ -89,6 +89,10 @@
          <lastmod>2026-10-11</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-catalog-cube/</loc>
+         <lastmod>2026-10-11</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-catalog-datacontract/</loc>
          <lastmod>2026-10-11</lastmod>
     </url>
@@ -141,6 +145,10 @@
          <lastmod>2026-10-11</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-exec-cube/</loc>
+         <lastmod>2026-10-11</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-exec-datafusion/</loc>
          <lastmod>2026-10-11</lastmod>
     </url>
@@ -186,6 +194,10 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/examples/</loc>
+         <lastmod>2026-10-11</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/examples/metrics-layer/</loc>
          <lastmod>2026-10-11</lastmod>
     </url>
     <url>
@@ -241,6 +253,10 @@
          <lastmod>2026-10-11</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/data-systems/cube/</loc>
+         <lastmod>2026-10-11</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/integrations/data-systems/datafusion/</loc>
          <lastmod>2026-10-11</lastmod>
     </url>
@@ -254,6 +270,10 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/integrations/data-systems/postgres/</loc>
+         <lastmod>2026-10-11</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/integrations/serving-layers/cube/</loc>
          <lastmod>2026-10-11</lastmod>
     </url>
 </urlset>
