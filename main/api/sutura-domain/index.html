@@ -5669,9 +5669,11 @@ an answer, and a broker asked for nothing would have nothing to be complete abou
 <p>The instant is a number and not an <code>Expiry</code>: a delegated token that never expires is not a
 state an exchange can return, so the forever variant is unrepresentable here.</p>
 <h3 id="use-delegation"><code>use Delegation</code><a class="headerlink" href="#use-delegation" title="Permanent link">&para;</a></h3>
-<p>What one impersonating source exchanges through.</p>
-<p><code>Arc</code> because a cloned broker shares its source's one identity provider client - one TLS agent,
-one credential - rather than building another. A composition root builds one per source that
+<p>What one impersonating source exchanges through: an ordered chain of hops.</p>
+<p>Each hop exchanges the previous hop's token - the caller's own inbound token for the first -
+for one carrying that hop's audience.</p>
+<p><code>Arc</code> because a cloned broker shares its source's identity provider clients - one TLS agent,
+one credential each - rather than building more. A composition root builds one per source that
 declares a delegation, never one per deployment.</p>
 <h3 id="use-delegationexchange"><code>use DelegationExchange</code><a class="headerlink" href="#use-delegationexchange" title="Permanent link">&para;</a></h3>
 <p>The port: one RFC 8693 exchange at the caller's own identity provider.</p>

@@ -3340,10 +3340,11 @@ Oracle SQL. It connects through <a href="https://github.com/oracle/rust-oracledb
 source kind is <code>oracle</code>. The adapter is built with the <code>oracle</code> feature.</p>
 <h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
 <ul>
+<li>Your data is in an Oracle Database that accepts OAuth 2.0 access tokens, each caller has their
+  own database user, and each query must run with the permissions of that user.</li>
 <li>Your data is in an Oracle Database, and one database user may read it for all callers.</li>
-<li>Your data is in an Oracle Database that accepts OAuth 2.0 access tokens, and each query must run
-  as the caller.</li>
 </ul>
+<p>Oracle Database 19.18 or later (not 21c) accepts these tokens.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <p>The entry reads the <a href="../../#data-system-settings">settings that every data system has</a>
 and these keys:</p>
@@ -3400,10 +3401,40 @@ and these keys:</p>
 <td>For <code>verified</code>: a PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused</td>
 </tr>
 <tr>
-<td><code>subjects</code></td>
+<td><code>delegation</code></td>
 <td>list</td>
 <td>none</td>
-<td>For <code>impersonation-at-source</code>: the caller subjects (<code>sub</code>) that may ask this source. A caller who is not in the list is refused</td>
+<td>For <code>impersonation-at-source</code>, required: the hops that exchange the caller's token, in order</td>
+</tr>
+<tr>
+<td><code>delegation[].token_endpoint</code></td>
+<td>URL</td>
+<td>required</td>
+<td>The token endpoint of the identity provider for this hop</td>
+</tr>
+<tr>
+<td><code>delegation[].client_id</code></td>
+<td>string</td>
+<td>required</td>
+<td>The client ID that sutura uses at this identity provider</td>
+</tr>
+<tr>
+<td><code>delegation[].client_secret_file</code></td>
+<td>absolute path</td>
+<td>required</td>
+<td>A file that holds the client secret. sutura reads it at startup</td>
+</tr>
+<tr>
+<td><code>delegation[].grant</code></td>
+<td>string</td>
+<td><code>token-exchange</code></td>
+<td><code>token-exchange</code> (RFC 8693), <code>on-behalf-of</code> (Microsoft Entra ID), or <code>broker-token</code> (Keycloak sends back the token of an external identity provider). The last hop is not <code>broker-token</code></td>
+</tr>
+<tr>
+<td><code>delegation[].audience</code></td>
+<td>string</td>
+<td>required</td>
+<td>The audience that the token from this hop must carry. With <code>on-behalf-of</code>, sutura asks for the scope <code>&lt;audience&gt;/.default</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -3411,45 +3442,79 @@ and these keys:</p>
 the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
 it logs in, so declare the address that answers.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
+<p>Each caller with their own database user. The caller signs in to Keycloak through Microsoft Entra
+ID. Keycloak sends back the caller's Entra ID token, and Entra ID exchanges it for a token for the
+database:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">sources</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"oracle"</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"127.0.0.1"</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1521</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"FREEPDB1"</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2484</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"orcl.example.com"</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-password"</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"plaintext"</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-ca.pem"</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">delegation</span><span class="p">:</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://keycloak.example.com/realms/example/broker/entra/token"</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/keycloak-client-secret"</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">        </span><span class="nt">grant</span><span class="p">:</span><span class="w"> </span><span class="s">"broker-token"</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"11111111-1111-4111-8111-111111111111"</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/oauth2/v2.0/token"</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"11111111-1111-4111-8111-111111111111"</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/entra-client-secret"</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">        </span><span class="nt">grant</span><span class="p">:</span><span class="w"> </span><span class="s">"on-behalf-of"</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"22222222-2222-4222-8222-222222222222"</span>
 </span></code></pre></div>
-<p>Each caller with their own token:</p>
+<ul>
+<li>Start Keycloak with the feature <code>identity-brokering-api:v2</code>. The <code>broker-token</code> hop uses the
+  Identity Brokering API v2 of Keycloak.</li>
+<li>In Keycloak, the client <code>sutura</code> has <code>external.token.enabled</code> set to <code>true</code> and
+  <code>external.token.idp</code> set to <code>entra</code>. The identity provider <code>entra</code> has <code>storeTokenInSession</code> set
+  to <code>true</code>.</li>
+<li>The <code>entra</code> identity provider asks for a scope of the Entra ID app <code>11111111-…</code>. Thus the token
+  of each caller has that audience, and Entra ID accepts it for the <code>on-behalf-of</code> hop.</li>
+<li><code>22222222-…</code> is the Entra ID app of the database. Each caller has their own database user, for
+  example <code>CREATE USER caller IDENTIFIED GLOBALLY AS 'AZURE_USER=user@example.com';</code>.</li>
+</ul>
+<p>One database user for every caller:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">sources</span><span class="p">:</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"oracle"</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2484</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"orcl.example.com"</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"127.0.0.1"</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1521</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"FREEPDB1"</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-password"</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-ca.pem"</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">subjects</span><span class="p">:</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01"</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02"</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"plaintext"</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
 </span></code></pre></div>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
-<p>This data system supports <code>shared-service-user</code> and secure-impersonation.</p>
-<p>With <code>shared-service-user</code>, sutura connects as the one user in <code>user</code>. Every caller's query runs as
-that user.</p>
-<p>With <code>impersonation-at-source</code>, sutura opens a session for each query with the token that it
-verified for the caller, sent as an OAuth 2.0 access token. The database checks the token and runs
-the query as the database user that it maps the token to. sutura refuses an anonymous caller and a
-caller who is not in <code>subjects</code>, and closes the session when the query ends. The source must use
-<code>transport_mode: verified</code>. sutura also connects as <code>user</code> at startup to check the source, and no
-caller's query runs on that connection. Configure the database to accept the tokens of your
-identity provider.</p>
+<p>This data system supports <code>impersonation-at-source</code> and <code>shared-service-user</code>.</p>
+<p>With <code>impersonation-at-source</code>, each caller must exist in Oracle. Each caller has their own
+database user, and the query runs with the permissions of that user. sutura exchanges the token
+that it verified for the caller through the hops in <code>delegation</code>, in order. The first hop sends the
+caller's token, and each next hop sends the token from the hop before it. sutura opens a session
+for each query with the token from the last hop, sent as an OAuth 2.0 access token. The database
+checks the token and maps it to the caller's database user. sutura closes the session when the
+query ends.</p>
+<ul>
+<li>If a hop fails, sutura refuses the query. It sends no later hop and opens no session.</li>
+<li>sutura sends every verified caller's token. The database decides who may read what.</li>
+<li>sutura does not start without <code>delegation</code>, when the last hop is <code>broker-token</code>, or when the
+  source has <code>subjects</code>.</li>
+<li>The source must use <code>transport_mode: verified</code>, and <code>delegation</code> needs
+  <code>security.inbound.mode: direct</code>.</li>
+<li>sutura also connects as <code>user</code> at startup to check the source. No caller's query runs on that
+  connection.</li>
+</ul>
+<p>The database can also map the tokens of many callers to one shared schema. The query then runs with
+the shared schema's grants plus the global roles that the database maps from the caller's token.</p>
+<p>With <code>shared-service-user</code>, sutura connects as the one user in <code>user</code>. Every caller's query runs
+with the permissions of that user.</p>
 <p>sutura refuses to start when the Oracle driver's packet trace is switched on.</p>
 
 
