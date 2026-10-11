@@ -2268,8 +2268,9 @@ jobs:
   # The Cube docker tier (#1340): starts the compose `cube` profile and runs the cells
   # `just cube-acceptance` runs - the live metadata API read through `HttpMetaReader` (`--features
   # http`) and compared with the recorded answer the golden suite registers, and a token the tier did
-  # not sign refused. `ci-openmetadata-tier`'s shape and rules: category-gated on `catalog_cube`, held
-  # run-or-fail by `ci-aggregate`, no secret, no event exception.
+  # not sign refused; `examples/cube` answered through a composed `sutura mcp`; and the golden and
+  # differential cells for the `cube` data system. `ci-openmetadata-tier`'s shape and rules:
+  # category-gated on `catalog_cube`, held run-or-fail by `ci-aggregate`, no secret, no event exception.
   ci-cube-tier:
     needs: [ci]
     if: needs.ci.outputs.catalog_cube == 'true'
