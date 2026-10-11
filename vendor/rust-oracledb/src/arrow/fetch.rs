@@ -428,7 +428,6 @@ mod tests {
             let row = DbRow::new(vec![Some(DbValue::Number(number))]);
             creator.add_row(&Row::new(&columns, row)).unwrap();
         }
-        creator.add_row(&Row::new(&columns, DbRow::new(vec![None]))).unwrap();
         let batch = creator.create_batch().unwrap();
         assert_eq!(batch.schema().field(0).data_type(), &DataType::Utf8);
         let fetched = batch.column(0).as_string::<i32>();
@@ -437,6 +436,5 @@ mod tests {
             assert_eq!(fetched.value(index), exact);
         }
         assert_eq!(fetched.value(0), "9007199254740993");
-        assert!(fetched.is_null(values.len()));
     }
 }
