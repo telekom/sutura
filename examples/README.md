@@ -9,6 +9,8 @@ in [`docs/examples/`](../docs/examples/index.md). A test runs every directory he
 | `raw-sql/`            | The `run_sql` tool, which is off by default, over a Postgres source                                     |
 | `authored-sql/`       | A catalog with one metric written as SQL under `authored_sql:`                                          |
 | `multi-player/`       | A served deployment with a DataHub catalog and per-caller identity                                      |
+| `cube/`               | The markdown catalog of `single-player/` over a Cube source, with the Cube model and its data           |
+| `metrics-layer/`      | A DataHub catalog over Cube as the only source, asked with each caller's own Keycloak token             |
 | `okf/`                | Catalog files for the OKF reader                                                                        |
 | `datacontract/`       | Catalog files for the Open Data Contract Standard reader                                                |
 | `demo-chatinterface/` | The container behind `just demo`. [The local chat demo](../docs/demo.md)                                |

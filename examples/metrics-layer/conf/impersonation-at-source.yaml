@@ -1,0 +1,44 @@
+# sutura's settings for this example with `impersonation-at-source`: sutura exchanges each caller's
+# token at Keycloak for a token Cube accepts, so each query runs with the caller's own permissions.
+server:
+  host: "127.0.0.1"
+  port: 8080
+security:
+  identity: "multi-user"
+  # Every caller presents a Keycloak access token from the `sutura` client in keycloak/realm.json.
+  # sutura checks it against the realm's public keys.
+  inbound:
+    mode: "direct"
+    resource: "https://sutura.example.com"
+    authorization_server: "https://localhost:8443/realms/metrics-layer"
+    key_set_file: "/run/sutura/jwks.json"
+    algorithms: ["RS256"]
+  # The CA of the TLS proxy in front of Cube.
+  outbound:
+    transport_anchors: "/run/sutura/cube-ca.pem"
+catalogs:
+  # DataHub, read with one token for every caller. The name is also the Cube source's name.
+  - name: "warehouse"
+    kind: "datahub"
+    # Required for every catalog kind, and not read for DataHub.
+    dir: "/unused-for-datahub"
+    data_dir: "/unused-for-datahub"
+    version: "example"
+    endpoint: "http://127.0.0.1:8081"
+    token_file: "/run/sutura/datahub-token"
+    metric_property: "sutura"
+sources:
+  # Each table of the catalog is a cube with the same name in cube/model.yml.
+  warehouse:
+    kind: "cube"
+    endpoint: "https://cube.example.com"
+    # The token of the `sutura-deployment` client. sutura sends it only for the startup checks.
+    token_file: "/run/sutura/cube-token"
+    posture: "impersonation-at-source"
+    # The catalog's `revenue` metric has an anchor. sutura checks it at startup as this identity.
+    verification_identity: "sutura-deployment"
+    delegation:
+      - token_endpoint: "http://127.0.0.1:8180/realms/metrics-layer/protocol/openid-connect/token"
+        client_id: "https://sutura.example.com"
+        client_secret_file: "/run/sutura/exchange-secret"
+        audience: "cube"

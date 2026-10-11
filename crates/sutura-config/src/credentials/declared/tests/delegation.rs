@@ -171,7 +171,7 @@ fn a_plan_refused_at_one_source_sends_nothing_to_the_idp() {
             &asking("analyst-a@example.com"),
             &SourceSet::of(source("warehouse")).and(source("yard")),
         )
-        .expect("an undeclared caller is a refusal, not an error");
+        .expect("a source that refuses the asker is a refusal, not an error");
     assert!(
         matches!(minted, Minted::Refused { ref source } if source.as_str() == "yard"),
         "{minted:?}"

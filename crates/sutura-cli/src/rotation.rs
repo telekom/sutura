@@ -18,6 +18,7 @@
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
+    feature = "cube",
     feature = "datahub",
     feature = "openmetadata",
     feature = "oracle"

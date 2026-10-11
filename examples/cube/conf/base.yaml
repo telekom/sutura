@@ -1,0 +1,19 @@
+# sutura's settings for this example, run from the repository root. The markdown catalog of
+# `examples/single-player` defines the metrics, and Cube computes them: `just dev-up-cube` starts the
+# Cube in `compose.services.yaml`, which serves `model/` over the corpus `clickhouse/` loads.
+security:
+  identity: "single-user"
+  single_user_because: "one developer asks one Cube deployment with its one token"
+catalogs:
+  - name: "model"
+    kind: "markdown"
+    dir: "examples/single-player/catalog"
+    data_dir: "examples/single-player/data"
+    version: "example"
+sources:
+  # The catalog's models name `local`. Each cube in `model/` has the name of a catalog table.
+  local:
+    kind: "cube"
+    endpoint: "http://127.0.0.1:4000"
+    token_file: "/run/sutura/cube-token"
+    posture: "shared-service-user"

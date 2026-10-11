@@ -88,7 +88,7 @@ The log has `INFO` lines about the check in two cases. When BigQuery is the only
 model of the catalog reads gets one line: every table is there. When there is more than one kind of data system, the
 check runs over every source, and each source that a model reads gets one line. BigQuery says that every table is
 there. Every other kind, `files` included, says that the adapter does not report which tables it holds. A deployment of
-one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle or DuckDB) logs no line about tables.
+one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle, DuckDB or Cube) logs no line about tables.
 
 ## Who is asking
 

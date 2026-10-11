@@ -548,6 +548,14 @@ A self-signed leaf whose SAN names the IP literal the reader dials (`127.0.0.1`)
 Freshly generated per call. `security.outbound` verification is by dial, so the SAN must match
 the dialed address - a DNS-name-only cert would not verify against `https://127.0.0.1:<port>`.
 
+#### Methods
+
+```rust
+pub const fn certificate(&self) -> &rcgen::Certificate
+```
+
+The self-signed leaf, for the bundle a deployment's `security.outbound` declares.
+
 ### `struct Scratch`
 
 ```rust

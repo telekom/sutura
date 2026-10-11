@@ -163,6 +163,12 @@ pub(crate) struct RawSource {
     /// `host:port/service_name` string. Not a SID, and not a `database`: the key names what it is.
     #[serde(default)]
     pub(crate) service_name: Option<String>,
+    /// The base URL of a `cube` source's REST API, `scheme://host[:port]`, with no credentials in it.
+    #[serde(default)]
+    pub(crate) endpoint: Option<String>,
+    /// The absolute path of the file a `cube` source's token is read from at boot.
+    #[serde(default)]
+    pub(crate) token_file: Option<String>,
     /// The database file a `duckdb` source opens, read-only. A path, so not `database`, which names
     /// a database on a server.
     #[serde(default)]

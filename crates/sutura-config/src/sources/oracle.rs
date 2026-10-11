@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
 use crate::sources::placement::{HostName, InvalidDelegation, OracleChannel, OracleServiceName, SourcePlacement, TlsServerName};
 use crate::sources::transport::{SourceTransport, TrustAnchors};
-use crate::sources::workload_identity::DelegationDeclared;
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
@@ -109,7 +108,12 @@ pub(super) fn parse_placement(
         } => return Err(refused("verified with `transport_anchors: system`")),
         SourceTransport::Mutual { .. } => return Err(refused("mutual")),
     };
-    let delegation = parse_delegation(alias, kind, entry, &channel)?;
+    let delegation = super::parse_delegation(
+        alias,
+        kind,
+        entry,
+        matches!(channel, OracleChannel::Plaintext).then_some(InvalidDelegation::Plaintext),
+    )?;
     Ok(SourcePlacement::Oracle {
         host,
         port,
@@ -119,32 +123,6 @@ pub(super) fn parse_placement(
         channel,
         delegation,
     })
-}
-
-/// The hops each caller's token is exchanged through: required on an `impersonation-at-source`
-/// entry, which must be `verified`, and refused on any other - and never beside
-/// `workload_identity`, which only `bigquery` reads.
-fn parse_delegation(
-    alias: &SourceName,
-    kind: SourceKind,
-    entry: &RawSourceEntry<'_>,
-    channel: &OracleChannel,
-) -> Result<Vec<DelegationDeclared>, InvalidSourceRegistry> {
-    super::refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
-    let invalid = |cause| InvalidSourceRegistry::Delegation {
-        alias: alias.clone(),
-        cause,
-    };
-    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.delegation) {
-        (false, None) => return Ok(Vec::new()),
-        (false, Some(_)) => return Err(invalid(InvalidDelegation::NotImpersonating)),
-        (true, None | Some([])) => return Err(invalid(InvalidDelegation::Missing)),
-        (true, Some(declared)) => declared,
-    };
-    if *channel == OracleChannel::Plaintext {
-        return Err(invalid(InvalidDelegation::Plaintext));
-    }
-    super::workload_identity::source_hops(alias, declared)
 }
 
 /// The six keys an `oracle` entry has no use for, paired with whether this entry wrote each.
@@ -199,6 +177,8 @@ mod tests {
             port: Some(1521),
             database: None,
             service_name: Some("FREEPDB1"),
+            endpoint: None,
+            token_file: None,
             database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/oracle-password"),
@@ -373,6 +353,8 @@ mod tests {
                 "service_name",
                 RawSourceEntry {
                     service_name: None,
+                    endpoint: None,
+                    token_file: None,
                     database_file: None,
                     ..oracle("warehouse")
                 },
@@ -473,6 +455,8 @@ mod tests {
         ] {
             let entry = RawSourceEntry {
                 service_name: Some(written),
+                endpoint: None,
+                token_file: None,
                 database_file: None,
                 ..oracle("warehouse")
             };
@@ -491,6 +475,8 @@ mod tests {
         SourceRegistry::parse(
             &[RawSourceEntry {
                 service_name: Some("orcl.example_1"),
+                endpoint: None,
+                token_file: None,
                 database_file: None,
                 ..oracle("warehouse")
             }],

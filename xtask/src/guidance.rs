@@ -101,6 +101,10 @@ mod hosts;
 // the page's own structure, so it needs no table and grows by rule rather than by entry. Its
 // assertions are in `tests` below rather than beside it, for the reason `mod claims` gives.
 mod pages;
+// `pages`' ordinal cells, in a file of their own so causality can measure them against `pages` as it
+// was: declared here, `pages.rs` stays revertible.
+#[cfg(test)]
+mod ordinal_tests;
 // A module for `advice`'s reason, and it reads Rust for `constants`' one layer on: the name it
 // keys on comes out of the manifests, and the copy it refuses is as often in a `//` comment as in
 // a page. What it does NOT reach, and the measured false positives that decided its axis, are in

@@ -13,4 +13,5 @@ configuration to serve it.
 | --------------------------------- | ---------------- | --------------- | ------------------------------------------- |
 | [Single player](single-player.md) | Markdown catalog | Local CSV files | One user, shared service user               |
 | [Multi player](multi-player.md)   | DataHub          | BigQuery        | Keycloak users, each caller's own principal |
+| [Metrics layer](metrics-layer.md) | DataHub          | Cube            | Keycloak users, each caller's own token     |
 | [The local chat demo](../demo.md) | Markdown catalog | Local CSV files | One user, a chat client over MCP            |

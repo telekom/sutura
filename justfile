@@ -832,6 +832,36 @@ dev-up-openmetadata:
 dev-up-oracle:
     cargo run -q -p xtask -- dev-up --with oracle
 
+# Off by default for `dev-up-oracle`'s reason: one adapter reads it. The model is
+# `examples/cube/model`, over the single-player corpus.
+# The same, plus the Cube metrics serving layer - `github.com/telekom/sutura#1340`.
+dev-up-cube:
+    cargo run -q -p xtask -- dev-up --with cube
+
+# A named task rather than a cell in the default suite, for `openmetadata-acceptance`'s reasons:
+# `just test` sets `SUTURA_DEV_REQUIRE_TIER=1` and the nix sandbox has no docker socket. It brings
+# the profile up first, then reads the live `/cubejs-api/v1/meta` through `src/http.rs`'s reader.
+# CI runs the same cells through `nix run .#cube-acceptance`; keep the two aligned by hand.
+# The provisioned Cube, asked whether the real reader decodes what the tier's model serves.
+cube-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "cube-acceptance: scope sutura-catalog-cube, sutura-cli and sutura-app - the live Cube tier: the metadata API read through"
+    echo "cube-acceptance: src/http.rs's HttpMetaReader (hence --features http), and a token the tier did not sign refused."
+    echo "cube-acceptance: then examples/cube through a composed \`sutura mcp\` against the same tier."
+    echo "cube-acceptance: then examples/metrics-layer served as two callers, through its DataHub fake, Keycloak and Cube."
+    echo "cube-acceptance: then sutura-app's golden and differential cells for the cube data system, against the same tier."
+    echo "cube-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
+    cargo run -q -p xtask -- dev-up --with cube
+    SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
+    SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube --test mcp -- cube:: --ignored --nocapture
+    SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture
+    SUTURA_DEV_REQUIRE_TIER=1 SUTURA_CUBE_TIER=1 cargo test -p sutura-app --all-features --test golden --test differential -- cube:: --nocapture
+
+# The `ci-cube-tier` CI job's cells under the job's own name, which is where `adapters::exemptions`
+# says the `cube` cells run instead of `just test`.
+ci-cube-tier: cube-acceptance
+
 # Start the Oracle tier and run its live cells - the adapter's acceptance cell (#127) and the
 # catalog reader's (#972) - failing rather than skipping. CI runs the same cells through
 # `nix run .#oracle-acceptance`; keep the two filters aligned.

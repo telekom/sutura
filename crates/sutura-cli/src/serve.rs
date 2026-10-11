@@ -52,9 +52,9 @@ use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
-/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the three
+/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the four
 /// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle"))]
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube"))]
 mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
@@ -68,6 +68,9 @@ mod clickhouse;
 
 /// The same, for the Oracle listener this root opens.
 mod oracle;
+
+/// The same, for the Cube deployment this root opens.
+mod cube;
 
 /// The same, for the `DuckDB` file this root opens read-only.
 mod duckdb;
@@ -314,6 +317,12 @@ pub(crate) fn run() -> Result<(), String> {
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
             (started(&catalogs, engines, broker, None, &settings)?, None)
         }
+        #[cfg(feature = "cube")]
+        OpenedSources::Cube(engines) => {
+            // No pre-flight, for the `Postgres` arm's reason: `CubeWarehouse` takes the port's
+            // default `preflight`.
+            (cube::served(&catalogs, engines, &settings, outbound.as_ref())?, None)
+        }
         #[cfg(feature = "duckdb")]
         OpenedSources::Duckdb(engines) => {
             // No pre-flight, for the `Postgres` arm's reason: `DuckDbWarehouse` takes the port's
@@ -333,7 +342,7 @@ pub(crate) fn run() -> Result<(), String> {
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
             let gate = adoption_gate(mixed.attached.clone(), true);
-            #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle"))]
+            #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube"))]
             let served = started(
                 &catalogs,
                 mixed.engines,
@@ -345,7 +354,7 @@ pub(crate) fn run() -> Result<(), String> {
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
             // source served as itself, and nothing else mintable.
-            #[cfg(not(any(feature = "bigquery", feature = "clickhouse", feature = "oracle")))]
+            #[cfg(not(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube")))]
             let served = shared_identity_service(&catalogs, mixed.engines, gate, &settings)?;
             (served, mixed.attached)
         }
@@ -669,6 +678,10 @@ pub(crate) enum OpenedSources {
     /// A local `DuckDB` database file per source, opened read-only. Nothing is attached.
     #[cfg(feature = "duckdb")]
     Duckdb(sutura_app::Warehouses<DuckdbSource>),
+    /// A Cube deployment per source, reached over its REST API with the declared token. Nothing is
+    /// attached.
+    #[cfg(feature = "cube")]
+    Cube(sutura_app::Warehouses<CubeSource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
@@ -689,6 +702,10 @@ pub(crate) use crate::clickhouse::ClickHouseSource;
 /// `Warehouse` bound and a constructor's return.
 #[cfg(feature = "oracle")]
 pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
+
+/// A Cube source as this binary composes it, re-exported from the ONE place it is named - `crate::cube`.
+#[cfg(feature = "cube")]
+pub(crate) use crate::cube::CubeSource;
 
 /// A `DuckDB` source as this binary composes it, named for `OracleSource`'s reason.
 #[cfg(feature = "duckdb")]
@@ -868,19 +885,25 @@ fn open_engine(
         grouped.clickhouse.is_empty(),
         grouped.oracle.is_empty(),
         grouped.duckdb.is_empty(),
+        grouped.cube.is_empty(),
     ) {
-        (false, true, true, true, true, true) => {
+        (false, true, true, true, true, true, true) => {
             files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files)
         }
-        (true, false, true, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
-        (true, true, false, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
-        (true, true, true, true, true, false) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
+        (true, false, true, true, true, true, true) => {
+            bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound)
+        }
+        (true, true, false, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
+        (true, true, true, true, false, true, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, true, false, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
+        (true, true, true, true, true, true, false) => cube::open_cube(&grouped.cube, registry, outbound),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        (true, true, true, true, true, true, true) => {
+            Err(String::from("this catalog declares no models, so there is nothing to open"))
+        }
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
 }

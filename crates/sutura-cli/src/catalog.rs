@@ -59,6 +59,10 @@ pub(crate) enum OpenedCatalogs {
     /// `Cargo.toml` for why it is default-off (artefact: it links an outbound TLS stack).
     #[cfg(feature = "openmetadata")]
     Openmetadata(Vec<sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::http::HttpSnapshotReader>>),
+    /// A Cube metadata API, behind this crate's default-off `cube` feature, for the `openmetadata`
+    /// arm's reason: it links an outbound TLS stack.
+    #[cfg(feature = "cube")]
+    Cube(Vec<sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::http::HttpMetaReader>>),
     /// A directory of ODCS v3 data-contract documents - `#973`. `sutura-catalog-datacontract` is an
     /// unconditional dependency of this build (pure directory read, no TLS - the same shape
     /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
@@ -127,6 +131,7 @@ pub(crate) fn open_catalog(
         // `Openmetadata` is openable behind the `openmetadata` feature; a build without it gets
         // the not-linked refusal `open_openmetadata_catalogs` returns.
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
+        sutura_config::CatalogKind::Cube => open_cube_catalogs(catalogs, outbound),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {
@@ -149,6 +154,8 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::Okf(catalogs) => load_each(catalogs),
         #[cfg(feature = "openmetadata")]
         OpenedCatalogs::Openmetadata(catalogs) => load_each(catalogs),
+        #[cfg(feature = "cube")]
+        OpenedCatalogs::Cube(catalogs) => load_each(catalogs),
         OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
         #[cfg(feature = "rdbms")]
         OpenedCatalogs::Rdbms(catalogs) => load_each(catalogs),
@@ -236,6 +243,15 @@ where
         ),
         #[cfg(feature = "openmetadata")]
         OpenedCatalogs::Openmetadata(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
+        #[cfg(feature = "cube")]
+        OpenedCatalogs::Cube(catalogs) => LocalService::start_composed(
             catalogs,
             engines,
             sutura_runtime::TracingAuditSink::new(),
@@ -344,6 +360,68 @@ fn open_openmetadata_catalogs(
     Err(String::from(
         "catalog.kind: openmetadata names a metadata adapter this binary was not built to link - \
          build sutura-cli with --features openmetadata, or declare markdown catalogs",
+    ))
+}
+
+/// Opens every declared `cube` catalog, behind this crate's `cube` feature.
+#[cfg(feature = "cube")]
+fn open_cube_catalogs(
+    catalogs: &sutura_config::Catalogs,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<OpenedCatalogs, String> {
+    catalogs
+        .each()
+        .map(|settings| open_one_cube_catalog(settings, outbound))
+        .collect::<Result<Vec<_>, String>>()
+        .map(OpenedCatalogs::Cube)
+}
+
+/// The refusal for a build that did not link the Cube adapter - `open_openmetadata_catalogs`'s shape.
+#[cfg(not(feature = "cube"))]
+fn open_cube_catalogs(
+    _catalogs: &sutura_config::Catalogs,
+    _outbound: Option<&sutura_tls::Declared>,
+) -> Result<OpenedCatalogs, String> {
+    Err(String::from(
+        "catalog.kind: cube names a metadata adapter this binary was not built to link - \
+         build sutura-cli with --features cube, or declare markdown catalogs",
+    ))
+}
+
+/// Opens one declared `cube` catalog: the reader, bounded and authenticated by the declared
+/// deployment token, wrapped in `sutura_catalog_cube::CubeCatalog`.
+///
+/// Every cube is a model on the source the catalog's own name aliases: one Cube deployment is one
+/// source. Endpoint, bounds and anchors resolve as `open_one_openmetadata_catalog`'s do.
+#[cfg(feature = "cube")]
+fn open_one_cube_catalog(
+    settings: &sutura_config::CatalogSettings,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::http::HttpMetaReader>, String> {
+    use sutura_catalog_cube::http::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpMetaReader, ReadBounds};
+
+    let endpoint_raw = settings
+        .endpoint()
+        .ok_or_else(|| format!("`catalogs.{}.endpoint` is required for catalog.kind: cube", settings.name()))?;
+    let endpoint = Endpoint::parse(endpoint_raw)
+        .map_err(|cause| format!("`catalogs.{}.endpoint` is not a usable endpoint: {cause}", settings.name()))?;
+    let token = read_token(settings, "cube")?;
+    let deadline_seconds = settings.deadline_seconds().unwrap_or(DEFAULT_TIMEOUT_SECONDS);
+    let max_response_bytes = settings.max_response_bytes().unwrap_or(DEFAULT_MAX_RESPONSE_BYTES);
+    let bounds = ReadBounds::parse(deadline_seconds, max_response_bytes).map_err(|cause| {
+        format!(
+            "`catalogs.{}.deadline_seconds`/`max_response_bytes` are not usable read bounds: {cause}",
+            settings.name()
+        )
+    })?;
+    let (reader, rotator) = HttpMetaReader::rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (cube reader)", rotator);
+    Ok(sutura_catalog_cube::CubeCatalog::new(
+        settings.name().clone(),
+        settings.version().clone(),
+        settings.name().clone(),
+        HttpMetaReader::rotating(endpoint, token, bounds, reader),
     ))
 }
 
@@ -680,11 +758,11 @@ fn open_datahub_catalogs(
     ))
 }
 
-/// Reads a `catalog.kind: datahub`/`openmetadata` entry's declared token file into a `Secret`, at
+/// Reads a `catalog.kind: datahub`/`openmetadata`/`cube` entry's declared token file into a `Secret`, at
 /// boot rather than on the first question - the same argument a source's `password_file` is
 /// read at boot for. Trimmed, so a file ending in the newline a text editor or `echo` ordinarily writes
 /// still reads as one token.
-#[cfg(any(feature = "datahub", feature = "openmetadata"))]
+#[cfg(any(feature = "datahub", feature = "openmetadata", feature = "cube"))]
 fn read_token(settings: &sutura_config::CatalogSettings, kind: &'static str) -> Result<sutura_domain::identity::Secret, String> {
     let path = settings.token_file().ok_or_else(|| {
         format!(

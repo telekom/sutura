@@ -354,20 +354,22 @@ where
 
     /// What one leg's presented credential means to a transport: two arms, or a refusal.
     ///
-    /// **Exhaustive over three shapes and never wildcarded**, so a fourth [`Presented`] variant is a
+    /// **Exhaustive over four shapes and never wildcarded**, so a fifth [`Presented`] variant is a
     /// compile error at this line rather than a shape that falls through to whatever the last arm
-    /// was. Two shapes have a [`JobIdentity`](crate::transport::JobIdentity) spelling; the third is
-    /// refused HERE and not by a transport, because the mechanism it names was deleted from every
-    /// transport in this crate.
+    /// was. Two shapes have a [`JobIdentity`](crate::transport::JobIdentity) spelling; the other two
+    /// are refused HERE and not by a transport, because the mechanisms they name were deleted from
+    /// every transport in this crate.
     ///
     fn job_identity<'leg>(presented: &'leg Presented, source: &SourceName) -> Mapped<JobIdentity<'leg>, T::Error> {
         match presented {
             Presented::SubjectToken { material } => Ok(JobIdentity::AsSubject { assertion: material }),
-            // **The weaker subject shape, refused because no transport here has a spelling for
-            // it.** A principal switch runs the question on a connection the DEPLOYMENT
+            // **The two weaker subject shapes, refused because no transport here has a spelling for
+            // them.** A principal switch runs the question on a connection the DEPLOYMENT
             // authenticated - this deployment vouching for a subject - and the owner rejected that
-            // mechanism, so `JobIdentity` no longer carries it. `agrees_with` passes this shape
-            // (both are one POSTURE), so only the adapter can say it cannot be delivered.
+            // mechanism, so `JobIdentity` no longer carries it; a sign-in names a user beside the
+            // token, and `JobIdentity::AsSubject` has nowhere to put the name. `agrees_with` passes
+            // these shapes (all subject shapes are one POSTURE), so only the adapter can say they
+            // cannot be delivered.
             Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => Err(BigQueryError::NoPrincipalSwitch {
                 at: String::from(source.as_str()),
                 presented: presented.as_str(),

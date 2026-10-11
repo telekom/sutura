@@ -5,8 +5,9 @@ description: The catalogs sutura reads definitions from, the data systems it run
 
 # Integrations
 
-sutura connects to two kinds of system. A **catalog** supplies the definitions: models, joins and
-metrics. A **data system** holds the data and runs the queries. Each adapter has one page.
+sutura connects to three kinds of system. A **catalog** supplies the definitions: models, joins and
+metrics. A **metrics serving layer** serves certified metrics to many tools. A **data system** holds
+the data and runs the queries. Each adapter has one page.
 [Kinds and settings](../integrations.md) lists the keys that every catalog and every data system
 reads.
 
@@ -119,6 +120,32 @@ The catalog reads from files that you keep in git.
     Convert a WrenAI manifest into a markdown catalog that you review.
 
     [:octicons-arrow-right-24: Wren](catalogs/wren.md)
+
+</div>
+
+<!-- dprint-ignore-end -->
+
+## Metrics serving layers { #metrics-serving-layers }
+
+A metrics serving layer, such as Cube, serves and caches each certified metric for BI tools, REST
+clients and other established tools. If your organization runs one, sutura reads the metrics from it,
+so agents and BI tools get the same number. If only agents need the metrics, sutura computes them
+from the catalog definitions, and you need no serving layer. sutura itself keeps no result cache, for
+security reasons.
+
+<!-- dprint-ignore-start -->
+
+<div class="grid cards" markdown>
+
+-   :material-cube-outline:{ .lg .middle } __Cube__
+
+    ---
+
+    <span class="sutura-badge">Metrics serving layer</span>
+
+    Read the cubes and their dimensions from a Cube deployment.
+
+    [:octicons-arrow-right-24: Cube](serving-layers/cube.md)
 
 </div>
 

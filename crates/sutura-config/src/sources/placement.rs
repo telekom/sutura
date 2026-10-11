@@ -578,6 +578,20 @@ pub enum SourcePlacement {
         /// is not there is refused there rather than created.
         database_file: PathBuf,
     },
+    /// A Cube metrics serving layer, reached over its REST API.
+    ///
+    /// No transport field: the request rides the outbound client, whose trust is
+    /// `security.outbound.transport_anchors`, and no per-source channel is declared.
+    Cube {
+        /// The API's base URL, `scheme://host[:port]`. Parsed where the HTTP client is built.
+        endpoint: String,
+        /// The file the deployment's one token is read from at boot, absolute.
+        token_file: PathBuf,
+        /// The hops each caller's token is exchanged through, in order, on an
+        /// `impersonation-at-source` entry; empty on any other. The last hop's token is the
+        /// request's bearer.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
+    },
 }
 
 impl SourcePlacement {
@@ -595,12 +609,13 @@ impl SourcePlacement {
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
             Self::Oracle { .. } => SourceKind::Oracle,
+            Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
         }
     }
 }
 
-/// Why an `oracle` or `clickhouse` source's `delegation` is not one it can be served under.
+/// Why an `oracle`, `clickhouse` or `cube` source's `delegation` is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidDelegation {
     /// An impersonating source with no exchange, so no caller's token could open a session.
@@ -620,6 +635,13 @@ pub enum InvalidDelegation {
          `transport_mode: verified`"
     )]
     Plaintext,
+    /// An impersonating `cube` source whose endpoint is not `https`: each request sends its
+    /// caller's token.
+    #[error(
+        "the source is `impersonation-at-source`, so each request sends its caller's token - declare \
+         an `https://` endpoint"
+    )]
+    PlaintextEndpoint,
 }
 
 #[cfg(test)]

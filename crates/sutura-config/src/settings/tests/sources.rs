@@ -154,6 +154,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
                     | crate::sources::placement::SourcePlacement::Postgres { .. }
                     | crate::sources::placement::SourcePlacement::ClickHouse { .. }
                     | crate::sources::placement::SourcePlacement::Oracle { .. }
+                    | crate::sources::placement::SourcePlacement::Cube { .. }
                     | crate::sources::placement::SourcePlacement::Duckdb { .. } => {
                         panic!("the fixture tree declares files sources");
                     }
@@ -430,4 +431,42 @@ fn a_delegation_token_endpoint_with_userinfo_is_refused_at_load_without_being_qu
         assert!(rendered.contains("token_endpoint` carries an `@`"), "{rendered}");
         assert!(!rendered.contains("s3cret"), "{rendered}");
     }
+}
+
+/// A Cube source's `delegation` sends each caller's exchanged token, so it serves on a `direct`
+/// deployment and is not fit to serve on any other - the refusal an Oracle delegation earns.
+#[test]
+fn a_cube_source_impersonating_through_a_delegation_serves_only_a_direct_deployment() {
+    let cube = "sources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+                token_file: \"/etc/sutura/cube-token\"\n    posture: \"impersonation-at-source\"\n    delegation:\n      - \
+                token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+                client_secret_file: \"/etc/sutura/client-secret\"\n        audience: \"https://cube.example.com\"\n";
+    let security = "security:\n  identity: \"multi-user\"\n";
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("{security}{cube}")))
+        .expect_err("a Cube delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("metrics").expect("a legal identifier"),
+            key: "delegation",
+        }]
+    );
+    let settings =
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("{security}{DIRECT_INBOUND}{cube}")))
+            .expect("a direct deployment admits a Cube delegation");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+}
+
+#[test]
+fn a_cube_source_with_its_endpoint_and_token_file_loads() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+         token_file: \"/etc/sutura/cube-token\"\n    posture: \"shared-service-user\"\n    \
+         acknowledged_because: \"one deployment token for everybody who asks\"\n",
+    );
+    let settings = Settings::load(&sources).expect("a complete cube source loads");
+    assert!(!settings.sources().is_empty());
 }

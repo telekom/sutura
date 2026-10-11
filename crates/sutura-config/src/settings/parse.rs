@@ -117,6 +117,8 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             port: source.port,
             database: source.database.as_deref(),
             service_name: source.service_name.as_deref(),
+            endpoint: source.endpoint.as_deref(),
+            token_file: source.token_file.as_deref(),
             database_file: source.database_file.as_deref(),
             user: source.user.as_deref(),
             password_file: source.password_file.as_deref(),

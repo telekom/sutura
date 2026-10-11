@@ -1,0 +1,38 @@
+# sutura's settings for this example with `shared-service-user`: every caller's query runs with the
+# token of the `sutura-deployment` client, so every caller gets the same answer.
+server:
+  host: "127.0.0.1"
+  port: 8080
+security:
+  identity: "multi-user"
+  # Every caller presents a Keycloak access token from the `sutura` client in keycloak/realm.json.
+  # sutura checks it against the realm's public keys.
+  inbound:
+    mode: "direct"
+    resource: "https://sutura.example.com"
+    authorization_server: "https://localhost:8443/realms/metrics-layer"
+    key_set_file: "/run/sutura/jwks.json"
+    algorithms: ["RS256"]
+  # The CA of the TLS proxy in front of Cube.
+  outbound:
+    transport_anchors: "/run/sutura/cube-ca.pem"
+catalogs:
+  # DataHub, read with one token for every caller. The name is also the Cube source's name.
+  - name: "warehouse"
+    kind: "datahub"
+    # Required for every catalog kind, and not read for DataHub.
+    dir: "/unused-for-datahub"
+    data_dir: "/unused-for-datahub"
+    version: "example"
+    endpoint: "http://127.0.0.1:8081"
+    token_file: "/run/sutura/datahub-token"
+    metric_property: "sutura"
+sources:
+  # Each table of the catalog is a cube with the same name in cube/model.yml.
+  warehouse:
+    kind: "cube"
+    endpoint: "https://cube.example.com"
+    # The token of the `sutura-deployment` client, sent on every request.
+    token_file: "/run/sutura/cube-token"
+    posture: "shared-service-user"
+    acknowledged_because: "every caller reads the metrics layer as the deployment's own client"

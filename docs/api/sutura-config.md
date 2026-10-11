@@ -1557,6 +1557,10 @@ that exists in a record rather than in a linked crate is still a word an operato
   turns on `sutura-catalog-rdbms`'s `live` reader over a Postgres documentation schema); a
   build without it refuses the kind by name naming the feature, the same stand
   `Self::Openmetadata` makes. The composition root decides which, never the settings parse.
+- `Cube` - A Cube metrics serving layer's metadata API, decided by `sutura-catalog-cube` over its `MetaReader` port.
+
+  **Openable behind `sutura-cli`'s default-off `cube` feature; a build without it refuses this
+  kind by name**, the stand `Self::Openmetadata` makes. It takes the same reader fields.
 
 #### Methods
 
@@ -1710,24 +1714,14 @@ binary in this repository could open until issue #202's reader arrived. `parse_c
 calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
 ```rust
-pub const fn with_openmetadata_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
+pub fn with_http_reader(self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings>
 ```
 
-Adds the two `catalog.kind: openmetadata`-only bounds, when the deployment declared either.
-
-**Infallible, unlike `Self::with_openmetadata_reader`, because `None` is a valid value
-here rather than a missing required one** - it selects the reader's own recommended default
-(`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
-
-```rust
-pub fn with_openmetadata_reader(self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings>
-```
-
-Adds the two `catalog.kind: openmetadata`-only fields to an already-parsed entry.
+Adds the two reader fields of a `catalog.kind: openmetadata` or `cube` entry.
 
 A separate step rather than two more parameters on `Self::parse`, for the same reason
 `Self::with_datahub_reader` is one: `parse_catalogs` calls it only when `kind` parsed as
-`CatalogKind::Openmetadata`, so every other kind is unaffected by fields only a reader over
+`CatalogKind::Openmetadata` or `CatalogKind::Cube`, so every other kind is unaffected by fields only a reader over
 a real deployment needs.
 
 ```rust
@@ -1736,6 +1730,16 @@ pub fn with_rdbms(self, rdbms: RdbmsSettings) -> Self
 
 Adds the `catalog.kind: rdbms`-only settings. `parse_catalogs` calls this only when `kind`
 parsed as `CatalogKind::Rdbms`.
+
+```rust
+pub const fn with_read_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
+```
+
+Adds the two read bounds of a `catalog.kind: openmetadata` or `cube` entry, when the deployment declared either.
+
+**Infallible, unlike `Self::with_http_reader`, because `None` is a valid value
+here rather than a missing required one** - it selects the reader's own recommended default
+(`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
 
 ```rust
 pub fn with_refresh_seconds(self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings>
@@ -1765,7 +1769,7 @@ Why a catalog configuration is not usable.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
 - `CredentialsInEndpoint` - `catalogs[].endpoint` carries an `@`. A catalog endpoint is `scheme://host[:port]`, so an `@` is userinfo however the URL parser splits it - refused here, before the startup log prints the resolved settings, and never quoted back.
-- `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
+- `MissingForReader` - A `catalog.kind: openmetadata` or `cube` entry did not declare a field its reader needs.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is the default interval, not "never".
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
@@ -5494,6 +5498,11 @@ legitimate one.
   file under its own operating-system identity, so `sutura_exec_duckdb`'s
   `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
   refused at the composition root's posture cross-check.
+- `Cube` - A Cube metrics serving layer, queried through its REST API.
+
+  Declarable and openable behind the `cube` feature. `SourcePlacement::Cube` carries the
+  deployment's endpoint and the file its token is read from. The one token is the whole
+  credential, so there is no place for a subject: `impersonation-at-source` is refused.
 
 #### Methods
 
@@ -5683,7 +5692,8 @@ convenience, and nothing needs to clone a startup refusal.
   caller may read. There is no `scope` key either: the credential document has no `scopes`
   member, so one would reach nothing.
 - `ImpersonateRemoved` - The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their verified subject, so a configuration still declaring a map is refused rather than read as if it still chose who runs as whom.
-- `Delegation` - An `oracle` or `clickhouse` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+- `Delegation` - An `oracle`, `clickhouse` or `cube` source's `delegation` is missing, misplaced, or declared over a plaintext channel.
+- `CubeEndpointCredentials` - A `cube` source's `endpoint` carries an `@`.
 - `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
@@ -6217,6 +6227,10 @@ be skipped" look like the same sentence and are not.
   rather than carried here. A listener's redirect is refused, so the connection stays on the
   declared host (`crate::sources`' `oracle` parse names the cell that holds it).
 - `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
+- `Cube` - A Cube metrics serving layer, reached over its REST API.
+
+  No transport field: the request rides the outbound client, whose trust is
+  `security.outbound.transport_anchors`, and no per-source channel is declared.
 
 ##### Methods
 
@@ -6240,13 +6254,14 @@ then on the variant is the answer.
 pub enum InvalidDelegation
 ```
 
-Why an `oracle` or `clickhouse` source's `delegation` is not one it can be served under.
+Why an `oracle`, `clickhouse` or `cube` source's `delegation` is not one it can be served under.
 
 ##### Variants
 
 - `Missing` - An impersonating source with no exchange, so no caller's token could open a session.
 - `NotImpersonating` - An exchange on a source that is not impersonating, which nothing would run.
 - `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
+- `PlaintextEndpoint` - An impersonating `cube` source whose endpoint is not `https`: each request sends its caller's token.
 
 ##### Implements
 
