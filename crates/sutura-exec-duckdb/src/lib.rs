@@ -156,7 +156,7 @@ pub enum DuckDbError {
         #[source]
         cause: CoreError,
     },
-    /// The driver could not say what columns a table has, for a reason other than not having it.
+    /// The driver could not say what columns a table has - a table it lacks included (`Internal`).
     #[error("could not read the schema of {table}")]
     Schema {
         table: String,
