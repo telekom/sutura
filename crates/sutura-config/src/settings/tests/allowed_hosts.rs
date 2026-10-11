@@ -1,12 +1,18 @@
 //! `server.allowed_hosts`: a written list reaches the typed settings, and an entry that is not a
 //! bare host refuses at startup.
 
+use super::{METRICS_TOKEN, TOKEN};
 use crate::settings::{Environment, Settings, SettingsError, Sources};
 
 #[test]
 fn declared_hosts_reach_the_server_settings_normalised() {
-    let sources = Sources::defaults(Environment::Development)
-        .with_overlay("server:\n  allowed_hosts: [\"Sutura.Example.com\", \"10.0.0.7\"]\n");
+    let hosts = "server:\n  allowed_hosts: [\"Sutura.Example.com\", \"10.0.0.7\"]\n";
+    // A host name says callers arrive from beyond this host, so the list loads behind the guards.
+    let bare = Settings::load(&Sources::defaults(Environment::Development).with_overlay(hosts));
+    assert!(bare.is_err(), "a declared host name is off-host");
+    let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+        "{hosts}security:\n  access_token: \"{TOKEN}\"\n  metrics_token: \"{METRICS_TOKEN}\"\nrate_limit:\n  enabled: true\n"
+    ));
     let settings = Settings::load(&sources).expect("a list of hosts loads");
     let hosts: Vec<&str> = settings
         .server()

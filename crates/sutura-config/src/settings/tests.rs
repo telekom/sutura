@@ -491,9 +491,13 @@ fn a_trusted_proxy_list_that_nothing_reads_is_refused() {
 fn forwarded_keying_with_a_named_hop_loads() {
     // The positive case, without which the two refusals above are satisfied by refusing every
     // forwarded configuration there is.
-    let sources = Sources::defaults(Environment::Development)
-        .with_overlay("rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n");
-    let settings = Settings::load(&sources).expect("a named hop and a header source load");
+    // The hop forwards callers from beyond this host, so it loads behind the three off-host guards.
+    let hop = "rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n";
+    let bare = Settings::load(&Sources::defaults(Environment::Development).with_overlay(hop));
+    assert!(bare.is_err(), "a declared hop is off-host");
+    let guarded = format!("security:\n  access_token: \"{TOKEN}\"\n  metrics_token: \"{METRICS_TOKEN}\"\n{hop}  enabled: true\n");
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(guarded))
+        .expect("a named hop and a header source load");
     assert_eq!(settings.rate_limit().client_address(), ClientAddressSource::Forwarded);
     assert!(
         settings
@@ -983,6 +987,10 @@ mod allowed_hosts;
 /// twins. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod agent_surface;
+
+/// The same off-host predicate asked by the `/v1` and `/metrics` refusals. Same reason as `governance`.
+#[cfg(test)]
+mod off_host;
 
 /// The `catalogs[].refresh_seconds` default and refusals. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]

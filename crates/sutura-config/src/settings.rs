@@ -500,9 +500,11 @@ impl Settings {
     pub fn refusals(&self) -> Vec<NotFitToServe> {
         let mut refusals = Vec::new();
         let bind = self.server.bind();
-        let off_host = !bind.is_loopback();
+        let off_host = self.reachable_off_host();
 
-        if off_host && !self.security.tls_termination().is_declared() {
+        // The bind alone, not `off_host`: what this records is the cleartext hop in front of THIS
+        // listener, and on a loopback bind that hop is loopback whatever forwards to it.
+        if !bind.is_loopback() && !self.security.tls_termination().is_declared() {
             // The key the refusal names, and the layer that supplied it. `layers` retained the
             // provenance `read` used to drop, so the operator is told WHICH variable or file set
             // the off-host bind rather than being handed the list of candidates #386 left them.
@@ -662,28 +664,16 @@ impl Settings {
     ///
     /// The guard condition is stated here even though `AccessTokenRequired` and
     /// `RateLimitingDisabled` refuse the same off-host shapes today, so this rule does not depend on
-    /// those two staying as they are. **Off-host here is wider than theirs:** a declared
-    /// `rate_limit.trusted_proxies` hop, a `security.tls_termination` that names a terminator other
-    /// than this process, or a `server.allowed_hosts` entry that is not a loopback address, says
-    /// callers arrive from beyond this host whatever the bind is. The limit: it reads what the
-    /// operator declared, so a hop the configuration does not name is outside it.
+    /// those two staying as they are. Off-host is `reachable_off_host`, the one predicate those two
+    /// ask too, so `/v1` and `/mcp` cannot disagree about it.
     #[must_use]
     pub fn agent_surface_refusals(&self) -> Vec<NotFitToServe> {
         if self.security.inbound().is_some() {
             return Vec::new();
         }
-        let tls = self.security.tls_termination();
-        let off_host = !self.server.bind().is_loopback()
-            || !self.rate_limit.trusted_proxies().is_empty()
-            || (tls.is_declared() && !tls.terminates_here())
-            || self
-                .server
-                .allowed_hosts()
-                .iter()
-                .any(|host| !host_is_loopback(host.as_str()));
         let mut refusals = Vec::new();
         let single_user = matches!(self.security.identity(), Some(DeploymentIdentity::StaticCredentials { .. }));
-        let guarded = !off_host || (self.security.access_token().is_some() && self.rate_limit.enabled());
+        let guarded = !self.reachable_off_host() || (self.security.access_token().is_some() && self.rate_limit.enabled());
         if !(single_user && guarded) {
             refusals.push(NotFitToServe::AgentSurfaceWithoutInboundIdentity);
         }
@@ -702,6 +692,27 @@ impl Settings {
                 .map(|(alias, _)| NotFitToServe::AgentSurfaceOverAnImpersonatingSource { alias: alias.clone() }),
         );
         refusals
+    }
+
+    /// Whether callers can arrive from beyond this host, asked by every refusal that guards a surface
+    /// against them: `AccessTokenRequired`, `MetricsTokenRequired`, `RateLimitingDisabled` and
+    /// [`Self::agent_surface_refusals`].
+    ///
+    /// A non-loopback bind, a declared `rate_limit.trusted_proxies` hop, a `security.tls_termination`
+    /// that names a terminator other than this process, or a `server.allowed_hosts` entry that
+    /// `host_is_loopback` does not accept - each alone says callers arrive from elsewhere, whatever
+    /// the bind is. A name is not an address, so `localhost` counts. **The limit:** it reads what the
+    /// operator declared, so a hop the configuration does not name is outside it.
+    fn reachable_off_host(&self) -> bool {
+        let tls = self.security.tls_termination();
+        !self.server.bind().is_loopback()
+            || !self.rate_limit.trusted_proxies().is_empty()
+            || (tls.is_declared() && !tls.terminates_here())
+            || self
+                .server
+                .allowed_hosts()
+                .iter()
+                .any(|host| !host_is_loopback(host.as_str()))
     }
 
     /// Every `bigquery` source a declared spend ceiling would not bound - see

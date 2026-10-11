@@ -949,13 +949,9 @@ mod tests {
             super::agent_subtree(&state, None, &key, None, &mut Vec::new()).map(|mount| mount.is_some())
         };
         let single_user = "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n";
-        // The switch never set, so `Settings::load` had nothing to refuse: no mode declared, then a
-        // single-user loopback bind that declares a proxy hop or a host name, which counts as off-host.
-        for overlay in [
-            String::new(),
-            format!("{single_user}rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies: [\"127.0.0.1\"]\n"),
-            format!("{single_user}server:\n  allowed_hosts: [\"sutura.example.com\"]\n"),
-        ] {
+        // The switch never set, so `Settings::load` had nothing to refuse: no mode declared, then
+        // `multi-user`.
+        for overlay in [String::new(), String::from("security:\n  identity: \"multi-user\"\n")] {
             let refused = mounted(&overlay).expect_err("this mount assembles nothing");
             assert!(
                 refused
