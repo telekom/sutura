@@ -96,8 +96,9 @@ Four source-level adaptations, recorded here so nothing is silent:
   sutura answered it as a data system that did not answer. A 403 for a rate or a quota stays
   `Internal`. `patch` fails the build when a driver bump moves the patched lines. The patch also
   adds `forbidden_test.go`, which the build's check phase runs, so a changed reason table fails the
-  build on a host that can run its target; a cross build that cannot skips it. Drop it when
-  upstream maps the same reasons.
+  build on a host that can run its target; a cross build that cannot skips it. Upstream issue:
+  [`adbc-drivers/bigquery#329`](https://github.com/adbc-drivers/bigquery/issues/329). Drop it
+  when upstream maps the same reasons.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
