@@ -893,8 +893,8 @@ async fn a_refused_host_costs_a_rate_limit_cell_on_every_route() {
         "{}rate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
         direct_overlay(&issuer, UNREAD)
     );
-    let app = with_agent_mount(&overlay, &issuer);
     for route in BOTH_SURFACES {
+        let app = with_agent_mount(&overlay, &issuer);
         assert_eq!(
             burst(&app, route, (None, None, Some("other.example.com")), 3).await,
             [
@@ -916,9 +916,9 @@ async fn a_wrong_deployment_token_costs_a_rate_limit_cell_on_every_route() {
         "{}  access_token: \"{DEPLOYMENT_TOKEN}\"\nrate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
         gateway_overlay(&issuer)
     );
-    let app = with_agent_mount(&overlay, &issuer);
     let assertion = assertion_from(&issuer, "someone@example.com");
     for route in BOTH_SURFACES {
+        let app = with_agent_mount(&overlay, &issuer);
         assert_eq!(
             burst(&app, route, (Some(WRONG_TOKEN), Some(&assertion), None), 3).await,
             [
