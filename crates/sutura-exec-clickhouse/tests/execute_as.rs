@@ -12,10 +12,9 @@ mod execute_as {
     use sutura_domain::plan::Executable;
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::Warehouse as _;
-    use sutura_exec_clickhouse::execute_as::ClickHouseUser;
-    use sutura_exec_clickhouse::fixture::{FixtureVariable, credential_from_env};
-    use sutura_exec_clickhouse::transport::{Endpoint, Http, HttpError};
-    use sutura_exec_clickhouse::{ClickHouseError, ClickHouseWarehouse};
+    use sutura_exec_clickhouse::ClickHouseWarehouse;
+    use sutura_exec_clickhouse::fixture::credential_from_env;
+    use sutura_exec_clickhouse::transport::{Endpoint, Http};
 
     /// The one database the tier's row policy names, so it is shared rather than per test: only
     /// [`each_declared_user_reads_only_the_rows_its_own_policy_admits`] writes to it.
@@ -48,10 +47,6 @@ mod execute_as {
         )
     }
 
-    fn user(name: &str) -> ClickHouseUser {
-        ClickHouseUser::parse(name).expect("a tier user parses")
-    }
-
     /// Rows differ per caller because the SERVER evaluates each declared user's own row policy:
     /// the same plan, the same service-user connection, two answers.
     #[test]
@@ -75,33 +70,5 @@ mod execute_as {
         };
         assert_eq!(rows_as("sutura_analyst_a"), case.expected().rows().len());
         assert_eq!(rows_as("sutura_analyst_b"), 0);
-    }
-
-    /// `currentUser()` is the declared user, and the boot probe refuses a user the service user holds
-    /// no `IMPERSONATE` grant on - and the service user itself, which would serve as the deployment.
-    #[test]
-    fn the_boot_probe_admits_a_granted_user_and_refuses_an_ungranted_one() {
-        let Some(warehouse) = open("probe") else { return };
-        warehouse
-            .refuse_unless_executes_as(&user("sutura_analyst_a"))
-            .expect("the granted user runs as itself, switched from the service user");
-        let ungranted = warehouse.refuse_unless_executes_as(&user("sutura_ungranted"));
-        assert!(
-            matches!(
-                ungranted,
-                Err(ClickHouseError::ExecuteAsRefused { cause: HttpError::ServerRefused { ref message, .. }, .. })
-                    if message.contains("IMPERSONATE ON sutura_ungranted")
-            ),
-            "the server names the missing grant: {ungranted:?}"
-        );
-        let service = std::env::var(FixtureVariable::User.name()).expect("the tier published its user");
-        let itself = warehouse.refuse_unless_executes_as(&user(&service));
-        assert!(
-            matches!(
-                itself,
-                Err(ClickHouseError::ExecuteAsRefused { .. } | ClickHouseError::ExecuteAsNotHonoured { .. })
-            ),
-            "the service user is never a declared user: {itself:?}"
-        );
     }
 }

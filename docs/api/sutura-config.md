@@ -2498,10 +2498,10 @@ One broker with one answer to *what does this leg present* is the shape the arch
 already assumes: a composition root picks one.
 
 **A switching source is the second thing it presents** (`DeclaredPrincipalBroker::switching`):
-the same map and the same refusals, but the leg carries the declared principal alone, as
-`Presented::SubjectPrincipal`, for a source that authenticates the deployment and switches per
-statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
-is the key, and an anonymous or undeclared caller is refused exactly as below.
+no map - the leg carries the caller's own verified subject as `Presented::SubjectPrincipal`,
+for a source that authenticates the deployment and switches per statement - `ClickHouse`'s
+`EXECUTE AS`. No assertion is required there; an anonymous caller is refused exactly as below,
+and so is one whose verified name IS the deployment's own user at that source.
 
 **An authenticating source is the third** (`DeclaredPrincipalBroker::authenticating`): a set
 of subjects rather than a map, for a source that opens each request's session with the asker's
@@ -2611,19 +2611,6 @@ startup failure, through `sutura_cli`'s `build_broker`.
 `NoDeclaredPrincipals::Empty` for a declaration naming nobody, and
 `NoDeclaredPrincipals::NotAServiceAccount` for a declared account this adapter cannot put
 in a request.
-
-```rust
-pub fn switched(declared: BTreeMap<SubjectKey, PrincipalName>) -> Result<Self, NoDeclaredPrincipals>
-```
-
-Parses a declaration for a source that SWITCHES to the declared principal on the
-deployment's own connection - `DeclaredPrincipalBroker::switching`. The values are not
-service accounts, so only emptiness is refused here: the crate that sends a value narrows it
-(`sutura_exec_clickhouse::execute_as::ClickHouseUser` for `EXECUTE AS`).
-
-# Errors
-
-`NoDeclaredPrincipals::Empty` for a declaration naming nobody.
 
 ```rust
 pub fn target(&self, subject: &SubjectKey) -> Option<&PrincipalName>
@@ -2739,12 +2726,13 @@ pub fn shared(self, at: SourceName, declared: SharedIdentityDeclared) -> Self
 Declares one shared source and the operator's acknowledgement for it.
 
 ```rust
-pub fn switching(self, at: SourceName, declared: DeclaredPrincipals) -> Self
+pub fn switching(self, at: SourceName, deployment: PrincipalName) -> Self
 ```
 
-Declares one impersonating source that switches to each declared subject's principal on the
-deployment's own connection - `ClickHouse`'s `EXECUTE AS`. The same map and the same refusal
-as `Self::impersonating`; only what is presented differs.
+Declares one impersonating source that switches, on the deployment's own connection, to the
+principal named by each caller's verified subject - `ClickHouse`'s `EXECUTE AS`. `deployment`
+is the user that connection authenticates as: a caller whose verified name is that user is
+refused, since switching to it would answer as the deployment.
 
 ##### Implements
 
@@ -5832,7 +5820,7 @@ convenience, and nothing needs to clone a startup refusal.
   served at all, and its VALUES name the account each caller's questions execute as - see
   `crate::DeclaredPrincipals::target`. There is no `scope` key: the credential
   document has no `scopes` member, so one would reach nothing.
-- `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
+- `ImpersonateRemoved` - The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their verified subject, so a configuration still declaring a map is refused rather than read as if it still chose who runs as whom.
 - `OracleDelegation` - An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
 - `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
@@ -6401,31 +6389,6 @@ Why an `oracle` source's `delegation` is not one it can be served under.
 ##### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `enum InvalidImpersonate`
-
-```rust
-pub enum InvalidImpersonate
-```
-
-Why a `clickhouse` source's `impersonate` map is not one it can be served under.
-
-##### Variants
-
-- `Missing` - An impersonating source declared no subject, so no caller could ever be served there.
-- `NotImpersonating` - A map on a source that is not impersonating, which nothing would read.
-- `Subject`
-- `DuplicateSubject` - Two keys that parse to one subject - the parse trims, so they differ only in whitespace.
-- `EmptyUser`
-- `ServiceUser` - A declared user that is the source's own `user`.
-
-##### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `type_alias DeclaredUsers`
-
-A `clickhouse` source's declared subject -> `ClickHouse` user map.
 
 ### Module `transport`
 

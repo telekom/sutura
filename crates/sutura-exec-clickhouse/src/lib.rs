@@ -3,7 +3,7 @@
 //!
 //! The deployment's declared service user authenticates every request. A `shared-service-user`
 //! source runs every statement as that user; an `impersonation-at-source` source runs each one as
-//! the `ClickHouse` user its declared map names for the asking subject, through `EXECUTE AS` - see
+//! the `ClickHouse` user named by the asking caller's verified subject, through `EXECUTE AS` - see
 //! [`execute_as`]. No OAuth: the subject never authenticates to `ClickHouse` itself.
 //!
 //! # Why `ureq` and not an async driver
@@ -127,11 +127,11 @@ where
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
     /// The credential broker handed this adapter a subject's own credential, which it has nowhere
-    /// to put: it authenticates as the deployment and switches to a declared user per statement.
+    /// to put: it authenticates as the deployment and switches to the caller's user per statement.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
          credential to arrive: it authenticates as the deployment's declared user and runs each \
-         statement as a declared ClickHouse user. This is a wiring defect between the credential \
+         statement as the caller's ClickHouse user. This is a wiring defect between the credential \
          broker and the source declaration"
     )]
     NoPlaceForASubject { at: String, presented: &'static str },
@@ -141,27 +141,6 @@ where
         at: String,
         #[source]
         cause: NotAClickHouseUser,
-    },
-    /// The boot probe's `EXECUTE AS` did not run - refused (no setting, no grant) or unreachable.
-    #[error(
-        "the boot probe `EXECUTE AS {user}` did not run. It needs the server setting \
-         `access_control_improvements.allow_impersonate_user = 1` and `GRANT IMPERSONATE ON {user}` \
-         to this source's service user; ClickHouse Cloud offers neither"
-    )]
-    ExecuteAsRefused {
-        user: ClickHouseUser,
-        #[source]
-        cause: E,
-    },
-    /// The boot probe ran, and not as the declared user, or as the service user itself.
-    #[error(
-        "`EXECUTE AS {user}` ran as `{current}`, authenticated as `{authenticated}` - a declared user \
-         must be a user other than this source's service user, and the statement must run as it"
-    )]
-    ExecuteAsNotHonoured {
-        user: ClickHouseUser,
-        current: String,
-        authenticated: String,
     },
     #[error("the credential broker presented a leg that disagrees with how this source is declared")]
     PresentedDisagreesWithPosture {
@@ -206,7 +185,7 @@ where
 /// type rather than as the two-level generic clippy's `type_complexity` lint asks not to repeat.
 type ChResult<T, E> = core::result::Result<T, ClickHouseError<E>>;
 
-/// Which user a statement runs as: `None` is the service user, `Some` the declared user switched to.
+/// Which user a statement runs as: `None` is the service user, `Some` the caller's user switched to.
 type RunsAs = Option<ClickHouseUser>;
 
 /// A `ClickHouse` connection, behind the [`Warehouse`] port.
@@ -275,61 +254,6 @@ where
                 at: String::from(self.source.as_str()),
                 cause,
             })
-    }
-
-    /// Refuses unless the server runs a statement as `user` for this source's service user.
-    ///
-    /// The boot pre-flight for an `impersonation-at-source` source, run once per declared user, so
-    /// a missing server setting or grant stops the process rather than its first question. It also
-    /// refuses a declared user that IS the service user, which would serve that subject as the
-    /// deployment. The limit: it proves the grant at boot; a grant revoked later surfaces as a
-    /// refused question (`Code: 497`), never as an answer as the service user.
-    ///
-    /// # Errors
-    ///
-    /// [`ClickHouseError::ExecuteAsRefused`] if the server refuses the statement, and
-    /// [`ClickHouseError::ExecuteAsNotHonoured`] if it runs as anyone but `user`, or as the
-    /// service user.
-    pub fn refuse_unless_executes_as(&self, user: &ClickHouseUser) -> ChResult<(), T::Error> {
-        let probe = user.execute_as("SELECT currentUser(), authenticatedUser()");
-        let body = self
-            .transport
-            .run(&probe, &[], boot_deadline())
-            .map_err(|cause| ClickHouseError::ExecuteAsRefused {
-                user: user.clone(),
-                cause,
-            })?;
-        let rows = rows_from_json_with_limit::<T::Error>(&body, self.result_budget, Some(1))?;
-        let (current, authenticated) = match rows.rows().first().map(Vec::as_slice) {
-            Some([Value::Text(current), Value::Text(authenticated)]) => (current.clone(), authenticated.clone()),
-            _ => {
-                return Err(ClickHouseError::MalformedResponse {
-                    expected: "one row of two user names",
-                });
-            }
-        };
-        if current != user.as_str() || current == authenticated {
-            return Err(ClickHouseError::ExecuteAsNotHonoured {
-                user: user.clone(),
-                current,
-                authenticated,
-            });
-        }
-        Ok(())
-    }
-
-    /// [`Self::refuse_unless_executes_as`] for every user the source declares, so no subject the
-    /// broker serves is run as a user the boot probe skipped. The declared map itself rather than
-    /// an iterator, so a caller cannot hand over a subset of it.
-    ///
-    /// # Errors
-    ///
-    /// The first refusal, naming its user, as [`Self::refuse_unless_executes_as`] gives it.
-    pub fn refuse_unless_each_executes_as(
-        &self,
-        declared: &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>,
-    ) -> ChResult<(), T::Error> {
-        declared.values().try_for_each(|user| self.refuse_unless_executes_as(user))
     }
 
     fn render(executable: Executable<'_>) -> ChResult<GeneratedQuery, T::Error> {

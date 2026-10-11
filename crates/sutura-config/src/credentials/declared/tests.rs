@@ -483,39 +483,36 @@ fn a_declared_target_that_is_not_a_service_account_email_is_refused_at_parse() {
 }
 
 fn switching() -> DeclaredPrincipalBroker {
-    let declared = DeclaredPrincipals::switched(BTreeMap::from([(subject("analyst-a@example.com"), principal("analyst_a"))]))
-        .expect("a one-subject declaration names somebody");
-    DeclaredPrincipalBroker::empty().switching(source("lakehouse"), declared)
+    DeclaredPrincipalBroker::empty().switching(source("lakehouse"), principal("sutura"))
 }
 
-/// A switching source is presented the declared principal itself - a value no pool has to verify,
-/// so a caller with no assertion is served - and the same map refuses everyone it does not name.
+/// A switching source is presented the caller's own verified subject, in full - a value no pool has
+/// to verify, so a caller with no assertion is served. Nobody, and the deployment's own user, is
+/// refused rather than switched to.
 #[test]
-fn a_switching_source_presents_the_declared_principal_and_refuses_an_undeclared_caller() {
+fn a_switching_source_presents_the_verified_subject_and_refuses_the_deployment_user() {
     let at = source("lakehouse");
     let asked = SourceSet::of(at.clone());
-    let minted = switching()
-        .mint(&no_assertion("analyst-a@example.com"), &asked)
-        .expect("a declared caller is minted for");
-    let credentials = granted(minted, "analyst-a@example.com", &asked);
-    assert!(
-        matches!(
-            credentials.presented_for(&at),
-            Ok(Presented::SubjectPrincipal { name }) if name.as_str() == "analyst_a"
-        ),
-        "the declared principal is presented"
-    );
-    for context in [caller("someone-else@example.com"), no_caller()] {
+    for asker in ["analyst-a@example.com", "someone-else@example.com"] {
+        let minted = switching()
+            .mint(&no_assertion(asker), &asked)
+            .expect("a verified caller is minted for");
+        let credentials = granted(minted, asker, &asked);
+        assert!(
+            matches!(
+                credentials.presented_for(&at),
+                Ok(Presented::SubjectPrincipal { name }) if name.as_str() == asker
+            ),
+            "{asker}: the verified subject itself is presented"
+        );
+    }
+    for context in [caller("sutura"), no_caller()] {
         let refused = switching().mint(&context, &asked).expect("a refusal, not an error");
         assert!(
             matches!(refused, Minted::Refused { ref source } if *source == at),
             "{refused:?}"
         );
     }
-    assert_eq!(
-        DeclaredPrincipals::switched(BTreeMap::new()),
-        Err(NoDeclaredPrincipals::Empty)
-    );
 }
 
 /// The same broker's `direct`-mode hook, against a fake identity provider.

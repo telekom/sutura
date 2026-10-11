@@ -11,8 +11,7 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{DeclaredUsers, HostName, InvalidImpersonate, SourcePlacement};
-use sutura_domain::identity::SubjectKey;
+use crate::sources::placement::{HostName, SourcePlacement};
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: clickhouse` entry into its placement.
@@ -80,60 +79,22 @@ pub(super) fn parse_placement(
         port,
         password_file,
         transport,
-        impersonate: parse_impersonate(alias, kind, entry, &user)?,
         user,
     })
 }
 
-/// The subject -> `ClickHouse` user map: required and non-empty on an `impersonation-at-source`
-/// entry and refused on any other, and never beside `workload_identity`, which only `bigquery` reads.
-/// No declared user may be `service`, the source's own `user`.
-fn parse_impersonate(
-    alias: &SourceName,
-    kind: SourceKind,
-    entry: &RawSourceEntry<'_>,
-    service: &str,
-) -> Result<DeclaredUsers, InvalidSourceRegistry> {
-    super::refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
-    let invalid = |cause| InvalidSourceRegistry::Impersonate {
-        alias: alias.clone(),
-        cause,
-    };
-    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.impersonate) {
-        (false, None) => return Ok(DeclaredUsers::new()),
-        (false, Some(_)) => return Err(invalid(InvalidImpersonate::NotImpersonating)),
-        (true, None) => return Err(invalid(InvalidImpersonate::Missing)),
-        (true, Some(declared)) if declared.is_empty() => return Err(invalid(InvalidImpersonate::Missing)),
-        (true, Some(declared)) => declared,
-    };
-    let mut parsed = DeclaredUsers::new();
-    for (subject, user) in declared {
-        let subject = SubjectKey::parse(subject).map_err(|cause| invalid(InvalidImpersonate::Subject { cause }))?;
-        let user = user.trim();
-        if user.is_empty() {
-            return Err(invalid(InvalidImpersonate::EmptyUser));
-        }
-        if user == service {
-            return Err(invalid(InvalidImpersonate::ServiceUser));
-        }
-        if parsed.insert(subject, String::from(user)).is_some() {
-            return Err(invalid(InvalidImpersonate::DuplicateSubject));
-        }
-    }
-    Ok(parsed)
-}
-
-/// The seven keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
+/// The eight keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
 ///
-/// The `files` key, the three `bigquery` keys, and the three dialled keys this kind does not read -
+/// The `files` key, the four `bigquery` keys, and the three dialled keys this kind does not read -
 /// see this module's own header for why `unix_socket` and `database` are an absence in the adapter
 /// rather than a pending feature; `service_name` is `oracle`'s.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 7] {
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 8] {
     [
         ("data_dir", written(entry.data_dir)),
         ("billing_project", written(entry.billing_project)),
         ("dataset", written(entry.dataset)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
+        ("workload_identity", entry.workload_identity.is_some()),
         ("unix_socket", written(entry.unix_socket)),
         ("database", written(entry.database)),
         ("service_name", written(entry.service_name)),
@@ -147,7 +108,6 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     use crate::security::DeploymentIdentity;
-    use crate::sources::placement::InvalidImpersonate;
     use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceKind, SourceRegistry, placement, transport};
 
     fn alias(name: &str) -> SourceName {
@@ -185,7 +145,7 @@ mod tests {
             transport_anchors: None,
             client_certificate: None,
             client_key: None,
-            impersonate: None,
+            impersonate: false,
             subjects: false,
             delegation: None,
         }
@@ -204,9 +164,7 @@ mod tests {
                 user,
                 password_file,
                 transport,
-                impersonate,
             } => {
-                assert!(impersonate.is_empty(), "a shared source declares no subject map");
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 8123);
                 assert_eq!(user, "sutura");
@@ -298,77 +256,43 @@ mod tests {
         );
     }
 
-    fn impersonating(map: &std::collections::BTreeMap<String, String>) -> RawSourceEntry<'_> {
+    fn impersonating() -> RawSourceEntry<'static> {
         RawSourceEntry {
             posture: "impersonation-at-source",
             acknowledged_because: None,
-            impersonate: Some(map),
             ..clickhouse("warehouse")
         }
     }
 
+    /// Each caller runs as the `ClickHouse` user named by their verified subject, so an impersonating
+    /// entry declares no map at all - and the removed map is refused on every kind, naming the key.
     #[test]
-    fn an_impersonating_clickhouse_source_carries_its_declared_subject_map() {
-        let map = std::collections::BTreeMap::from([(String::from("subject-a"), String::from(" analyst_a "))]);
-        let registry = SourceRegistry::parse(&[impersonating(&map)], None).expect("an impersonating entry with a map parses");
+    fn an_impersonating_clickhouse_source_needs_no_map_and_the_removed_one_is_refused() {
+        let registry = SourceRegistry::parse(&[impersonating()], None).expect("an impersonating entry with no map parses");
         let configured = registry.get(&alias("warehouse")).expect("the entry is there");
-        let placement::SourcePlacement::ClickHouse { impersonate, .. } = configured.placement() else {
-            panic!("expected a clickhouse placement");
-        };
-        let subject = sutura_domain::identity::SubjectKey::parse("subject-a").expect("a test subject parses");
-        assert_eq!(impersonate.get(&subject).map(String::as_str), Some("analyst_a"));
-    }
-
-    #[test]
-    fn a_clickhouse_subject_map_is_required_exactly_when_the_source_impersonates() {
-        let empty = std::collections::BTreeMap::new();
-        let map = std::collections::BTreeMap::from([(String::from("subject-a"), String::from("analyst_a"))]);
-        let blank = std::collections::BTreeMap::from([(String::from("subject-a"), String::from(" "))]);
-        let missing = RawSourceEntry {
-            impersonate: None,
-            ..impersonating(&empty)
-        };
-        let on_shared = RawSourceEntry {
-            impersonate: Some(&map),
-            ..clickhouse("warehouse")
-        };
-        for (entry, expected) in [
-            (missing, InvalidImpersonate::Missing),
-            (impersonating(&empty), InvalidImpersonate::Missing),
-            (impersonating(&blank), InvalidImpersonate::EmptyUser),
-            (on_shared, InvalidImpersonate::NotImpersonating),
+        assert_eq!(configured.kind(), SourceKind::ClickHouse);
+        for entry in [
+            RawSourceEntry {
+                impersonate: true,
+                ..impersonating()
+            },
+            RawSourceEntry {
+                impersonate: true,
+                ..clickhouse("warehouse")
+            },
         ] {
-            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("a misdeclared map is refused");
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the removed map is refused");
+            assert!(matches!(error, InvalidSourceRegistry::ImpersonateRemoved { .. }), "{error}");
             assert!(
-                matches!(error, InvalidSourceRegistry::Impersonate { ref cause, .. } if *cause == expected),
-                "{expected:?}: {error}"
+                error.to_string().contains("`sources.warehouse.impersonate` is removed"),
+                "{error}"
             );
         }
     }
 
-    /// A subject mapped to the source's own `user`, padded or not, is refused at load.
+    /// Only a `bigquery` source reads `workload_identity`, refused on this kind rather than read past.
     #[test]
-    fn an_impersonate_entry_naming_the_service_user_is_refused() {
-        for written in ["sutura", " sutura "] {
-            let map = std::collections::BTreeMap::from([
-                (String::from("subject-a"), String::from("analyst_a")),
-                (String::from("subject-b"), String::from(written)),
-            ]);
-            let error = SourceRegistry::parse(&[impersonating(&map)], Some(&single_user()))
-                .expect_err("a declared user equal to the source's own user is refused");
-            assert!(
-                matches!(error, InvalidSourceRegistry::Impersonate { ref cause, .. }
-                    if cause.to_string().contains("the source's own `user`")),
-                "{written:?}: {error:?}"
-            );
-        }
-    }
-
-    /// Only a `bigquery` source reads `workload_identity`, and only a `clickhouse` source reads
-    /// `impersonate` - each refused on the other kind rather than read past.
-    #[test]
-    fn the_two_subject_maps_are_refused_on_the_kind_that_does_not_read_them() {
-        let map = std::collections::BTreeMap::from([(String::from("subject-a"), String::from("analyst_a"))]);
+    fn workload_identity_is_refused_on_a_clickhouse_source() {
         let with_wif = RawSourceEntry {
             workload_identity: Some(crate::raw::RawWorkloadIdentity {
                 audience: String::from("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/sso"),
@@ -377,7 +301,7 @@ mod tests {
                 expected_audience: None,
                 delegation: None,
             }),
-            ..impersonating(&map)
+            ..impersonating()
         };
         let error = SourceRegistry::parse(&[with_wif], None).expect_err("workload_identity is not a clickhouse key");
         assert!(
@@ -388,22 +312,6 @@ mod tests {
                     ..
                 }
             ),
-            "{error}"
-        );
-        let on_files = RawSourceEntry {
-            kind: "files",
-            data_dir: Some("/srv/sutura/data"),
-            host: None,
-            port: None,
-            user: None,
-            password_file: None,
-            transport_mode: None,
-            impersonate: Some(&map),
-            ..clickhouse("warehouse")
-        };
-        let error = SourceRegistry::parse(&[on_files], Some(&single_user())).expect_err("impersonate is a clickhouse key");
-        assert!(
-            matches!(error, InvalidSourceRegistry::KeyNotForKind { key: "impersonate", .. }),
             "{error}"
         );
     }

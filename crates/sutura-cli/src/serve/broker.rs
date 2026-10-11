@@ -66,8 +66,8 @@ pub(crate) fn build_broker(
             broker = broker.shared(alias.clone(), declared.clone());
         }
         #[cfg(feature = "clickhouse")]
-        if let Some(declared) = crate::clickhouse::declared_principals(alias, source)? {
-            broker = broker.switching(alias.clone(), declared);
+        if let Some(deployment) = crate::clickhouse::deployment_user(alias, source)? {
+            broker = broker.switching(alias.clone(), deployment);
         }
         #[cfg(feature = "oracle")]
         if let [first, then @ ..] = crate::oracle::declared_delegation(source) {

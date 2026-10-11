@@ -1,6 +1,6 @@
 ---
 title: ClickHouse
-description: Answer questions over a ClickHouse server through its HTTP interface, as one declared user or as a declared user per caller.
+description: Answer questions over a ClickHouse server through its HTTP interface, as one declared user or as each caller's own ClickHouse user.
 ---
 
 # ClickHouse
@@ -22,17 +22,16 @@ parameters. The crate is `sutura-exec-clickhouse`, and the source kind is `click
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                  | Type                      | Default  | Meaning                                                                                   |
-| -------------------- | ------------------------- | -------- | ----------------------------------------------------------------------------------------- |
-| `host`               | string                    | required | The host of the HTTP interface                                                            |
-| `port`               | integer                   | required | The HTTP port. ClickHouse uses `8123` for HTTP and `8443` for HTTPS                       |
-| `user`               | string                    | required | The user for HTTP Basic authentication                                                    |
-| `password_file`      | absolute path             | required | A file that holds the password. sutura reads it at startup                                |
-| `transport_mode`     | string                    | required | `plaintext` (HTTP), `verified` or `mutual` (HTTPS)                                        |
-| `transport_anchors`  | `system` or absolute path | none     | The CA file, or `system` for the host trust store. Required for `verified` and `mutual`   |
-| `client_certificate` | absolute path             | none     | The client certificate. `mutual` only                                                     |
-| `client_key`         | absolute path             | none     | The client key. `mutual` only                                                             |
-| `impersonate`        | map                       | none     | Each verified subject, and the ClickHouse user it runs as. `impersonation-at-source` only |
+| Key                  | Type                      | Default  | Meaning                                                                                 |
+| -------------------- | ------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `host`               | string                    | required | The host of the HTTP interface                                                          |
+| `port`               | integer                   | required | The HTTP port. ClickHouse uses `8123` for HTTP and `8443` for HTTPS                     |
+| `user`               | string                    | required | The user for HTTP Basic authentication                                                  |
+| `password_file`      | absolute path             | required | A file that holds the password. sutura reads it at startup                              |
+| `transport_mode`     | string                    | required | `plaintext` (HTTP), `verified` or `mutual` (HTTPS)                                      |
+| `transport_anchors`  | `system` or absolute path | none     | The CA file, or `system` for the host trust store. Required for `verified` and `mutual` |
+| `client_certificate` | absolute path             | none     | The client certificate. `mutual` only                                                   |
+| `client_key`         | absolute path             | none     | The client key. `mutual` only                                                           |
 
 `plaintext` needs a loopback IP address as `host`. There is no `database` key: unqualified table
 names resolve in the default database of the user.
@@ -65,28 +64,24 @@ With `posture: shared-service-user`, sutura signs in as the one user in `user`, 
 query runs as that user.
 
 With `posture: impersonation-at-source`, sutura still signs in as `user`, and it runs each statement
-as the ClickHouse user that `impersonate` declares for the caller:
-`EXECUTE AS "<user>" <statement>`. It never uses the session form of `EXECUTE AS`. A caller that the
-map does not name is refused, and is never run as `user`. A user name can contain only letters,
-digits and `_ . - @`, and it cannot be the user in `user`. Unqualified table names still resolve
-in the default database of `user`.
+as the ClickHouse user named by the caller's verified subject (the `sub` claim of the caller's
+token): `EXECUTE AS "<sub>" <statement>`. It never uses the session form of `EXECUTE AS`. There is
+no map of callers: each caller's own ClickHouse user, its grants and its row policies decide what
+the caller may read. A user name can contain only letters, digits and `_ . - @`. Unqualified table
+names still resolve in the default database of `user`.
 
 ```yaml
 posture: "impersonation-at-source"
-impersonate:
-  "analyst-a@example.com": "analyst_a"
-  "analyst-b@example.com": "analyst_b"
 ```
 
 Requirements:
 
 - The server setting `access_control_improvements.allow_impersonate_user = 1`.
-- `GRANT IMPERSONATE ON <user> TO <the user in user>` for each declared user. `ALL ON *.*` includes
+- A ClickHouse user for each caller, named by the caller's `sub`.
+- `GRANT IMPERSONATE ON <user> TO <the user in user>` for each caller's user. `ALL ON *.*` includes
   `IMPERSONATE` on every user, so do not grant `ALL` to the user in `user`.
 - ClickHouse Cloud does not support `EXECUTE AS`.
-- At startup, `sutura serve` runs `EXECUTE AS "<user>" SELECT currentUser(), authenticatedUser()`
-  for each declared user, and does not start if one fails. A grant revoked after startup makes the
-  caller's question fail; it does not run as `user`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
-The caller does not sign in to ClickHouse; the server decides which users the user in `user` may become.
+A caller with no ClickHouse user, or one that the user in `user` may not become, is refused; the
+query never runs as `user`. A caller whose `sub` is the user in `user` is refused.

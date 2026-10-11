@@ -124,7 +124,7 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             transport_anchors: source.transport_anchors.as_deref(),
             client_certificate: source.client_certificate.as_deref(),
             client_key: source.client_key.as_deref(),
-            impersonate: source.impersonate.as_ref(),
+            impersonate: source.impersonate.is_some(),
             subjects: source.subjects.is_some(),
             delegation: source.delegation.as_deref(),
         })

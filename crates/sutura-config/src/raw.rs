@@ -135,10 +135,10 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
-    /// A `clickhouse` source's subject -> `ClickHouse` user map: required when it is
-    /// `impersonation-at-source`, refused otherwise - see `crate::sources::clickhouse`.
+    /// The removed `clickhouse` subject map, read only so that a configuration still declaring it is
+    /// refused naming the key rather than as an unknown one.
     #[serde(default)]
-    pub(crate) impersonate: Option<std::collections::BTreeMap<String, String>>,
+    pub(crate) impersonate: Option<serde::de::IgnoredAny>,
     /// The removed `oracle` allow-list, read only so that a configuration still declaring it is
     /// refused naming the key rather than as an unknown one.
     #[serde(default)]

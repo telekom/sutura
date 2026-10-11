@@ -34,13 +34,12 @@ pub(super) fn parse_placement(
     if kind != SourceKind::Duckdb {
         refuse_foreign_keys(alias, kind, [("database_file", written(entry.database_file))])?;
     }
-    // `clickhouse`'s subject map, refused on every other kind for the same reason.
-    if kind != SourceKind::ClickHouse {
-        refuse_foreign_keys(alias, kind, [("impersonate", entry.impersonate.is_some())])?;
-    }
-    // The removed allow-list, on every kind; and `oracle`'s own exchange on every other one.
+    // The two removed caller lists, on every kind; and `oracle`'s own exchange on every other one.
     if entry.subjects {
         return Err(InvalidSourceRegistry::SubjectsRemoved { alias: alias.clone() });
+    }
+    if entry.impersonate {
+        return Err(InvalidSourceRegistry::ImpersonateRemoved { alias: alias.clone() });
     }
     if kind != SourceKind::Oracle {
         refuse_foreign_keys(alias, kind, [("delegation", entry.delegation.is_some())])?;

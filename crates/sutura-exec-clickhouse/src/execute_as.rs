@@ -7,22 +7,24 @@
 //! switch can outlive the request that asked for it, and two callers on one pooled connection
 //! cannot inherit each other's user.
 //!
-//! **The user is never caller text.** It comes from the source's declared subject-to-user map, is
-//! parsed here to a closed character set, and is quoted with the dialect's identifier quote. The
-//! character set has no quote, backslash or whitespace, so the quoted span cannot be closed early.
+//! **The user is the caller's verified subject, never caller text.** Leg 1 verified the token that
+//! carries it, the broker presents it, and it is parsed here to a closed character set and quoted
+//! with the dialect's identifier quote. The character set has no quote, backslash or whitespace, so
+//! the quoted span cannot be closed early.
 //!
-//! The server half is two operator settings this adapter cannot set: the server setting
-//! `access_control_improvements.allow_impersonate_user = 1`, and `GRANT IMPERSONATE ON <user>` to
-//! the service user. `ClickHouseWarehouse::refuse_unless_executes_as` checks both at boot. Not
-//! available on `ClickHouse` Cloud.
+//! The server half is operator settings this adapter cannot set: the server setting
+//! `access_control_improvements.allow_impersonate_user = 1`, a `ClickHouse` user named by each
+//! caller's verified subject, and `GRANT IMPERSONATE ON <user>` to the service user. There is no
+//! list of callers to check at boot, so a missing user or grant refuses that caller's question at
+//! the server - never an answer as the service user. Not available on `ClickHouse` Cloud.
 
 use sutura_sql::Dialect;
 
-/// A `ClickHouse` user a declared subject executes as.
+/// The `ClickHouse` user a verified subject executes as.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClickHouseUser(String);
 
-/// Why a declared value is not a `ClickHouse` user this adapter can name in `EXECUTE AS`.
+/// Why a presented name is not a `ClickHouse` user this adapter can name in `EXECUTE AS`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NotAClickHouseUser {
     #[error("a ClickHouse user name is empty")]
@@ -37,7 +39,7 @@ pub enum NotAClickHouseUser {
 impl ClickHouseUser {
     const MOST: usize = 128;
 
-    /// Parses a declared user name.
+    /// Parses a user name.
     ///
     /// # Errors
     ///
