@@ -1253,7 +1253,8 @@
 
         # The Cube venue (#1340): starts the compose `cube` profile and runs the live cells - the
         # metadata API read through `HttpMetaReader` against the recorded answer, a token the tier
-        # did not sign refused, `examples/cube` answered through a composed `sutura mcp`, and
+        # did not sign refused, `examples/cube` answered through a composed `sutura mcp`,
+        # `examples/metrics-layer` served as two callers through its `DataHub` fake, Keycloak and Cube, and
         # `sutura-app`'s golden and differential cells for the `cube` data system - failing rather
         # than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`.
         # The `ci-cube-tier` CI job runs it; `just cube-acceptance` is its by-hand twin, and nothing
@@ -1271,6 +1272,7 @@
             export SUTURA_DEV_REQUIRE_TIER=1
             cargo test --profile ci -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
             cargo test --profile ci -p sutura-cli --features cube --test mcp -- cube:: --ignored --nocapture
+            cargo test --profile ci -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture
             export SUTURA_CUBE_TIER=1
             exec cargo test --profile ci -p sutura-app --all-features --test golden --test differential -- cube:: --nocapture
           '');

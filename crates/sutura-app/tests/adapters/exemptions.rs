@@ -71,9 +71,10 @@ const EXEMPTIONS: &[Exemption] = &[
     Exemption {
         system: "cube",
         from: Exempt::Unavailable,
-        runs_in: Some("cube-acceptance"),
-        because: "opt-in: it executes where `SUTURA_CUBE_TIER` names the compose `cube` profile \
-                  `just cube-acceptance` starts, and no other gate starts one",
+        runs_in: Some("ci-cube-tier"),
+        because: "opt-in: it executes where `SUTURA_CUBE_TIER` names the compose `cube` profile, which \
+                  the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance` start, \
+                  and no other gate starts one",
     },
     Exemption {
         system: "cube",

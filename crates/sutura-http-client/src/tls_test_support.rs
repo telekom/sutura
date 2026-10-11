@@ -42,6 +42,14 @@ pub struct Issued {
     key: rcgen::KeyPair,
 }
 
+impl Issued {
+    /// The self-signed leaf, for the bundle a deployment's `security.outbound` declares.
+    #[must_use]
+    pub const fn certificate(&self) -> &rcgen::Certificate {
+        &self.certificate
+    }
+}
+
 #[must_use]
 pub fn issue() -> Issued {
     // `CertificateParams::new` reads a string SAN as an IP when it parses as one, so "127.0.0.1"

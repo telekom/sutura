@@ -242,6 +242,7 @@ nav:
       - examples/index.md
       - Single player: examples/single-player.md
       - Multi player: examples/multi-player.md
+      - Metrics layer: examples/metrics-layer.md
       - The local chat demo: demo.md
   - 📚 Reference:
       - Configuration: configuration.md

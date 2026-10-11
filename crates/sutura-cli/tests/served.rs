@@ -87,6 +87,15 @@ mod keycloak_test;
 #[path = "served/datahub.rs"]
 mod datahub;
 
+// `examples/metrics-layer` against the compose `cube` profile, `#[ignore]`d behind
+// `just cube-acceptance` - see `served/metrics_layer.rs`'s module header.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "cube")]
+#[cfg(feature = "datahub")]
+#[path = "served/metrics_layer.rs"]
+mod metrics_layer;
+
 // `catalog.kind: okf`, served: `#970`'s served-binary "boots and lists" cell - see
 // `served/okf.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests` reason
 // `datahub` above carries one.
