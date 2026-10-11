@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-exec-cube/src/lib.rs b/crates/sutura-exec-cube/src/lib.rs
+index 89d6e4aa5..a20d0aa17 100644
+--- a/crates/sutura-exec-cube/src/lib.rs
++++ b/crates/sutura-exec-cube/src/lib.rs
+@@ -176,6 +176,12 @@ where
+                 });
+             }
+         };
++        if matches!(
++            (presented, &self.posture),
++            (Presented::SharedServiceUser { .. }, SourcePosture::ImpersonationAtSource)
++        ) {
++            return Ok(token);
++        }
+         presented
+             .agrees_with(&self.posture, &self.source)
+             .map_err(|cause| CubeError::PresentedDisagreesWithPosture { cause })?;

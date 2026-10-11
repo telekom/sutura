@@ -34,6 +34,22 @@ Set it on each primary key dimension.
   Cube accepts: signed with `CUBEJS_API_SECRET`, or verified with the key set at `CUBEJS_JWK_URL`.
 - Use `https` for a remote Cube. sutura uses `http` only for a loopback IP address.
 
+## Settings
+
+This catalog reads the [settings that every catalog has](../../integrations.md#catalog-settings)
+and these keys. It requires `dir` and `data_dir`, but does not read them. It is built only with
+the `cube` feature of `sutura-cli`.
+
+| Key                  | Type    | Default   | Meaning                                                                                                      |
+| -------------------- | ------- | --------- | ------------------------------------------------------------------------------------------------------------ |
+| `endpoint`           | string  | required  | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`. |
+| `token_file`         | path    | required  | A file that holds the Cube token. sutura reads it once at startup.                                           |
+| `deadline_seconds`   | integer | `30`      | One time limit for one catalog read. `0` is refused.                                                         |
+| `max_response_bytes` | integer | `8388608` | The size limit for one response. `0` is refused.                                                             |
+
+For TLS, the reader uses `security.outbound`: `transport_anchors` and an optional
+`client_certificate` and `client_key`.
+
 ## Example model
 
 `just dev-up-cube` starts Cube with the model in `examples/cube/model`. The model puts the

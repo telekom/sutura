@@ -437,6 +437,19 @@ fn a_subject_token_at_a_shared_source_is_refused_before_any_request() {
     assert_eq!(*warehouse.transport.sent.borrow(), Sent::new());
 }
 
+#[test]
+fn a_shared_leg_at_an_impersonating_source_is_refused_before_any_request() {
+    let warehouse = impersonating(Scripted::answering(answer(serde_json::json!([]))));
+    let refused = warehouse
+        .execute(Executable::Query(&active_subscriptions(None)), &shared(), deadline())
+        .expect_err("an impersonating source never sends the declared token");
+    assert!(
+        matches!(refused, CubeError::PresentedDisagreesWithPosture { .. }),
+        "{refused:?}"
+    );
+    assert_eq!(*warehouse.transport.sent.borrow(), Sent::new());
+}
+
 /// A principal is no bearer Cube reads, so an impersonating source refuses it before any request.
 #[test]
 fn a_principal_at_an_impersonating_source_is_refused_before_any_request() {
