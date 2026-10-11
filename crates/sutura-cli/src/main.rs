@@ -98,6 +98,9 @@ mod catalog;
 #[cfg(feature = "clickhouse")]
 mod clickhouse;
 mod commands;
+/// The ONE Cube composition, reached by both composition roots below - `oracle`'s shape.
+#[cfg(feature = "cube")]
+mod cube;
 /// The ONE DuckDB composition, reached by both composition roots below - `oracle`'s shape.
 #[cfg(feature = "duckdb")]
 mod duckdb;
@@ -106,10 +109,11 @@ mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The secret-file read the `bigquery`, `clickhouse`, `oracle`, `postgres` and `rdbms` builds share.
+/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `oracle`, `postgres` and `rdbms` builds share.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
+    feature = "cube",
     feature = "oracle",
     feature = "postgres",
     feature = "rdbms"

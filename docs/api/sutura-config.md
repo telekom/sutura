@@ -5688,6 +5688,11 @@ legitimate one.
   file under its own operating-system identity, so `sutura_exec_duckdb`'s
   `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
   refused at the composition root's posture cross-check.
+- `Cube` - A Cube metrics serving layer, queried through its REST API.
+
+  Declarable and openable behind the `cube` feature. `SourcePlacement::Cube` carries the
+  deployment's endpoint and the file its token is read from. The one token is the whole
+  credential, so there is no place for a subject: `impersonation-at-source` is refused.
 
 #### Methods
 
@@ -5877,6 +5882,8 @@ convenience, and nothing needs to clone a startup refusal.
   document has no `scopes` member, so one would reach nothing.
 - `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
 - `OracleSubjects` - An `oracle` source's `subjects` are not usable.
+- `CubeImpersonation` - A `cube` source declared `impersonation-at-source`: its one token is the whole credential, so a subject has no place to run as.
+- `CubeEndpointCredentials` - A `cube` source's `endpoint` carries an `@`.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -6409,6 +6416,10 @@ be skipped" look like the same sentence and are not.
   rather than carried here. A listener's redirect is refused, so the connection stays on the
   declared host (`crate::sources`' `oracle` parse names the cell that holds it).
 - `Duckdb` - A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
+- `Cube` - A Cube metrics serving layer, reached over its REST API.
+
+  No transport field: the request rides the outbound client, whose trust is
+  `security.outbound.transport_anchors`, and no per-source channel is declared.
 
 ##### Methods
 

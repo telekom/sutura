@@ -3957,6 +3957,7 @@ dependencies = [
  "sutura-domain",
  "sutura-exec-bigquery",
  "sutura-exec-clickhouse",
+ "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
  "sutura-exec-oracle",

@@ -79,6 +79,9 @@ pub(crate) enum AnyWarehouse {
     /// A `DuckDB` database, boxed for [`Self::BigQuery`]'s reason.
     #[cfg(feature = "duckdb")]
     Duckdb(Box<super::DuckdbSource>),
+    /// A Cube deployment, boxed for [`Self::BigQuery`]'s reason.
+    #[cfg(feature = "cube")]
+    Cube(Box<super::CubeSource>),
 }
 
 /// The error any linked adapter can fail with, erased behind one type the same way the adapter is.
@@ -105,6 +108,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "duckdb")]
     #[error(transparent)]
     Duckdb(<super::DuckdbSource as Warehouse>::Error),
+    #[cfg(feature = "cube")]
+    #[error(transparent)]
+    Cube(<super::CubeSource as Warehouse>::Error),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -123,6 +129,8 @@ macro_rules! any {
             AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*),
             #[cfg(feature = "duckdb")]
             AnyWarehouse::Duckdb(warehouse) => warehouse.$method($($arg),*),
+            #[cfg(feature = "cube")]
+            AnyWarehouse::Cube(warehouse) => warehouse.$method($($arg),*),
         }
     };
 }
@@ -143,6 +151,8 @@ macro_rules! any_fallible {
             AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Oracle),
             #[cfg(feature = "duckdb")]
             AnyWarehouse::Duckdb(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Duckdb),
+            #[cfg(feature = "cube")]
+            AnyWarehouse::Cube(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Cube),
         }
     };
 }
@@ -170,8 +180,10 @@ macro_rules! any_predicate {
             (AnyWarehouse::Oracle(warehouse), AnyWarehouseError::Oracle(cause)) => warehouse.$method(cause),
             #[cfg(feature = "duckdb")]
             (AnyWarehouse::Duckdb(warehouse), AnyWarehouseError::Duckdb(cause)) => warehouse.$method(cause),
+            #[cfg(feature = "cube")]
+            (AnyWarehouse::Cube(warehouse), AnyWarehouseError::Cube(cause)) => warehouse.$method(cause),
             // Unreachable, and therefore ABSENT, on the DEFAULT feature set: with none of
-            // `bigquery`, `postgres`, `clickhouse`, `oracle` or `duckdb` linked, `AnyWarehouse` and `AnyWarehouseError`
+            // `bigquery`, `postgres`, `clickhouse`, `oracle`, `duckdb` or `cube` linked, `AnyWarehouse` and `AnyWarehouseError`
             // each have the one `Files` variant, so the arm above is exhaustive on its own and
             // `-D warnings` (`unreachable_patterns`) refuses a wildcard nothing can reach. Kept
             // only where a second variant exists to make a cross-variant pairing possible at all.
@@ -180,7 +192,8 @@ macro_rules! any_predicate {
                 feature = "postgres",
                 feature = "clickhouse",
                 feature = "oracle",
-                feature = "duckdb"
+                feature = "duckdb",
+                feature = "cube"
             ))]
             _ => $default,
         }
@@ -293,6 +306,10 @@ impl Warehouse for AnyWarehouse {
             Self::Duckdb(warehouse) => warehouse
                 .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Duckdb)),
+            #[cfg(feature = "cube")]
+            Self::Cube(warehouse) => warehouse
+                .execute_raw(statement, presented, deadline)
+                .map(|result| result.map_err(AnyWarehouseError::Cube)),
         }
     }
 }
@@ -312,6 +329,7 @@ pub(crate) struct Grouped<'a> {
     pub(crate) clickhouse: Vec<&'a SourceName>,
     pub(crate) oracle: Vec<&'a SourceName>,
     pub(crate) duckdb: Vec<&'a SourceName>,
+    pub(crate) cube: Vec<&'a SourceName>,
 }
 
 /// Sorts every declared source into its kind, one [`super::configured_source`] lookup per source -
@@ -329,11 +347,7 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::ClickHouse => grouped.clickhouse.push(source),
             sutura_config::SourceKind::Oracle => grouped.oracle.push(source),
             sutura_config::SourceKind::Duckdb => grouped.duckdb.push(source),
-            sutura_config::SourceKind::Cube => {
-                return Err(format!(
-                    "`sources.{source}` is `kind: cube`, which this build does not open yet"
-                ));
-            }
+            sutura_config::SourceKind::Cube => grouped.cube.push(source),
         }
     }
     Ok(grouped)
@@ -399,6 +413,10 @@ pub(crate) fn open_mixed(
     if !grouped.duckdb.is_empty() {
         engines = Some(accumulate(engines, duckdb_group(&grouped.duckdb, registry, runtime)?)?);
         trust_into(&mut attached, pinned, &grouped.duckdb);
+    }
+    if !grouped.cube.is_empty() {
+        engines = Some(accumulate(engines, cube_group(&grouped.cube, registry, outbound)?)?);
+        trust_into(&mut attached, pinned, &grouped.cube);
     }
 
     // Unreachable: `open_engine` only calls this function when more than one group is non-empty,
@@ -603,6 +621,33 @@ fn duckdb_group(
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_duckdb` returned an open registry on a build with no DuckDB adapter linked",
+    ))
+}
+
+/// The Cube group, opened through [`super::cube::open_cube`] and erased.
+#[cfg(feature = "cube")]
+fn cube_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    let super::OpenedSources::Cube(engines) = super::cube::open_cube(sources, registry, outbound)? else {
+        return Err(String::from("`open_cube` returned an arm this dispatcher does not expect"));
+    };
+    Ok(engines.into_mapped(|engine| AnyWarehouse::Cube(Box::new(engine))))
+}
+
+/// [`bigquery_group`]'s feature-off twin, for the same reason.
+#[cfg(not(feature = "cube"))]
+fn cube_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    super::cube::open_cube(sources, registry, outbound)?;
+    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
+    Err(String::from(
+        "`open_cube` returned an open registry on a build with no Cube adapter linked",
     ))
 }
 

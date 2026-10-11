@@ -69,6 +69,9 @@ mod clickhouse;
 /// The same, for the Oracle listener this root opens.
 mod oracle;
 
+/// The same, for the Cube deployment this root opens.
+mod cube;
+
 /// The same, for the `DuckDB` file this root opens read-only.
 mod duckdb;
 
@@ -313,6 +316,13 @@ pub(crate) fn run() -> Result<(), String> {
             // question's session with the asker's own token.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
             (started(&catalogs, engines, broker, None, &settings)?, None)
+        }
+        #[cfg(feature = "cube")]
+        OpenedSources::Cube(engines) => {
+            // No pre-flight, for the `Postgres` arm's reason: `CubeWarehouse` takes the port's
+            // default `preflight`. The shared-identity service, because a Cube source has one token
+            // and no place for a subject - the parse refuses `impersonation-at-source` on it.
+            (shared_identity_service(&catalogs, engines, None, &settings)?, None)
         }
         #[cfg(feature = "duckdb")]
         OpenedSources::Duckdb(engines) => {
@@ -669,6 +679,10 @@ pub(crate) enum OpenedSources {
     /// A local `DuckDB` database file per source, opened read-only. Nothing is attached.
     #[cfg(feature = "duckdb")]
     Duckdb(sutura_app::Warehouses<DuckdbSource>),
+    /// A Cube deployment per source, reached over its REST API with the declared token. Nothing is
+    /// attached.
+    #[cfg(feature = "cube")]
+    Cube(sutura_app::Warehouses<CubeSource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
@@ -689,6 +703,10 @@ pub(crate) use crate::clickhouse::ClickHouseSource;
 /// `Warehouse` bound and a constructor's return.
 #[cfg(feature = "oracle")]
 pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
+
+/// A Cube source as this binary composes it, re-exported from the ONE place it is named - `crate::cube`.
+#[cfg(feature = "cube")]
+pub(crate) use crate::cube::CubeSource;
 
 /// A `DuckDB` source as this binary composes it, named for `OracleSource`'s reason.
 #[cfg(feature = "duckdb")]
@@ -868,19 +886,25 @@ fn open_engine(
         grouped.clickhouse.is_empty(),
         grouped.oracle.is_empty(),
         grouped.duckdb.is_empty(),
+        grouped.cube.is_empty(),
     ) {
-        (false, true, true, true, true, true) => {
+        (false, true, true, true, true, true, true) => {
             files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files)
         }
-        (true, false, true, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
-        (true, true, false, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
-        (true, true, true, true, true, false) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
+        (true, false, true, true, true, true, true) => {
+            bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound)
+        }
+        (true, true, false, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
+        (true, true, true, true, false, true, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, true, false, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
+        (true, true, true, true, true, true, false) => cube::open_cube(&grouped.cube, registry, outbound),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        (true, true, true, true, true, true, true) => {
+            Err(String::from("this catalog declares no models, so there is nothing to open"))
+        }
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
 }

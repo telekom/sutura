@@ -107,7 +107,7 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 
 # The Cube metadata adapter's HTTP reader (issue #1340), for `catalog.kind: cube`. Default-off for
 # `openmetadata`'s reason: its outbound TLS stack arrives through `sutura-http-client`.
-cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http"]
+cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http", "dep:sutura-exec-cube"]
 
 # The live RDBMS metadata adapter (`catalog.kind: rdbms`), issue #972: a reader over a real
 # Postgres documentation schema, and with it the outbound TLS stack that reader needs.
@@ -190,6 +190,8 @@ sutura-exec-clickhouse = { workspace = true, optional = true }
 # The Oracle adapter, behind the `oracle` feature above - optional for `sutura-exec-bigquery`'s
 # reason. The adapter owns its driver's connection, so this root names no `oracledb` type itself.
 sutura-exec-oracle = { workspace = true, optional = true }
+# The Cube source adapter, behind the `cube` feature above, optional for `oracle`'s reason.
+sutura-exec-cube = { workspace = true, optional = true }
 # The DuckDB adapter, behind the `duckdb` feature above - optional for `sutura-exec-bigquery`'s reason.
 sutura-exec-duckdb = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
