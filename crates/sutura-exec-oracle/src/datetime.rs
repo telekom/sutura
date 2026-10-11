@@ -101,6 +101,13 @@ mod tests {
             at("2026-10-12T05:00:00+05:30")
         );
         assert_eq!(
+            text(
+                OracleTimestamp::new_timestamp_tz(2026, 1, 1, 2, 0, 0, 0, -3, -30),
+                DB_TYPE_TIMESTAMP_TZ
+            ),
+            at("2025-12-31T22:30:00-03:30")
+        );
+        assert_eq!(
             text(OracleTimestamp::new_date(2026, 10, 11), DB_TYPE_TIMESTAMP_TZ),
             at("2026-10-11T00:00:00+00:00")
         );
