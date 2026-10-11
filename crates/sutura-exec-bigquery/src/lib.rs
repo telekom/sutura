@@ -90,12 +90,6 @@
 //! signing-key age bound `KeySetCache::stale_for` measures excludes a failing refresh. Neither is
 //! this crate's to fix; both are cited here because *the limit belongs beside the claim*.
 //!
-//! **Observed at the adapter, not a served human caller:** the hosted run recorded in
-//! `docs/where-identity-is-proven.md` shows Google accepting both fixture assertions and the ADBC
-//! path reading two distinct pool principals, neither the deployment's. Service-account keys mint
-//! those fixture assertions; no service account is impersonated by the federated query. Human
-//! sign-in, delegation to a human provider and execution through the served surface remain unproven.
-//!
 //! # Two things this adapter deliberately does not offer
 //!
 //! **No arbitrary SQL entry point.** [`BigQueryWarehouse::execute`] takes an [`Executable`] and
