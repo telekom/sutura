@@ -547,7 +547,8 @@ for tag, member in (("principal-a", principal_a), ("principal-b", principal_b)):
         f"{tag}-dataviewer",
         dataset_id=dataset.dataset_id,
         role="roles/bigquery.dataViewer",
-        member=member,
+        # The provider maps this prefix to BigQuery's native iamMember ACL field.
+        member=pulumi.Output.concat("iamMember:", member),
         opts=pulumi.ResourceOptions(
             provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]
         ),
