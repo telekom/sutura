@@ -682,6 +682,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The agent surface over HTTP">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-two-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two surfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -3603,6 +3620,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The agent surface over HTTP">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-two-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two surfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -3975,8 +4009,100 @@ the source decides whose access governs the rows.</p>
 <li>Without <code>security.inbound</code>, <code>/mcp</code> serves only a <code>single-user</code> deployment that is not
   <a href="#start-up-refusals">off-host</a>, or that is behind both <code>security.access_token</code> and <code>rate_limit.enabled</code>. Then it
   answers every caller as the deployment, with every tool.</li>
-<li><code>/mcp</code> has the same rate limit, body cap, deployment token and <code>Host</code> list as <code>/v1</code>.</li>
+<li><code>/mcp</code> and <code>/v1</code> share the controls in <a href="#the-two-surfaces">the two surfaces</a>.</li>
 </ul>
+<h4 id="the-two-surfaces">The two surfaces<a class="headerlink" href="#the-two-surfaces" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th><code>/v1</code></th>
+<th><code>/mcp</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Deployment token</td>
+<td><code>security.access_token</code>, else <code>401</code></td>
+<td>The same</td>
+</tr>
+<tr>
+<td>Caller identity</td>
+<td><code>security.inbound</code>, else <code>401</code> with a challenge</td>
+<td>The same</td>
+</tr>
+<tr>
+<td>Scope</td>
+<td><code>403</code> with <code>code: insufficient_scope</code></td>
+<td><code>tools/list</code> shows only the granted tools. A call to another tool is a JSON-RPC error that names the scope</td>
+</tr>
+<tr>
+<td><code>Host</code> list</td>
+<td><code>403</code> with <code>code: host_not_allowed</code></td>
+<td>The same. A request with no <code>Host</code> gets <code>400</code></td>
+</tr>
+<tr>
+<td>Rate limit</td>
+<td>The API tier</td>
+<td>The same bucket: requests to <code>/v1</code> and <code>/mcp</code> spend one burst</td>
+</tr>
+<tr>
+<td>Body cap</td>
+<td><code>server.max_body_bytes</code>, <code>413</code> with <code>code: too_large</code></td>
+<td>The same cap. The <code>413</code> has the body of the MCP transport</td>
+</tr>
+<tr>
+<td>Request deadline</td>
+<td><code>server.request_timeout_seconds</code>, <code>408</code></td>
+<td>The same deadline. A question that outruns it gets a tool error</td>
+</tr>
+<tr>
+<td>Concurrency</td>
+<td><code>runtime.max_concurrent_queries</code>, <code>503</code> with <code>at_capacity</code></td>
+<td>The same bound. A full deployment answers with a tool error</td>
+</tr>
+<tr>
+<td>Row and byte caps of a result</td>
+<td><code>413</code> with <code>code: result_too_large</code></td>
+<td>The same caps</td>
+</tr>
+<tr>
+<td>A refused question</td>
+<td>The status and the <code>code</code> of <a href="#a-refusal-carries-a-status">the table</a></td>
+<td><code>"outcome": "refusal"</code> and the same <code>code</code> in the tool result, with no <code>status</code></td>
+</tr>
+<tr>
+<td>Correlation id</td>
+<td>The <code>x-correlation-id</code> of the request, or a new id, on each of its log lines</td>
+<td>The same</td>
+</tr>
+<tr>
+<td>Log</td>
+<td>The request line, and a <code>question received</code> line with the metric and grain</td>
+<td>The request line</td>
+</tr>
+<tr>
+<td>Audit record</td>
+<td>One for each outcome</td>
+<td>The same</td>
+</tr>
+<tr>
+<td>Metrics</td>
+<td><code>401</code> count, question count and duration, admission wait, shed</td>
+<td><code>401</code> count</td>
+</tr>
+<tr>
+<td>TLS</td>
+<td>The one listener</td>
+<td>The same</td>
+</tr>
+<tr>
+<td>Interface description</td>
+<td><code>/openapi.json</code> and <code>/docs</code></td>
+<td><code>initialize</code> and <code>tools/list</code></td>
+</tr>
+</tbody>
+</table>
 <p><code>sutura mcp</code> serves the same two tools over standard input and output, for a locally launched agent. It has no
 caller identity and grants every capability. <code>runtime.max_concurrent_queries</code> and
 <code>server.request_timeout_seconds</code> bound it.</p>
