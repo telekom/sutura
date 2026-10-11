@@ -6,6 +6,7 @@
 //! that declares the key.
 
 use super::{METRICS_TOKEN, TOKEN};
+use crate::proxy::ClientAddressSource;
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 const PROXY: &str = "  client_address: \"forwarded\"\n  trusted_proxies: [\"127.0.0.1\"]\n";
@@ -104,5 +105,35 @@ fn a_loopback_api_answering_a_host_name_needs_the_tokens_and_the_limiter() {
     assert_eq!(
         refusals(&loopback("  allowed_hosts: [\"127.0.0.1\", \"::1\"]\n", "", "", false)),
         Vec::new()
+    );
+}
+
+#[test]
+fn a_trusted_proxy_list_that_nothing_reads_is_refused() {
+    // The other direction, and it is refused for the reason every unknown key here is an error: a
+    // list that has no effect reads as a control that is in place. The declared hop is still
+    // off-host, so the three off-host guards are asked for too.
+    let unread = NotFitToServe::TrustedProxiesWithoutForwarding { count: 2 };
+    assert_eq!(
+        refusals("rate_limit:\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n    - \"10.1.0.0/16\"\n"),
+        [vec![unread], UNGUARDED.to_vec()].concat()
+    );
+}
+
+#[test]
+fn forwarded_keying_with_a_named_hop_loads() {
+    // The positive case, without which `settings::tests::a_forwarded_header_is_not_believed_without_a_named_hop`
+    // and the refusal above are satisfied by refusing every forwarded configuration there is. The
+    // hop forwards callers from beyond this host, so it loads behind the three off-host guards.
+    let hop = "  client_address: \"forwarded\"\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n";
+    off_host("", "", hop);
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(loopback("", "", hop, true)))
+        .expect("a named hop and a header source load");
+    assert_eq!(settings.rate_limit().client_address(), ClientAddressSource::Forwarded);
+    assert!(
+        settings
+            .rate_limit()
+            .trusted_proxies()
+            .trusts("10.1.2.3".parse().expect("a test address is an address"))
     );
 }
