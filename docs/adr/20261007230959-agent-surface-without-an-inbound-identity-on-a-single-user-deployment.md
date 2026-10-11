@@ -120,3 +120,40 @@ Limits:
 - **`/v1` is unchanged.** Its `AccessTokenRequired` and `RateLimitingDisabled` still read the bind
   alone.
 - The rule reads what the operator declared. A hop the configuration does not name is outside it.
+
+## Second amendment, 2026-10-11: `/v1` and `/metrics` ask the same off-host predicate
+
+**Status of the amendment: accepted** (issue #1293). The first amendment widened off-host for the
+agent surface only, so a loopback bind behind a declared proxy or terminator served `/v1` with no
+token and no limiter while `/mcp` was refused. The four conditions of the first amendment are now
+one method, `Settings::reachable_off_host`, and every refusal that guards a surface against callers
+from beyond this host asks it:
+
+| Refusal                              | Predicate | Why                                                                                          |
+| ------------------------------------ | --------- | -------------------------------------------------------------------------------------------- |
+| `AccessTokenRequired`                | off-host  | a declared hop forwards callers from other hosts to `/v1`                                    |
+| `MetricsTokenRequired`               | off-host  | `/metrics` is on the same listener, so the same callers reach it                             |
+| `RateLimitingDisabled`               | off-host  | the load is somebody else's to send whatever the bind is                                     |
+| `AgentSurfaceWithoutInboundIdentity` | off-host  | unchanged; now the same method                                                               |
+| `TlsTerminationUndeclared`           | the bind  | it records the cleartext hop in front of this listener, which is loopback on a loopback bind |
+
+`TokenRequiredBy::OffHost` names the four conditions in its message. Because an off-host shape with
+no token or no limiter no longer loads, the assembly door of this record never meets one: its cell
+refuses at assembly a deployment with no mode and a `multi-user` one, and the
+proxy and host-name cells of `settings::tests::agent_surface` hold that those shapes do not load. The
+`MetricsTokenRequired` row of `docs/adr/0015` still reads "on a non-loopback bind"; it now means
+off-host.
+
+| Cell                                                                                                          | Shows                                                                                        |
+| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `settings::tests::off_host::a_loopback_api_behind_a_declared_proxy_needs_the_tokens_and_the_limiter`          | a proxy hop asks for both tokens and the limiter; with all three it loads                    |
+| `settings::tests::off_host::a_loopback_api_behind_a_declared_tls_terminator_needs_the_tokens_and_the_limiter` | `sidecar` and `ingress` ask for all three; `none` loads with none                            |
+| `settings::tests::off_host::a_loopback_api_answering_a_host_name_needs_the_tokens_and_the_limiter`            | a name, `localhost` and a name beside a loopback address ask for all three; addresses do not |
+| `settings::tests::agent_surface::a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host`         | the agent refusal and the three others arrive together                                       |
+
+Limits:
+
+- The rule still reads what the operator declared. A hop the configuration does not name is outside
+  it.
+- A loopback bind behind a declared proxy with no `security.tls_termination` starts: what sits in
+  front of that proxy is the proxy's own configuration.

@@ -702,7 +702,7 @@ impl Warehouse for DataFusionWarehouse {
         // question anybody may retry - see `DataFusionError::NoPlaceForASubject`.
         match *presented {
             Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
                 return Err(DataFusionError::NoPlaceForASubject {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),

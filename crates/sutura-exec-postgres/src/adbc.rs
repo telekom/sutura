@@ -54,6 +54,8 @@
 mod numeric;
 mod session;
 
+use std::collections::BTreeSet;
+
 use adbc_driver_manager::ManagedConnection;
 use sutura_adbc::parameter_batch;
 pub use sutura_adbc_postgres::{
@@ -61,12 +63,13 @@ pub use sutura_adbc_postgres::{
     PostgresDriver, UnusableChannel, UnusableDriverPath,
 };
 use sutura_domain::identity::Presented;
-use sutura_domain::model::SourceName;
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::schema::{SchemasByTable, TableSchemas};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GeneratedQuery};
@@ -315,6 +318,20 @@ impl Warehouse for AdbcPostgres {
     fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
         let query = generate_key_probe(&key, Dialect::Postgres).map_err(|cause| PostgresError::Render { cause })?;
         KeyUniqueness::read(&self.boot(&query)?).map_err(|cause| PostgresError::KeyCounts { cause })
+    }
+
+    /// Each table's schema from the server's catalog, on one connection - `session::schema`. A
+    /// table the server does not have is absent, not an error.
+    fn table_schemas(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
+        let ceiling = self.statement_timeout_ceiling_ms;
+        self.connected(|connection| {
+            let mut read = SchemasByTable::new();
+            for table in tables {
+                let schema = session::schema(connection, table, ceiling)?;
+                read.extend(schema.map(|schema| (table.clone(), schema)));
+            }
+            Ok(TableSchemas::Read(read))
+        })
     }
 
     fn execute_raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> RawExecution<Self::Error> {

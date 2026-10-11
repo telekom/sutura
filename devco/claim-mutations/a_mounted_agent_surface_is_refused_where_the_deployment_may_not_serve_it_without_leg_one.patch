@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/router.rs b/crates/sutura-http/src/router.rs
+--- a/crates/sutura-http/src/router.rs
++++ b/crates/sutura-http/src/router.rs
+@@ -703,7 +703,7 @@ fn agent_subtree(
+         return Ok(None);
+     };
+     let refusals = state.settings().agent_surface_refusals();
+-    if !refusals.is_empty() {
++    if refusals.is_empty() {
+         return Err(RouterNotBuilt::AgentSurfaceNotFitToServe { refusals });
+     }
+     // After the refusal above and before any layering, so a state with both problems still

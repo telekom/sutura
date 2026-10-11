@@ -67,10 +67,10 @@ pub use assertion_digest::AssertionDigest;
 
 /// A name a data system knows a principal by.
 ///
-/// Two roles: the one a session is switched to, and the one a source is asked to execute as after
-/// the asker's own credential authenticated ([`Presented::SubjectToken`]'s `impersonate`).
+/// The one a session is switched to ([`Presented::SubjectPrincipal`]), or signed in as
+/// ([`Presented::SubjectSignIn`]).
 ///
-/// **Not a [`Secret`], and that is a statement rather than an omission.** A role or service-account
+/// **Not a [`Secret`], and that is a statement rather than an omission.** A role or user
 /// name is not secret: the trust on that leg belongs to the connection the deployment
 /// authenticated, and the name is what the data system evaluates its policies against. A type that
 /// redacted it would hide the one value an operator has to be able to read back in a log.
@@ -251,30 +251,12 @@ impl Expiry {
 /// leg as impersonated that ran shared.
 #[derive(Debug)]
 pub enum Presented {
-    /// The asker's own bearer credential, minted for this source, and the account the source is to
-    /// execute the question as once that credential has authenticated.
+    /// The asker's own bearer credential, minted for this source.
     ///
     /// For a source declared [`crate::source::SourcePosture::ImpersonationAtSource`], where the
-    /// data system authenticates the subject itself.
-    ///
-    /// **`impersonate` is an `Option` and not a fourth variant**, because its absence is *no second
-    /// hop* rather than a fourth posture: the credential itself is what the data system evaluates,
-    /// and a variant would put a new exhaustive arm in every adapter that matches this enum to say
-    /// the same thing the `None` says here. Which of the two an adapter can deliver is the
-    /// adapter's own fact - one that carries a subject's credential but has nowhere to name a
-    /// second hop refuses a `Some`, and one that can only reach an account through a second hop
-    /// refuses a `None`.
-    ///
-    /// **It is a [`PrincipalName`] and may never be a macro-declared newtype of this module.** The
-    /// value is sent to a data system, so it has to survive whole:
-    /// [`crate::identity::principal`]'s `principal_newtype!` stores the MASKED form and drops the
-    /// raw, which would reduce an account address to `s***-a@a***.i***.g***` and be refused by
-    /// whatever is asked to become it. `PrincipalName` retains the full string deliberately, and
-    /// says why at its own declaration.
-    SubjectToken {
-        material: Secret,
-        impersonate: Option<PrincipalName>,
-    },
+    /// data system authenticates the subject itself and evaluates its grants against that subject.
+    /// Nothing rides beside it: no second hop names another account to execute as.
+    SubjectToken { material: Secret },
     /// A principal the data system switches to, on a connection the DEPLOYMENT authenticated, so
     /// that the query evaluates as the asker.
     ///
@@ -282,6 +264,14 @@ pub enum Presented {
     /// by a different mechanism. Its own variant so that the weaker trust is a shape a reader can
     /// see, never a field on the stronger one.
     SubjectPrincipal { name: PrincipalName },
+    /// The principal a source signs the asker in as, and the token that proves it: a credential the
+    /// asker's own assertion was exchanged for, beside the name it is presented under.
+    ///
+    /// Also `ImpersonationAtSource`, by a third mechanism - the source authenticates each request as
+    /// the named user rather than switching on the deployment's connection. Its own variant, and
+    /// not a field on [`Self::SubjectToken`], so that an adapter that has nowhere to name a user
+    /// cannot receive a name it would drop.
+    SubjectSignIn { name: PrincipalName, material: Secret },
     /// **No credential for the asker exists on this leg, and that is what this variant says out
     /// loud.**
     ///
@@ -302,6 +292,7 @@ impl Presented {
         match *self {
             Self::SubjectToken { .. } => "the asker's own credential",
             Self::SubjectPrincipal { .. } => "a principal to switch to as the asker",
+            Self::SubjectSignIn { .. } => "a principal to sign in as, with the asker's own credential",
             Self::SharedServiceUser { .. } => "the deployment's own identity for this source",
         }
     }
@@ -331,7 +322,10 @@ impl Presented {
     /// presented shape is a compile error here rather than a case that falls through to `Ok`.
     pub fn agrees_with(&self, posture: &SourcePosture, at: &SourceName) -> Result<(), PresentedDisagreesWithPosture> {
         match (self, posture) {
-            (Self::SubjectToken { .. } | Self::SubjectPrincipal { .. }, SourcePosture::ImpersonationAtSource) => Ok(()),
+            (
+                Self::SubjectToken { .. } | Self::SubjectPrincipal { .. } | Self::SubjectSignIn { .. },
+                SourcePosture::ImpersonationAtSource,
+            ) => Ok(()),
             (Self::SharedServiceUser { declared }, SourcePosture::SharedServiceUser { declared: mine }) => {
                 if declared == mine {
                     Ok(())
@@ -339,7 +333,10 @@ impl Presented {
                     Err(PresentedDisagreesWithPosture::WitnessIsNotThisSources { at: at.clone() })
                 }
             }
-            (Self::SubjectToken { .. } | Self::SubjectPrincipal { .. }, SourcePosture::SharedServiceUser { .. })
+            (
+                Self::SubjectToken { .. } | Self::SubjectPrincipal { .. } | Self::SubjectSignIn { .. },
+                SourcePosture::SharedServiceUser { .. },
+            )
             | (Self::SharedServiceUser { .. }, SourcePosture::ImpersonationAtSource) => {
                 Err(PresentedDisagreesWithPosture::ShapeIsNotThePosture {
                     at: at.clone(),

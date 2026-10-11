@@ -37,10 +37,12 @@ impl RawCapableWarehouse {
     fn deliverable(&self, presented: &Presented) -> Result<(), AdapterFailure> {
         match *presented {
             Presented::SharedServiceUser { .. } => Ok(()),
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => Err(AdapterFailure::NoPlaceForASubject {
-                at: String::from(self.source.as_str()),
-                presented: presented.as_str(),
-            }),
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
+                Err(AdapterFailure::NoPlaceForASubject {
+                    at: String::from(self.source.as_str()),
+                    presented: presented.as_str(),
+                })
+            }
         }
     }
 }

@@ -302,8 +302,8 @@ gates: hygiene
     cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
 
-# LEG 2 for BigQuery: two declared subjects, two accounts, `SESSION_USER()` as the oracle. Needs a
-# real project whose accounts this identity may impersonate - `docs/where-identity-is-proven.md`
+# LEG 2 for BigQuery: two subjects, two pool principals, `SESSION_USER()` as the oracle. Needs a
+# real project that grants each subject's pool principal - `docs/where-identity-is-proven.md`
 # carries what a green run may be cited for, and both cells panic naming the variable they lack
 # rather than skipping.
 # `#[ignore]`d, so `just test` never reaches them, and this is NOT a gate: `just validate`'s nix

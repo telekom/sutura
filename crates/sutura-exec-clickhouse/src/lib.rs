@@ -245,11 +245,8 @@ where
         let (named, token) = match *presented {
             Presented::SharedServiceUser { .. } => (None, None),
             Presented::SubjectPrincipal { ref name } => (Some(name), None),
-            Presented::SubjectToken {
-                ref material,
-                impersonate: Some(ref name),
-            } => (Some(name), Some(material)),
-            Presented::SubjectToken { impersonate: None, .. } => {
+            Presented::SubjectSignIn { ref name, ref material } => (Some(name), Some(material)),
+            Presented::SubjectToken { .. } => {
                 return Err(ClickHouseError::NoPlaceForASubject {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),

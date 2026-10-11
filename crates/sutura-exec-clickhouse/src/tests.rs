@@ -258,7 +258,6 @@ fn a_subject_credential_is_refused_as_no_place_to_arrive() {
     let warehouse = warehouse(Scripted::answering("[]\n[]\n"));
     let presented = Presented::SubjectToken {
         material: Secret::new(String::from("unused")),
-        impersonate: None,
     };
     let error = warehouse
         .execute(
@@ -339,9 +338,9 @@ fn a_presented_token_signs_the_named_caller_in_with_that_token() {
         .next()
         .expect("the corpus has a case");
     let warehouse = impersonating(Scripted::answering("[\"region\"]\n[\"String\"]\n[\"north\"]\n"));
-    let presented = Presented::SubjectToken {
+    let presented = Presented::SubjectSignIn {
+        name: PrincipalName::parse("analyst_one").expect("a test name is a name"),
         material: Secret::new(String::from("exchanged-token")),
-        impersonate: Some(PrincipalName::parse("analyst_one").expect("a test name is a name")),
     };
     warehouse
         .execute(

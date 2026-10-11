@@ -91,9 +91,9 @@ mod execute_as {
             .find(|case| case.name() == "decimal-total-by-day")
             .expect("the corpus has the case");
         let signed_in_as = |name: &str| {
-            let presented = Presented::SubjectToken {
+            let presented = Presented::SubjectSignIn {
+                name: PrincipalName::parse(name).expect("a tier user is a principal"),
                 material: Secret::new(token.clone()),
-                impersonate: Some(PrincipalName::parse(name).expect("a tier user is a principal")),
             };
             warehouse.execute(Executable::Query(case.plan()), &presented, corpus::deadline())
         };

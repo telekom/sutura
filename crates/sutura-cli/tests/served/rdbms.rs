@@ -20,17 +20,18 @@
 //! The rdbms catalog's dictionary rows carry a required `schema_name`, so `convert_table_address`
 //! always builds a `QualifiedTable` (e.g. `public.orders`). The `files` engine refuses a qualified
 //! model at boot (`crates/sutura-cli/src/serve/files.rs`), so the `source_alias` must name a
-//! `postgres` source. `AdbcPostgres` takes the port's default `preflight` (`NotAsked`), so
-//! the table's absence from the tier is a `NotReported` notice at boot rather than a refusal, and
-//! the deployment starts without the physical table loaded - which is why this cell needs no
-//! `FixtureLoadGuard` and no example CSV load.
+//! `postgres` source. The load reads each table's schema, so a table absent from the tier is a
+//! `ColumnNotAtSource` refusal at boot; the fixture therefore runs a `CREATE TABLE` for it
+//! (`crates/sutura-cli/tests/common/fixtures.rs`). The cell still needs no `FixtureLoadGuard` and
+//! no example CSV load.
 //!
 //! # The documentation-schema fixture
 //!
-//! A per-run schema holds a `columns` table with two rows describing `public.orders` (model
-//! `orders`, one `order_id` primary-key column and one `amount` column), `environment: test`,
-//! `is_deleted: false` - the documented fixed schema `PostgresReader` reads, the same shape
-//! `crates/sutura-catalog-rdbms/tests/provisioned.rs` installs.
+//! A per-run schema holds a `columns` table with two rows describing
+//! `sutura_fixture_orders.orders` (model `orders`, one `order_id` primary-key column and one
+//! `amount` column), `environment: test`, `is_deleted: false` - the documented fixed schema
+//! `PostgresReader` reads, the same shape `crates/sutura-catalog-rdbms/tests/provisioned.rs`
+//! installs.
 //!
 //! # RED/GREEN
 //!

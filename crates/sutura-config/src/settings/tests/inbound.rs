@@ -394,8 +394,11 @@ fn a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in() {
     );
 }
 
-/// A forwarded client address with its `trusted_proxies` key open for entries.
-const FORWARDED: &str = "rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies:\n";
+/// A forwarded client address with its `trusted_proxies` key open for entries, behind the deployment
+/// token, the metrics token and the limiter a declared hop needs.
+const FORWARDED: &str = "security:\n  access_token: \"0123456789abcdef0123456789abcdef\"\n  \
+                         metrics_token: \"0123456789abcdef0123456789abcdf0\"\nrate_limit:\n  enabled: true\n  \
+                         client_address: \"forwarded\"\n  trusted_proxies:\n";
 
 #[test]
 fn a_trusted_proxy_block_covering_every_address_does_not_start_without_its_opt_in() {

@@ -291,7 +291,7 @@ impl<const LEGS: bool, const PRICES: bool> Warehouse for Fake<LEGS, PRICES> {
         // impersonated when it ran shared.
         match *presented {
             Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
                 return Err(FakeFailure::NoSuchExecutable);
             }
         }
