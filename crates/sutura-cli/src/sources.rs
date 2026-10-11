@@ -89,6 +89,9 @@ mod bigquery;
 /// `crate::clickhouse`, shared with `crate::serve`'s own root, so what is here is the dispatch
 /// wrapper and the refusal for a build that linked no adapter.
 mod clickhouse;
+/// The CUBE half of this module: `oracle`'s shape - the dispatch wrapper and the feature-off refusal,
+/// with the BUILD shared through `crate::cube`.
+mod cube;
 /// The DUCKDB half of this module: `clickhouse`'s shape, the BUILD shared through `crate::duckdb`.
 mod duckdb;
 /// The ORACLE half of this module: `clickhouse`'s shape - the dispatch wrapper and the feature-off
@@ -151,6 +154,9 @@ pub(crate) enum Opened {
     /// A local `DuckDB` database file, opened read-only.
     #[cfg(feature = "duckdb")]
     Duckdb(OpenedWith<sutura_exec_duckdb::DuckDbWarehouse>),
+    /// A Cube deployment, reached over its REST API.
+    #[cfg(feature = "cube")]
+    Cube(OpenedWith<crate::cube::CubeSource>),
 }
 
 /// What a command opened over one adapter: the registry a plan is looked up in, what was attached,
@@ -459,6 +465,17 @@ fn from_the_registry(
                 ));
             }
             oracle::open(source, configured, registry, working_set(runtime))
+        }
+        sutura_config::SourceKind::Cube => {
+            if let Some(given) = data {
+                return Err(format!(
+                    "`sources.{source}` is a Cube deployment, and {} was given on the command line \
+                     as a data directory - a deployment has none, so the argument selects nothing. \
+                     Drop it; the deployment that entry declares is what will be read",
+                    given.display()
+                ));
+            }
+            cube::open(source, configured, registry, outbound)
         }
         sutura_config::SourceKind::Duckdb => {
             if let Some(given) = data {

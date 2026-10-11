@@ -581,6 +581,20 @@ pub enum SourcePlacement {
         /// is not there is refused there rather than created.
         database_file: PathBuf,
     },
+    /// A Cube metrics serving layer, reached over its REST API.
+    ///
+    /// No transport field: the request rides the outbound client, whose trust is
+    /// `security.outbound.transport_anchors`, and no per-source channel is declared.
+    Cube {
+        /// The API's base URL, `scheme://host[:port]`. Parsed where the HTTP client is built.
+        endpoint: String,
+        /// The file the deployment's one token is read from at boot, absolute.
+        token_file: PathBuf,
+        /// The hops each caller's token is exchanged through, in order, on an
+        /// `impersonation-at-source` entry; empty on any other. The last hop's token is the
+        /// request's bearer.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
+    },
 }
 
 impl SourcePlacement {
@@ -598,6 +612,7 @@ impl SourcePlacement {
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
             Self::Oracle { .. } => SourceKind::Oracle,
+            Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
         }
     }
@@ -606,9 +621,9 @@ impl SourcePlacement {
 /// A `clickhouse` source's declared subject -> `ClickHouse` user map.
 pub type DeclaredUsers = BTreeMap<SubjectKey, String>;
 
-/// Why an `oracle` source's `delegation` is not one it can be served under.
+/// Why an `oracle` or `cube` source's `delegation` is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidOracleDelegation {
+pub enum InvalidDelegation {
     /// An impersonating source with no exchange, so no caller's token could open a session.
     #[error(
         "the source is `impersonation-at-source` and declares no `delegation` - name the token \
@@ -626,6 +641,13 @@ pub enum InvalidOracleDelegation {
          `transport_mode: verified`"
     )]
     Plaintext,
+    /// An impersonating `cube` source whose endpoint is not `https`: each request sends its
+    /// caller's token.
+    #[error(
+        "the source is `impersonation-at-source`, so each request sends its caller's token - declare \
+         an `https://` endpoint"
+    )]
+    PlaintextEndpoint,
 }
 
 /// Why a `clickhouse` source's `impersonate` map is not one it can be served under.

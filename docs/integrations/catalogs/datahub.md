@@ -31,6 +31,8 @@ and these keys. It requires `dir` and `data_dir`, but does not read them.
 | `deadline_seconds`   | integer | `30`      | One time limit for all requests of one catalog read. `0` is refused.                                         |
 | `max_response_bytes` | integer | `8388608` | The size limit for one response page. `0` is refused.                                                        |
 
+`sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
+
 For TLS, the reader uses `security.outbound`: `transport_anchors` (a PEM file, or `system`) and an
 optional `client_certificate` and `client_key`. The BigQuery source does not use them: a PEM file or a
 client certificate beside a `bigquery` source stops startup.

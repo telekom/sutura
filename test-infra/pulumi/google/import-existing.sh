@@ -164,11 +164,9 @@ echo "import-existing: key-a, key-b, ci-key - NOT importable (no import support)
 do_import "gcp:iam/workloadIdentityPool:WorkloadIdentityPool" "workload-pool" "projects/${PROJECT}/locations/global/workloadIdentityPools/${POOL_ID}"
 do_import "gcp:iam/workloadIdentityPoolProvider:WorkloadIdentityPoolProvider" "workload-provider" "projects/${PROJECT}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
 
-# --- gcp.serviceaccount.IAMMember (principal-{a,b}-workload-identity-user) ---------------------
-# NOT imported, deliberately: these two bindings are the NEW addition (telekom/sutura#376's
-# iamcredentials hop) this branch adds to `__main__.py` - they were never created under the lost
-# state, so there is nothing existing to adopt. `just infra-preview` after this script is expected
-# to show exactly these two as creates, plus the three keys above.
-echo "import-existing: principal-a-workload-identity-user, principal-b-workload-identity-user - NOT imported (new resources, not yet created; the next 'up' creates them)"
+# --- principal grants and row policies -------------------------------------------------------
+# The imports above adopt the grants as they exist (on `serviceAccount:` members). `__main__.py` now
+# names each subject's pool principal instead, so the next `up` replaces those grants and updates
+# both row policies' grantees, and creates the two `readSessionUser` grants.
 
-echo "import-existing: done - run 'just infra-preview' and confirm it shows only the two new bindings and the three keys"
+echo "import-existing: done - run 'just infra-preview' and confirm it shows only the principal grant changes and the three keys"

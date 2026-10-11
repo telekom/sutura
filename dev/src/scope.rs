@@ -231,6 +231,26 @@ pub const SERVICES: &[Service] = &[
         profile: Some("oracle"),
     },
     Service {
+        // The Cube metrics serving layer (`github.com/telekom/sutura#1340`): one container over the
+        // single-player corpus. OFF unless asked for, for `oracle`'s reason: one adapter reads it.
+        name: "cube",
+        container_port: 4000,
+        profile: Some("cube"),
+    },
+    Service {
+        // `examples/metrics-layer`'s Cube: it verifies each token against `cube-keycloak`'s keys.
+        name: "cube-metrics",
+        container_port: 4000,
+        profile: Some("cube"),
+    },
+    Service {
+        // `examples/metrics-layer`'s identity provider, in the `cube` profile so `cube-metrics`
+        // reaches its keys inside the compose network.
+        name: "cube-keycloak",
+        container_port: 8080,
+        profile: Some("cube"),
+    },
+    Service {
         // The local chat demo, and the ONE service whose container holds two processes: the
         // `sutura serve` subcommand against the example corpus, and the chat client that calls it.
         //
@@ -540,7 +560,19 @@ mod tests {
             .filter(|service| !service.is_default())
             .map(super::Service::name)
             .collect();
-        assert_eq!(opt_in, vec!["keycloak", "datahub", "openmetadata", "oracle", "demo"]);
+        assert_eq!(
+            opt_in,
+            vec![
+                "keycloak",
+                "datahub",
+                "openmetadata",
+                "oracle",
+                "cube",
+                "cube-metrics",
+                "cube-keycloak",
+                "demo"
+            ]
+        );
 
         // And a CHEAP data source is not behind a profile: that is what an adapter is tested
         // against, so making it opt-in would be the tier failing at its own job. `clickhouse` is
@@ -611,7 +643,7 @@ mod tests {
         // profile cannot forget to update it.
         assert_eq!(
             super::profiles(),
-            vec!["identity", "datahub", "openmetadata", "oracle", "demo"]
+            vec!["identity", "datahub", "openmetadata", "oracle", "cube", "demo"]
         );
         for service in SERVICES {
             if let Some(profile) = service.profile() {

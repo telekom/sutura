@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides WHETHER a caller may be served there AND which account their questions execute as: the subject's own assertion is federated to the declared pool, and the pool's principal then impersonates the account declared beside that subject (`telekom/sutura#929` F3). The port, the broker and the serve composition are built; the hosted venue that would show either hop is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it presents the asker's own assertion, which opens that question's own session (token authentication); neither has a venue row. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery every verified caller's own assertion is federated to the declared pool, and the federated token IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. Both adapter cells passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -150,15 +150,18 @@ impersonating source gets nothing and the question is refused rather than answer
 `DeclaredPrincipalBroker` (`crates/sutura-config/src/credentials/declared.rs`, beside
 `StaticCredentialBroker` and in no adapter crate) is what a served `bigquery`, `clickhouse` or
 `oracle` deployment attaches, and it is the reason `RequestContext` carries an assertion at all. A
+`bigquery` source is added with `federating`: no subject map, every verified caller is presented
+their own assertion (or the delegation exchange's result), and an anonymous request is refused. A
 `clickhouse` source is added with `switching`: its leg carries the declared user alone, as
 `Presented::SubjectPrincipal`, and no subject material leaves the process. An `oracle` source is
-added with `authenticating`: a set of subjects and no map, because the database resolves the
-asker's own assertion to a user itself.
-Two maps by source, so one plan reading a shared source and an impersonating one is served by one
-broker. **It decides WHETHER, never WHO**: a declared per-source map keyed on the full verified
+added with `authenticating`: its ordered delegation exchanges the asker's assertion, and the
+database resolves the returned token to a user itself.
+Maps by source, so one plan reading a shared source and an impersonating one is served by one
+broker. On `clickhouse` a declared per-source map keyed on the full verified
 [`SubjectKey`] says which callers this source may be asked as, and a caller absent from it is refused
-rather than widened to the deployment's identity; who they BECOME is the workload-identity pool's,
-resolved by Google's token service from the assertion the ADBC transport puts in front of the driver.
+rather than widened to the deployment's identity. Oracle keeps no subject allow-list. On `bigquery` who a caller BECOMES is the
+workload-identity pool's, resolved by Google's token service from the assertion the ADBC transport
+puts in front of the driver.
 It presents the asking assertion's OWN expiry - an earlier round minted `NothingExpires`, which was
 honest while it presented a service account's name and became a check that always answers yes the
 moment it started presenting credential material.
@@ -175,14 +178,15 @@ settings surface reads as a cache that is merely off.
 
 **The delegation exchange (#1208) is a port inside that broker, not a second broker.**
 `sutura_domain::identity::DelegationExchange` is called by `DeclaredPrincipalBroker` for a source declared with
-`impersonating_delegated`: the exchanged token replaces the inbound one in
+`federating` and a `Delegation`, or `authenticating`: the exchanged token replaces the inbound one in
 `Presented::SubjectToken`, every refusal is decided before any exchange, and nothing stores the
 result - each request exchanges again, so two subjects have no store to collide in. A cache added
-later inherits the `PrincipalChain` key rule below. The `wire` implementor decodes the issued JWT's
+later inherits the `PrincipalChain` key rule below. The `sutura_http_client::delegation` implementor decodes the issued JWT's
 `aud`/`exp` without verifying its signature - a misconfiguration check, not a defence against the
 IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
 `sutura serve` builds it from `sources.<alias>.workload_identity.delegation` (`token_endpoint`,
-`client_id`, `client_secret_file`, `audience`), each parsed at boot by the adapter's own type, and
+`client_id`, `client_secret_file`, `audience`), or an Oracle source's ordered `delegation` hops,
+each parsed at boot by the adapter's own type, and
 `Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** a
 `bigquery` deployment needs the ADBC driver to boot and no nix check has one, so the composition is
 held in-process, by `build_broker`'s cells and by `serve::tests::delegation_served` (the real router
@@ -192,7 +196,8 @@ binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d c
 Dependabot. They read what the IdP was offered, what the surface answered and which Google token
 host the driver dialled through a refusing proxy - never the token it carried, so a source handed
 the caller's own token instead of the exchanged one is held in-process only. And nothing requires a
-`direct` impersonating source to declare one: without it the inbound token is presented.
+`direct` BigQuery source to declare one: without it the inbound token is presented. Oracle
+requires its delegation declaration.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
@@ -214,17 +219,15 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   declares. Which of
   [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented, and a
   transport that cannot serve the arm it is handed refuses.
-- **`service_account_impersonation_url` names the account declared for the asking subject**, which
-  is `telekom/sutura#929` F3 and reverses a round of this row that had it asserted NULL. So the
-  chain is two links - federate the assertion at STS, then `generateAccessToken` on the declared
-  account with that federated credential - and the grant that matters is
-  `roles/iam.workloadIdentityUser` **on the target account**, whose member is the pool's
-  `principal://.../subject/<id>`, because that role carries `iam.serviceAccounts.getAccessToken`.
-  Still **not** `roles/iam.serviceAccountTokenCreator`, which is what the deleted deployment-side
-  switch needed. **Two limits, both stated in the code beside the claim:** nothing here sees a live
-  IAM policy, so a declared account the pool principal may not impersonate fails as
-  `AdbcError::Adbc` on the FIRST QUESTION BY THAT SUBJECT and never at boot; and no run has shown
-  Google accepting either hop.
+- **The credential document names no `service_account_impersonation_url`**, so the chain is one
+  link: STS federates the assertion and the token it returns is the pool principal itself. No
+  `roles/iam.workloadIdentityUser` or `roles/iam.serviceAccountTokenCreator` is involved; the
+  grants that matter are BigQuery roles and row access policies whose member is
+  `principal://.../subject/<sub>`. **Limit:** nothing here sees a live IAM policy, so a caller with
+  no grant fails at BigQuery on their FIRST QUESTION (`source_refused`), never at boot - a REST
+  `403` access denial reads as `Unauthorized` only through `nix/bigquery-adbc-forbidden.patch`
+  (upstream maps it to `Internal`, which answers 503 `unavailable`). The observed adapter run
+  below shows Google accepting fixture federation; it does not show a served human caller.
 - **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
   a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no
   longer refused by name - it is opened. The `sutura` command (`mcp`/`query`) still refuses by name,
@@ -237,44 +240,26 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   broker that cannot be reached gets `503` from `SurfaceFailure::Broker` - which is also what a
   refused delegation exchange answers, held behind the real router by `serve::tests::delegation_served`.
   None of that is an answer *under* an asker.
-- **No exchange has run against a real Google token service from any code in this tree.** A round of
-  this file offered a hosted run on 2026-09-16 as evidence, unqualified. That run was of
+- **The earlier HTTP exchange run does not prove this adapter.** The hosted run on 2026-09-16 was of
   `wire::StsOverHttp`, `wire::IamCredentialsOverHttp` and `WorkloadIdentity::target_for` - all three
   deleted with the HTTP transport (`docs/adr/0018`, fifth and eighth amendments) - so it is a run of
   code this tree does not contain and may not be cited for anything the tree does now.
 
-**What leg 2 rests on, and it is a `wired` venue rather than a run.** The mechanism is built, the
-pool is provisioned in `test-infra/pulumi/google`, and the cells are written:
-`crates/sutura-exec-bigquery/tests/declared_principal.rs`'s
-`each_subject_executes_as_its_own_principal_at_the_declared_pool` with
-`the_deployments_own_identity_is_neither_subjects_principal` as its control, each `#[ignore]`d and
-failing rather than skipping when the environment is unset, dispatched by
-`.github/workflows/bigquery-declared-principal.yml`. **Nobody has dispatched it**, which is why
-`docs/where-identity-is-proven.md` records that venue as `wired` and not `yes`. Nothing reachable
-from this repository shows Google ACCEPTING an assertion.
+**What leg 2 rests on:** both cells in
+`crates/sutura-exec-bigquery/tests/declared_principal.rs` passed in the observed
+2026-10-11 run `github.com/telekom/sutura/actions/runs/38116387739`, at `321e65661`.
+`docs/where-identity-is-proven.md` records the adapter venue as `yes` and its limits: fixture
+assertions minted from service-account keys, no served human caller, and no row read by the
+standing cells. Its supplementary Google API probe observed disjoint row filters and a refusal
+for an ungranted pool principal; that probe is not automated coverage.
 
 **And what ships is not the principal switch either.** A round of this row said the transport sets
 `bigquery.impersonate.target_principal` per job with the caller's credential nowhere in the chain,
 which was true for two rounds and was rejected; `JobIdentity` has no spelling for it now.
 
-**What the declared map buys, both halves.** Its KEYS decide which subjects a source may be asked
-as; its VALUES name the account each of those subjects executes as, carried on
-`Presented::SubjectToken`'s `impersonate` and sent as the credential document's
-`service_account_impersonation_url`. So changing a declared target principal changes which account
-a caller's question runs as - which it did NOT for three rounds, and
-`telekom/sutura#929`'s re-review called out a security-critical setting accepted and then ignored.
-Two subjects need two pool bindings AND two map entries.
-
-**Two things about carrying that value that are not obvious and are both load-bearing.** It may
-only ride on `PrincipalName`, which is declared by hand: every other principal newtype in
-`sutura-domain` comes out of `principal_newtype!`, which stores the masked form and drops the raw,
-so on one of those an account address would reach Google as `s***-a@a***.i***.g***` and be refused.
-And `PrincipalName::parse` is far WIDER than an email - it accepts `/`, `:`, `?`, `#`, quotes and
-spaces, because it is the parser every principal identifier shares - while the value is
-interpolated into one path segment of a URL that selects which account a question runs as, and the
-Go library POSTs that URL verbatim with no shape check. The narrowing is the sending crate's, at
-both ends: `DeclaredPrincipals::parse` (a startup refusal) and `adbc::identity::authenticate`
-(`AdbcError::UnusableTarget`, because `Presented` is a public port).
+**There is no subject allow-list on a federating source.** Every verified caller is presented their
+own assertion; the pool's attribute conditions and BigQuery IAM decide who reaches data. An
+anonymous request is refused at the broker, never run as the deployment.
 
 **The limit on all of the above, stated where the claim is:** `check-guidance`'s leg-2 rule
 (`xtask/src/guidance/leg_two.rs`) holds this page to the venue cell, over prose files

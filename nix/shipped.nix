@@ -155,8 +155,8 @@ let
       # `duckdb` each link a C driver archive (`adbcArchiveFor`) and `clickhouse` pulls `ring` - the
       # two musl triples are the answer worth having per feature.
       #
-      # `tls`, `datahub`, `openmetadata`, `rdbms` and `agent` are not probed individually: none of
-      # the five ever had a documented single-feature source build to hold a
+      # `tls`, `datahub`, `openmetadata`, `cube`, `rdbms` and `agent` are not probed individually: none of
+      # the six ever had a documented single-feature source build to hold a
       # `<bin>-<feature>-<triple>-ci` probe for. `allFeatures` below proves every one together, at
       # fat LTO, which is also what `features` now ships. `openmetadata` joined `datahub` here under
       # `github.com/telekom/sutura#970`: the same networked-adapter shape (an outbound TLS reader
@@ -167,7 +167,7 @@ let
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
-      allFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "rdbms" "oracle" "agent" ];
+      allFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "cube" "rdbms" "oracle" "agent" ];
       # WHAT THE SHIPPED BUILD ACTUALLY LINKS - `github.com/telekom/sutura#685` step 5,
       # `docs/adr/0017`'s Fifteenth amendment implemented. Read by `nativeFor`/`crossFor` below for
       # every release and release-performance build of this binary, native and cross; the `-ci`
@@ -180,7 +180,7 @@ let
       # binaries). The two lists are meant to agree; a future feature added to one and not the
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
-      features = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "rdbms" "oracle" "agent" ];
+      features = [ "bigquery" "postgres" "duckdb" "clickhouse" "tls" "datahub" "openmetadata" "cube" "rdbms" "oracle" "agent" ];
       # `tokio-postgres` is banned by name (`github.com/telekom/sutura#1246`). Every Postgres
       # source and the RDBMS catalog reader answer over the ADBC connector now, so no crate in the
       # workspace depends on it. This entry keeps it that way: a dependency or feature that brings
@@ -812,7 +812,7 @@ let
         # **Every shipped adapter crate too, since `github.com/telekom/sutura#1247`**: a release
         # that stopped linking one fails here naming it, and `check-shipped-binaries` holds this
         # list to the record's `features` at PR time (`xtask/src/shipped/adapters.rs`).
-        required = { sutura = [ "axum" "datafusion" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-duckdb" "sutura-exec-clickhouse" "sutura-exec-oracle" "sutura-catalog-datahub" "sutura-catalog-openmetadata" "sutura-catalog-rdbms" ]; };
+        required = { sutura = [ "axum" "datafusion" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-duckdb" "sutura-exec-clickhouse" "sutura-exec-oracle" "sutura-exec-cube" "sutura-catalog-datahub" "sutura-catalog-openmetadata" "sutura-catalog-cube" "sutura-catalog-rdbms" ]; };
         # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
         # variant of, while `ring` is the one that compiles C and assembly and is therefore
         # the one the cross builds actually pay for.

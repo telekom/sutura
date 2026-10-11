@@ -1,0 +1,60 @@
+# The metrics-layer Cube model: the `orders` and `customers` tables the DataHub catalog describes,
+# each a cube with the table's name, and the catalog's `revenue` metric as a measure of `orders`.
+# Cube verifies each request's token and uses its claims as the security context. The access policy
+# below gives each caller only the rows of the regions in that caller's own `regions` claim.
+cubes:
+  - name: orders
+    sql_table: default.orders
+    description: Net revenue orders, in minor units.
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_id = {customers}.customer_id"
+    dimensions:
+      - name: order_id
+        sql: order_id
+        type: string
+        primary_key: true
+        public: true
+      - name: customer_id
+        sql: customer_id
+        type: string
+      - name: amount_cents
+        sql: amount_cents
+        type: number
+      - name: order_date
+        sql: order_date
+        type: time
+      - name: status
+        sql: status
+        type: string
+      - name: region
+        sql: region
+        type: string
+    measures:
+      - name: revenue
+        sql: amount_cents
+        type: sum
+        description: Net revenue in minor units, from active orders.
+        filters:
+          - sql: "{CUBE}.status = 'active'"
+    access_policy:
+      - group: "*"
+        row_level:
+          filters:
+            - member: region
+              operator: equals
+              values: "securityContext.regions"
+
+  - name: customers
+    sql_table: default.customers
+    description: The customer dimension.
+    dimensions:
+      - name: customer_id
+        sql: customer_id
+        type: string
+        primary_key: true
+        public: true
+      - name: segment
+        sql: segment
+        type: string

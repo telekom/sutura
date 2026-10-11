@@ -3427,10 +3427,9 @@ invite a client to retry a deployment bug until something works.
 
 A name a data system knows a principal by.
 
-Two roles: the one a session is switched to, and the one a source is asked to execute as after
-the asker's own credential authenticated (`Presented::SubjectToken`'s `impersonate`).
+The one a session is switched to (`Presented::SubjectPrincipal`).
 
-**Not a `Secret`, and that is a statement rather than an omission.** A role or service-account
+**Not a `Secret`, and that is a statement rather than an omission.** A role or user
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that
 redacted it would hide the one value an operator has to be able to read back in a log.

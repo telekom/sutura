@@ -3790,6 +3790,7 @@ dependencies = [
  "polyglot-sql",
  "serde_json",
  "serde_norway",
+ "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
@@ -3802,6 +3803,7 @@ dependencies = [
  "sutura-domain",
  "sutura-exec-bigquery",
  "sutura-exec-clickhouse",
+ "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
  "sutura-exec-oracle",
@@ -3818,6 +3820,21 @@ version = "0.6.1"
 dependencies = [
  "rustix",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sutura-catalog-cube"
+version = "0.6.1"
+dependencies = [
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "sutura-dev",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]
@@ -3928,6 +3945,7 @@ dependencies = [
  "serde_norway",
  "sutura-adbc-postgres",
  "sutura-app",
+ "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
@@ -3940,6 +3958,7 @@ dependencies = [
  "sutura-domain",
  "sutura-exec-bigquery",
  "sutura-exec-clickhouse",
+ "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
  "sutura-exec-oracle",
@@ -4048,6 +4067,21 @@ dependencies = [
  "thiserror 2.0.21",
  "ureq",
  "url",
+]
+
+[[package]]
+name = "sutura-exec-cube"
+version = "0.6.1"
+dependencies = [
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "sutura-conformance",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

@@ -965,7 +965,7 @@ the trust chain matters more than the exposure.
 sutura keep the exchange in process and hand the result to the driver. It needs the exchange back -
 the deleted `StsOverHttp`/`IamCredentialsOverHttp` hops, or an HTTP client to rebuild them on - so it
 is a larger change than the one this amendment makes, and it belongs upstream rather than as a vendor
-patch (`VENDOR.md` records the three source-level adaptations this build already carries, and a forked
+patch (`VENDOR.md` records the four source-level adaptations this build already carries, and a forked
 public option surface is a different kind of debt from a `go.mod` floor relax). An unpatched driver
 refuses an unknown option key rather than ignoring it, so a deployment pointed at an upstream `.so`
 would fail closed - which is what makes this safe to propose and unsafe to assume.

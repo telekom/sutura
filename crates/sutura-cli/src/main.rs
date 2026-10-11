@@ -98,6 +98,9 @@ mod catalog;
 #[cfg(feature = "clickhouse")]
 mod clickhouse;
 mod commands;
+/// The ONE Cube composition, reached by both composition roots below - `oracle`'s shape.
+#[cfg(feature = "cube")]
+mod cube;
 /// The ONE DuckDB composition, reached by both composition roots below - `oracle`'s shape.
 #[cfg(feature = "duckdb")]
 mod duckdb;
@@ -106,10 +109,11 @@ mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The secret-file read the `bigquery`, `clickhouse`, `oracle`, `postgres` and `rdbms` builds share.
+/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `oracle`, `postgres` and `rdbms` builds share.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
+    feature = "cube",
     feature = "oracle",
     feature = "postgres",
     feature = "rdbms"
@@ -121,12 +125,12 @@ mod postgres;
 /// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
 ///
 /// Behind the same features as every caller: only an adapter that links an outbound TLS stack has
-/// any material to rotate, so a default-features build (no `postgres`/`datahub`/`openmetadata`)
+/// any material to rotate, so a default-features build (no `postgres`/`datahub`/`openmetadata`/`cube`)
 /// must not compile a `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS
-/// rotation and the removed `tokio-postgres` source channel's were callers; the datahub and
-/// openmetadata reader rotators and a `bigquery` source's delegation exchange remain - a Postgres
+/// rotation and the removed `tokio-postgres` source channel's were callers; the datahub,
+/// openmetadata and cube reader rotators and a `bigquery` source's delegation exchange remain - a Postgres
 /// source's libpq re-reads its files per connect.
-#[cfg(any(feature = "bigquery", feature = "datahub", feature = "openmetadata"))]
+#[cfg(any(feature = "bigquery", feature = "datahub", feature = "openmetadata", feature = "cube"))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,

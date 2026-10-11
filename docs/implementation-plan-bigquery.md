@@ -78,11 +78,8 @@ that authenticated with `gcloud` and then read every row as the developer has no
 impersonated anybody - it has answered every question as one identity, which is the posture
 `SharedServiceUser` exists to make a deployment declare out loud.
 
-**Where a service account sits in the federated chain is a deployment decision and not settled here.**
-The federated principal can hold the dataset grants directly, or it can impersonate a service account
-that holds them - Google recommends the first and documents services where only the second works. Both
-are different from the credential this login writes, and the choice belongs with the pool's owner. The
-per-subject step below is where it gets recorded.
+**No service account sits in the federated chain.** The federated principal holds the dataset grants
+directly, which is the form Google recommends. It is different from the credential this login writes.
 
 ## BigQuery, on a service account
 

@@ -679,6 +679,182 @@ services:
       retries: 60
       start_period: 30s
 
+  # The Cube profile's own ClickHouse: the single-player corpus as tables, loaded by
+  # `examples/cube/clickhouse/init.sql` at first start. Its own service rather than `clickhouse`,
+  # because the golden cells load and drop tables there. No volume and no published port: only Cube
+  # reaches it, and every start loads the corpus again.
+  cube-clickhouse:
+    # CI venue: compose only - the `cube` block's reason.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/clickhouse/clickhouse-server:26.7-alpine
+    profiles:
+      - cube
+    hostname: cube-clickhouse
+    environment:
+      CLICKHOUSE_USER: *fixture-user
+      CLICKHOUSE_PASSWORD: *fixture-password
+    configs:
+      - source: cube-clickhouse-init
+        target: /docker-entrypoint-initdb.d/init.sql
+      - source: metrics-layer-clickhouse-init
+        target: /docker-entrypoint-initdb.d/metrics_layer.sql
+      - source: cube-subscriptions
+        target: /corpus/fct_subscription_monthly.csv
+      - source: cube-usage
+        target: /corpus/fct_usage_daily.csv
+      - source: cube-customers
+        target: /corpus/dim_customer.csv
+      - source: cube-products
+        target: /corpus/dim_product.csv
+      - source: cube-regions
+        target: /corpus/dim_region.csv
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" -q 'SELECT count() FROM default.dim_region' || exit 1",
+      ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  # The Cube metrics serving layer (`github.com/telekom/sutura#1340`). `sutura_dev::scope::SERVICES`
+  # names `cube`, this publishes 4000 ephemerally, and `xtask dev-up --with cube` reads back whatever
+  # it landed on. It serves the model in `examples/cube/model` over `cube-clickhouse`.
+  cube:
+    # CI venue: compose only.
+    # Because: Cube is not packaged in `nixpkgs`, and a nix `checks.*` derivation has no docker
+    #   socket and no network.
+    # Converges: when Cube is packaged as a nix-native tier, taking `nix/postgres-tier.nix`'s shape.
+    #   Until then the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance`
+    #   are its venues; no nix check reaches it.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
+    profiles:
+      - cube
+    hostname: cube
+    depends_on:
+      cube-clickhouse:
+        condition: service_healthy
+    environment:
+      CUBEJS_DB_TYPE: clickhouse
+      CUBEJS_DB_HOST: cube-clickhouse
+      CUBEJS_DB_PORT: "8123"
+      CUBEJS_DB_NAME: default
+      CUBEJS_DB_USER: *fixture-user
+      CUBEJS_DB_PASS: *fixture-password
+      CUBEJS_DEV_MODE: "false"
+      CUBEJS_TELEMETRY: "false"
+      # Production mode asks for Cube Store as its cache and queue; the in-process driver is the
+      # one-container fixture's answer.
+      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+      # A FIXTURE, the `x-datahub-backend-environment` signing key's argument: the HS256 key a
+      # deployment token for this tier is signed with, reachable from nothing outside this host.
+      CUBEJS_API_SECRET: sutura-dev-cube-secret-with-256-bits
+    # `configs:` rather than a bind mount: each file is read from THIS worktree's checkout and
+    # copied into the container, so nothing on the host is shared between worktrees.
+    configs:
+      - source: cube-model
+        target: /cube/conf/model/single_player.yml
+    ports:
+      - 4000
+    healthcheck:
+      # The image carries `node` and no `curl` or `wget`.
+      test: [
+        "CMD",
+        "node",
+        "-e",
+        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # The identity provider of `examples/metrics-layer`: its realm, two callers and the deployment's
+  # own client. The issuer is fixed, so a token asked for on the published port and one asked for by
+  # `cube-metrics` inside this network carry the same `iss`.
+  cube-keycloak:
+    # CI venue: compose only.
+    # Because: `cube-metrics` runs in docker and fetches this issuer's keys, and a container on a
+    #   Linux runner cannot reach the nix Keycloak tier on the host's loopback.
+    # Converges: with the `cube` block; the nix Keycloak tier then serves this realm.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
+    profiles:
+      - cube
+    hostname: cube-keycloak
+    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: *fixture-user
+      KC_BOOTSTRAP_ADMIN_PASSWORD: *fixture-password
+      KC_HOSTNAME: https://localhost:8443
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      # FIXTURES, `CUBEJS_API_SECRET`'s argument: the realm reads them as `${...}`.
+      SUTURA_EXCHANGE_SECRET: sutura-dev-exchange-secret
+      SUTURA_DEPLOYMENT_SECRET: sutura-dev-deployment-secret
+    configs:
+      - source: metrics-layer-realm
+        target: /opt/keycloak/data/import/realm.json
+    ports:
+      - 8080
+    healthcheck:
+      # The `keycloak` block's probe, for its reasons.
+      test:
+        - CMD
+        - /bin/bash
+        - -c
+        - "{ printf 'HEAD /health/ready HTTP/1.0\\r\\n\\r\\n' >&0; grep 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000"
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+
+  # The Cube of `examples/metrics-layer`: its model over `cube-clickhouse`, and every request's token
+  # verified against `cube-keycloak`'s keys. The claims of that token are the security context.
+  cube-metrics:
+    # CI venue: compose only.
+    # Because: the `cube` block's - Cube is not in `nixpkgs`, and a nix check has no docker socket.
+    # Converges: with the `cube` block, when Cube is packaged as a nix-native tier.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
+    profiles:
+      - cube
+    hostname: cube-metrics
+    depends_on:
+      cube-clickhouse:
+        condition: service_healthy
+      cube-keycloak:
+        condition: service_healthy
+    environment:
+      CUBEJS_DB_TYPE: clickhouse
+      CUBEJS_DB_HOST: cube-clickhouse
+      CUBEJS_DB_PORT: "8123"
+      CUBEJS_DB_NAME: default
+      CUBEJS_DB_USER: *fixture-user
+      CUBEJS_DB_PASS: *fixture-password
+      CUBEJS_DEV_MODE: "false"
+      CUBEJS_TELEMETRY: "false"
+      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+      CUBEJS_JWK_URL: http://cube-keycloak:8080/realms/metrics-layer/protocol/openid-connect/certs
+      CUBEJS_JWT_ALGS: RS256
+      CUBEJS_JWT_ISSUER: https://localhost:8443/realms/metrics-layer
+      CUBEJS_JWT_AUDIENCE: cube
+    configs:
+      - source: metrics-layer-model
+        target: /cube/conf/model/metrics_layer.yml
+    ports:
+      - 4000
+    healthcheck:
+      # The `cube` block's probe, for its reason.
+      test: [
+        "CMD",
+        "node",
+        "-e",
+        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   # The local chat demo: ONE container holding the sutura server and the chat client, because a
   # single supervisor is what makes "either child exits, the demo ends" true.
   #
@@ -799,3 +975,25 @@ volumes:
   demo-webui-data:
   openmetadata-mysql-data:
   openmetadata-opensearch-data:
+
+configs:
+  cube-model:
+    file: examples/cube/model/single_player.yml
+  cube-clickhouse-init:
+    file: examples/cube/clickhouse/init.sql
+  metrics-layer-clickhouse-init:
+    file: examples/metrics-layer/clickhouse/init.sql
+  metrics-layer-model:
+    file: examples/metrics-layer/cube/model.yml
+  metrics-layer-realm:
+    file: examples/metrics-layer/keycloak/realm.json
+  cube-subscriptions:
+    file: examples/single-player/data/fct_subscription_monthly.csv
+  cube-usage:
+    file: examples/single-player/data/fct_usage_daily.csv
+  cube-customers:
+    file: examples/single-player/data/dim_customer.csv
+  cube-products:
+    file: examples/single-player/data/dim_product.csv
+  cube-regions:
+    file: examples/single-player/data/dim_region.csv

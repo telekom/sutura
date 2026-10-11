@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+sales_area	period	recurring_revenue
+Text(central)	Text(2026-06-01)	Integer(51739)
+Text(north_east)	Text(2026-06-01)	Integer(74755)
+Text(south_west)	Text(2026-06-01)	Integer(70628)
+Null	Text(2026-06-01)	Integer(4999)

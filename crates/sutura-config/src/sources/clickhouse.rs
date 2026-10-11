@@ -178,6 +178,8 @@ mod tests {
             port: Some(8123),
             database: None,
             service_name: None,
+            endpoint: None,
+            token_file: None,
             database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/ch-password"),
@@ -372,7 +374,6 @@ mod tests {
         let with_wif = RawSourceEntry {
             workload_identity: Some(crate::raw::RawWorkloadIdentity {
                 audience: String::from("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/sso"),
-                impersonate: std::collections::BTreeMap::new(),
                 expected_issuer: None,
                 expected_audience: None,
                 delegation: None,

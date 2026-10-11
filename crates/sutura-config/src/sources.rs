@@ -59,6 +59,8 @@ use sutura_domain::source::{
 /// composition roots already use - one file per kind - so the arm in [`parse_placement`] stays one
 /// call and the reading stays beside the kind it is about.
 mod clickhouse;
+/// The `cube` entry's own keys, read and refused - split out for the reason `clickhouse` is.
+mod cube;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
 /// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
@@ -70,7 +72,7 @@ pub mod workload_identity;
 
 /// The per-entry reader - see its header for why it is its own file.
 mod entry;
-use entry::{parse_absolute, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
+use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
 
 /// What kind of data system a source is.
 ///
@@ -144,6 +146,12 @@ pub enum SourceKind {
     /// `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
     /// refused at the composition root's posture cross-check.
     Duckdb,
+    /// A Cube metrics serving layer, queried through its REST API.
+    ///
+    /// Declarable and openable behind the `cube` feature. [`SourcePlacement::Cube`] carries the
+    /// deployment's endpoint and the file its token is read from. The one token is the whole
+    /// credential, so there is no place for a subject: `impersonation-at-source` is refused.
+    Cube,
 }
 
 /// The configured word did not name a kind of data system.
@@ -155,7 +163,7 @@ pub struct UnknownSourceKind {
 
 impl SourceKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle", "duckdb"];
+    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle", "duckdb", "cube"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind> {
@@ -166,6 +174,7 @@ impl SourceKind {
             "clickhouse" => Ok(Self::ClickHouse),
             "oracle" => Ok(Self::Oracle),
             "duckdb" => Ok(Self::Duckdb),
+            "cube" => Ok(Self::Cube),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -183,6 +192,7 @@ impl SourceKind {
             Self::ClickHouse => "clickhouse",
             Self::Oracle => "oracle",
             Self::Duckdb => "duckdb",
+            Self::Cube => "cube",
         }
     }
 }
@@ -426,7 +436,7 @@ pub enum InvalidSourceRegistry {
     },
     /// An `impersonation-at-source` source declared no token-exchange setup.
     ///
-    /// A source that executes as the asking subject has to say WHICH account each subject becomes -
+    /// A source that executes as the asking subject has to say WHICH pool federates that subject -
     /// there is nothing this build could guess, and a per-caller identity has to come out of a
     /// declaration rather than a default that pretends one exists.
     ///
@@ -436,12 +446,12 @@ pub enum InvalidSourceRegistry {
     /// federation replaced it. The pool's own exchange needs the audience, and Google's library
     /// refuses an empty one outright.
     ///
-    /// Of the keys in the block, `audience` is read, `impersonate`'s KEYS decide which callers may be
-    /// served at all, and its VALUES name the account each caller's questions execute as - see
-    /// [`crate::DeclaredPrincipals::target`]. There is no `scope` key: the credential
-    /// document has no `scopes` member, so one would reach nothing.
+    /// Of the keys in the block, `audience` is read. There is no `impersonate` key: the federated
+    /// token is the caller's own pool principal, and the data system's grants on it decide what the
+    /// caller may read. There is no `scope` key either: the credential document has no `scopes`
+    /// member, so one would reach nothing.
     #[error(
-        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, and the `impersonate` map naming which subjects may be served here"
+        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against"
     )]
     MissingWorkloadIdentity { alias: SourceName },
     /// A `clickhouse` source's `impersonate` map is not usable.
@@ -451,13 +461,17 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: crate::sources::placement::InvalidImpersonate,
     },
-    /// An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+    /// An `oracle` or `cube` source's `delegation` is missing, misplaced, or declared over a
+    /// plaintext channel.
     #[error("`sources.{alias}.delegation` is not usable")]
-    OracleDelegation {
+    Delegation {
         alias: SourceName,
         #[source]
-        cause: crate::sources::placement::InvalidOracleDelegation,
+        cause: crate::sources::placement::InvalidDelegation,
     },
+    /// A `cube` source's `endpoint` carries an `@`.
+    #[error("`sources.{alias}.endpoint` carries an `@` - credentials in the URL are refused, declare token_file")]
+    CubeEndpointCredentials { alias: SourceName },
     /// The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still
     /// declaring one is refused rather than read as if it still narrowed who is served.
     #[error(
@@ -575,6 +589,8 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) port: Option<u16>,
     pub(crate) database: Option<&'raw str>,
     pub(crate) service_name: Option<&'raw str>,
+    pub(crate) endpoint: Option<&'raw str>,
+    pub(crate) token_file: Option<&'raw str>,
     pub(crate) database_file: Option<&'raw str>,
     pub(crate) user: Option<&'raw str>,
     pub(crate) password_file: Option<&'raw str>,
@@ -725,10 +741,10 @@ fn parse_entry(
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
     let workload_identity = match entry.workload_identity.as_ref() {
-        // A `clickhouse` source declares its subject map as `impersonate` and an `oracle` source its
-        // `subjects` instead - see their placements.
+        // A `clickhouse` source declares its subject map as `impersonate`, an `oracle` source its
+        // `subjects` and a `cube` source its `delegation` instead - see their placements.
         None if matches!(entry.posture.trim(), "impersonation-at-source")
-            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle) =>
+            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle | SourceKind::Cube) =>
         {
             return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
         }
@@ -739,7 +755,6 @@ fn parse_entry(
         Some(raw) => Some(
             WorkloadIdentityConfig::parse_with_expectations(
                 &raw.audience,
-                &raw.impersonate,
                 raw.expected_issuer.as_deref(),
                 raw.expected_audience.as_deref(),
             )
