@@ -117,6 +117,20 @@ pub(crate) fn refuse_broker_token_last(
     Ok(())
 }
 
+/// Reads a source's `delegation` hops in declaration order, refusing a chain that ends in
+/// `broker-token`.
+pub(crate) fn source_hops(
+    alias: &sutura_domain::model::SourceName,
+    declared: &[crate::raw::RawDelegation],
+) -> Result<Vec<DelegationDeclared>, super::InvalidSourceRegistry> {
+    let hops = declared
+        .iter()
+        .map(|hop| DelegationDeclared::of(alias, hop, "delegation.token_endpoint", "delegation.client_secret_file"))
+        .collect::<Result<Vec<_>, _>>()?;
+    refuse_broker_token_last(alias, "delegation", hops.last().map(DelegationDeclared::grant))?;
+    Ok(hops)
+}
+
 impl DelegationDeclared {
     /// `endpoint_key` and `secret_file_key` are the two keys a refusal names, as written under the
     /// source.

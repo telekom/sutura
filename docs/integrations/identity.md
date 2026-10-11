@@ -8,9 +8,10 @@ description: How sutura verifies who asks - a token from your identity provider,
 Inbound identity tells sutura who asks. sutura checks a signed token from your identity provider
 and gets a verified subject, its scopes and its groups. sutura uses the subject for the audit
 record and for the scope check. A source with `posture: impersonation-at-source` also
-runs the query as the identity that its map names for that subject: a service account on BigQuery, a
-user on ClickHouse. sutura refuses a subject that the map does not name. No other data system
-supports this posture.
+runs the query as the caller: on BigQuery as the service account that its map names for that
+subject, on ClickHouse as the user named by the subject, and on Oracle with the caller's exchanged
+token. sutura refuses a subject that a BigQuery map does not name. No other data system supports
+this posture.
 
 The settings are under `security.inbound`. There are two modes, and there is no default:
 
@@ -80,6 +81,23 @@ The `scope` claim of a verified token decides what the caller may do:
 | `sutura:sql.run`      | Use the raw SQL tool |
 
 A verified caller without one of these scopes gets `403 insufficient_scope`.
+
+## ClickHouse token checker
+
+A [ClickHouse source with token sign-in](data-systems/clickhouse.md#token-sign-in) needs a token
+checker that you run. Keycloak cannot answer the request of ClickHouse itself: ClickHouse sends
+`GET` with `Authorization: Basic`, the userinfo endpoint of Keycloak expects `Authorization: Bearer`,
+and its introspection endpoint expects `POST` with client authentication.
+
+Run a small checker in front of Keycloak. For each request, the checker:
+
+1. Reads the user and the token from `Authorization: Basic`.
+2. Verifies the token: with the JWKS of the realm and the `iss`, `aud` and `exp` claims, or by
+   calling the userinfo endpoint of the realm with the token as `Authorization: Bearer`.
+3. Makes sure that the `sub` of the token is the user.
+4. Sends `200` if all checks pass, or `401` if one fails.
+
+Keycloak puts the ID of the user in `sub`, so each ClickHouse user is named by that ID.
 
 ## Example
 

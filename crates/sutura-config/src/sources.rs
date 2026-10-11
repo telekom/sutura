@@ -452,12 +452,12 @@ pub enum InvalidSourceRegistry {
          named by their verified subject - remove the key"
     )]
     ImpersonateRemoved { alias: SourceName },
-    /// An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+    /// An `oracle` or `clickhouse` source's `delegation` is missing, misplaced, or declared over `plaintext`.
     #[error("`sources.{alias}.delegation` is not usable")]
-    OracleDelegation {
+    Delegation {
         alias: SourceName,
         #[source]
-        cause: crate::sources::placement::InvalidOracleDelegation,
+        cause: crate::sources::placement::InvalidDelegation,
     },
     /// The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still
     /// declaring one is refused rather than read as if it still narrowed who is served.

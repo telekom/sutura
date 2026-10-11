@@ -221,6 +221,9 @@ pub enum DeclaredPrincipalsUnusable {
 /// subject's assertion is exchanged through before it is presented.
 type Impersonating = (DeclaredPrincipals, Option<Delegation>);
 
+/// The deployment's own user at a switching source, and the exchange for a caller's sign-in token.
+type Switching = (PrincipalName, Option<Delegation>);
+
 /// Presents the asking subject's own credential at a source that declares it, beside the account
 /// declared for that subject - and the operator's witness for a shared one.
 ///
@@ -238,8 +241,10 @@ type Impersonating = (DeclaredPrincipals, Option<Delegation>);
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
     impersonating: BTreeMap<SourceName, Impersonating>,
-    /// Each switching source and the deployment's own user there - a name no caller is run as.
-    switching: BTreeMap<SourceName, PrincipalName>,
+    /// Each source that runs a caller as their verified name, the deployment's own user there - a
+    /// name no caller is run as - and, for a source each caller signs in at, the exchange for the
+    /// token they sign in with.
+    switching: BTreeMap<SourceName, Switching>,
     authenticating: BTreeMap<SourceName, Delegation>,
 }
 
@@ -273,7 +278,17 @@ impl DeclaredPrincipalBroker {
     /// refused, since switching to it would answer as the deployment.
     #[must_use]
     pub fn switching(mut self, at: SourceName, deployment: PrincipalName) -> Self {
-        drop(self.switching.insert(at, deployment));
+        drop(self.switching.insert(at, (deployment, None)));
+        self
+    }
+
+    /// Declares one impersonating source that each caller signs in at as the principal their
+    /// verified subject names, with the token `delegation` exchanges their verified assertion for -
+    /// never the assertion itself. A caller whose verified name is `deployment` is refused, as at a
+    /// [`Self::switching`] source.
+    #[must_use]
+    pub fn signing_in(mut self, at: SourceName, deployment: PrincipalName, delegation: Delegation) -> Self {
+        drop(self.switching.insert(at, (deployment, Some(delegation))));
         self
     }
 
@@ -371,12 +386,21 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // **Every verified caller, as the principal their own verified subject names**: the
             // source switches to it per statement. No caller, or one whose name is the deployment's
             // own user here, is refused - switching to that user would answer as the deployment.
-            if let Some(deployment) = self.switching.get(source) {
+            if let Some((deployment, delegation)) = self.switching.get(source) {
                 let Some(Ok(name)) = key.map(SubjectKey::principal) else {
                     return Ok(Minted::Refused { source: source.clone() });
                 };
                 if name == *deployment {
                     return Ok(Minted::Refused { source: source.clone() });
+                }
+                // A caller who signs in presents the EXCHANGED token beside their name; the exchange
+                // runs below, after every refusal.
+                if let Some(delegation) = delegation.as_ref() {
+                    let (Some(assertion), Some(expires)) = (assertion, assertion_expires) else {
+                        return Ok(Minted::Refused { source: source.clone() });
+                    };
+                    exchanges.push((source, Some(name), Some(delegation), assertion, expires));
+                    continue;
                 }
                 drop(presented.insert(source.clone(), Presented::SubjectPrincipal { name }));
                 // A name does not age, so the bound is the caller's own assertion where leg 1 had one.
@@ -429,7 +453,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(expires) = assertion_expires else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
-            exchanges.push((source, Some(target), delegation.as_ref(), assertion, expires));
+            exchanges.push((source, Some(target.clone()), delegation.as_ref(), assertion, expires));
         }
         // **Every refusal above is decided before any exchange below**, so a plan refused at its
         // second source sends nothing to the IdP for its first. And no store: each exchange's token
@@ -454,7 +478,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 source.clone(),
                 Presented::SubjectToken {
                     material,
-                    impersonate: target.cloned(),
+                    impersonate: target,
                 },
             ));
             deadlines.push(expires);

@@ -11,7 +11,8 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, SourcePlacement};
+use crate::sources::placement::{HostName, InvalidDelegation, SourcePlacement};
+use crate::sources::workload_identity::DelegationDeclared;
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: clickhouse` entry into its placement.
@@ -80,7 +81,24 @@ pub(super) fn parse_placement(
         password_file,
         transport,
         user,
+        delegation: parse_delegation(alias, entry)?,
     })
+}
+
+/// The hops each caller's verified token is exchanged through, for the token that caller signs in
+/// with. Absent on an impersonating entry, each caller is switched to with `EXECUTE AS` instead;
+/// refused on any other entry, where no caller signs in.
+fn parse_delegation(alias: &SourceName, entry: &RawSourceEntry<'_>) -> Result<Vec<DelegationDeclared>, InvalidSourceRegistry> {
+    let invalid = |cause| InvalidSourceRegistry::Delegation {
+        alias: alias.clone(),
+        cause,
+    };
+    match (entry.posture.trim() == "impersonation-at-source", entry.delegation) {
+        (_, None) => Ok(Vec::new()),
+        (false, Some(_)) => Err(invalid(InvalidDelegation::NotImpersonating)),
+        (true, Some([])) => Err(invalid(InvalidDelegation::Missing)),
+        (true, Some(declared)) => super::workload_identity::source_hops(alias, declared),
+    }
 }
 
 /// The eight keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
@@ -164,7 +182,9 @@ mod tests {
                 user,
                 password_file,
                 transport,
+                delegation,
             } => {
+                assert!(delegation.is_empty(), "a shared source declares no delegation");
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 8123);
                 assert_eq!(user, "sutura");
@@ -288,6 +308,53 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    /// Each caller signs in with their own exchanged token when the entry declares `delegation`: over
+    /// plaintext only to a loopback host, and only on an impersonating entry.
+    #[test]
+    fn a_delegated_clickhouse_source_signs_callers_in_over_tls_off_loopback_only() {
+        let hops = [crate::raw::RawDelegation {
+            token_endpoint: String::from("https://idp.example.com/token"),
+            client_id: String::from("sutura"),
+            client_secret_file: String::from("/etc/sutura/client-secret"),
+            audience: String::from("clickhouse"),
+            grant: crate::sources::workload_identity::DelegationGrant::TokenExchange,
+        }];
+        let delegated = RawSourceEntry {
+            delegation: Some(&hops),
+            ..impersonating()
+        };
+        let registry = SourceRegistry::parse(std::slice::from_ref(&delegated), None).expect("a loopback delegated entry parses");
+        let configured = registry.get(&alias("warehouse")).expect("the entry is there");
+        assert!(
+            matches!(*configured.placement(), placement::SourcePlacement::ClickHouse { ref delegation, .. } if delegation.len() == 1),
+            "{:?}",
+            configured.placement()
+        );
+
+        let remote = RawSourceEntry {
+            host: Some("ch.example.com"),
+            ..delegated.clone()
+        };
+        let error = SourceRegistry::parse(&[remote], None).expect_err("a remote plaintext delegated source is refused");
+        assert!(matches!(error, InvalidSourceRegistry::RemoteWithoutTls { .. }), "{error}");
+
+        let shared = RawSourceEntry {
+            delegation: Some(&hops),
+            ..clickhouse("warehouse")
+        };
+        let error = SourceRegistry::parse(&[shared], Some(&single_user())).expect_err("a shared source exchanges nothing");
+        assert!(
+            matches!(
+                error,
+                InvalidSourceRegistry::Delegation {
+                    cause: placement::InvalidDelegation::NotImpersonating,
+                    ..
+                }
+            ),
+            "{error}"
+        );
     }
 
     /// Only a `bigquery` source reads `workload_identity`, refused on this kind rather than read past.

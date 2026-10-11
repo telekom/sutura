@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `ClickHouse`, over its HTTP interface.
 //!
-//! The deployment's declared service user authenticates every request. A `shared-service-user`
-//! source runs every statement as that user; an `impersonation-at-source` source runs each one as
-//! the `ClickHouse` user named by the asking caller's verified subject, through `EXECUTE AS` - see
-//! [`execute_as`]. No OAuth: the subject never authenticates to `ClickHouse` itself.
+//! A `shared-service-user` source runs every statement as the deployment's declared user. An
+//! `impersonation-at-source` source runs each one as the `ClickHouse` user named by the asking
+//! caller's verified subject: through `EXECUTE AS` on the deployment's sign-in (see
+//! [`execute_as`]), or - when the source declares a `delegation` - signed in as that user over HTTP
+//! Basic with the token the caller's verified assertion was exchanged for
+//! ([`transport::SignIn`]). `ClickHouse` hands that token to the operator's checker.
 //!
 //! # Why `ureq` and not an async driver
 //!
@@ -86,7 +88,7 @@ pub mod transport;
 
 use std::borrow::Cow;
 
-use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
+use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
@@ -126,13 +128,11 @@ where
     /// header.
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
-    /// The credential broker handed this adapter a subject's own credential, which it has nowhere
-    /// to put: it authenticates as the deployment and switches to the caller's user per statement.
+    /// The credential broker handed this adapter a subject's own credential with no user beside it,
+    /// so there is no `ClickHouse` user to sign in as.
     #[error(
-        "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
-         credential to arrive: it authenticates as the deployment's declared user and runs each \
-         statement as the caller's ClickHouse user. This is a wiring defect between the credential \
-         broker and the source declaration"
+        "source `{at}` was handed {presented} with no user to sign in as. This is a wiring defect \
+         between the credential broker and the source declaration"
     )]
     NoPlaceForASubject { at: String, presented: &'static str },
     /// The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
@@ -185,8 +185,15 @@ where
 /// type rather than as the two-level generic clippy's `type_complexity` lint asks not to repeat.
 type ChResult<T, E> = core::result::Result<T, ClickHouseError<E>>;
 
-/// Which user a statement runs as: `None` is the service user, `Some` the caller's user switched to.
-type RunsAs = Option<ClickHouseUser>;
+/// Which user a statement runs as.
+enum RunsAs<'p> {
+    /// The deployment's declared user.
+    Deployment,
+    /// The caller's user, switched to with `EXECUTE AS` on the deployment's sign-in.
+    Switched(ClickHouseUser),
+    /// The caller's user, signed in with the token their verified assertion was exchanged for.
+    SignedIn { user: ClickHouseUser, token: &'p Secret },
+}
 
 /// A `ClickHouse` connection, behind the [`Warehouse`] port.
 ///
@@ -231,13 +238,18 @@ where
     }
 
     /// Checks the presented leg against how this source was DECLARED (`docs/adr/0008` part 4),
-    /// then answers which user the statement runs as: `None` for the service user, `Some` for the
-    /// principal a broker named. A subject's own credential has nowhere to go and is refused.
-    fn deliverable(&self, presented: &Presented) -> ChResult<RunsAs, T::Error> {
-        let named = match *presented {
-            Presented::SharedServiceUser { .. } => None,
-            Presented::SubjectPrincipal { ref name } => Some(name),
-            Presented::SubjectToken { .. } => {
+    /// then answers which user the statement runs as: the service user, the principal a broker
+    /// named, or that principal signed in with its exchanged token. A token with no principal
+    /// beside it has no user to sign in as and is refused.
+    fn deliverable<'p>(&self, presented: &'p Presented) -> ChResult<RunsAs<'p>, T::Error> {
+        let (named, token) = match *presented {
+            Presented::SharedServiceUser { .. } => (None, None),
+            Presented::SubjectPrincipal { ref name } => (Some(name), None),
+            Presented::SubjectToken {
+                ref material,
+                impersonate: Some(ref name),
+            } => (Some(name), Some(material)),
+            Presented::SubjectToken { impersonate: None, .. } => {
                 return Err(ClickHouseError::NoPlaceForASubject {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),
@@ -247,13 +259,17 @@ where
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| ClickHouseError::PresentedDisagreesWithPosture { cause })?;
-        named
-            .map(|name| ClickHouseUser::parse(name.as_str()))
-            .transpose()
-            .map_err(|cause| ClickHouseError::NotAClickHouseUser {
-                at: String::from(self.source.as_str()),
-                cause,
-            })
+        let Some(name) = named else {
+            return Ok(RunsAs::Deployment);
+        };
+        let user = ClickHouseUser::parse(name.as_str()).map_err(|cause| ClickHouseError::NotAClickHouseUser {
+            at: String::from(self.source.as_str()),
+            cause,
+        })?;
+        Ok(match token {
+            None => RunsAs::Switched(user),
+            Some(token) => RunsAs::SignedIn { user, token },
+        })
     }
 
     fn render(executable: Executable<'_>) -> ChResult<GeneratedQuery, T::Error> {
@@ -266,20 +282,26 @@ where
     }
 
     fn run(&self, query: &GeneratedQuery, deadline: Deadline) -> ChResult<RowSet, T::Error> {
-        self.run_as(None, query, deadline, None)
+        self.run_as(&RunsAs::Deployment, query, deadline, None)
     }
 
     fn run_as(
         &self,
-        user: Option<&ClickHouseUser>,
+        runs_as: &RunsAs<'_>,
         query: &GeneratedQuery,
         deadline: Deadline,
         most_rows: Option<usize>,
     ) -> ChResult<RowSet, T::Error> {
-        let statement = user.map_or_else(|| Cow::Borrowed(query.sql()), |user| Cow::Owned(user.execute_as(query.sql())));
+        let (statement, sign_in) = match *runs_as {
+            RunsAs::Deployment => (Cow::Borrowed(query.sql()), None),
+            RunsAs::Switched(ref user) => (Cow::Owned(user.execute_as(query.sql())), None),
+            RunsAs::SignedIn { ref user, token } => {
+                (Cow::Borrowed(query.sql()), Some(transport::SignIn::new(user.as_str(), token)))
+            }
+        };
         let body = self
             .transport
-            .run(&statement, query.params(), deadline)
+            .run(&statement, query.params(), deadline, sign_in)
             .map_err(|cause| ClickHouseError::Endpoint { cause })?;
         rows_from_json_with_limit(&body, self.result_budget, most_rows)
     }
@@ -292,7 +314,7 @@ where
     type Error = ClickHouseError<T::Error>;
 
     /// A presented principal becomes the user each statement runs as, through `EXECUTE AS` - see
-    /// [`execute_as`]. A subject's own credential still has nowhere to arrive.
+    /// [`execute_as`], or the user each request signs in as with the caller's exchanged token.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
     fn source(&self) -> &SourceName {
@@ -311,7 +333,7 @@ where
     ) -> Result<ResultBatches, Self::Error> {
         let user = self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let rows = self.run_as(user.as_ref(), &query, deadline, executable.row_limit())?;
+        let rows = self.run_as(&user, &query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| ClickHouseError::Shape { cause })

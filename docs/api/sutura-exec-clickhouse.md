@@ -9,10 +9,12 @@ The public API of `sutura-exec-clickhouse`, rendered from rustdoc JSON.
 
 A `Warehouse` adapter over `ClickHouse`, over its HTTP interface.
 
-The deployment's declared service user authenticates every request. A `shared-service-user`
-source runs every statement as that user; an `impersonation-at-source` source runs each one as
-the `ClickHouse` user named by the asking caller's verified subject, through `EXECUTE AS` - see
-`execute_as`. No OAuth: the subject never authenticates to `ClickHouse` itself.
+A `shared-service-user` source runs every statement as the deployment's declared user. An
+`impersonation-at-source` source runs each one as the `ClickHouse` user named by the asking
+caller's verified subject: through `EXECUTE AS` on the deployment's sign-in (see
+`execute_as`), or - when the source declares a `delegation` - signed in as that user over HTTP
+Basic with the token the caller's verified assertion was exchanged for
+(`transport::SignIn`). `ClickHouse` hands that token to the operator's checker.
 
 # Why `ureq` and not an async driver
 
@@ -103,7 +105,7 @@ lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to i
 - `Endpoint` - The endpoint (or the canned pack) did not answer.
 - `Render`
 - `LegWithoutCombiner` - A leg without a combiner - `Warehouse::EXECUTES_LEGS` stays at its default; see the crate header.
-- `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential, which it has nowhere to put: it authenticates as the deployment and switches to the caller's user per statement.
+- `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential with no user beside it, so there is no `ClickHouse` user to sign in as.
 - `NotAClickHouseUser` - The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
 - `PresentedDisagreesWithPosture`
 - `UnsupportedType` - A column came back as a `ClickHouse` type this adapter does not map.
@@ -523,6 +525,27 @@ A user/password pair, as the deployment declared it.
 #### Implements
 
 `Clone`, `Debug`
+
+### `struct SignIn`
+
+```rust
+pub struct SignIn<'a>
+```
+
+A caller's own HTTP Basic sign-in for one request: their verified name as the user, and the token
+their verified assertion was exchanged for as the password.
+
+#### Methods
+
+```rust
+pub const fn new(user: &'a str, token: &'a sutura_domain::identity::Secret) -> Self
+```
+
+The caller's verified name as the user, and the token they sign in with.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
 
 ### `enum HttpError`
 

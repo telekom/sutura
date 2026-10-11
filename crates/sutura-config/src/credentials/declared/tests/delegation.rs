@@ -306,3 +306,37 @@ fn an_authenticating_sources_leg_lapses_with_the_earlier_of_the_assertion_and_th
         );
     }
 }
+
+/// A signing-in source presents the caller's verified name beside the token their assertion is
+/// exchanged for, never the inbound one, and refuses the deployment's own user before any exchange.
+#[test]
+fn a_signing_in_source_presents_the_verified_name_and_the_exchanged_token() {
+    let (idp, asked) = fake(false);
+    let broker = DeclaredPrincipalBroker::empty().signing_in(
+        source("warehouse"),
+        PrincipalName::parse("sutura").expect("a test principal is a principal"),
+        Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
+    );
+    let at = source("warehouse");
+    let sources = SourceSet::of(at.clone());
+    let mint = |raw: &str| broker.mint(&asking(raw), &sources).expect("the broker answers");
+    let analyst = "analyst-a@example.com";
+    assert_eq!(
+        super::presented_at(mint(analyst), analyst, &sources, &at),
+        "delegated:inbound:analyst-a@example.com"
+    );
+    assert_eq!(
+        super::target_at(mint(analyst), analyst, &sources, &at).as_deref(),
+        Some(analyst)
+    );
+    assert_eq!(
+        asked.try_iter().count(),
+        2,
+        "each mint exchanges the caller's own inbound token"
+    );
+    assert!(
+        matches!(mint("sutura"), Minted::Refused { .. }),
+        "the deployment's own user is refused"
+    );
+    assert_eq!(asked.try_iter().count(), 0, "a refused caller reaches no identity provider");
+}

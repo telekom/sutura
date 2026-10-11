@@ -42,7 +42,7 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 #
 # `sutura-http-client` carries the delegation exchange a `direct` deployment composes for a source
 # declaring `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment), and an `oracle`
-# source's `delegation`.
+# or `clickhouse` source's `delegation`.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "dep:sutura-http-client"]
 
 # The Postgres adapter: the ADBC transport, over the driver every musl release links
@@ -61,7 +61,7 @@ postgres = ["dep:sutura-exec-postgres"]
 # `join_use_nulls = 0` an outer join's unmatched side answered `''` where the engine says `NULL`.
 # `JOIN_USE_NULLS` in `request_settings` now asks for `1` on every request, held by
 # `every_request_asks_the_server_for_standard_outer_join_nulls`.
-clickhouse = ["dep:sutura-exec-clickhouse"]
+clickhouse = ["dep:sutura-exec-clickhouse", "dep:sutura-http-client"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver, and with `rdbms` the Oracle dictionary
 # reader (`sutura-catalog-rdbms/live-oracle`): a build without this feature refuses an Oracle

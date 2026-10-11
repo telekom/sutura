@@ -32,6 +32,9 @@ and these keys:
 | `transport_anchors`  | `system` or absolute path | none     | The CA file, or `system` for the host trust store. Required for `verified` and `mutual` |
 | `client_certificate` | absolute path             | none     | The client certificate. `mutual` only                                                   |
 | `client_key`         | absolute path             | none     | The client key. `mutual` only                                                           |
+| `delegation`         | list                      | none     | `impersonation-at-source` only: the hops that exchange the caller's token, in order     |
+
+Each hop in `delegation` has the keys of an [Oracle](oracle.md#settings) hop.
 
 `plaintext` needs a loopback IP address as `host`. There is no `database` key: unqualified table
 names resolve in the default database of the user.
@@ -58,12 +61,15 @@ sources:
 
 ## Identity
 
-This data system supports `shared-service-user` and secure-impersonation (`EXECUTE AS`).
+This data system supports `shared-service-user` and two forms of `impersonation-at-source`:
+`EXECUTE AS`, and token sign-in.
 
 With `posture: shared-service-user`, sutura signs in as the one user in `user`, and every caller's
 query runs as that user.
 
-With `posture: impersonation-at-source`, sutura still signs in as `user`, and it runs each statement
+### `EXECUTE AS`
+
+With `posture: impersonation-at-source` and no `delegation`, sutura still signs in as `user`, and it runs each statement
 as the ClickHouse user named by the caller's verified subject (the `sub` claim of the caller's
 token): `EXECUTE AS "<sub>" <statement>`. It never uses the session form of `EXECUTE AS`. There is
 no map of callers: each caller's own ClickHouse user, its grants and its row policies decide what
@@ -85,3 +91,59 @@ Requirements:
 
 A caller with no ClickHouse user, or one that the user in `user` may not become, is refused; the
 query never runs as `user`. A caller whose `sub` is the user in `user` is refused.
+
+### Token sign-in
+
+With `posture: impersonation-at-source` and a `delegation` list, sutura exchanges the caller's token
+through the hops of `delegation`. Then it signs in to ClickHouse as the caller for each query, with
+HTTP Basic: the user is the caller's `sub`, and the password is the exchanged token. sutura never
+sends the caller's own inbound token. sutura signs in as `user` only for its own startup queries.
+
+```yaml
+posture: "impersonation-at-source"
+delegation:
+  - token_endpoint: "https://idp.example.com/token"
+    client_id: "sutura"
+    client_secret_file: "/run/secrets/idp-client-secret"
+    audience: "clickhouse"
+```
+
+A `host` that is not loopback needs `transport_mode: verified` or `mutual`, because each request
+sends the caller's token. sutura does not start without it.
+
+ClickHouse does not verify the token itself. It sends the user and the token to a token checker
+that you run. sutura does not supply a checker. For each query, ClickHouse sends one request to the
+checker:
+
+```http
+GET <uri>
+Authorization: Basic base64(<sub>:<token>)
+```
+
+The request has no body. The checker must:
+
+1. Verify the token: the signature with the JWKS of your identity provider, and the `iss`, `aud`
+   and `exp` claims.
+2. Make sure that the `sub` of the token is the Basic user. Do not skip this check: without it, a
+   caller's token can sign in as a different user.
+3. Send `200` to accept the sign-in, or `401` to refuse it.
+
+For Keycloak, see [ClickHouse token checker](../identity.md#clickhouse-token-checker).
+
+Declare the checker in the ClickHouse server configuration:
+
+```yaml
+http_authentication_servers:
+  token_checker:
+    uri: "https://checker.example.com/"
+```
+
+And for each caller, a ClickHouse user named by the caller's `sub`, with its own grants and row
+policies:
+
+```sql
+CREATE USER "<sub>" IDENTIFIED WITH http SERVER 'token_checker';
+```
+
+A caller with no verified subject, or whose `sub` is the user in `user`, is refused before sutura
+asks the identity provider.

@@ -47,7 +47,7 @@ rec {
   tier = pkgs.writeShellApplication {
     name = "sutura-clickhouse-tier";
     runtimeInputs = [ package endpoints.script pkgs.coreutils pkgs.curl pkgs.flock pkgs.gnugrep pkgs.python3 ];
-    text = builtins.readFile ./clickhouse-tier-provision.sh;
+    text = "export CLICKHOUSE_TIER_CHECKER=${./clickhouse-tier-checker.py}\n" + builtins.readFile ./clickhouse-tier-provision.sh;
   };
 
   # The tier's state machine, driven end to end - `checks.nextest` starts and stops this tier, which

@@ -34,14 +34,14 @@ pub(super) fn parse_placement(
     if kind != SourceKind::Duckdb {
         refuse_foreign_keys(alias, kind, [("database_file", written(entry.database_file))])?;
     }
-    // The two removed caller lists, on every kind; and `oracle`'s own exchange on every other one.
+    // The two removed caller lists, on every kind; and the exchange on every kind but `oracle` and `clickhouse`.
     if entry.subjects {
         return Err(InvalidSourceRegistry::SubjectsRemoved { alias: alias.clone() });
     }
     if entry.impersonate {
         return Err(InvalidSourceRegistry::ImpersonateRemoved { alias: alias.clone() });
     }
-    if kind != SourceKind::Oracle {
+    if !matches!(kind, SourceKind::Oracle | SourceKind::ClickHouse) {
         refuse_foreign_keys(alias, kind, [("delegation", entry.delegation.is_some())])?;
     }
     match kind {

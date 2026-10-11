@@ -539,6 +539,10 @@ pub enum SourcePlacement {
         password_file: PathBuf,
         /// How the channel to this source is secured.
         transport: SourceTransport,
+        /// The hops each caller's verified token is exchanged through, in order, for the token
+        /// each caller signs in with as their own user. Empty on an impersonating source that
+        /// switches to each caller with `EXECUTE AS`, and on a shared one.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
     /// An Oracle Database, reached over its TCP listener.
     ///
@@ -596,9 +600,9 @@ impl SourcePlacement {
     }
 }
 
-/// Why an `oracle` source's `delegation` is not one it can be served under.
+/// Why an `oracle` or `clickhouse` source's `delegation` is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidOracleDelegation {
+pub enum InvalidDelegation {
     /// An impersonating source with no exchange, so no caller's token could open a session.
     #[error(
         "the source is `impersonation-at-source` and declares no `delegation` - name the token \

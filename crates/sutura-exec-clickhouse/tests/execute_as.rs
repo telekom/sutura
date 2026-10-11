@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
-//! `EXECUTE AS` against the tier's server: the half of per-caller execution only a server answers.
-//! `nix/clickhouse-tier-provision.sh` declares the users, their grants and the row policy read here.
+//! Per-caller execution against the tier's server - `EXECUTE AS`, and a caller signed in with their
+//! own token - the half only a server answers. `nix/clickhouse-tier-provision.sh` declares the
+//! users, their grants, the row policies and the test-only token checker read here.
 
 #[cfg(test)]
 mod execute_as {
@@ -8,7 +9,7 @@ mod execute_as {
 
     use sutura_conformance::corpus;
     use sutura_dev::provisioned::{self, Provisioned};
-    use sutura_domain::identity::{Presented, PrincipalName};
+    use sutura_domain::identity::{Presented, PrincipalName, Secret};
     use sutura_domain::plan::Executable;
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::Warehouse as _;
@@ -16,11 +17,7 @@ mod execute_as {
     use sutura_exec_clickhouse::fixture::credential_from_env;
     use sutura_exec_clickhouse::transport::{Endpoint, Http};
 
-    /// The one database the tier's row policy names, so it is shared rather than per test: only
-    /// [`each_declared_user_reads_only_the_rows_its_own_policy_admits`] writes to it.
-    const DATABASE: &str = "execute_as";
-
-    fn open(case: &str) -> Option<ClickHouseWarehouse<Http>> {
+    fn open(case: &str, database: &str) -> Option<ClickHouseWarehouse<Http>> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
             Provisioned::At(endpoint) => endpoint,
             Provisioned::Skipped(absent) => {
@@ -34,7 +31,7 @@ mod execute_as {
             SourcePosture::ImpersonationAtSource,
             Endpoint::plaintext(endpoint.host(), endpoint.port()),
             auth,
-            DATABASE,
+            database,
             budget(),
         )
         .unwrap_or_else(|e| panic!("clickhouse did not open at {endpoint}: {e}"));
@@ -51,7 +48,8 @@ mod execute_as {
     /// the same plan, the same service-user connection, two answers.
     #[test]
     fn each_declared_user_reads_only_the_rows_its_own_policy_admits() {
-        let Some(warehouse) = open("rows") else { return };
+        // The one database this row policy names: only this cell writes to it.
+        let Some(warehouse) = open("rows", "execute_as") else { return };
         warehouse
             .load_conformance_csv(&corpus::table(), &corpus::on_disk())
             .unwrap_or_else(|e| panic!("clickhouse could not load the conformance corpus: {e}"));
@@ -70,5 +68,36 @@ mod execute_as {
         };
         assert_eq!(rows_as("sutura_analyst_a"), case.expected().rows().len());
         assert_eq!(rows_as("sutura_analyst_b"), 0);
+    }
+
+    /// The tier's checker binds the token's `sub` to the Basic user: `sutura_caller_a`'s token signs
+    /// in as `sutura_caller_a` and reads that user's rows, and the same token beside
+    /// `sutura_caller_b` is refused by the server.
+    #[test]
+    fn a_callers_token_signs_in_only_as_the_user_it_names() {
+        // The one database this row policy names: only this cell writes to it.
+        let Some(warehouse) = open("signed_in", "signed_in") else {
+            return;
+        };
+        warehouse
+            .load_conformance_csv(&corpus::table(), &corpus::on_disk())
+            .unwrap_or_else(|e| panic!("clickhouse could not load the conformance corpus: {e}"));
+        let token = std::env::var("SUTURA_CLICKHOUSE_TIER_TOKEN")
+            .unwrap_or_else(|_absent| panic!("the tier publishes SUTURA_CLICKHOUSE_TIER_TOKEN"));
+        let case = corpus::cases()
+            .into_iter()
+            .find(|case| case.name() == "decimal-total-by-day")
+            .expect("the corpus has the case");
+        let signed_in_as = |name: &str| {
+            let presented = Presented::SubjectToken {
+                material: Secret::new(token.clone()),
+                impersonate: Some(PrincipalName::parse(name).expect("a tier user is a principal")),
+            };
+            warehouse.execute(Executable::Query(case.plan()), &presented, corpus::deadline())
+        };
+        let rows = signed_in_as("sutura_caller_a").unwrap_or_else(|e| panic!("sutura_caller_a: {e}"));
+        assert_eq!(rows.rows(), case.expected().rows().len());
+        let refused = signed_in_as("sutura_caller_b").expect_err("a token signs in only as its own `sub`");
+        assert!(warehouse.source_refused(&refused), "{refused}");
     }
 }

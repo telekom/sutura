@@ -10,6 +10,8 @@ use super::*;
 
 /// What the next [`ClickHouseTransport::run`] answers, for [`Scripted`].
 type ScriptedAnswer = Option<Result<Vec<u8>, ScriptedError>>;
+/// A caller's sign-in as `(user, token)`.
+type SignedIn = Option<(String, String)>;
 
 /// A scripted [`ClickHouseTransport`], so this crate's own port behaviour can be driven with no
 /// live endpoint. The conformance binding and golden matrix also run against the provisioned tier.
@@ -25,6 +27,8 @@ struct Scripted {
     next: Mutex<ScriptedAnswer>,
     /// The rendered statement the last `run` was handed, captured so a test can assert the dialect.
     statement: Mutex<Option<String>>,
+    /// The caller's sign-in the last `run` was handed.
+    signed_in: Mutex<SignedIn>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +44,7 @@ impl Scripted {
         Self {
             next: Mutex::new(Some(Ok(body.as_bytes().to_vec()))),
             statement: Mutex::new(None),
+            signed_in: Mutex::new(None),
         }
     }
 
@@ -52,9 +57,22 @@ impl Scripted {
 impl ClickHouseTransport for Scripted {
     type Error = ScriptedError;
 
-    fn run(&self, statement: &str, _params: &[ParamValue], deadline: Deadline) -> Result<Vec<u8>, Self::Error> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the fake records the token it was handed, which is what its cells assert"
+    )]
+    fn run(
+        &self,
+        statement: &str,
+        _params: &[ParamValue],
+        deadline: Deadline,
+        sign_in: Option<crate::transport::SignIn<'_>>,
+    ) -> Result<Vec<u8>, Self::Error> {
         crate::deadline::refuse_if_spent(deadline).map_err(|_spent| ScriptedError::DeadlineSpent)?;
         *self.statement.lock() = Some(String::from(statement));
+        *self.signed_in.lock() = sign_in
+            .map(crate::transport::SignIn::parts)
+            .map(|(user, token)| (String::from(user), String::from(token.expose_secret())));
         self.next.lock().take().unwrap_or(Err(ScriptedError::NothingQueued))
     }
 
@@ -310,6 +328,34 @@ fn an_impersonating_source_sends_each_statement_as_the_presented_user() {
     let sent = warehouse.transport.last_statement().expect("the statement was sent");
     let rendered = sutura_sql::generate::generate(case.plan(), Dialect::ClickHouse).expect("the corpus plan renders");
     assert_eq!(sent, format!("EXECUTE AS \"analyst_one\" {}", rendered.sql()));
+}
+
+/// A token beside a principal signs that caller in: the request carries their name and their
+/// exchanged token, and the statement is sent as rendered, with no `EXECUTE AS`.
+#[test]
+fn a_presented_token_signs_the_named_caller_in_with_that_token() {
+    let case = sutura_conformance::corpus::cases()
+        .into_iter()
+        .next()
+        .expect("the corpus has a case");
+    let warehouse = impersonating(Scripted::answering("[\"region\"]\n[\"String\"]\n[\"north\"]\n"));
+    let presented = Presented::SubjectToken {
+        material: Secret::new(String::from("exchanged-token")),
+        impersonate: Some(PrincipalName::parse("analyst_one").expect("a test name is a name")),
+    };
+    warehouse
+        .execute(
+            Executable::Query(case.plan()),
+            &presented,
+            sutura_conformance::corpus::deadline(),
+        )
+        .expect("a well-formed response decodes");
+    assert_eq!(
+        warehouse.transport.signed_in.lock().clone(),
+        Some((String::from("analyst_one"), String::from("exchanged-token")))
+    );
+    let rendered = sutura_sql::generate::generate(case.plan(), Dialect::ClickHouse).expect("the corpus plan renders");
+    assert_eq!(warehouse.transport.last_statement(), Some(String::from(rendered.sql())));
 }
 
 /// A presented principal that could close its quoted identifier is refused before anything is sent.

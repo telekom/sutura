@@ -76,6 +76,7 @@ pub(crate) fn build(
         ref user,
         ref password_file,
         ref transport,
+        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -100,6 +101,17 @@ pub(crate) fn build(
         transport,
         working_set.result_budget(),
     ))
+}
+
+/// The hops a `clickhouse` source exchanges each caller's token through before that caller signs
+/// in; empty for a source that switches with `EXECUTE AS`, and for any other kind.
+pub(crate) fn declared_delegation(
+    configured: &sutura_config::ConfiguredSource,
+) -> &[sutura_config::sources::workload_identity::DelegationDeclared] {
+    let sutura_config::SourcePlacement::ClickHouse { ref delegation, .. } = *configured.placement() else {
+        return &[];
+    };
+    delegation
 }
 
 /// The broker's half of an `impersonation-at-source` source: the service user its transport signs in

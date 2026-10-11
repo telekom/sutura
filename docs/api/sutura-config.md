@@ -2726,6 +2726,15 @@ pub fn shared(self, at: SourceName, declared: SharedIdentityDeclared) -> Self
 Declares one shared source and the operator's acknowledgement for it.
 
 ```rust
+pub fn signing_in(self, at: SourceName, deployment: PrincipalName, delegation: Delegation) -> Self
+```
+
+Declares one impersonating source that each caller signs in at as the principal their
+verified subject names, with the token `delegation` exchanges their verified assertion for -
+never the assertion itself. A caller whose verified name is `deployment` is refused, as at a
+`Self::switching` source.
+
+```rust
 pub fn switching(self, at: SourceName, deployment: PrincipalName) -> Self
 ```
 
@@ -5821,7 +5830,7 @@ convenience, and nothing needs to clone a startup refusal.
   `crate::DeclaredPrincipals::target`. There is no `scope` key: the credential
   document has no `scopes` member, so one would reach nothing.
 - `ImpersonateRemoved` - The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their verified subject, so a configuration still declaring a map is refused rather than read as if it still chose who runs as whom.
-- `OracleDelegation` - An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+- `Delegation` - An `oracle` or `clickhouse` source's `delegation` is missing, misplaced, or declared over `plaintext`.
 - `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
@@ -6372,13 +6381,13 @@ then on the variant is the answer.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `enum InvalidOracleDelegation`
+#### `enum InvalidDelegation`
 
 ```rust
-pub enum InvalidOracleDelegation
+pub enum InvalidDelegation
 ```
 
-Why an `oracle` source's `delegation` is not one it can be served under.
+Why an `oracle` or `clickhouse` source's `delegation` is not one it can be served under.
 
 ##### Variants
 
