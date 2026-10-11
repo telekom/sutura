@@ -193,16 +193,16 @@ The two rows are that split and not a duplication.
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **yes** - the same cell, restated here because *only here* was this column's answer while the tier beside it already said `yes`: a contradiction inside one row, corrected rather than left to a reader to spot. What a hosted tenant would add is a browser-delegated grant and a vendor's own `aud`/`azp` shape, not this claim | - | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - | - |
 | Whether a token exchange endpoint accepts what we send it | no - a loopback fake accepts by construction. What it does pin is what we SEND: the RFC 8693 form `delegation::http::OverHttp` posts, captured by `the_request_is_an_rfc_8693_exchange_of_the_callers_token_for_the_requested_audience` | - | - | **wired** - a real IdP's standard token exchange of each subject's own token for the pool audience (#1208); the IdP half only, no pool is reachable from the tier | - | - | - |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **wired** - this is the row below in other words: a per-subject `external_account` document is built and the pool resolves it, and no run has been observed | - |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **yes** - the adapter run recorded below resolves each subject to its own pool principal; no served human caller is measured | - |
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no | no - it reads one identity per question and no rows at all; the row half needs the served surface | - |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - the cells here read `SESSION_USER()` and no rows. `test-infra/pulumi/google`'s row access policies grant `serviceAccount:` members, which since `telekom/sutura#929` F3 IS the identity each subject executes as - so the grants are provisioned and the missing half is a dispatch and a served surface, not a resource | - |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - the standing cells read `SESSION_USER()` and no rows. The stack grants each workload-pool principal directly; the manual row-policy probe below is supplementary evidence, not this venue or a served surface | - |
 | **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no | no - a different adapter, refused at boot before any venue | - |
 | **Whether the shipped ClickHouse source executes as the asking subject** | no - a scripted transport records the `EXECUTE AS` statement the adapter sends for a declared user, and nothing about what a server does with it. The cells against the ClickHouse tier are not a venue on this page until a run of them is recorded | no | - | - | no | no - a different adapter | - |
 | **Whether the shipped Oracle source executes as the asking subject** | no - a fake listener over TLS records the token the adapter sends in each session's login, and nothing about what a database does with it. No venue here provisions an Oracle that accepts a token | no | - | - | no | no - a different adapter | - |
 | Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
 | Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
 | **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | no - it asks the adapter directly, so nothing here goes through a served binary | - |
-| **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **wired** - the standing cells are `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control `the_deployments_own_identity_is_neither_subjects_principal`, dispatched by `.github/workflows/bigquery-declared-principal.yml`; no run observed | - |
+| **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **yes** - both standing cells passed in the observed adapter run recorded below; the assertions are test fixtures, not human sign-in | - |
 ## The fake at the port
 
 `AGENTS.md`'s *Conventions* says why: *ports get fakes, not mocked HTTP - that is what lets the whole
@@ -512,15 +512,33 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 
 ## A declared principal at a real dataset
 
-**`wired`, and that is the whole of what this venue is today: a job reaches its two cells and no run
-of either has been observed.** `.github/workflows/bigquery-declared-principal.yml` is
-`workflow_dispatch`-only against the `bq-test` environment, so a person dispatches it; the two cells
-are `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
-`the_deployments_own_identity_is_neither_subjects_principal`, both `#[ignore]`d and both panicking
-with the name of any environment value they lack rather than skipping. Until a run is observed and
-reported here this venue may not be cited. A run of it is outstanding evidence, **not** a merge
-precondition: the owner accepted the ADBC adoption (`telekom/sutura#929`) with it unrun, on
-2026-09-24.
+**yes**: observed on 2026-10-11 in
+[run 38116387739](https://github.com/telekom/sutura/actions/runs/38116387739), at
+`321e65661f3a37b596758dbe90242f2f159ea9dc`. Both cells passed:
+`each_subject_executes_as_its_own_principal_at_the_declared_pool` and
+`the_deployments_own_identity_is_neither_subjects_principal`.
+`.github/workflows/bigquery-declared-principal.yml` is on demand against `bq-test`; absent
+configuration fails rather than skips.
+
+The [first run](https://github.com/telekom/sutura/actions/runs/38116177572) failed with
+`403 accessDenied`, naming the missing `bigquery.jobs.create` permission. The deployed fixture still
+granted the service accounts rather than their pool principals. Applying the PR's project
+`jobUser` / `readSessionUser` and dataset `dataViewer` grants to both pool principals made the
+same commit pass. The driver reported that real access denial as `Unauthorized`.
+
+**Supplementary manual probe, not a standing cell:** Google STS accepted both fixture assertions;
+`SESSION_USER()` exactly matched each expected workload-pool principal. Google accepted those
+principals as row access policy grantees. After restoring the empty fixture's two declared rows,
+each principal read only its own grouping value. A third accepted pool principal without BigQuery
+grants answered `403 accessDenied`, even though the service account that minted its fixture
+assertion has BigQuery grants. These were direct Google API calls, not the ADBC or served surface.
+Seeding a table with existing row policies was refused with `User does not have full access ... due
+to row access policies`; a temporary full-access policy for the fixture writer allowed the two-row
+insert and was removed afterwards. The probe adds no automated row-isolation coverage.
+
+**Fixture limit:** service-account keys mint the Google-issued subject assertions and supply the
+shared control credential. No service account is impersonated by the federated query; this run
+proves direct WIF resource access, not a human provider's sign-in or delegation exchange.
 
 **What only this venue can answer.** Whether two distinct verified subjects resolve to two distinct
 `BigQuery` principals at the data system - **and whether Google accepts the assertion at all**,
@@ -585,8 +603,8 @@ is which is the whole reason this row survives as a separate one.
 
 **This venue runs nowhere, and there is no standing cell in it - and it is now the SECOND half of
 leg 2 rather than the whole of it.** The `SESSION_USER()` half moved to *A declared principal at a
-real dataset* above, which is `wired`; what is left here is the half that needs a served binary: a
-verified human caller asking through `/v1/*`, and the rows two accounts' own grants give them. No
+real dataset* above, whose adapter run is observed; what is left here is the half that needs a served binary: a
+verified human caller asking through `/v1/*`, and the rows two principals' own grants give them. No
 job invokes it and no green run has been observed. The ignored cell that used to stand here is not
 named, because a citation of a test this workspace no longer contains is a citation of nothing and
 `cargo xtask check-venues` refuses one.
@@ -604,8 +622,8 @@ each subject's own assertion against the pool (`docs/adr/0018`, sixth amendment)
 credential document names no service-account impersonation URL, so the federated token IS the
 subject's own pool principal, `principal://.../subject/<sub>`, and the stack grants BigQuery roles
 and row access policies to that principal directly. Neither `roles/iam.workloadIdentityUser` nor
-`roles/iam.serviceAccountTokenCreator` is needed. Whether Google accepts a workload-pool principal
-as a row access policy grantee is a question a dispatch answers and this page may not.
+`roles/iam.serviceAccountTokenCreator` is needed. The supplementary probe above observed Google accepting workload-pool principal
+grantees and enforcing their disjoint row filters; the standing adapter cells do not read rows.
 
 The oracle is unchanged - `SELECT SESSION_USER()`, read through
 `sutura_exec_bigquery::SessionUser`. The cells assert that the two answers differ from each other
@@ -621,8 +639,8 @@ the API client's own scopes to the STS leg.
 deployment's own - builds the driver for the runner's triple, and runs the two cells named in *A
 declared principal at a real dataset* above. What a dispatcher has to supply is the environment:
 two keys that mint each subject's id_token, the pool's audience, `SUTURA_BQ_DATASET`, and a stack
-whose grants name each subject's pool principal. **Nobody has dispatched it**, which is why that
-venue says `wired` and not `yes`.
+whose grants name each subject's pool principal. The observed run above passed both adapter cells;
+this served venue remains `not built`.
 
 **Why this half is still `not built`, and it is a measurement rather than a backlog entry.** Over
 the served surface a caller's capabilities come from the `scope` claim of the token leg 1 verified,

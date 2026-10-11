@@ -176,7 +176,7 @@ impl<'job> JobRequest<'job> {
     /// ignored it would answer as itself while provenance reported the asker. It does not make the
     /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
     /// assertion, and the declared pool is what resolves it to the subject's own principal -
-    /// unproven against a live pool, per `docs/where-identity-is-proven.md`.
+    /// observed at the adapter in `docs/where-identity-is-proven.md`; a served human caller remains unproven.
     #[inline]
     #[must_use]
     pub const fn identity(&self) -> JobIdentity<'_> {

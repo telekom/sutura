@@ -35,7 +35,7 @@ use sutura_domain::source::SourcePosture;
 /// Startup refusals, and each exists because the alternative is a deployment that boots clean and
 /// refuses every impersonated question:
 ///
-/// - a switching or authenticating source whose declaration names nobody, so no caller could ever
+/// - a switching source whose declaration names nobody, so no caller could ever
 ///   be served there;
 /// - a source declaring the pool expectations `telekom/sutura#817` added, which described a token
 ///   exchange no transport in this build performs;

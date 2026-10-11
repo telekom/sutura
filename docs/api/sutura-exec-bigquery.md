@@ -98,11 +98,11 @@ replayable - and Google would accept it, because it is the caller's real documen
 signing-key age bound `KeySetCache::stale_for` measures excludes a failing refresh. Neither is
 this crate's to fix; both are cited here because *the limit belongs beside the claim*.
 
-**What is still unproven, and no green run here changes it:** nothing reachable from this
-repository shows Google ACCEPTING the assertion. The document is built and the loopback source
-is asserted against a real socket; the exchange needs a pool, a project and a hosted run.
-`docs/where-identity-is-proven.md` records that venue as `wired` and undispatched, so **leg 2 is
-not proven.**
+**Observed at the adapter, not a served human caller:** the hosted run recorded in
+`docs/where-identity-is-proven.md` shows Google accepting both fixture assertions and the ADBC
+path reading two distinct pool principals, neither the deployment's. Service-account keys mint
+those fixture assertions; no service account is impersonated by the federated query. Human
+sign-in, delegation to a human provider and execution through the served surface remain unproven.
 
 # Two things this adapter deliberately does not offer
 
@@ -838,7 +838,7 @@ never re-derived here. A transport that cannot serve the arm it is handed refuse
 ignored it would answer as itself while provenance reported the asker. It does not make the
 source execute as the asker on its own: `JobIdentity::AsSubject` carries the subject's
 assertion, and the declared pool is what resolves it to the subject's own principal -
-unproven against a live pool, per `docs/where-identity-is-proven.md`.
+observed at the adapter in `docs/where-identity-is-proven.md`; a served human caller remains unproven.
 
 ```rust
 pub const fn params(&self) -> &[ParamValue]

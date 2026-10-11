@@ -34,8 +34,9 @@
 //!
 //! # Why it is `#[ignore]`d and why it FAILS rather than skips
 //!
-//! It needs a real project, a real driver `.so` and two real service accounts the running identity
-//! may impersonate. `just validate` has no network, so an unignored leg would red every run.
+//! It needs a real project, a real driver `.so` and two assertions the declared pool accepts.
+//! The hosted fixture mints them from service-account keys; neither account is impersonated.
+//! `just validate` has no network, so an unignored leg would red every run.
 //! `#[ignore]` is how the repository has always carried a hosted venue, and the second half is what
 //! stops that from becoming a venue that always passes: every environment value is REQUIRED, and an
 //! absent one panics with the variable's name. A leg that skipped on a misconfigured environment
@@ -49,7 +50,7 @@
 //! that assertion against the declared pool. A run here is what turns leg 2 from wired into proven.
 //!
 //! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
-//! two accounts' grants.
+//! two principals' grants.
 //!
 //! **What it asserts: two subjects, two principals, neither the deployment's.** The credential
 //! document names no second hop, so `SESSION_USER()` is each subject's own federated principal.

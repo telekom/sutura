@@ -169,12 +169,10 @@ jobs:
       # asserts the two answers differ from each other and from the deployment's own. The first
       # `assert_ne!` refuses a MISCONFIGURED venue (one assertion presented twice).
       #
-      # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
-      # dispatch against a pool with no binding for these subjects is the run most likely to reach
-      # it, and the message to expect there is an STS refusal of the subject token. The likeliest
-      # cause is a missing pool provider or a missing BigQuery grant on the pool principal - but nobody has
-      # run this leg, so a refusal here is not yet evidence against the environment rather than
-      # against the mechanism. Read the driver's text and decide, do not assume the binding.
+      # With `--no-capture`, a refusal renders the driver's own error text. A missing pool provider
+      # can refuse the assertion at STS; a missing BigQuery grant can refuse jobs or reads after it.
+      # Read the error to distinguish a venue misconfiguration from an adapter defect.
+      # The observed run and its limits are recorded in `docs/where-identity-is-proven.md`.
       - name: Declared-principal leg
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json

@@ -25,17 +25,17 @@
 //! statement - `ClickHouse`'s `EXECUTE AS`. No assertion is required there; leg 1's verified subject
 //! is the key, and an anonymous or undeclared caller is refused.
 //!
-//! **An authenticating source is the third** ([`DeclaredPrincipalBroker::authenticating`]): a set
-//! of subjects rather than a map, for a source that opens each request's session with the asker's
-//! own verified assertion and resolves who that is itself - Oracle's token authentication.
+//! **An authenticating source is the third** ([`DeclaredPrincipalBroker::authenticating`]): the
+//! declared delegation exchanges the asker's assertion before the source opens the session with
+//! the returned token and resolves who that is itself - Oracle's token authentication.
 //!
 //! # What it refuses, which is the half that matters
 //!
 //! - **A source it holds no declaration for** - refused as `credential_unavailable`, so a forgotten
 //!   attachment cannot read every row as the deployment.
-//! - **An anonymous caller, or one with no assertion, at a federating source** - there is nothing
+//! - **An anonymous caller, or one with no assertion, at a federating or authenticating source** - there is nothing
 //!   for the pool to verify, and nothing to fall back to.
-//! - **A caller a switching or authenticating source's declaration does not name** - refused, never
+//! - **A caller a switching source's declaration does not name** - refused, never
 //!   widened to a bare deployment identity.
 //!
 //! # The limit, beside the claim
@@ -142,7 +142,7 @@ pub enum DeclaredPrincipalsUnusable {
 /// declared principal at a switching one - and the operator's witness for a shared one.
 ///
 /// **The credential is the verified assertion itself**, or, for a federating source declared with
-/// a [`Delegation`], the token that delegation returned for that assertion.
+/// a [`Delegation`], or any authenticating source, the token that delegation returned for that assertion.
 ///
 /// **All four maps, because one plan may read one of each and a broker is per answer rather than
 /// per source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
