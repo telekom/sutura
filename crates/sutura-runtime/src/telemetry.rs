@@ -106,7 +106,9 @@ pub fn install(telemetry: &TelemetrySettings) -> Result<(), TelemetryNotInstalle
     let subscriber = subscriber(telemetry, std::io::stdout)?;
     // The `log` crate bridge. Several dependencies still emit through `log`; without this their
     // diagnostics are dropped silently rather than appearing in the same stream as everything else.
-    drop(tracing_log::LogTracer::init());
+    // The HTTP client's wire-level trace target, `ureq_proto`, never crosses, whatever the filter
+    // says.
+    drop(tracing_log::LogTracer::builder().ignore_crate("ureq_proto").init());
     drop(tracing::subscriber::set_global_default(subscriber));
     Ok(())
 }
