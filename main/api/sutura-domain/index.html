@@ -5835,14 +5835,14 @@ turns it into <code>crate::query::RefusalReason::CredentialUnavailable</code>. O
 spelled.</p>
 <h3 id="use-presented"><code>use Presented</code><a class="headerlink" href="#use-presented" title="Permanent link">&para;</a></h3>
 <p>What an adapter presents, for one leg.</p>
-<p><strong>Three shapes over two postures: impersonation at the source arrives by two mechanisms, and the
-shared shape is not the absence of the other two.</strong> The engine that ships cannot impersonate
+<p><strong>Four shapes over two postures: impersonation at the source arrives by three mechanisms, and the
+shared shape is not the absence of the other three.</strong> The engine that ships cannot impersonate
 anybody - one process, one operating-system identity - so under a two-variant shape it would
 receive a value it ignores,
 and "the service-identity fallback was removed" would mean the fallback came back as a variant
-nobody looked at. Under three there is nothing to ignore: the shared leg's value holds no
+nobody looked at. Under four there is nothing to ignore: the shared leg's value holds no
 credential material, so an adapter cannot mistake it for one, and a reader of this enum can see
-that a third shape exists without reading an adapter.</p>
+that the shared shape exists without reading an adapter.</p>
 <p>An adapter matches exhaustively on what it received and returns its own typed error for a shape
 it is not configured for. The architecture decision states both directions and says which is the
 dangerous one: an adapter that quietly <em>accepted</em> subject material it cannot use would report a
@@ -5854,7 +5854,8 @@ always is one here: nothing about the question was wrong, and offering it as a r
 invite a client to retry a deployment bug until something works.</p>
 <h3 id="use-principalname"><code>use PrincipalName</code><a class="headerlink" href="#use-principalname" title="Permanent link">&para;</a></h3>
 <p>A name a data system knows a principal by.</p>
-<p>The one a session is switched to (<code>Presented::SubjectPrincipal</code>).</p>
+<p>The one a session is switched to (<code>Presented::SubjectPrincipal</code>), or signed in as
+(<code>Presented::SubjectSignIn</code>).</p>
 <p><strong>Not a <code>Secret</code>, and that is a statement rather than an omission.</strong> A role or user
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that

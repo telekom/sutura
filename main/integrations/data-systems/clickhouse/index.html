@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answer questions over a ClickHouse server through its HTTP interface, as one declared user or as a declared user per caller.">
+        <meta name="description" content="Answer questions over a ClickHouse server through its HTTP interface, as one declared user or as each caller's own ClickHouse user.">
       
       
       
@@ -1597,6 +1597,34 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#execute-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EXECUTE AS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#token-sign-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token sign-in
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3529,6 +3557,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#execute-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EXECUTE AS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#token-sign-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token sign-in
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -3624,13 +3680,14 @@ and these keys:</p>
 <td>The client key. <code>mutual</code> only</td>
 </tr>
 <tr>
-<td><code>impersonate</code></td>
-<td>map</td>
+<td><code>delegation</code></td>
+<td>list</td>
 <td>none</td>
-<td>Each verified subject, and the ClickHouse user it runs as. <code>impersonation-at-source</code> only</td>
+<td><code>impersonation-at-source</code> only: the hops that exchange the caller's token, in order</td>
 </tr>
 </tbody>
 </table>
+<p>Each hop in <code>delegation</code> has the keys of an <a href="../oracle/#settings">Oracle</a> hop.</p>
 <p><code>plaintext</code> needs a loopback IP address as <code>host</code>. There is no <code>database</code> key: unqualified table
 names resolve in the default database of the user.</p>
 <p><code>runtime.working_set_max_bytes</code> (default <code>1073741824</code>) is also the size limit of one response.
@@ -3650,32 +3707,73 @@ unless <code>NO_PROXY</code> names the host.</p>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">ClickHouse</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
 </span></code></pre></div>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
-<p>This data system supports <code>shared-service-user</code> and secure-impersonation (<code>EXECUTE AS</code>).</p>
+<p>This data system supports <code>shared-service-user</code> and two forms of <code>impersonation-at-source</code>:
+<code>EXECUTE AS</code>, and token sign-in.</p>
 <p>With <code>posture: shared-service-user</code>, sutura signs in as the one user in <code>user</code>, and every caller's
 query runs as that user.</p>
-<p>With <code>posture: impersonation-at-source</code>, sutura still signs in as <code>user</code>, and it runs each statement
-as the ClickHouse user that <code>impersonate</code> declares for the caller:
-<code>EXECUTE AS "&lt;user&gt;" &lt;statement&gt;</code>. It never uses the session form of <code>EXECUTE AS</code>. A caller that the
-map does not name is refused, and is never run as <code>user</code>. A user name can contain only letters,
-digits and <code>_ . - @</code>, and it cannot be the user in <code>user</code>. Unqualified table names still resolve
-in the default database of <code>user</code>.</p>
+<h3 id="execute-as"><code>EXECUTE AS</code><a class="headerlink" href="#execute-as" title="Permanent link">&para;</a></h3>
+<p>With <code>posture: impersonation-at-source</code> and no <code>delegation</code>, sutura still signs in as <code>user</code>, and it runs each statement
+as the ClickHouse user named by the caller's verified subject (the <code>sub</code> claim of the caller's
+token): <code>EXECUTE AS "&lt;sub&gt;" &lt;statement&gt;</code>. It never uses the session form of <code>EXECUTE AS</code>. There is
+no map of callers: each caller's own ClickHouse user, its grants and its row policies decide what
+the caller may read. A user name can contain only letters, digits and <code>_ . - @</code>. Unqualified table
+names still resolve in the default database of <code>user</code>.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">impersonate</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="s">"analyst-a@example.com"</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="s">"analyst_a"</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="s">"analyst-b@example.com"</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="s">"analyst_b"</span>
 </span></code></pre></div>
 <p>Requirements:</p>
 <ul>
 <li>The server setting <code>access_control_improvements.allow_impersonate_user = 1</code>.</li>
-<li><code>GRANT IMPERSONATE ON &lt;user&gt; TO &lt;the user in user&gt;</code> for each declared user. <code>ALL ON *.*</code> includes
-  <code>IMPERSONATE</code> on every user, so do not grant <code>ALL</code> to the user in <code>user</code>.</li>
+<li>A ClickHouse user for each caller, named by the caller's <code>sub</code>.</li>
+<li><code>GRANT IMPERSONATE ON &lt;user&gt; TO &lt;the user in user&gt;</code> for each caller's user. <code>ALL ON *.*</code> includes
+  <code>IMPERSONATE</code> on every user, so do not grant <code>ALL</code> to the user in <code>user</code>. Grant <code>IMPERSONATE</code> on
+  each caller's user by name and never <code>IMPERSONATE ON *</code>, because a wildcard lets a verified caller
+  run as any user their <code>sub</code> names.</li>
 <li>ClickHouse Cloud does not support <code>EXECUTE AS</code>.</li>
-<li>At startup, <code>sutura serve</code> runs <code>EXECUTE AS "&lt;user&gt;" SELECT currentUser(), authenticatedUser()</code>
-  for each declared user, and does not start if one fails. A grant revoked after startup makes the
-  caller's question fail; it does not run as <code>user</code>.</li>
 <li>Only <code>sutura serve</code> serves an impersonating ClickHouse source. The <code>sutura</code> command refuses it.</li>
 </ul>
-<p>The caller does not sign in to ClickHouse; the server decides which users the user in <code>user</code> may become.</p>
+<p>A caller with no ClickHouse user, or one that the user in <code>user</code> may not become, is refused; the
+query never runs as <code>user</code>. A caller whose <code>sub</code> is the user in <code>user</code> is refused.</p>
+<h3 id="token-sign-in">Token sign-in<a class="headerlink" href="#token-sign-in" title="Permanent link">&para;</a></h3>
+<p>With <code>posture: impersonation-at-source</code> and a <code>delegation</code> list, sutura exchanges the caller's token
+through the hops of <code>delegation</code>. Then it signs in to ClickHouse as the caller for each query, with
+HTTP Basic: the user is the caller's <code>sub</code>, and the password is the exchanged token. sutura never
+sends the caller's own inbound token. sutura signs in as <code>user</code> only for its own startup queries.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">delegation</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://idp.example.com/token"</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/idp-client-secret"</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"clickhouse"</span>
+</span></code></pre></div>
+<p>A <code>host</code> that is not loopback needs <code>transport_mode: verified</code> or <code>mutual</code>, because each request
+sends the caller's token. sutura does not start without it.</p>
+<p>ClickHouse does not verify the token itself. It sends the user and the token to a token checker
+that you run. sutura does not supply a checker. For each query, ClickHouse sends one request to the
+checker:</p>
+<div class="language-http highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="err">GET &lt;uri&gt;</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="err">Authorization: Basic base64(&lt;sub&gt;:&lt;token&gt;)</span>
+</span></code></pre></div>
+<p>The request has no body. For each request, the checker:</p>
+<ol>
+<li>Reads the user and the token from <code>Authorization: Basic</code>.</li>
+<li>Verifies the signature of the token with the JWKS of the issuer.</li>
+<li>Verifies the <code>iss</code> and <code>exp</code> claims, and that <code>aud</code> is the ClickHouse audience: the <code>audience</code>
+   of the last hop in <code>delegation</code>.</li>
+<li>Makes sure that the <code>sub</code> of the token is the Basic user.</li>
+<li>Sends <code>200</code> if all checks pass, or <code>401</code> if one fails.</li>
+</ol>
+<p>For Keycloak, see <a href="../../identity/#clickhouse-token-checker">ClickHouse token checker</a>.</p>
+<p>Declare the checker in the ClickHouse server configuration:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">http_authentication_servers</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">token_checker</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">uri</span><span class="p">:</span><span class="w"> </span><span class="s">"https://checker.example.com/"</span>
+</span></code></pre></div>
+<p>And for each caller, a ClickHouse user named by the caller's <code>sub</code>, with its own grants and row
+policies:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="ss">"&lt;sub&gt;"</span><span class="w"> </span><span class="n">IDENTIFIED</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="n">http</span><span class="w"> </span><span class="n">SERVER</span><span class="w"> </span><span class="s1">'token_checker'</span><span class="p">;</span>
+</span></code></pre></div>
+<p>A caller with no verified subject, or whose <code>sub</code> is the user in <code>user</code>, is refused before sutura
+asks the identity provider.</p>
 
 
 

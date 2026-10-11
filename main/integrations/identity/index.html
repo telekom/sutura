@@ -1917,6 +1917,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#clickhouse-token-checker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClickHouse token checker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#example" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3563,6 +3574,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#clickhouse-token-checker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClickHouse token checker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#example" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3598,7 +3620,7 @@
 and gets a verified subject, its scopes and its groups. sutura uses the subject for the audit
 record and for the scope check. A source with <code>posture: impersonation-at-source</code> also runs the
 query as the caller: on BigQuery as the caller's own principal in a workload identity pool, on
-ClickHouse as the user that the source's map names for that subject, and on Oracle in a session
+ClickHouse as the user that the caller's verified subject names, and on Oracle in a session
 opened with the caller's own token. No other data system supports this posture.</p>
 <p>The settings are under <code>security.inbound</code>. There are two modes, and there is no default:</p>
 <table>
@@ -3812,6 +3834,21 @@ an unknown <code>kid</code>. To rotate keys, replace the file.</p>
 </tbody>
 </table>
 <p>A verified caller without one of these scopes gets <code>403 insufficient_scope</code>.</p>
+<h2 id="clickhouse-token-checker">ClickHouse token checker<a class="headerlink" href="#clickhouse-token-checker" title="Permanent link">&para;</a></h2>
+<p>A <a href="../data-systems/clickhouse/#token-sign-in">ClickHouse source with token sign-in</a> needs a token
+checker that you run. Keycloak cannot answer the request of ClickHouse itself: ClickHouse sends
+<code>GET</code> with <code>Authorization: Basic</code>, the userinfo endpoint of Keycloak expects <code>Authorization: Bearer</code>,
+and its introspection endpoint expects <code>POST</code> with client authentication.</p>
+<p>Run a small checker in front of Keycloak. For each request, the checker:</p>
+<ol>
+<li>Reads the user and the token from <code>Authorization: Basic</code>.</li>
+<li>Verifies the signature of the token with the JWKS of the issuer.</li>
+<li>Verifies the <code>iss</code> and <code>exp</code> claims, and that <code>aud</code> is the ClickHouse audience: the <code>audience</code>
+   of the last hop in <code>delegation</code>.</li>
+<li>Makes sure that the <code>sub</code> of the token is the Basic user.</li>
+<li>Sends <code>200</code> if all checks pass, or <code>401</code> if one fails.</li>
+</ol>
+<p>Keycloak puts the ID of the user in <code>sub</code>, so each ClickHouse user is named by that ID.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <p>This is <code>conf/base.yaml</code> of the <a href="../../examples/multi-player/">multi player</a> example. Keycloak is the
 identity provider:</p>
