@@ -119,9 +119,6 @@ impl CredentialBroker for ExchangesForTheAsker {
                 name.clone(),
                 Presented::SubjectToken {
                     material: Secret::new(format!("for:{subject}/from:{assertion}")),
-                    // This fake exchanges rather than federating, so there is no second hop for it
-                    // to name - see `Presented::SubjectToken`'s own doc for why an absence is an
-                    // `Option` and not a fourth posture.
                 },
             ));
         }
