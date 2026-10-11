@@ -487,8 +487,10 @@ mod tests {
             posture: SourcePosture::ImpersonationAtSource,
         };
         let asked: BTreeSet<QualifiedTable> = core::iter::once(table("dim_customer")).collect();
+        #[expect(clippy::disallowed_methods, reason = "the cell measures the port's own default")]
+        let answered = silent.preflight(&asked);
         assert_eq!(
-            silent.preflight(&asked).expect("the default answers rather than failing"),
+            answered.expect("the default answers rather than failing"),
             TablesPresent::NotAsked
         );
     }

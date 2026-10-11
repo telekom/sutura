@@ -71,8 +71,6 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 /// Behind the default-off `fixtures` feature - see that module's own header for why.
 #[cfg(feature = "fixtures")]
 pub mod fixture;
-mod trace;
-pub use trace::refuse_packet_trace;
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -174,9 +172,9 @@ pub enum OracleError {
         #[source]
         cause: DriverError,
     },
-    /// The driver's packet trace is switched on - see [`refuse_packet_trace`].
-    #[error("`{variable}` is set, which switches the Oracle driver's packet trace on")]
-    PacketTraceOn { variable: &'static str },
+    /// The driver's packet trace is switched on - see [`sutura_runtime::oracle_trace::refuse`].
+    #[error(transparent)]
+    PacketTraceOn(#[from] sutura_runtime::oracle_trace::PacketTraceOn),
 }
 
 /// An Oracle connection, behind the [`Warehouse`] port.
@@ -291,7 +289,7 @@ impl TokenSessions {
     /// [`OracleError::TrustAnchors`] for anchors that are not usable certificates, and
     /// [`OracleError::Connect`] for an address the driver cannot parse.
     pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
-        refuse_packet_trace()?;
+        sutura_runtime::oracle_trace::refuse()?;
         let address = ezconnect(dial.host, dial.port, dial.service_name);
         let connect_string = match dial.channel {
             Channel::Plaintext => address,
@@ -323,8 +321,9 @@ impl TokenSessions {
                       driver once, here; nothing on this path logs or formats it"
         )]
         let token = String::from(token.expose_secret());
-        let config = self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token));
-        oracledb::connect(config).map_err(connect_err)
+        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
+        let session = oracledb::connect(self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token)));
+        session.map_err(connect_err)
     }
 }
 
@@ -386,6 +385,7 @@ impl OracleWarehouse {
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         let dialled = TokenSessions::new(dial)?;
+        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
         let connection = oracledb::connect(dialled.0.clone().set_credentials(user, password)).map_err(connect_err)?;
         let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
         Ok(Self {

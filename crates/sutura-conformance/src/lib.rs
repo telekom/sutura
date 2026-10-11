@@ -100,6 +100,7 @@
 pub use sutura_domain;
 
 pub mod corpus;
+pub mod delegation;
 pub mod execute;
 pub mod venue;
 

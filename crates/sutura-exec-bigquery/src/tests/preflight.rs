@@ -6,6 +6,10 @@
 //! refusal rather than an absence. The identity, rendering and dry-run cells stay in the parent,
 //! next to the fake they are written against. This file carries its own `#[test]`s throughout, so
 //! it cannot be mistaken for an implementation-only module the causality gate would revert.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "every cell here measures the adapter's own pre-flight"
+)]
 
 use std::collections::BTreeSet;
 

@@ -67,7 +67,7 @@
 //! And nothing here proves Google accepted the assertion or the second hop: that is leg 2, it needs
 //! a hosted run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted, Presented,
@@ -207,34 +207,6 @@ impl DeclaredPrincipals {
     }
 }
 
-/// The subjects one authenticating source may be asked as - [`DeclaredPrincipalBroker::authenticating`].
-///
-/// A set and not a [`DeclaredPrincipals`], because the source names no principal: the database
-/// resolves the asker's own token to a user itself. Never empty, for [`DeclaredPrincipals`]' reason.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeclaredSubjects(BTreeSet<SubjectKey>);
-
-impl DeclaredSubjects {
-    /// Parses one source's declared subjects.
-    ///
-    /// # Errors
-    ///
-    /// [`NoDeclaredPrincipals::Empty`] for a declaration naming nobody.
-    pub fn parse(declared: BTreeSet<SubjectKey>) -> Result<Self, NoDeclaredPrincipals> {
-        if declared.is_empty() {
-            return Err(NoDeclaredPrincipals::Empty);
-        }
-        Ok(Self(declared))
-    }
-
-    /// Whether this source may be asked as `subject`.
-    #[inline]
-    #[must_use]
-    pub fn admits(&self, subject: &SubjectKey) -> bool {
-        self.0.contains(subject)
-    }
-}
-
 /// A defect in this broker itself, which no configuration reaches.
 ///
 /// Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
@@ -291,7 +263,7 @@ type Impersonating = (DeclaredPrincipals, Presenting);
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
     impersonating: BTreeMap<SourceName, Impersonating>,
-    authenticating: BTreeMap<SourceName, DeclaredSubjects>,
+    authenticating: BTreeMap<SourceName, Delegation>,
 }
 
 impl DeclaredPrincipalBroker {
@@ -338,12 +310,12 @@ impl DeclaredPrincipalBroker {
         self
     }
 
-    /// Declares one impersonating source that opens each request's session with the asker's own
-    /// verified assertion, for the subjects it declares. No principal is named: the source resolves
-    /// the token itself.
+    /// Declares one impersonating source that opens each request's session with the token
+    /// `delegation` exchanges the asker's verified assertion for. No principal is named and no
+    /// caller is listed: the source resolves the token to its own user and decides what it may read.
     #[must_use]
-    pub fn authenticating(mut self, at: SourceName, declared: DeclaredSubjects) -> Self {
-        drop(self.authenticating.insert(at, declared));
+    pub fn authenticating(mut self, at: SourceName, delegation: Delegation) -> Self {
+        drop(self.authenticating.insert(at, delegation));
         self
     }
 
@@ -408,22 +380,15 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 deadlines.push(Expiry::NothingExpires);
                 continue;
             }
-            // **The same authorization decision, and the asker's own assertion with no principal
-            // beside it**: the source opens this request's session with the token and resolves who
-            // it is. No exchange, so nothing here waits on I/O before a later refusal.
-            if let Some(subjects) = self.authenticating.get(source) {
-                let admitted = key.is_some_and(|key| subjects.admits(key));
-                let (true, Some(assertion), Some(expires)) = (admitted, assertion, assertion_expires) else {
+            // **Every verified caller, and the token their assertion is exchanged for with no
+            // principal beside it**: the source opens this request's session with it and resolves
+            // who it is. A caller with no assertion has nothing to exchange and is refused. The
+            // exchange runs below, after every refusal.
+            if let Some(delegation) = self.authenticating.get(source) {
+                let (Some(_), Some(assertion), Some(expires)) = (key, assertion, assertion_expires) else {
                     return Ok(Minted::Refused { source: source.clone() });
                 };
-                drop(presented.insert(
-                    source.clone(),
-                    Presented::SubjectToken {
-                        material: assertion.clone(),
-                        impersonate: None,
-                    },
-                ));
-                deadlines.push(expires);
+                exchanges.push((source, None, Some(delegation), assertion, expires));
                 continue;
             }
             // Unreachable: the pass above established that every source has one of the two halves.
@@ -481,7 +446,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(expires) = assertion_expires else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
-            exchanges.push((source, target, delegation.as_ref(), assertion, expires));
+            exchanges.push((source, Some(target), delegation.as_ref(), assertion, expires));
         }
         // **Every refusal above is decided before any exchange below**, so a plan refused at its
         // second source sends nothing to the IdP for its first. And no store: each exchange's token
@@ -506,7 +471,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 source.clone(),
                 Presented::SubjectToken {
                     material,
-                    impersonate: Some(target.clone()),
+                    impersonate: target.cloned(),
                 },
             ));
             deadlines.push(expires);

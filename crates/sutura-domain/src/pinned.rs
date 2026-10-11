@@ -44,6 +44,7 @@ use crate::query::RefusalReason;
 use crate::source::ExecutedAs;
 use crate::text::first_invisible;
 use crate::warehouse::cardinality::{KeyNotCounted, KeyNotUnique};
+use crate::warehouse::schema::{ColumnNotAtSource, SchemaDigest, SchemaNotRead};
 
 pub use manifest::{Contribution, ContributionManifest, InvalidManifest, RequiredOrOptional};
 
@@ -192,6 +193,7 @@ impl MetricDigest {
 pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
+    schema_digest: SchemaDigest,
     executed_as: ExecutedAs,
     /// One digest per metric this answer measured, in the order the question listed them.
     ///
@@ -213,12 +215,14 @@ impl Provenance {
     const fn new(
         version: DefinitionVersion,
         digest: DefinitionDigest,
+        schema_digest: SchemaDigest,
         executed_as: ExecutedAs,
         metric_digests: Vec<MetricDigest>,
     ) -> Self {
         Self {
             version,
             digest,
+            schema_digest,
             executed_as,
             metric_digests,
         }
@@ -231,6 +235,10 @@ impl Provenance {
     #[inline]
     pub const fn digest(&self) -> &DefinitionDigest {
         &self.digest
+    }
+
+    pub const fn schema_digest(&self) -> &SchemaDigest {
+        &self.schema_digest
     }
 
     /// One digest per metric this answer measured, in query order.
@@ -443,15 +451,16 @@ impl PinnedDefinitions {
     /// binds.
     ///
     /// ```
-    /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+    /// use sutura_domain::{pinned::{PinnedDefinitions, Provenance}, warehouse::schema::SchemaDigest};
     /// use sutura_domain::source::ExecutedAs;
     ///
-    /// fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
-    ///     pinned.provenance(both_legs)
+    /// fn _mixed(pinned: &PinnedDefinitions, schemas: &SchemaDigest, both_legs: ExecutedAs) -> Provenance {
+    ///     pinned.provenance(schemas, both_legs)
     /// }
     /// ```
-    pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance {
-        Provenance::new(self.version.clone(), self.digest.clone(), executed_as, Vec::new())
+    pub fn provenance(&self, schemas: &SchemaDigest, executed_as: ExecutedAs) -> Provenance {
+        let (version, digest) = (self.version.clone(), self.digest.clone());
+        Provenance::new(version, digest, schemas.clone(), executed_as, Vec::new())
     }
 
     /// The provenance to attach to one answer formed over the named metrics: the bundle digest
@@ -465,6 +474,7 @@ impl PinnedDefinitions {
     /// A metric the bundle does not define refuses, and cannot be hashed.
     pub fn provenance_for<'a>(
         &self,
+        schemas: &SchemaDigest,
         executed_as: ExecutedAs,
         metrics: impl IntoIterator<Item = &'a MetricName>,
     ) -> Result<Provenance, NotDigestible> {
@@ -480,6 +490,7 @@ impl PinnedDefinitions {
         Ok(Provenance::new(
             self.version.clone(),
             self.digest.clone(),
+            schemas.clone(),
             executed_as,
             metric_digests,
         ))
@@ -768,6 +779,11 @@ pub enum NotValidated {
     /// source that carries one, the anchor pass already refused it.
     #[error("{0}")]
     DeclaredKeyNotCounted(Box<KeyNotCounted>),
+    /// A column the bundle names that its source does not return. Boxed for the reason above.
+    #[error("{0}")]
+    ColumnNotAtSource(Box<ColumnNotAtSource>),
+    #[error("{0}")]
+    SchemaNotRead(Box<SchemaNotRead>),
 }
 
 /// Which class of catalog adapter this is: held to the whole model, or supplying part of it.

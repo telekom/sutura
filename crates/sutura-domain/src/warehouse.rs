@@ -86,6 +86,8 @@ pub mod cell;
 pub mod deadline;
 /// A result set, and an anchor's rows.
 pub mod rows;
+/// The Arrow schema a data system returns for a bundle's tables, and the set pinned beside it.
+pub mod schema;
 
 /// An Arrow result at the interior.
 ///
@@ -101,6 +103,7 @@ pub use rows::{AnchorRows, Budgeted, MalformedRowSet, RowBudgetExceeded, RowSet}
 use crate::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use crate::warehouse::deadline::Deadline;
 use crate::warehouse::preflight::TablesPresent;
+use crate::warehouse::schema::TableSchemas;
 
 /// A value bound to a placeholder.
 ///
@@ -808,6 +811,23 @@ pub trait Warehouse {
     /// separation applied to this question, and for its reason.
     fn declared_key(&self, _key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
         Ok(KeyUniqueness::NotAsked)
+    }
+
+    /// The Arrow schema of each named table, as this data system returns it.
+    ///
+    /// **Asked at the load and at each refresh**, and pinned beside the bundle of the same load. It
+    /// takes no credential, for [`verify_anchor`](Warehouse::verify_anchor)'s reason: there is no
+    /// caller at either. So it reads what the identity this adapter was configured with can see.
+    ///
+    /// **Defaulted to [`TableSchemas::NotAsked`], for [`preflight`](Warehouse::preflight)'s
+    /// reason**: an adapter that cannot read a table's schema must not be forced to answer. Its
+    /// source stays off the pinned set.
+    ///
+    /// # Errors
+    ///
+    /// A data system that could not be asked is an `Err`, never an empty answer.
+    fn table_schemas(&self, _tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
+        Ok(TableSchemas::NotAsked)
     }
 
     /// Whether this adapter accepts a raw statement - `false` by default; see [`crate::raw`], `docs/adr/0013`.

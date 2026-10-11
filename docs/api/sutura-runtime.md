@@ -9,7 +9,8 @@ The public API of `sutura-runtime`, rendered from rustdoc JSON.
 
 Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
 the banner, the bound on how much executes at once, the audit sink a deployment gets for free,
-and the wall clock a caller's relative time range resolves against.
+the wall clock a caller's relative time range resolves against, and the refusal to dial Oracle
+under its driver's packet trace.
 
 The sink is here for the same reason everything else is: it writes onto the process subscriber
 this crate installs, so it is a *use* of a process-global rather than a second installation of
@@ -924,6 +925,38 @@ than a broken example:
 ```
 assert_eq!(sutura_runtime::metrics::label("metric_unknown").as_str(), "metric_unknown");
 ```
+
+## Module `oracle_trace`
+
+The vendored Oracle driver's packet trace, which no Oracle dial in this workspace runs under.
+
+The variable is read from the process environment, so the refusal lives with the other process
+globals: `sutura-exec-oracle` and `sutura-catalog-rdbms`'s Oracle reader both ask `refuse`
+before they dial, and the composition root asks it before any command.
+
+### `struct PacketTraceOn`
+
+```rust
+pub struct PacketTraceOn
+```
+
+The driver's packet trace is switched on.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn refuse`
+
+```rust
+pub fn refuse() -> Result<(), PacketTraceOn>
+```
+
+Refuses while the Oracle driver's packet trace is switched on.
+
+# Errors
+
+`PacketTraceOn` while the variable is set, at any value.
 
 ## Module `panics`
 

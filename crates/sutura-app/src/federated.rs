@@ -46,6 +46,7 @@ use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult,
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::schema::SchemaDigest;
 use sutura_domain::warehouse::{PreFlight, ResultBatches, RowSet, Warehouse};
 
 use crate::{
@@ -112,7 +113,7 @@ pub(crate) type LegPreflight<W, B, C> =
 /// carries case 2's `top` (`github.com/telekom/sutura#777`), in which case `row_ceilings.top()` bounds
 /// the combined set BEFORE it is ranked, and the row cap below never runs for this answer at all.
 pub(crate) fn answer_federated<W, B, C>(
-    pinned: &PinnedDefinitions,
+    (pinned, schema_digest): (&PinnedDefinitions, &SchemaDigest),
     plan: &FederatedPlan,
     context: &RequestContext,
     broker: &B,
@@ -365,7 +366,16 @@ where
     // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
     // is taken once, above the combine.
     if let Some(top) = plan.top() {
-        return ranked_answer::<W, B, C>(plan, &answer, row_ceilings, top, &credentials, pinned, executed_as);
+        return ranked_answer::<W, B, C>(
+            plan,
+            &answer,
+            row_ceilings,
+            top,
+            &credentials,
+            pinned,
+            schema_digest,
+            executed_as,
+        );
     }
     let federated_ceiling = row_ceilings.federated().get();
     if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
@@ -385,7 +395,7 @@ where
     Ok(Answered::under(
         &credentials,
         ToolOutcome::Answer {
-            provenance: certified_provenance(pinned, executed_as, plan.metric())?,
+            provenance: certified_provenance(pinned, schema_digest, executed_as, plan.metric())?,
             rows: answer,
         },
     ))
@@ -400,9 +410,14 @@ where
 /// that need it.
 type Certified<E, M, C> = Result<Provenance, ServiceError<E, M, C>>;
 
-fn certified_provenance<E, M, C>(pinned: &PinnedDefinitions, executed_as: ExecutedAs, metric: &MetricName) -> Certified<E, M, C> {
+fn certified_provenance<E, M, C>(
+    pinned: &PinnedDefinitions,
+    schema_digest: &SchemaDigest,
+    executed_as: ExecutedAs,
+    metric: &MetricName,
+) -> Certified<E, M, C> {
     pinned
-        .provenance_for(executed_as, [metric])
+        .provenance_for(schema_digest, executed_as, [metric])
         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })
 }
 
@@ -438,6 +453,7 @@ fn ranked_answer<W, B, C>(
     top: sutura_domain::query::Top,
     credentials: &BoundToTheRequest,
     pinned: &PinnedDefinitions,
+    schema_digest: &SchemaDigest,
     executed_as: ExecutedAs,
 ) -> Answering<W, B, C>
 where
@@ -474,7 +490,7 @@ where
     Ok(Answered::under(
         credentials,
         ToolOutcome::Answer {
-            provenance: certified_provenance(pinned, executed_as, plan.metric())?,
+            provenance: certified_provenance(pinned, schema_digest, executed_as, plan.metric())?,
             rows: ranked,
         },
     ))

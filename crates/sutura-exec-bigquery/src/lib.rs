@@ -145,11 +145,6 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
-// The HTTP implementor of `sutura_domain::identity::DelegationExchange`, behind the default-off
-// `wire`, so a lean build links no exchange at all.
-#[cfg(feature = "wire")]
-pub mod delegation;
-
 use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.

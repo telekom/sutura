@@ -154,7 +154,7 @@ fn two_legs_that_each_wait_for_the_other_run_concurrently() {
     .expect("two sources, one registry");
 
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -204,7 +204,7 @@ fn a_federated_lookup_dry_run_that_spends_the_budget_refuses_both_legs_at_their_
         Budget::parse(std::time::Duration::from_millis(250)).expect("250ms"),
     );
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,

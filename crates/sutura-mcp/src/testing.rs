@@ -104,6 +104,14 @@ pub(crate) fn bundle() -> PinnedDefinitions {
     described_bundle("Revenue, in minor units.", "Sales region.")
 }
 
+/// [`bundle`]'s provenance over no pinned schema set.
+pub(crate) fn provenance_of(executed_as: sutura_domain::source::ExecutedAs) -> sutura_domain::pinned::Provenance {
+    bundle().provenance(
+        sutura_domain::warehouse::schema::PinnedSchemas::default().digest(),
+        executed_as,
+    )
+}
+
 /// The same bundle with the two descriptions supplied, for walking the shared injection corpus
 /// through a real [`Description`] rather than through a wire type built by hand.
 pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> PinnedDefinitions {
@@ -886,7 +894,10 @@ impl Surface for HoldingSurface {
         // A real answer, so a test can tell *this call got in and was answered* from *this call was
         // shed at capacity* by the outcome rather than by a sentence.
         Ok(ToolOutcome::Answer {
-            provenance: self.definitions.provenance(ran_shared()),
+            provenance: self.definitions.provenance(
+                sutura_domain::warehouse::schema::PinnedSchemas::default().digest(),
+                ran_shared(),
+            ),
             rows: self.rows.clone(),
         })
     }

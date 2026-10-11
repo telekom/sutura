@@ -3915,6 +3915,7 @@ dependencies = [
  "sutura-adbc-postgres",
  "sutura-dev",
  "sutura-domain",
+ "sutura-runtime",
  "sutura-semantic",
  "thiserror 2.0.21",
 ]
@@ -4038,18 +4039,13 @@ dependencies = [
  "adbc_driver_manager",
  "arrow-array",
  "arrow-schema",
- "base64 0.23.1",
  "getrandom 0.4.3",
  "serde_json",
  "sutura-adbc",
  "sutura-conformance",
- "sutura-dev",
  "sutura-domain",
- "sutura-http-client",
  "sutura-sql",
- "sutura-tls",
  "thiserror 2.0.21",
- "ureq",
 ]
 
 [[package]]
@@ -4130,6 +4126,7 @@ dependencies = [
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
+ "sutura-runtime",
  "sutura-sql",
  "thiserror 2.0.21",
 ]

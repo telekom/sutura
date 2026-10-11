@@ -126,7 +126,8 @@ mod tests {
             client_certificate: None,
             client_key: None,
             impersonate: None,
-            subjects: None,
+            delegation: None,
+            subjects: false,
         }
     }
 

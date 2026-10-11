@@ -521,6 +521,13 @@ the macro reads it once per cell and hands it down, which is also the shape
 
 What one behaviour of one pack answers.
 
+## `macro delegation_packs`
+
+Binds the delegation packs to one source, as `#[test]`s named for each case.
+
+`deliver` opens the adapter's own per-caller session with a token, against its offline fake,
+and returns the bytes that fake read.
+
 ## `macro compile_packs`
 
 Binds the compile pack to one catalog, as one named `#[test]` per behaviour.
@@ -986,6 +993,45 @@ Every federated question in the corpus, read from its `.case` file.
 ### `constant TABLE`
 
 The one table every case reads.
+
+## Module `delegation`
+
+The delegation packs: the hop chain's cases, held for every source that runs as the caller.
+
+A source whose caller's token is exchanged before it reaches the data system binds them with
+`crate::delegation_packs` and one `deliver`: a function that opens the adapter's own
+per-caller session with a token, against its offline fake, and returns the bytes that fake
+read. Each pack builds a `Delegation` over fake hops, exchanges a caller's inbound token
+through it, and hands `deliver` the token the chain returned - the one the broker presents.
+
+A failed hop never reaches `deliver`, so its pack is the same for every source; it is emitted
+per binding so each source's row names every case.
+
+### `fn one_hop_hands_the_data_system_its_token`
+
+```rust
+pub fn one_hop_hands_the_data_system_its_token(deliver: impl FnOnce(&sutura_domain::identity::Secret) -> Vec<u8>)
+```
+
+**One hop: the data system receives the token that hop issued**, never the caller's inbound one.
+
+### `fn two_hops_run_in_order_and_the_data_system_receives_the_last_token`
+
+```rust
+pub fn two_hops_run_in_order_and_the_data_system_receives_the_last_token(deliver: impl FnOnce(&sutura_domain::identity::Secret) -> Vec<u8>)
+```
+
+**Two hops run in order**, the second exchanging the first's token, and the data system receives
+the second's token - never the first's, never the caller's inbound one.
+
+### `fn a_failed_hop_refuses_and_no_later_hop_runs`
+
+```rust
+pub fn a_failed_hop_refuses_and_no_later_hop_runs()
+```
+
+**A failed hop refuses**: the refusal names it, carries no token, and no later hop runs - so
+nothing is presented to the data system.
 
 ## Module `execute`
 

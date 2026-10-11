@@ -1,4 +1,8 @@
 #![forbid(unsafe_code)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test dials the driver directly to observe the driver itself; test code does not ship"
+)]
 //! The live Oracle documentation-schema reader against the compose `oracle` tier.
 //!
 //! `tests/provisioned.rs`'s twin for `crate::oracle_reader`: a fixture `columns` table in the tier

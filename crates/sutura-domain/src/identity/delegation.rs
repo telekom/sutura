@@ -168,6 +168,14 @@ pub enum DelegationFailed {
     /// The issued token's `exp` is not after the instant it was checked at.
     #[error("the identity provider issued a token that has already expired")]
     AlreadyExpired,
+    /// One hop of a [`Delegation`] chain failed, so no later hop ran and nothing is presented.
+    #[error("delegation hop {hop} failed")]
+    AtHop {
+        /// Which hop, counted from 1 in declaration order.
+        hop: usize,
+        #[source]
+        cause: Box<Self>,
+    },
 }
 
 /// The port: one RFC 8693 exchange at the caller's own identity provider.
@@ -183,30 +191,66 @@ pub trait DelegationExchange: core::fmt::Debug + Send + Sync {
     fn exchange(&self, subject: &Secret, audience: &RequestedAudience) -> Result<Delegated, DelegationFailed>;
 }
 
-/// What one impersonating source exchanges through.
+/// What one impersonating source exchanges through: an ordered chain of hops.
 ///
-/// `Arc` because a cloned broker shares its source's one identity provider client - one TLS agent,
-/// one credential - rather than building another. A composition root builds one per source that
+/// Each hop exchanges the previous hop's token - the caller's own inbound token for the first -
+/// for one carrying that hop's audience.
+///
+/// `Arc` because a cloned broker shares its source's identity provider clients - one TLS agent,
+/// one credential each - rather than building more. A composition root builds one per source that
 /// declares a delegation, never one per deployment.
 #[derive(Debug, Clone)]
 pub struct Delegation {
+    first: Hop,
+    then: Vec<Hop>,
+}
+
+#[derive(Debug, Clone)]
+struct Hop {
     exchange: Arc<dyn DelegationExchange>,
     audience: RequestedAudience,
 }
 
+impl Hop {
+    fn run(&self, subject: &Secret, hop: usize) -> Result<Delegated, DelegationFailed> {
+        self.exchange
+            .exchange(subject, &self.audience)
+            .map_err(|cause| DelegationFailed::AtHop {
+                hop,
+                cause: Box::new(cause),
+            })
+    }
+}
+
 impl Delegation {
+    /// A chain of one hop.
     #[must_use]
     pub fn through(exchange: Arc<dyn DelegationExchange>, audience: RequestedAudience) -> Self {
-        Self { exchange, audience }
+        Self {
+            first: Hop { exchange, audience },
+            then: Vec::new(),
+        }
     }
 
-    /// Exchanges the caller's own inbound token for one carrying this source's audience.
+    /// This chain, with one more hop that exchanges its last token.
+    #[must_use]
+    pub fn then(mut self, exchange: Arc<dyn DelegationExchange>, audience: RequestedAudience) -> Self {
+        self.then.push(Hop { exchange, audience });
+        self
+    }
+
+    /// Runs every hop in order and returns the last one's token. An earlier hop's token is dropped
+    /// as the next one is issued, and a failed hop stops the chain.
     ///
     /// # Errors
     ///
-    /// [`DelegationFailed`]: nothing usable came back.
+    /// [`DelegationFailed::AtHop`], naming the hop that failed.
     pub fn exchange(&self, subject: &Secret) -> Result<Delegated, DelegationFailed> {
-        self.exchange.exchange(subject, &self.audience)
+        let mut held = self.first.run(subject, 1)?;
+        for (at, hop) in self.then.iter().enumerate() {
+            held = hop.run(&held.token, at.saturating_add(2))?;
+        }
+        Ok(held)
     }
 }
 

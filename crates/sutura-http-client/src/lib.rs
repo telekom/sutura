@@ -43,13 +43,14 @@
 mod agent;
 mod bounds;
 mod budget;
+pub mod delegation;
 mod endpoint;
 mod message;
 mod paging;
 mod routed;
 mod tls;
 
-#[cfg(feature = "test")]
+#[cfg(any(test, feature = "test"))]
 pub mod test_support;
 
 #[cfg(feature = "tls-test")]

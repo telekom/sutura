@@ -50,12 +50,6 @@ adbc = [
 # so the loader is compiled, linted and unit-tested on every run.
 fixtures = []
 
-# The REAL delegation exchange (`src/delegation/http.rs`, `docs/adr/0014`'s fourth amendment): RFC
-# 8693 at the caller's IdP over the shared outbound client. Default-off for the reason `adbc` is: a
-# lean build should not link an outbound client it never dials. The port and its broker hook are
-# always compiled; only the HTTP implementor is behind this.
-wire = ["dep:base64", "dep:sutura-http-client", "dep:sutura-tls", "dep:ureq"]
-
 [dependencies]
 sutura-domain = { workspace = true }
 # Rendering, shared with every other SQL adapter, for the reason `sutura-exec-duckdb` states: this
@@ -70,13 +64,6 @@ thiserror = { workspace = true }
 # were here for the exchanging broker's cache lock and its subject-token claim decode, and both went
 # with it (`docs/adr/0018`, eighth amendment) - `unused-deps` is what caught them.
 serde_json = { workspace = true }
-
-# The `wire` exchange's four: the shared bounded client and its TLS handle, `ureq` to name the
-# agent it rotates, and `base64` to read the issued JWT's payload. All already in `Cargo.lock`.
-base64 = { workspace = true, optional = true }
-sutura-http-client = { workspace = true, optional = true }
-sutura-tls = { workspace = true, optional = true }
-ureq = { workspace = true, optional = true }
 
 adbc_core = { version = "0.24", optional = true }
 adbc_driver_manager = { version = "0.24", optional = true }
@@ -125,10 +112,6 @@ sutura-domain = { workspace = true, features = ["agreement"] }
 # DEV-dependency and never more: the harness holds this adapter to the port's contract, and nothing
 # shipped should be able to reach it.
 sutura-conformance = { workspace = true }
-# The loopback fake the `wire` exchange's cells answer from, extended to capture the request body.
-sutura-http-client = { workspace = true, features = ["test"] }
-# `env_proxy`, the harness the exchange's environment-proxy cell re-runs itself under.
-sutura-dev = { workspace = true }
 
 [lints]
 workspace = true

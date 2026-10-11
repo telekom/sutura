@@ -200,11 +200,15 @@ pub enum NotFitToServe {
     /// fourth amendment), and with no inbound identity there is no caller to exchange for. A
     /// declared client credential that nothing could use reads as a control that is in place.
     #[error(
-        "`sources.{alias}.workload_identity.delegation` is declared and security.inbound.mode is \
-         not `direct`. The delegation exchange sends the caller's own inbound token, which only a \
-         `direct` deployment verifies - set security.inbound.mode: direct, or remove the block"
+        "`sources.{alias}.{key}` is declared and security.inbound.mode is not `direct`. The \
+         delegation exchange sends the caller's own inbound token, which only a `direct` deployment \
+         verifies - set security.inbound.mode: direct, or remove the block"
     )]
-    DelegationWithoutDirectInbound { alias: SourceName },
+    DelegationWithoutDirectInbound {
+        alias: SourceName,
+        /// `workload_identity.delegation` on `bigquery`, `delegation` on `oracle`.
+        key: &'static str,
+    },
     /// The raw SQL tool is enabled in a deployment that declared it serves more than one subject.
     ///
     /// **The same "same reason, same mechanism" the shared-source check already uses, over a

@@ -510,8 +510,9 @@ fn a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal() {
     );
     let asked =
         std::iter::once(sutura_domain::model::QualifiedTable::parse("dim_customer").expect("a test table path parses")).collect();
-    let refused = sutura_domain::warehouse::Warehouse::preflight(&warehouse, &asked)
-        .expect_err("a transport that cannot list a dataset answers an error");
+    #[expect(clippy::disallowed_methods, reason = "the cell measures the adapter's own pre-flight")]
+    let answered = sutura_domain::warehouse::Warehouse::preflight(&warehouse, &asked);
+    let refused = answered.expect_err("a transport that cannot list a dataset answers an error");
     assert!(
         !sutura_domain::warehouse::Warehouse::preflight_was_refused(&warehouse, &refused),
         "a listing nothing refused must not become a startup refusal naming a missing grant: {refused:?}"

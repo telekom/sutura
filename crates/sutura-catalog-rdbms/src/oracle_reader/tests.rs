@@ -245,3 +245,54 @@ fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
         "the address the redirect named was dialled"
     );
 }
+
+/// **With the driver's packet trace switched on, a dictionary read is refused.** The cell runs
+/// itself again in a child process with the trace switched on. There it reads through a login on a
+/// loopback port nothing listens on, so a read that dialled would fail as a refused connection
+/// rather than as the trace, and asserts the refusal's whole shape: `Read` over `PacketTraceOn`.
+#[test]
+fn with_the_packet_trace_switched_on_a_dictionary_read_is_refused() {
+    if std::env::var_os("RSO_DEBUG_PACKETS").is_some() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .expect("a loopback port is free")
+            .port();
+        let login = OracleLogin::new(
+            String::from("127.0.0.1"),
+            port,
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        );
+        let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
+            .expect("a valid reader config");
+        let refused = reader
+            .read_dictionary()
+            .map(drop)
+            .expect_err("no read runs with the trace on");
+        assert_eq!(
+            format!("{refused:?}"),
+            r#"Read(PacketTraceOn { variable: "RSO_DEBUG_PACKETS" })"#,
+            "the read failed for another reason"
+        );
+        return;
+    }
+    let child = std::process::Command::new(std::env::current_exe().expect("the test binary has a path"))
+        .args([
+            "--exact",
+            "oracle_reader::tests::with_the_packet_trace_switched_on_a_dictionary_read_is_refused",
+        ])
+        .env("RSO_DEBUG_PACKETS", "")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the test binary runs");
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    assert!(
+        child.status.success() && printed.contains("1 passed"),
+        "the read was not refused as the packet trace: {printed}"
+    );
+}

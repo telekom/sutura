@@ -335,14 +335,17 @@ fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
             SourcePosture::ImpersonationAtSource,
         )
     };
-    let expected_provenance = anchored.provenance(ran_as());
+    let expected_provenance = anchored.provenance(crate::warehouse::schema::PinnedSchemas::default().digest(), ran_as());
     // A verdict, and nothing else. It does NOT hand back a bundle the service would take: that
     // is `sutura_app::verify_and_validate`, and getting one from it means a `Warehouse` was
     // called. The whole reason this returns `()` is that this crate cannot know whether it was.
     report
         .verdict(&anchored)
         .expect("a matched anchor is what the verdict is about");
-    assert_eq!(anchored.provenance(ran_as()), expected_provenance);
+    assert_eq!(
+        anchored.provenance(crate::warehouse::schema::PinnedSchemas::default().digest(), ran_as()),
+        expected_provenance
+    );
     assert_eq!(anchored.version().as_str(), "test-1");
 }
 
@@ -371,7 +374,7 @@ fn a_provenance_carries_a_mixed_execution_record_and_names_which_leg_ran_as_what
     )
     .expect("two sources are two legs");
 
-    let provenance = bundle(None).provenance(mixed);
+    let provenance = bundle(None).provenance(crate::warehouse::schema::PinnedSchemas::default().digest(), mixed);
     assert_eq!(
         provenance
             .executed_as()
@@ -441,7 +444,11 @@ fn provenance_for_carries_one_digest_per_metric_in_request_order() {
 
     let asked = [metric_name("customers"), metric_name("revenue")];
     let provenance = pinned
-        .provenance_for(executed_as("local"), asked.iter())
+        .provenance_for(
+            crate::warehouse::schema::PinnedSchemas::default().digest(),
+            executed_as("local"),
+            asked.iter(),
+        )
         .expect("both metrics are defined");
 
     let names: Vec<&str> = provenance
@@ -469,7 +476,11 @@ fn provenance_for_carries_one_digest_per_metric_in_request_order() {
     // The same metric, asked again in the request, gets the same digest back - not a fresh hash
     // that happens to agree, the SAME computation over the SAME canonical form.
     let again = pinned
-        .provenance_for(executed_as("local"), core::iter::once(&metric_name("revenue")))
+        .provenance_for(
+            crate::warehouse::schema::PinnedSchemas::default().digest(),
+            executed_as("local"),
+            core::iter::once(&metric_name("revenue")),
+        )
         .expect("revenue is defined");
     assert_eq!(
         again.metric_digests().first().map(super::MetricDigest::digest),

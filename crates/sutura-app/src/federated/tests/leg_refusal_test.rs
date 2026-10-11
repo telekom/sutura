@@ -26,7 +26,7 @@ fn a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503() {
 
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -80,7 +80,7 @@ fn a_federated_answer_within_the_row_cap_but_too_wide_to_encode_is_refused() {
     ))
     .expect("two sources, one registry");
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -125,7 +125,7 @@ fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
 
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -271,7 +271,7 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
     // than "these two link columns can never agree" - #138's own correction that one flavour
     // alone passes vacuously, so this is paired with the INNER cell below.
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -298,7 +298,7 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
 #[test]
 fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_an_inner_join() {
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan_inner_join(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -343,7 +343,7 @@ fn when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced() {
     .expect("two sources, one registry");
 
     let failure = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,

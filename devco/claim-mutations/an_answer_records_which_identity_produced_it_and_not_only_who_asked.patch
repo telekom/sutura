@@ -1,0 +1,30 @@
+diff --git a/crates/sutura-runtime/src/audit.rs b/crates/sutura-runtime/src/audit.rs
+index 0944fd63e..02c1de463 100644
+--- a/crates/sutura-runtime/src/audit.rs
++++ b/crates/sutura-runtime/src/audit.rs
+@@ -122,6 +122,7 @@ impl AuditSink for TracingAuditSink {
+                 acting = who.acting,
+                 task = who.task,
+                 reason = ?reason,
++                executed_as = "",
+                 "refused"
+             ),
+             // The raw path's two arms. **`statement` is logged deliberately** - `docs/adr/0013`'s
+@@ -177,7 +178,7 @@ impl AuditSink for TracingAuditSink {
+ fn executed_until(record: &CallRecord<'_>) -> String {
+     match record.executed_until() {
+         None => String::from("none"),
+-        Some(Expiry::NothingExpires) => String::from("never"),
++        Some(Expiry::NothingExpires) => String::from("nevermore"),
+         Some(Expiry::At { unix_seconds }) => unix_seconds.to_string(),
+     }
+ }
+@@ -185,7 +186,7 @@ fn executed_until(record: &CallRecord<'_>) -> String {
+ fn executed_as(record: &CallRecord<'_>) -> String {
+     record.executed_as().map_or_else(String::new, |ran| {
+         ran.legs()
+-            .map(|(source, posture)| format!("{source}={}", posture.as_str()))
++            .map(|(source, posture)| format!("{source}:{}", posture.as_str()))
+             .collect::<Vec<String>>()
+             .join(",")
+     })

@@ -1,4 +1,8 @@
 #![forbid(unsafe_code)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test dials the driver directly to observe the driver itself; test code does not ship"
+)]
 
 //! The dial, against loopback listeners rather than an Oracle: what the declared anchors admit, how
 //! long a connect that is never answered may take, what a listener's answer is refused for, and
@@ -421,5 +425,28 @@ mod dial {
             printed.contains("PacketTraceOn"),
             "the session failed for another reason: {printed}"
         );
+    }
+
+    /// What the fake listener read from a session opened with `token`, the way an impersonating
+    /// source opens one for each question: this adapter's row in the delegation packs.
+    fn delivered(token: &Secret) -> Vec<u8> {
+        let (certificate, key) = issue();
+        let (port, sent) = sutura_dev::tns_listener::authenticating_over(tls(&certificate, &key), &[("AUTH_SESSKEY", "00")])
+            .expect("the fake listener binds");
+        let pem = certificate.pem();
+        let dial =
+            Dial::new("127.0.0.1", port, "FREEPDB1", Channel::Verified { anchors_pem: &pem }).within(Duration::from_secs(5));
+        let _refused = TokenSessions::new(dial)
+            .expect("the dial is usable")
+            .open(token)
+            .map(drop)
+            .expect_err("the fake completes no login");
+        sent.recv_timeout(Duration::from_secs(10))
+            .expect("the fake reports what it read")
+    }
+
+    sutura_conformance::delegation_packs! {
+        adapter: oracle,
+        deliver: crate::dial::delivered,
     }
 }

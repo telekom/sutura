@@ -1,0 +1,43 @@
+diff --git a/crates/sutura-domain/src/pinned.rs b/crates/sutura-domain/src/pinned.rs
+index 119339a82..fc24e846f 100644
+--- a/crates/sutura-domain/src/pinned.rs
++++ b/crates/sutura-domain/src/pinned.rs
+@@ -478,7 +478,7 @@ impl PinnedDefinitions {
+         executed_as: ExecutedAs,
+         metrics: impl IntoIterator<Item = &'a MetricName>,
+     ) -> Result<Provenance, NotDigestible> {
+-        let metric_digests = metrics
++        let mut metric_digests = metrics
+             .into_iter()
+             .map(|name| {
+                 DefinitionDigest::of_metric(&self.definitions, name).map(|digest| MetricDigest {
+@@ -487,6 +487,7 @@ impl PinnedDefinitions {
+                 })
+             })
+             .collect::<Result<Vec<_>, _>>()?;
++        metric_digests.reverse();
+         Ok(Provenance::new(
+             self.version.clone(),
+             self.digest.clone(),
+@@ -691,7 +692,7 @@ impl AnchorReport {
+                 None => {
+                     return Err(NotValidated::AnchorUnchecked { metric: metric.clone() });
+                 }
+-                Some(AnchorCheck::Matched) => {}
++                Some(AnchorCheck::Matched) => return Err(NotValidated::AnchorUnchecked { metric: metric.clone() }),
+                 Some(AnchorCheck::Mismatch { expected, actual }) => {
+                     return Err(NotValidated::AnchorMismatch {
+                         metric: metric.clone(),
+diff --git a/crates/sutura-domain/src/source.rs b/crates/sutura-domain/src/source.rs
+index 6327eb55d..1bcaa2c27 100644
+--- a/crates/sutura-domain/src/source.rs
++++ b/crates/sutura-domain/src/source.rs
+@@ -679,7 +679,7 @@ impl ExecutedAs {
+ 
+     /// Every leg, by source, in source order.
+     pub fn legs(&self) -> impl Iterator<Item = (&SourceName, &SourcePosture)> {
+-        self.by_source.iter()
++        self.by_source.iter().take(1)
+     }
+ 
+     /// What one source's leg ran as, if this answer has one.

@@ -778,7 +778,10 @@ mod tests {
         )
         .expect("a one-cell result is a result set");
         let outcome = Outcome::from(&ToolOutcome::Answer {
-            provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
+            provenance: crate::testing::bundle().provenance(
+                sutura_domain::warehouse::schema::PinnedSchemas::default().digest(),
+                crate::testing::ran_shared(),
+            ),
             rows,
         });
         assert_eq!(outcome.status(), axum::http::StatusCode::OK);
@@ -815,6 +818,7 @@ mod tests {
         let outcome = Outcome::from(&ToolOutcome::Answer {
             // Derived from the mono fixture, so this cell and the fixtures cannot disagree.
             provenance: crate::testing::bundle().provenance(
+                sutura_domain::warehouse::schema::PinnedSchemas::default().digest(),
                 crate::testing::ran_shared()
                     .and(
                         sutura_domain::model::SourceName::parse("warehouse").expect("a fixture source is a source"),
@@ -948,7 +952,10 @@ mod tests {
             )
             .expect("a one-cell result is a result set");
             let outcome = Outcome::from(&ToolOutcome::Answer {
-                provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
+                provenance: crate::testing::bundle().provenance(
+                    sutura_domain::warehouse::schema::PinnedSchemas::default().digest(),
+                    crate::testing::ran_shared(),
+                ),
                 rows,
             });
             let rendered = serde_json::to_string(outcome.body()).expect("an answer body serializes");

@@ -332,7 +332,7 @@ pub(crate) struct KeycloakFixture {
     /// a literal - one document the tier provisions and a cell asserts against, never two.
     pub(crate) id_token_audience: String,
     /// #1208's real exchange at this realm, as this deployment's exchanging client.
-    pub(crate) delegation: sutura_exec_bigquery::delegation::OverHttp,
+    pub(crate) delegation: sutura_http_client::delegation::OverHttp,
 }
 
 impl KeycloakFixture {
@@ -419,7 +419,7 @@ pub(crate) fn settings(case: &str) -> KeycloakFixture {
     );
     let id_token_audience = realm.id_token_audience;
     let delegation = {
-        use sutura_exec_bigquery::delegation::{ExchangeClient, OverHttp, TokenEndpoint};
+        use sutura_http_client::delegation::{ExchangeClient, OverHttp, TokenEndpoint};
         let bounds = sutura_http_client::ReadBounds::parse(30, MAX_ANSWER_BYTES).expect("nonzero bounds");
         let anchors = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(realm.tls_certificate_file.clone()))
             .expect("the tier's own CA loads");

@@ -1,12 +1,12 @@
 //! The real exchange: the request it sends, against a loopback fake, and every refusal of the
 //! answer through the pure [`answered`].
 
+use crate::test_support::{FakeServer, Scripted};
+use crate::{InvalidEndpoint, ReadBounds};
 use base64::Engine as _;
 use sutura_domain::identity::Secret;
-use sutura_http_client::test_support::{FakeServer, Scripted};
-use sutura_http_client::{InvalidEndpoint, ReadBounds};
 
-use super::{ExchangeClient, OverHttp, TokenEndpoint, UnusableClientId, answered};
+use super::{ExchangeClient, Grant, OverHttp, TokenEndpoint, UnusableClientId, answered};
 use sutura_domain::identity::{DelegationExchange as _, DelegationFailed, RequestedAudience};
 
 const AUDIENCE: &str = "https://workforce-pool.example.com";
@@ -45,7 +45,7 @@ fn exchanging_at(endpoint: &str, cap: u64) -> OverHttp {
     OverHttp::new(
         TokenEndpoint::parse(endpoint).expect("a loopback endpoint parses"),
         ExchangeClient::new("https://sutura.example.com", Secret::new(CLIENT_SECRET)).expect("a client id parses"),
-        sutura_http_client::fixed(bounds, None),
+        crate::fixed(bounds, None),
         bounds,
     )
 }
@@ -116,6 +116,123 @@ fn the_request_is_an_rfc_8693_exchange_of_the_callers_token_for_the_requested_au
     assert_eq!(sent, wanted);
 }
 
+/// The form `grant` sends for the caller's token, sorted.
+fn sent_for(grant: Grant) -> Vec<(String, String)> {
+    let server = FakeServer::start(vec![Scripted::ok(&issued(&good_token()))]);
+    let endpoint = format!("{}/token", server.endpoint());
+    drop(
+        exchanging_at(&endpoint, 64 * 1024)
+            .granting(grant)
+            .exchange(&Secret::new(SUBJECT_TOKEN), &audience()),
+    );
+    let requests = server.finish();
+    let [request] = requests.as_slice() else {
+        panic!("expected exactly one request, got {requests:?}");
+    };
+    let mut sent = form(request.body());
+    sent.sort();
+    sent
+}
+
+fn sorted(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = pairs
+        .iter()
+        .map(|&(name, value)| (String::from(name), String::from(value)))
+        .collect();
+    pairs.sort();
+    pairs
+}
+
+#[test]
+fn an_on_behalf_of_request_sends_the_callers_token_as_the_assertion_for_the_audiences_scope() {
+    assert_eq!(
+        sent_for(Grant::OnBehalfOf),
+        sorted(&[
+            ("assertion", SUBJECT_TOKEN),
+            ("client_id", "https://sutura.example.com"),
+            ("client_secret", CLIENT_SECRET),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+            ("requested_token_use", "on_behalf_of"),
+            ("scope", "https://workforce-pool.example.com/.default"),
+        ])
+    );
+}
+
+#[test]
+fn an_on_behalf_of_answer_needs_no_issued_token_type_and_is_held_to_the_audience() {
+    let untyped = serde_json::json!({"access_token": good_token(), "token_type": "Bearer"});
+    drop(
+        answered(Grant::OnBehalfOf, 200, &untyped.to_string(), &audience(), NOW)
+            .expect("an on-behalf-of answer carries no issued_token_type"),
+    );
+    for not_bearer in [
+        serde_json::json!({"access_token": good_token()}),
+        serde_json::json!({"access_token": good_token(), "token_type": "N_A"}),
+    ] {
+        assert!(matches!(
+            answered(Grant::OnBehalfOf, 200, &not_bearer.to_string(), &audience(), NOW),
+            Err(DelegationFailed::WrongTokenType)
+        ));
+    }
+    let elsewhere = jwt(&serde_json::json!({"aud": "account", "exp": NOW + 300}));
+    let untyped = serde_json::json!({"access_token": elsewhere, "token_type": "Bearer"});
+    assert!(matches!(
+        answered(Grant::OnBehalfOf, 200, &untyped.to_string(), &audience(), NOW),
+        Err(DelegationFailed::WrongAudience)
+    ));
+}
+
+#[test]
+fn a_broker_token_request_sends_the_callers_token_as_token_and_nothing_for_the_audience() {
+    assert_eq!(
+        sent_for(Grant::BrokerToken),
+        sorted(&[
+            ("client_id", "https://sutura.example.com"),
+            ("client_secret", CLIENT_SECRET),
+            ("token", SUBJECT_TOKEN),
+        ])
+    );
+}
+
+#[test]
+fn a_broker_token_answer_needs_no_token_type_and_is_held_to_the_audience() {
+    let untyped = |token: &str| {
+        serde_json::json!({
+            "access_token": token,
+            "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "expires_in": 300,
+        })
+        .to_string()
+    };
+    drop(
+        answered(Grant::BrokerToken, 200, &untyped(&good_token()), &audience(), NOW)
+            .expect("a broker answer carries no token_type"),
+    );
+    assert!(matches!(
+        answered(Grant::TokenExchange, 200, &untyped(&good_token()), &audience(), NOW),
+        Err(DelegationFailed::WrongTokenType)
+    ));
+    let elsewhere = jwt(&serde_json::json!({"aud": "account", "exp": NOW + 300}));
+    assert!(matches!(
+        answered(Grant::BrokerToken, 200, &untyped(&elsewhere), &audience(), NOW),
+        Err(DelegationFailed::WrongAudience)
+    ));
+    let no_issued_type = serde_json::json!({"access_token": good_token()}).to_string();
+    assert!(matches!(
+        answered(Grant::BrokerToken, 200, &no_issued_type, &audience(), NOW),
+        Err(DelegationFailed::WrongTokenType)
+    ));
+}
+
+#[test]
+fn a_client_the_broker_does_not_allow_is_refused_with_its_error_code() {
+    let body = r#"{"error":"invalid_client","error_description":"Client not allowed to retrieve token for the provider"}"#;
+    assert!(matches!(
+        answered(Grant::BrokerToken, 403, body, &audience(), NOW),
+        Err(DelegationFailed::Refused { status: 403, error: Some(ref code) }) if code == "invalid_client"
+    ));
+}
+
 #[test]
 fn an_unreachable_idp_is_unreachable_and_names_no_token() {
     let server = FakeServer::start(Vec::new());
@@ -141,7 +258,9 @@ fn an_answer_over_the_cap_is_too_large() {
 
 #[test]
 fn a_refusal_keeps_a_registered_error_code_and_drops_everything_else() {
-    let refused = |body: &serde_json::Value| answered(400, &body.to_string(), &audience(), NOW).expect_err("a 400 is refused");
+    let refused = |body: &serde_json::Value| {
+        answered(Grant::TokenExchange, 400, &body.to_string(), &audience(), NOW).expect_err("a 400 is refused")
+    };
     let kept = refused(&serde_json::json!({"error": "invalid_request", "error_description": SUBJECT_TOKEN}));
     assert!(
         matches!(kept, DelegationFailed::Refused { status: 400, error: Some(ref code) } if code == "invalid_request"),
@@ -164,7 +283,7 @@ fn a_refusal_keeps_a_registered_error_code_and_drops_everything_else() {
         "a JWT-shaped code survived: {echoed:?}"
     );
     assert!(matches!(
-        answered(502, "<html>bad gateway</html>", &audience(), NOW),
+        answered(Grant::TokenExchange, 502, "<html>bad gateway</html>", &audience(), NOW),
         Err(DelegationFailed::Refused {
             status: 502,
             error: None
@@ -177,20 +296,20 @@ fn an_answer_of_the_wrong_type_is_refused() {
     let mut other = issued(&good_token());
     other["issued_token_type"] = serde_json::json!("urn:ietf:params:oauth:token-type:id_token");
     assert!(matches!(
-        answered(200, &other.to_string(), &audience(), NOW),
+        answered(Grant::TokenExchange, 200, &other.to_string(), &audience(), NOW),
         Err(DelegationFailed::WrongTokenType)
     ));
     let mut not_bearer = issued(&good_token());
     not_bearer["token_type"] = serde_json::json!("N_A");
     assert!(matches!(
-        answered(200, &not_bearer.to_string(), &audience(), NOW),
+        answered(Grant::TokenExchange, 200, &not_bearer.to_string(), &audience(), NOW),
         Err(DelegationFailed::WrongTokenType)
     ));
 }
 
 #[test]
 fn a_malformed_answer_is_refused_by_what_it_lacks() {
-    let malformed = |text: &str| match answered(200, text, &audience(), NOW) {
+    let malformed = |text: &str| match answered(Grant::TokenExchange, 200, text, &audience(), NOW) {
         Err(DelegationFailed::Malformed { what }) => what,
         other => panic!("expected a malformed refusal, got {other:?}"),
     };
@@ -207,27 +326,33 @@ fn a_malformed_answer_is_refused_by_what_it_lacks() {
 fn a_token_without_the_requested_audience_is_refused() {
     let elsewhere = jwt(&serde_json::json!({"aud": ["https://other.example.com", "account"], "exp": NOW + 300}));
     assert!(matches!(
-        answered(200, &issued(&elsewhere).to_string(), &audience(), NOW),
+        answered(Grant::TokenExchange, 200, &issued(&elsewhere).to_string(), &audience(), NOW),
         Err(DelegationFailed::WrongAudience)
     ));
     let none = jwt(&serde_json::json!({"exp": NOW + 300}));
     assert!(matches!(
-        answered(200, &issued(&none).to_string(), &audience(), NOW),
+        answered(Grant::TokenExchange, 200, &issued(&none).to_string(), &audience(), NOW),
         Err(DelegationFailed::WrongAudience)
     ));
     let among = jwt(&serde_json::json!({"aud": ["account", AUDIENCE], "exp": NOW + 300}));
-    drop(answered(200, &issued(&among).to_string(), &audience(), NOW).expect("an `aud` array carrying the audience"));
+    drop(
+        answered(Grant::TokenExchange, 200, &issued(&among).to_string(), &audience(), NOW)
+            .expect("an `aud` array carrying the audience"),
+    );
 }
 
 #[test]
 fn a_token_expiring_at_or_before_the_check_is_refused() {
     let at = jwt(&serde_json::json!({"aud": AUDIENCE, "exp": NOW}));
     assert!(matches!(
-        answered(200, &issued(&at).to_string(), &audience(), NOW),
+        answered(Grant::TokenExchange, 200, &issued(&at).to_string(), &audience(), NOW),
         Err(DelegationFailed::AlreadyExpired)
     ));
     let after = jwt(&serde_json::json!({"aud": AUDIENCE, "exp": NOW + 1}));
-    drop(answered(200, &issued(&after).to_string(), &audience(), NOW).expect("one second of life left is usable"));
+    drop(
+        answered(Grant::TokenExchange, 200, &issued(&after).to_string(), &audience(), NOW)
+            .expect("one second of life left is usable"),
+    );
 }
 
 #[test]
@@ -309,7 +434,7 @@ fn a_loopback_token_endpoint_is_dialled_directly_whatever_proxy_the_agent_carrie
     // `a_loopback_token_exchange_never_reaches_an_environment_proxy` is the environment's own cell.
     let proxy = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
     let proxied = format!("http://{}", proxy.local_addr().expect("a bound listener has an address"));
-    let agent = sutura_http_client::agent(|config| {
+    let agent = crate::agent(|config| {
         config
             .http_status_as_error(false)
             .proxy(Some(ureq::Proxy::new(&proxied).expect("a proxy URL parses")))

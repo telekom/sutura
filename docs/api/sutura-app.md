@@ -382,6 +382,9 @@ threads, so a snapshot is a value several owners hold at once. `Clone` is theref
 bump, never a copy of the bundle, and a clone is the same proof - it cannot be made from
 anything else.
 
+**It holds the schema set of the same load beside the bundle**, so one snapshot carries both, and
+a question that took it keeps both.
+
 ## `use verify_and_validate`
 
 Holds every cardinality declaration and re-runs every anchor, and returns the bundle only if
@@ -765,8 +768,8 @@ What a refresh did to the served bundle.
 
 #### Variants
 
-- `Unchanged` - The bundle read has the digest already served; nothing was checked and nothing changed.
-- `Rotated` - A different bundle passed every check and is what the next question reads.
+- `Unchanged` - The bundle read and its schema set have the digests already served; nothing changed.
+- `Rotated` - A different bundle, or the same one over a different schema set, passed every check and is what the next question reads. The two digests are equal where only the schema set changed.
 
 #### Implements
 

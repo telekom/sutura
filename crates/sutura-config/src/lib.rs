@@ -127,7 +127,7 @@ pub use crate::catalog::{
     LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection, PredicateOperator, RdbmsSettings, UnknownCatalogKind,
 };
 pub use crate::credentials::declared::{
-    DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable, DeclaredSubjects, NoDeclaredPrincipals,
+    DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable, NoDeclaredPrincipals,
 };
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};

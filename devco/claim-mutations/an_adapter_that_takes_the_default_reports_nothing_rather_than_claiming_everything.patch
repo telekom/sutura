@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/warehouse.rs b/crates/sutura-domain/src/warehouse.rs
+index 7a8da2d76..20e2a426b 100644
+--- a/crates/sutura-domain/src/warehouse.rs
++++ b/crates/sutura-domain/src/warehouse.rs
+@@ -747,7 +747,7 @@ pub trait Warehouse {
+     /// place. A composition root is free to treat the first as a warning and the second as a refusal,
+     /// and it cannot make that choice if the adapter collapsed them.
+     fn preflight(&self, _tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+-        Ok(TablesPresent::NotAsked)
++        Ok(TablesPresent::All)
+     }
+ 
+     /// Was this pre-flight failure the data system REFUSING, rather than failing to answer?

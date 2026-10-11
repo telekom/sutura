@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-cli/src/serve/broker.rs b/crates/sutura-cli/src/serve/broker.rs
-index c6c9b78..775cc5f 100644
 --- a/crates/sutura-cli/src/serve/broker.rs
 +++ b/crates/sutura-cli/src/serve/broker.rs
-@@ -117,7 +117,10 @@ fn impersonating(
+@@ -127,7 +127,10 @@
      let declared = sutura_config::DeclaredPrincipals::parse(declared)
          .map_err(|cause| format!("`sources.{alias}.workload_identity.impersonate` is unusable: {cause}"))?;
      Ok(match workload.delegation() {
@@ -11,6 +10,6 @@ index c6c9b78..775cc5f 100644
 +            drop(declared);
 +            broker
 +        }
-         Some(declaration) => broker.impersonating_delegated(alias.clone(), declared, delegation(alias, declaration, outbound)?),
-     })
- }
+         Some(declaration) => broker.impersonating_delegated(
+             alias.clone(),
+             declared,

@@ -1,0 +1,23 @@
+diff --git a/crates/sutura-mcp/src/wire.rs b/crates/sutura-mcp/src/wire.rs
+index 031941e97..3b35984e5 100644
+--- a/crates/sutura-mcp/src/wire.rs
++++ b/crates/sutura-mcp/src/wire.rs
+@@ -373,12 +373,12 @@ impl From<&ToolOutcome> for OutcomeContent {
+             ToolOutcome::Answer {
+                 ref provenance,
+                 ref rows,
+-            } => Self::Answer {
+-                provenance: provenance_content(provenance),
+-                executed_as: legs(provenance),
+-                columns: rows.columns().to_vec(),
+-                rows: render(rows),
+-            },
++            } => {
++                let _ = (provenance_content(provenance), legs(provenance), render(rows));
++                Self::from(&ToolOutcome::Refusal {
++                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
++                })
++            }
+             ToolOutcome::Refusal { ref reason } => {
+                 let (code, detail) = refusal::refused(reason);
+                 Self::Refusal {

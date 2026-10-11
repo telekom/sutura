@@ -26,6 +26,8 @@ arrow-array = { workspace = true, optional = true }
 # Oracle's own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among
 # them - the hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
 oracledb = { workspace = true, optional = true }
+# The packet-trace refusal the reader asks before it dials, the one `sutura-exec-oracle` asks too.
+sutura-runtime = { workspace = true, optional = true }
 
 [features]
 # The live Postgres dictionary reader. Default-off: a build that does not ask for it links no
@@ -39,7 +41,7 @@ live = [
 ]
 # The live Oracle dictionary reader, on top of `live`. `sutura-cli`'s `oracle` feature turns this
 # on, which is the only way `oracledb` enters a build that links this crate.
-live-oracle = ["live", "dep:oracledb"]
+live-oracle = ["live", "dep:oracledb", "dep:sutura-runtime"]
 
 [dev-dependencies]
 # The compiler: the acceptance suite proves a dictionary bundle answers no certified question

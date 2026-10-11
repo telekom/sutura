@@ -12,9 +12,10 @@
 //! address - `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`
 //! holds it.
 //!
-//! **An `impersonation-at-source` source opens each question's session with the asker's own
-//! token**, for the `subjects` it declares: `declared_subjects` hands that set to `serve::broker`,
-//! and `build` connects the boot session under the declared user as for any other posture.
+//! **An `impersonation-at-source` source opens each question's session with the token its
+//! caller's own token is exchanged for**, through the `delegation` hops it declares:
+//! `declared_delegation` hands them to `serve::broker`, and `build` connects the boot session under
+//! the declared user as for any other posture.
 //!
 //! The WHOLE module is behind `#[cfg(feature = "oracle")]` at its declaration in `main.rs`, so
 //! everything here may name an adapter type unconditionally.
@@ -112,20 +113,13 @@ pub(crate) fn build(
     .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
 }
 
-/// The broker's half of an `impersonation-at-source` source: its declared subjects, as
-/// `DeclaredPrincipalBroker::authenticating` admits them. `None` for a source that is not
-/// impersonating.
-pub(crate) fn declared_subjects(
-    source: &SourceName,
+/// The hops an `impersonation-at-source` source exchanges each caller's token through, in order;
+/// empty for a source that is not impersonating.
+pub(crate) fn declared_delegation(
     configured: &sutura_config::ConfiguredSource,
-) -> Result<Option<sutura_config::DeclaredSubjects>, String> {
-    let sutura_config::SourcePlacement::Oracle { ref subjects, .. } = *configured.placement() else {
-        return Ok(None);
+) -> &[sutura_config::sources::workload_identity::DelegationDeclared] {
+    let sutura_config::SourcePlacement::Oracle { ref delegation, .. } = *configured.placement() else {
+        return &[];
     };
-    if subjects.is_empty() {
-        return Ok(None);
-    }
-    sutura_config::DeclaredSubjects::parse(subjects.clone())
-        .map(Some)
-        .map_err(|cause| format!("`sources.{source}.subjects` is unusable: {cause}"))
+    delegation
 }
