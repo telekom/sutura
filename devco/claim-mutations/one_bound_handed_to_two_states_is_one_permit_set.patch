@@ -1,0 +1,29 @@
+diff --git a/crates/sutura-runtime/src/admission.rs b/crates/sutura-runtime/src/admission.rs
+index fefa9aab1..62cb671cb 100644
+--- a/crates/sutura-runtime/src/admission.rs
++++ b/crates/sutura-runtime/src/admission.rs
+@@ -106,13 +106,23 @@ impl AtCapacity {
+ /// Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
+ /// bound at all. A per-request or per-connection copy would be a number that reads like a limit and
+ /// bounds nothing.
+-#[derive(Debug, Clone)]
++#[derive(Debug)]
+ pub struct Admission {
+     slots: Arc<Semaphore>,
+     bound: usize,
+     wait: Duration,
+ }
+ 
++impl Clone for Admission {
++    fn clone(&self) -> Self {
++        Self {
++            slots: Arc::new(Semaphore::new(self.bound)),
++            bound: self.bound,
++            wait: self.wait,
++        }
++    }
++}
++
+ impl Admission {
+     /// Builds the bound from two values that have each already been parsed.
+     ///

@@ -2,12 +2,11 @@
 //! file's own `max-lines` reason - it sits at the cap on its own.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::{RowSet, Value};
 
-use super::FakeWarehouse;
+use super::{FakeWarehouse, Switch};
 
 /// Both of `two_source_bundle`'s sources open, each a [`FakeWarehouse`] taking the port's
 /// defaulted `executes_legs` - unlike `fake_warehouse` alone: the per-leg gate looks a source up
@@ -20,13 +19,13 @@ pub(crate) fn two_source_fake_warehouse() -> sutura_app::Warehouses<FakeWarehous
         source: super::source(),
         posture: super::shared_posture(),
         result: result.clone(),
-        held: Arc::new(AtomicBool::new(false)),
+        held: Arc::new(Switch::default()),
     };
     let elsewhere = FakeWarehouse {
         source: SourceName::parse("elsewhere").expect("a test source is a source"),
         posture: super::shared_posture(),
         result,
-        held: Arc::new(AtomicBool::new(false)),
+        held: Arc::new(Switch::default()),
     };
     sutura_app::Warehouses::of(local)
         .and(elsewhere)

@@ -554,10 +554,9 @@ mod tests {
             "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\nserver:\n  request_timeout_seconds: 30\n",
         );
         held.arm();
-        // Spawned first and given the runtime a turn, so the slot is actually taken before the
-        // second question asks for one. Without the yield this races the spawn.
         let first = tokio::spawn(ask_once(app.clone()));
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Inside the warehouse, so it holds the only slot: admitted before the blocking pool gets the work.
+        held.until_holding(1).await;
 
         let began = Instant::now();
         let (status, body, retry_after) = ask_once(app.clone()).await;
@@ -609,7 +608,8 @@ mod tests {
         let (app, held) = app("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n");
         held.arm();
         let first = tokio::spawn(ask_once(app.clone()));
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Inside the warehouse, so it holds the only slot: admitted before the blocking pool gets the work.
+        held.until_holding(1).await;
         assert_eq!(
             ask_once(app.clone()).await.0,
             StatusCode::SERVICE_UNAVAILABLE,
@@ -642,9 +642,9 @@ mod tests {
             two_states("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n");
         assert_eq!(admission.bound(), 1, "the overlay's bound did not reach either state");
         held.arm();
-        // Through the FIRST state, and given the runtime a turn so the slot is actually taken.
         let running = tokio::spawn(ask_once(first));
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Through the FIRST state; inside the warehouse, so it holds the only slot (admitted before the blocking pool).
+        held.until_holding(1).await;
         assert_eq!(
             admission.free(),
             0,
@@ -682,7 +682,8 @@ mod tests {
         for _ in 0_u8..3 {
             running.push(tokio::spawn(ask_once(app.clone())));
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Inside the warehouse, so they hold all three slots: admitted before the blocking pool gets the work.
+        held.until_holding(3).await;
         let (status, body, _) = ask_once(app.clone()).await;
         held.release();
         for task in running {

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-runtime/src/admission.rs b/crates/sutura-runtime/src/admission.rs
+index fefa9aab1..241115cf3 100644
+--- a/crates/sutura-runtime/src/admission.rs
++++ b/crates/sutura-runtime/src/admission.rs
+@@ -148,7 +148,7 @@ impl Admission {
+     /// see the module documentation.
+     pub async fn admit(&self) -> Result<Slot, AtCapacity> {
+         let waiting = Arc::clone(&self.slots).acquire_owned();
+-        if let Ok(Ok(slot)) = tokio::time::timeout(self.wait, waiting).await {
++        if let Ok(Ok(slot)) = tokio::time::timeout(Duration::from_secs(3600), waiting).await {
+             return Ok(slot);
+         }
+         // Two ways to get here and one answer, which is deliberate. The window expiring is the
