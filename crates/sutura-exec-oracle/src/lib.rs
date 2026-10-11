@@ -66,11 +66,15 @@ use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBa
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
+use crate::datetime::oracle_date;
+
+mod batches;
+mod datetime;
+
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
 /// Behind the default-off `fixtures` feature - see that module's own header for why.
 #[cfg(feature = "fixtures")]
-mod batches;
 pub mod fixture;
 
 /// Why this data system could not answer.
@@ -595,18 +599,6 @@ impl OracleParam {
             Self::Date(ref d) => d,
         }
     }
-}
-
-/// A domain [`sutura_domain::calendar::Date`], as the driver's `OracleTimestamp::new_date` wants
-/// it - via the date's own ISO text rather than a day-offset arithmetic, because
-/// [`sutura_domain::calendar::Date`] exposes no field accessors and its ISO form is fixed-width.
-fn oracle_date(date: sutura_domain::calendar::Date) -> oracledb::OracleTimestamp {
-    let iso = date.to_iso();
-    let mut parts = iso.split('-');
-    let year: i16 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let month: u8 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
-    let day: u8 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
-    oracledb::OracleTimestamp::new_date(year, month, day)
 }
 
 /// The error from opening the connection, with a refused redirect as its own variant.
