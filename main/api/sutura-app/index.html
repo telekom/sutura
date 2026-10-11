@@ -3776,6 +3776,8 @@ keeps it until it ends, while a refresh may store a newer bundle meanwhile; both
 threads, so a snapshot is a value several owners hold at once. <code>Clone</code> is therefore a counter
 bump, never a copy of the bundle, and a clone is the same proof - it cannot be made from
 anything else.</p>
+<p><strong>It holds the schema set of the same load beside the bundle</strong>, so one snapshot carries both, and
+a question that took it keeps both.</p>
 <h2 id="use-verify_and_validate"><code>use verify_and_validate</code><a class="headerlink" href="#use-verify_and_validate" title="Permanent link">&para;</a></h2>
 <p>Holds every cardinality declaration and re-runs every anchor, and returns the bundle only if
 both held.</p>
@@ -4063,8 +4065,8 @@ means rather than a field added to one.</p>
 <p>What a refresh did to the served bundle.</p>
 <h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>Unchanged</code> - The bundle read has the digest already served; nothing was checked and nothing changed.</li>
-<li><code>Rotated</code> - A different bundle passed every check and is what the next question reads.</li>
+<li><code>Unchanged</code> - The bundle read and its schema set have the digests already served; nothing changed.</li>
+<li><code>Rotated</code> - A different bundle, or the same one over a different schema set, passed every check and is what the next question reads. The two digests are equal where only the schema set changed.</li>
 </ul>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
