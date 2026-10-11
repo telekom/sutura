@@ -188,17 +188,26 @@ pub(super) fn sequence_problems(rel: &str, lines: &[String]) -> (Vec<String>, us
     for (index, one) in found.iter().enumerate() {
         let position = index.saturating_add(1);
         let (line, named) = (one.line, name_of(position));
+        let fix = || {
+            if position > 99 {
+                String::from("this page has more amendments than the gate reads")
+            } else {
+                format!("write it as the {named} amendment")
+            }
+        };
         match one.heading {
             Heading::Unnumbered if position == 1 => {}
             Heading::Unnumbered => problems.push(format!(
                 "{rel}:{line}: an amendment with no ordinal, {position} of {} in file order - a reader \
-                 cannot cite it, so write it as the {named} amendment",
-                found.len()
+                 cannot cite it; {}",
+                found.len(),
+                fix()
             )),
             Heading::Unreadable => problems.push(format!(
                 "{rel}:{line}: an amendment heading whose ordinal this gate cannot read, {position} of {} \
-                 in file order - it reads first through ninety-ninth, so write it as the {named} amendment",
-                found.len()
+                 in file order - it reads first through ninety-ninth; {}",
+                found.len(),
+                fix()
             )),
             Heading::Numbered(claimed) if claimed == position => {}
             Heading::Numbered(claimed) => {

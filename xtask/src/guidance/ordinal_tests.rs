@@ -102,4 +102,25 @@ fn an_ordinal_the_reader_cannot_read_is_reported_rather_than_skipped() {
     assert_eq!(walked, 100);
     assert_eq!(problems.len(), 1, "{problems:#?}");
     assert!(problems[0].starts_with("a.md:100:"), "{problems:#?}");
+    assert_eq!(amendment("## Twenty-tenth amendment"), Some(Heading::Unreadable));
+    assert_eq!(amendment("## Thirty-eleventh amendment"), Some(Heading::Unreadable));
+    assert!(!problems[0].contains("write it as"), "{problems:#?}");
+}
+
+#[test]
+fn a_wrong_ordinal_is_named_by_the_word_for_both_positions() {
+    let all = spelled();
+    // The heading at each position claims the next one, and the last claims the first.
+    let claimed: Vec<&str> = all.iter().cycle().skip(1).take(99).map(|(_, word)| word.as_str()).collect();
+    let lines: Vec<String> = claimed
+        .iter()
+        .map(|says| format!("## {says} amendment, 2026-10-07: x"))
+        .collect();
+    let (problems, walked) = sequence_problems("a.md", &lines);
+    assert_eq!(walked, 99);
+    assert_eq!(problems.len(), 99, "{problems:#?}");
+    for (((n, named), says), problem) in all.iter().zip(&claimed).zip(&problems) {
+        let expected = format!("a.md:{n}: reads as the {says} amendment and is the {named} in file order");
+        assert!(problem.starts_with(&expected), "{problem}");
+    }
 }
