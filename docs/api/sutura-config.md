@@ -5655,7 +5655,6 @@ convenience, and nothing needs to clone a startup refusal.
   that are not the same. This one names the key.
 - `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
 - `DelegationEndsInBrokerToken` - A delegation whose last hop is `broker-token`: that token is for the next identity provider, so no hop exchanges it for the data system.
-- `DelegationNotOneHop` - A `workload_identity.delegation` list that is not exactly one hop.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 
@@ -6670,8 +6669,9 @@ pub struct DelegationDeclared
 
 One delegation hop a `direct` deployment runs before the pool will accept its caller.
 
-The architecture decision's fourth amendment: the caller's inbound token is exchanged at
-`token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
+The architecture decision's fourth amendment: the first hop exchanges the caller's inbound token at
+`token_endpoint` for one whose `aud` is `audience`, each later hop exchanges the token the hop
+before it returned, and the last hop's token is the one the pool provider accepts.
 
 **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
 `build_broker` - the endpoint, client ID and audience each go into a request only that adapter

@@ -738,36 +738,96 @@ fn a_workload_identity_delegation_of_one_broker_token_hop_is_refused() {
     );
 }
 
-#[test]
-fn a_workload_identity_delegation_that_is_not_one_hop_is_refused() {
-    let hop = || crate::raw::RawDelegation {
-        token_endpoint: String::from("https://idp.example.com/realms/example/protocol/openid-connect/token"),
+fn hop(audience: &str, grant: super::workload_identity::DelegationGrant) -> crate::raw::RawDelegation {
+    crate::raw::RawDelegation {
+        token_endpoint: String::from("https://idp.example.com/token"),
         client_id: String::from("sutura"),
         client_secret_file: String::from("/etc/sutura/client-secret"),
-        audience: String::from("warehouse"),
-        grant: super::workload_identity::DelegationGrant::TokenExchange,
-    };
-    // An empty list and a list of two are each refused, and the refusal counts what was written.
-    for (delegation, written) in [(Vec::new(), 0), (vec![hop(), hop()], 2)] {
-        let entries = [RawSourceEntry {
-            posture: "impersonation-at-source",
-            acknowledged_because: None,
-            workload_identity: Some(crate::raw::RawWorkloadIdentity {
-                delegation: Some(delegation),
-                ..wif()
-            }),
-            ..bigquery("warehouse")
-        }];
-        let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a delegation is one hop");
-        assert!(
-            matches!(
-                error,
-                InvalidSourceRegistry::DelegationNotOneHop { ref alias, hops }
-                    if alias.as_str() == "warehouse" && hops == written
-            ),
-            "{error:?}"
-        );
+        audience: String::from(audience),
+        grant,
     }
+}
+
+/// An impersonating entry whose `workload_identity` declares `delegation`.
+fn delegating(delegation: Vec<crate::raw::RawDelegation>) -> RawSourceEntry<'static> {
+    RawSourceEntry {
+        workload_identity: Some(crate::raw::RawWorkloadIdentity {
+            delegation: Some(delegation),
+            ..wif()
+        }),
+        ..impersonating("warehouse")
+    }
+}
+
+#[test]
+fn a_workload_identity_delegation_declares_its_hops_in_order() {
+    use super::workload_identity::DelegationGrant::{OnBehalfOf, TokenExchange};
+    let entries = [delegating(vec![
+        hop("sutura-app", TokenExchange),
+        hop("pool-client-id", OnBehalfOf),
+    ])];
+    let registry = SourceRegistry::parse(&entries, Some(&single_user())).expect("two hops parse");
+    let source = registry.get(&alias("warehouse")).expect("it was registered");
+    let hops: Vec<_> = source
+        .workload_identity()
+        .expect("the block was carried")
+        .delegation()
+        .iter()
+        .map(|hop| (hop.audience(), hop.grant()))
+        .collect();
+    assert_eq!(hops, vec![("sutura-app", TokenExchange), ("pool-client-id", OnBehalfOf)]);
+}
+
+#[test]
+fn an_empty_workload_identity_delegation_is_refused_naming_the_key() {
+    let error = SourceRegistry::parse(&[delegating(Vec::new())], Some(&single_user()))
+        .expect_err("an empty list declares no hop and is not an absent one");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::WorkloadIdentity {
+                cause: super::workload_identity::InvalidWorkloadIdentity::Empty {
+                    what: "`delegation` list"
+                },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    let rendered = format!("{error}: {}", std::error::Error::source(&error).expect("a cause"));
+    assert!(
+        rendered.contains("workload_identity") && rendered.contains("`delegation`"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn a_workload_identity_delegation_ending_in_a_broker_token_hop_is_refused() {
+    use super::workload_identity::DelegationGrant::{BrokerToken, TokenExchange};
+    let error = SourceRegistry::parse(
+        &[delegating(vec![hop("sutura-app", TokenExchange), hop("entra", BrokerToken)])],
+        Some(&single_user()),
+    )
+    .expect_err("its last hop is broker-token");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::DelegationEndsInBrokerToken {
+                key: "workload_identity.delegation",
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    // A `broker-token` hop that a later hop exchanges is the shape the grant exists for.
+    SourceRegistry::parse(
+        &[delegating(vec![
+            hop("entra", BrokerToken),
+            hop("pool-client-id", TokenExchange),
+        ])],
+        Some(&single_user()),
+    )
+    .expect("a first broker-token hop loads");
 }
 
 mod postgres;

@@ -62,8 +62,9 @@ pub struct WorkloadIdentityConfig {
 
 /// One delegation hop a `direct` deployment runs before the pool will accept its caller.
 ///
-/// `docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
-/// `token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
+/// `docs/adr/0014`'s fourth amendment: the first hop exchanges the caller's inbound token at
+/// `token_endpoint` for one whose `aud` is `audience`, each later hop exchanges the token the hop
+/// before it returned, and the last hop's token is the one the pool provider accepts.
 ///
 /// **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
 /// `build_broker` - the endpoint, client ID and audience each go into a request only that adapter

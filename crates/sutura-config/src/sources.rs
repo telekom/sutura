@@ -343,9 +343,6 @@ pub enum InvalidSourceRegistry {
     /// so no hop exchanges it for the data system.
     #[error("`sources.{alias}.{key}` ends in a `broker-token` hop - add the hop that exchanges its token for the data system")]
     DelegationEndsInBrokerToken { alias: SourceName, key: &'static str },
-    /// A `workload_identity.delegation` list that is not exactly one hop.
-    #[error("`sources.{alias}.workload_identity.delegation` lists {hops} hops - write exactly one")]
-    DelegationNotOneHop { alias: SourceName, hops: usize },
     /// The `posture:` word is not one of the two.
     #[error("`sources.{alias}.posture` does not say how this source establishes identity")]
     Posture {
@@ -739,10 +736,8 @@ fn parse_entry(
         entry
             .workload_identity
             .as_ref()
-            .and_then(|raw| match raw.delegation.as_deref() {
-                Some([hop]) => Some(hop.grant),
-                _ => None,
-            }),
+            .and_then(|raw| raw.delegation.as_deref()?.last())
+            .map(|hop| hop.grant),
     )?;
     // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
     // impersonating shape, and only it. An impersonating entry must name the provider its
@@ -771,18 +766,25 @@ fn parse_entry(
             })?;
             let hops = match raw.delegation.as_deref() {
                 None => Vec::new(),
-                Some([hop]) => vec![workload_identity::DelegationDeclared::of(
-                    alias,
-                    hop,
-                    "workload_identity.delegation.token_endpoint",
-                    "workload_identity.delegation.client_secret_file",
-                )?],
-                Some(declared) => {
-                    return Err(InvalidSourceRegistry::DelegationNotOneHop {
+                Some([]) => {
+                    return Err(InvalidSourceRegistry::WorkloadIdentity {
                         alias: alias.clone(),
-                        hops: declared.len(),
+                        cause: InvalidWorkloadIdentity::Empty {
+                            what: "`delegation` list",
+                        },
                     });
                 }
+                Some(declared) => declared
+                    .iter()
+                    .map(|hop| {
+                        workload_identity::DelegationDeclared::of(
+                            alias,
+                            hop,
+                            "workload_identity.delegation.token_endpoint",
+                            "workload_identity.delegation.client_secret_file",
+                        )
+                    })
+                    .collect::<Result<_, _>>()?,
             };
             Some(config.with_delegation(hops))
         }

@@ -33,16 +33,18 @@ and these keys:
 
 `impersonation-at-source` needs a `workload_identity` block:
 
-| Key                                                 | Type          | Default  | Meaning                                                                                                                                          |
-| --------------------------------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `workload_identity.audience`                        | string        | required | The workload identity pool provider: `//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
-| `workload_identity.delegation`                      | list          | none     | The token exchange for the caller's token, as a list of one item                                                                                 |
-| `workload_identity.delegation[].token_endpoint`     | URL           | required | The token endpoint of your identity provider                                                                                                     |
-| `workload_identity.delegation[].client_id`          | string        | required | The client ID that sutura uses for the exchange                                                                                                  |
-| `workload_identity.delegation[].client_secret_file` | absolute path | required | A file that holds the client secret                                                                                                              |
-| `workload_identity.delegation[].audience`           | string        | required | The audience that the exchanged token must carry                                                                                                 |
+| Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
+| --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workload_identity.audience`                        | string        | required         | The workload identity pool provider: `//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>`                                         |
+| `workload_identity.delegation`                      | list          | none             | The hops that exchange the caller's token, in order. Not empty                                                                                                                           |
+| `workload_identity.delegation[].token_endpoint`     | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                 |
+| `workload_identity.delegation[].client_id`          | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                 |
+| `workload_identity.delegation[].client_secret_file` | absolute path | required         | A file that holds the client secret. sutura reads it at startup                                                                                                                          |
+| `workload_identity.delegation[].grant`              | string        | `token-exchange` | `token-exchange` (RFC 8693), `on-behalf-of` (Microsoft Entra ID), or `broker-token` (Keycloak sends back the token of an external identity provider). The last hop is not `broker-token` |
+| `workload_identity.delegation[].audience`           | string        | required         | The audience that the token from this hop must carry. With `on-behalf-of`, sutura asks for the scope `<audience>/.default`.                                                              |
 
-With `delegation`, sutura exchanges the caller's token at your identity provider for a token that
+With `delegation`, the first hop exchanges the caller's token at its identity provider, and each
+next hop exchanges the token from the hop before it. The token from the last hop is the one that
 the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `delegation`, sutura
 sends the caller's verified token to the pool as it is. Do not write `expected_issuer` or
 `expected_audience`: sutura refuses to start with them.
@@ -92,7 +94,7 @@ With `impersonation-at-source`, each caller has their own principal in the pool,
 with that principal's own grants. No service account is used at any step:
 
 1. sutura verifies the caller's token.
-2. With `delegation`, sutura exchanges that token at your identity provider for a token that the
+2. With `delegation`, sutura exchanges that token through each hop in order, for a token that the
    pool accepts.
 3. The driver sends the token to the Google Security Token Service (STS). STS accepts it only
    when the pool provider in `audience` trusts its issuer, its signature is valid and its audience

@@ -184,8 +184,8 @@ result - each request exchanges again, so two subjects have no store to collide 
 later inherits the `PrincipalChain` key rule below. The `sutura_http_client::delegation` implementor decodes the issued JWT's
 `aud`/`exp` without verifying its signature - a misconfiguration check, not a defence against the
 IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
-`sutura serve` builds it from a `bigquery` source's one-hop `workload_identity.delegation` list
-or an Oracle source's ordered `delegation` hops (each `token_endpoint`, `client_id`,
+`sutura serve` builds it from a `bigquery` source's ordered `workload_identity.delegation` hops or
+an Oracle source's ordered `delegation` hops (each `token_endpoint`, `client_id`,
 `client_secret_file`, `audience`, `grant`), each parsed at boot by the adapter's own type, and
 `Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** a
 `bigquery` deployment needs the ADBC driver to boot and no nix check has one, so the composition is

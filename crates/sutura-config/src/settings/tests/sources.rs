@@ -390,6 +390,21 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
 }
 
 #[test]
+fn a_delegation_written_as_one_mapping_is_refused_at_load() {
+    // `delegation` is a list of hops, and a single mapping is not read as a one-hop list.
+    let mapping = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        source_overlay(
+            "impersonation-at-source",
+            "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"pool-client-id\"\n"
+        )
+    ));
+    let error = Settings::load(&mapping).expect_err("a mapping is not a list of hops");
+    let rendered = format!("{error:?}");
+    assert!(rendered.contains("delegation") && rendered.contains("sequence"), "{rendered}");
+}
+
+#[test]
 fn a_relative_client_secret_file_is_refused_at_load() {
     // A relative path resolves against the working directory - a different file on every host - so
     // the delegation's client secret is held to the rule every other secret file on a source is.
