@@ -393,6 +393,7 @@ pub(crate) struct Reply {
     /// which check failed would tell a caller holding a forgery which half of it to fix.
     pub(crate) challenge: Option<String>,
     /// The status line and every header, as sent.
+    #[cfg(all(unix, feature = "agent"))]
     pub(crate) head: String,
 }
 

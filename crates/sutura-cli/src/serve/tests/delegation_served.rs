@@ -136,7 +136,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
         .expect("a mock issuer generates a key pair");
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
     let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
-    std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
+    std::fs::write(&secret.0, format!("{CLIENT_SECRET}\n")).expect("the client secret file is writable");
     let overlay = format!(
         "{}  identity: \"multi-user\"\nsources:\n{}      delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
          client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
@@ -289,8 +289,14 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
 /// What [`logged`] writes at `trace` from the blocking pool, to prove the capture sees that level there.
 const CAPTURE_PROBE: &str = "outbound-echo capture is live";
 
-/// The delegation client's secret, as [`served`] writes it to the secret file.
-const CLIENT_SECRET: &str = "idp-client-secret";
+/// The delegation client's secret, as [`served`] writes it to the secret file: distinct enough to
+/// find in any text, and long enough for [`RUN`].
+const CLIENT_SECRET: &str = "e83b5d0c71f9a26d4c0be915";
+
+/// The fewest characters of a secret in a row that count as finding it: the HTTP client's wire
+/// trace writes 16 bytes a line, so a secret of 23 or more characters leaves this many in one line
+/// wherever the rows cut it.
+const RUN: usize = 12;
 
 /// Every line this process logs from the first call on, at `trace`, from any thread, through
 /// `tracing` or through `log` over the service's own bridge.
@@ -395,9 +401,9 @@ async fn everything_returned_over_mcp(app: axum::Router, token: &str) -> String 
     received
 }
 
-/// `token`, and each segment of it long enough to be worth a log line on its own.
-fn and_its_segments(token: &str) -> impl Iterator<Item = String> + '_ {
-    core::iter::once(String::from(token)).chain(token.split('.').filter(|part| part.len() >= 10).map(String::from))
+/// Whether `text` holds [`RUN`] characters of `secret` in a row.
+fn holds_a_run_of(text: &str, secret: &str) -> bool {
+    (0..=secret.len().saturating_sub(RUN)).any(|at| text.contains(secret.get(at..at + RUN).unwrap_or(secret)))
 }
 
 #[tokio::test]
@@ -461,13 +467,15 @@ async fn no_outbound_credential_reaches_a_response_or_a_log_line() {
         logged.contains(r#""log.target":"ureq::run""#),
         "the capture holds no line the HTTP client logged through `log`, so a dependency's `log` records are outside it"
     );
-    let secrets: Vec<String> = core::iter::once(String::from(CLIENT_SECRET))
-        .chain(and_its_segments(&exchanged))
-        .chain(tokens.iter().flat_map(|token| and_its_segments(token)))
-        .collect();
-    let leaked: Vec<&String> = secrets
-        .iter()
-        .filter(|secret| received.contains(secret.as_str()) || logged.contains(secret.as_str()))
+    let secrets = [
+        ("the client secret", CLIENT_SECRET),
+        ("the exchanged token", exchanged.as_str()),
+    ]
+    .into_iter()
+    .chain(tokens.iter().map(|token| ("a caller's token", token.as_str())));
+    let leaked: Vec<&str> = secrets
+        .filter(|&(_, secret)| holds_a_run_of(&received, secret) || holds_a_run_of(&logged, secret))
+        .map(|(name, _)| name)
         .collect();
     assert!(
         leaked.is_empty(),
