@@ -53,6 +53,8 @@ sources:
     posture: "shared-service-user"
 ```
 
+`sutura serve` reads the catalog again every `refresh_seconds` seconds. The default is 900, and `0` is refused. See [Serving](../../serving.md).
+
 ## What the command converts
 
 The command converts a column, one aggregate over one column, a ratio of two such aggregates, and

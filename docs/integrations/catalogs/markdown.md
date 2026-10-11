@@ -21,6 +21,8 @@ relationships, metrics, cubes and knowledge.
 This catalog reads only the [settings that every catalog has](../../integrations.md#catalog-settings).
 It reads `name`, `version` and `dir`. It requires `data_dir`, but does not read it.
 
+`sutura serve` reads the catalog again every `refresh_seconds` seconds. The default is 900, and `0` is refused. See [Serving](../../serving.md).
+
 `kind: markdown` is also the value when `kind` is absent. The built-in default is this entry:
 
 ```yaml
