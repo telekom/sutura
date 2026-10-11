@@ -12,7 +12,8 @@
 # nixpkgs, whose series lags the release this tier is held to. `compose.services.yaml` pins the
 # by-hand docker service separately; nothing compares the two, so a bump of either is a bump of one
 # venue. The macOS assets are self-extracting: run once, the binary decompresses next to itself,
-# which a read-only store path cannot take - so the build runs it once in `$out`.
+# which a read-only store path cannot take - so the build runs it once in `$out`. The Linux assets'
+# ELF interpreter does not exist in the sandbox, so the build patches it for the store and runs it.
 { pkgs }:
 let
   endpoints = import ./tier-endpoints.nix { inherit pkgs; };
@@ -34,10 +35,17 @@ rec {
         executable = asset.executable or false;
       };
     in
-    pkgs.runCommand "clickhouse-${version}" { } (
+    pkgs.runCommand "clickhouse-${version}"
+      {
+        nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.autoPatchelfHook ];
+        buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.stdenv.cc.cc.lib ];
+      }
+      (
       if pkgs.stdenv.hostPlatform.isLinux then ''
         tar -xzf ${src}
         install -Dm755 clickhouse-common-static-${version}/usr/bin/clickhouse "$out/bin/clickhouse"
+        autoPatchelf "$out"
+        "$out/bin/clickhouse" --version
       '' else ''
         install -Dm755 ${src} "$out/bin/clickhouse"
         (cd "$out/bin" && ./clickhouse --version)
