@@ -848,9 +848,11 @@ cube-acceptance:
     set -euo pipefail
     echo "cube-acceptance: scope sutura-catalog-cube - the live Cube tier: the metadata API read through"
     echo "cube-acceptance: src/http.rs's HttpMetaReader (hence --features http), and a token the tier did not sign refused."
+    echo "cube-acceptance: then sutura-app's golden and differential cells for the cube data system, against the same tier."
     echo "cube-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with cube
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
+    SUTURA_DEV_REQUIRE_TIER=1 SUTURA_CUBE_TIER=1 cargo test -p sutura-app --all-features --test golden --test differential -- cube:: --nocapture
 
 # Start the Oracle tier and run its live cells - the adapter's acceptance cell (#127) and the
 # catalog reader's (#972) - failing rather than skipping. CI runs the same cells through

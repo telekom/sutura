@@ -1,0 +1,6 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+period	mean_subscription_mrr
+Text(2026-06-01)	Real(3.425779661017e3)

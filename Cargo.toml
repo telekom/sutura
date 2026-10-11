@@ -155,6 +155,8 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 # `cargo xtask unused-deps` is what keeps the line honest in either direction. Still no golden or
 # differential suite: the crate's own `lib.rs` header carries what remains unreached.
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
+# `sutura-app` inherits it as a development dependency, for the golden matrix.
+sutura-exec-cube = { path = "crates/sutura-exec-cube" }
 sutura-adbc = { path = "crates/sutura-adbc" }
 sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
 sutura-tls = { path = "crates/sutura-tls" }

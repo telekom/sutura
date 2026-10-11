@@ -358,6 +358,14 @@ where
             rendered.contains("division by zero"),
             "{system} neither refused a non-finite cell nor reported the server's division-by-zero:\n{rendered}"
         ),
+        // Cube answers a zero denominator as no value, which the adapter refuses naming the metric.
+        "cube" => assert!(
+            rendered.contains(&format!(
+                "the metric {} declares that a zero denominator fails",
+                january.metric()
+            )),
+            "cube did not refuse the zero denominator's empty answer naming the metric:\n{rendered}"
+        ),
         // The engine, DuckDB and ClickHouse divide with IEEE semantics and receive a non-finite
         // value, which the adapter refuses NAMING THE COLUMN - the strong assertion kept for the
         // adapters that can make it. ClickHouse reaches it only because it asks for the value as

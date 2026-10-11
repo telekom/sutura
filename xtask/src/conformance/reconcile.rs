@@ -46,7 +46,7 @@ pub(super) struct Unbound {
 
 /// Every registered data system this gate accepts as unbound.
 ///
-/// **One entry, `oracle`, with its reason below. EMPTY is the state
+/// **Two entries, `oracle` and `cube`, with their reasons below. EMPTY is the state
 /// this gate was built to reach.** It shipped with one entry -
 /// `postgres`, registered in the golden matrix and carrying no binding because the packs had no way
 /// to say *no tier is up here* that was not a pass - and `docs/adr/0012`'s *one registration, not
@@ -61,22 +61,37 @@ pub(super) struct Unbound {
 /// stays with the list empty on purpose: the alternative to a declared exemption is an
 /// EXCLUSION, which hides an entry instead of classifying it, and the next adapter that cannot be
 /// bound will need this and not that.
-pub(super) const UNBOUND: &[Unbound] = &[Unbound {
-    name: "oracle",
-    crate_name: "sutura-exec-oracle",
-    what: "a data system, registered in the golden matrix with `available() == false` unconditionally",
-    why: "no `just validate` venue provisions a real Oracle - Oracle Database is proprietary and not \
-          packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` the way Postgres has one - and \
-          no CSV-fixture importer exists yet to attach the conformance corpus to a live instance even \
-          where a developer's own docker could reach `compose.services.yaml`'s `oracle` profile. \
-          Binding the packs today would either need `sutura_conformance::Fixture::Absent` reached by \
-          a discovery read this crate cannot make safely (`sutura_dev::provisioned::here` applies \
-          `SUTURA_DEV_REQUIRE_TIER` per PROCESS, not per named service, so it would go fatal the \
-          moment the unrelated Postgres tier comes up) or a fixture that never loads a row - which is \
-          the postgres-before-`#348` shape this gate exists to refuse. Converges when both exist: an \
-          importer and a per-service-safe discovery read, at which point this entry is removed rather \
-          than reworded, `crates/sutura-exec-postgres/tests/conformance.rs`'s own precedent.",
-}];
+pub(super) const UNBOUND: &[Unbound] = &[
+    Unbound {
+        name: "oracle",
+        crate_name: "sutura-exec-oracle",
+        what: "a data system, registered in the golden matrix with `available() == false` unconditionally",
+        why: "no `just validate` venue provisions a real Oracle - Oracle Database is proprietary and not \
+              packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` the way Postgres has one - and \
+              no CSV-fixture importer exists yet to attach the conformance corpus to a live instance even \
+              where a developer's own docker could reach `compose.services.yaml`'s `oracle` profile. \
+              Binding the packs today would either need `sutura_conformance::Fixture::Absent` reached by \
+              a discovery read this crate cannot make safely (`sutura_dev::provisioned::here` applies \
+              `SUTURA_DEV_REQUIRE_TIER` per PROCESS, not per named service, so it would go fatal the \
+              moment the unrelated Postgres tier comes up) or a fixture that never loads a row - which is \
+              the postgres-before-`#348` shape this gate exists to refuse. Converges when both exist: an \
+              importer and a per-service-safe discovery read, at which point this entry is removed rather \
+              than reworded, `crates/sutura-exec-postgres/tests/conformance.rs`'s own precedent.",
+    },
+    Unbound {
+        name: "cube",
+        crate_name: "sutura-exec-cube",
+        what: "a data system, registered in the golden matrix and executed against the compose `cube` profile",
+        why: "the packs' exact-type cases cannot hold through Cube: measured against the tier, Cube's \
+              `ClickHouse` driver answers a 64-bit integer through a double (an Int64 sum of i64::MAX \
+              came back as 9223372036854776000, a UInt64 sum of 10000000000000000006 as \
+              10000000000000000000) and a decimal without its scale (11.50 as 11.5), and no per-case \
+              exemption exists. A live binding cannot stand either: `venue::refuse_a_declared_absence` \
+              refuses `Fixture::Absent` wherever `SUTURA_DEV_REQUIRE_TIER` is set, and no gate that sets \
+              it starts Cube. A canned transport would hold only with exact digits Cube never sends. The \
+              adapter refuses an integer beyond 2^53 instead of answering it rounded.",
+    },
+];
 
 /// What the tree says about one registry entry. Two states are held and two are the defect.
 #[derive(Debug)]
@@ -604,7 +619,7 @@ mod tests {
         );
     }
 
-    /// **Exactly one exemption today, named rather than counted, and that is asserted rather than
+    /// **Exactly two exemptions today, named rather than counted, and that is asserted rather than
     /// assumed.**
     ///
     /// The gate shipped with `postgres` declared unbound because the packs could not say *no tier
@@ -614,13 +629,14 @@ mod tests {
     /// one, for a reason `postgres` never had: there is no nix-native venue to converge to at all,
     /// so `Fixture::Absent` is not a fix waiting to be written, it is a fixture with nowhere to run.
     /// `clickhouse` had a venue but its sums were wrong; `github.com/telekom/sutura#979` binds its
-    /// corrected adapter. This cell makes another entry deliberate: it reddens, and the diff is
-    /// where the argument has to be.
+    /// corrected adapter. `cube` (`#1340`) is the third: its venue answers, but not the packs'
+    /// exact types. This cell makes another entry deliberate: it reddens, and the diff is where the
+    /// argument has to be.
     #[test]
-    fn exactly_the_oracle_entry_is_declared_unbound() {
+    fn exactly_the_oracle_and_cube_entries_are_declared_unbound() {
         assert_eq!(
             UNBOUND.iter().map(|allowance| allowance.name).collect::<Vec<_>>(),
-            vec!["oracle"],
+            vec!["oracle", "cube"],
             "an exemption is an architecture decision, and this cell is where it is argued"
         );
     }

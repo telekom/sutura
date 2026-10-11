@@ -1252,8 +1252,9 @@
         };
 
         # The Cube venue (#1340): starts the compose `cube` profile and runs the live cells - the
-        # metadata API read through `HttpMetaReader` against the recorded answer, and a token the
-        # tier did not sign refused - failing rather than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`.
+        # metadata API read through `HttpMetaReader` against the recorded answer, a token the tier
+        # did not sign refused, and `sutura-app`'s golden and differential cells for the `cube` data
+        # system - failing rather than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`.
         # The `ci-cube-tier` CI job runs it; `just cube-acceptance` is its by-hand twin, and nothing
         # checks that the two agree. An app for `apps.openmetadata-acceptance`'s reason. No teardown:
         # the CI runner is ephemeral.
@@ -1267,7 +1268,9 @@
             ${cargoWarmStart}
             cargo run -q -p xtask -- dev-up --with cube
             export SUTURA_DEV_REQUIRE_TIER=1
-            exec cargo test --profile ci -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture "$@"
+            cargo test --profile ci -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
+            export SUTURA_CUBE_TIER=1
+            exec cargo test --profile ci -p sutura-app --all-features --test golden --test differential -- cube:: --nocapture
           '');
         };
 

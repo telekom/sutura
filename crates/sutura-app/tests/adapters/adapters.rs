@@ -520,6 +520,32 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
     }
 }
 
+/// A metrics serving layer: Cube, over the compose `cube` profile's server (`just dev-up-cube`).
+///
+/// The tier holds the corpus already - `examples/cube/clickhouse` loads it at first start and
+/// `examples/cube/model` defines every measure over it - so `open_on` attaches no table: Cube
+/// computes each metric from its own model, and these cells measure that it answers what the
+/// catalog defines.
+///
+/// **What it executes as:** the tier's one deployment token under the matrix's `shared-service-user`
+/// posture, over plaintext loopback.
+impl DataSystemUnderTest for sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube> {
+    const NAME: &'static str = "cube";
+
+    fn available() -> bool {
+        cube_tier().is_some()
+    }
+
+    fn open_on(name: SourceName, _tables: Vec<(TableName, PathBuf)>) -> Self {
+        use sutura_exec_cube::http::{Endpoint, HttpCube, ReadBounds};
+        let endpoint = cube_tier().expect("`available()` guards the Open of every cube cell");
+        let at = Endpoint::parse(&format!("http://{endpoint}")).unwrap_or_else(|e| panic!("{endpoint}: {e}"));
+        let bounds = ReadBounds::parse(30, 1 << 20).expect("usable bounds");
+        let token = sutura_exec_cube::fixture::tier_token().unwrap_or_else(|e| panic!("{e}"));
+        Self::of(name, posture(), token, HttpCube::new(at, bounds, None))
+    }
+}
+
 /// The two-fact ratio's calendar, a table the example corpus lacks. Here rather than in
 /// `federated::corpus`, which adds it for every other data system, because the `bigquery`
 /// provisioning cell sits in the golden target and loads it too - one copy of the rows for both.
@@ -697,6 +723,25 @@ fn clickhouse_tier() -> Option<&'static Endpoint> {
                 Provisioned::Skipped(_) => None,
             },
         )
+        .as_ref()
+}
+
+/// This worktree's provisioned Cube endpoint, where `SUTURA_CUBE_TIER` names the Cube venue.
+///
+/// Opt-in, like [`bigquery_venue`]: every gate that sets `SUTURA_DEV_REQUIRE_TIER` provisions
+/// Postgres and `ClickHouse` and not Cube, so a discovery read there would fail every cube cell.
+/// Where the variable is set, [`postgres_tier`]'s reasoning holds for the `cube` entry
+/// `just dev-up-cube` publishes.
+fn cube_tier() -> Option<&'static Endpoint> {
+    static CACHED: OnceLock<Option<Endpoint>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            set("SUTURA_CUBE_TIER")?;
+            match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "cube") {
+                Provisioned::At(endpoint) => Some(endpoint),
+                Provisioned::Skipped(_) => None,
+            }
+        })
         .as_ref()
 }
 
@@ -898,6 +943,9 @@ macro_rules! registered {
         );
         // `available()` also answers `false` unconditionally, for its own two reasons: see the impl.
         $cell!(oracle, sutura_exec_oracle::OracleWarehouse);
+        // A METRICS LAYER over HTTP: the plan becomes a Cube JSON query and Cube computes each
+        // metric. Its cells run against the compose `cube` profile and skip where none is up.
+        $cell!(cube, sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube>);
     };
 
     (dialects: $cell:ident) => {

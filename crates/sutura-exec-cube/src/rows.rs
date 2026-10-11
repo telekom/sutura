@@ -182,10 +182,27 @@ where
     }
 }
 
+/// The largest integer every Cube answer carries exactly. Cube's `ClickHouse` driver reads a 64-bit
+/// integer as a double, so an integer beyond it may already be rounded, and a rounded value is beyond
+/// it too.
+const EXACT: u64 = 1 << 53;
+
+/// Whether `text` is an integer whose magnitude is beyond [`EXACT`].
+fn beyond_exact(text: &str) -> bool {
+    let digits = text.strip_prefix('-').unwrap_or(text).trim_start_matches('0');
+    let integer = digits.bytes().all(|byte| byte.is_ascii_digit());
+    integer && digits.parse::<u64>().map_or(!digits.is_empty(), |n| n > EXACT)
+}
+
 fn number_value<E>(text: &str, real: bool, member: &str) -> CubeResult<Value, E>
 where
     E: core::error::Error + 'static,
 {
+    if beyond_exact(text) {
+        return Err(CubeError::InexactInteger {
+            member: String::from(member),
+        });
+    }
     if !real && let Ok(integer) = text.parse::<i64>() {
         return Ok(Value::Integer(integer));
     }

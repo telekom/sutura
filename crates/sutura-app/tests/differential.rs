@@ -211,6 +211,14 @@ mod tests {
                  division-by-zero:\n{rendered_other}"
                 );
             }
+            // Cube answers a zero denominator as no value, which the adapter refuses naming the
+            // metric that declares the zero fails.
+            "cube" => {
+                assert!(
+                    rendered_other.contains(&format!("the metric {metric} declares that a zero denominator fails")),
+                    "{name}: cube did not refuse the zero denominator's empty answer:\n{rendered_other}"
+                );
+            }
             adapter => {
                 assert!(
                     rendered_other.contains(&expected) && rendered_other.contains("is not a finite number"),

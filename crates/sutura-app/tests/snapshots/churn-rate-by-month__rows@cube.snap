@@ -1,0 +1,11 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+period	churn_rate
+Text(2026-01-01)	Real(0.000000000000e0)
+Text(2026-02-01)	Real(2.857142857143e-2)
+Text(2026-03-01)	Real(5.882352941176e-2)
+Text(2026-04-01)	Real(3.125000000000e-2)
+Text(2026-05-01)	Real(1.612903225806e-2)
+Text(2026-06-01)	Real(4.838709677419e-2)

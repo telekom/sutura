@@ -23,6 +23,8 @@
 //!
 //! [`Secret`]: sutura_domain::identity::Secret
 
+#[cfg(feature = "fixtures")]
+pub mod fixture;
 pub mod http;
 mod members;
 pub mod query;
@@ -108,6 +110,8 @@ where
         #[source]
         cause: core::num::ParseFloatError,
     },
+    #[error("member {member} came back as an integer beyond 2^53, which a Cube answer does not carry exactly")]
+    InexactInteger { member: String },
     #[error("the Cube answer was not the {expected} this adapter reads")]
     MalformedAnswer { expected: &'static str },
     #[error("the result set was not rectangular")]

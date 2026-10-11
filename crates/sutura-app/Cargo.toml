@@ -75,6 +75,10 @@ sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 # cells run against the worktree's `nix/clickhouse-tier.nix` server and skip where none is up.
 # `fixtures` for the tier's credential, its per-open database and the CSV importer.
 sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
+# A metrics serving layer over HTTP: the plan becomes a Cube JSON query and Cube computes each metric.
+# Its cells run against the compose `cube` profile (`just dev-up-cube`) and skip where none is up.
+# `fixtures` for the tier's token.
+sutura-exec-cube = { workspace = true, features = ["fixtures"] }
 # A fourth DATA SOURCE, over the wire like Postgres, and registered for the same reason DuckDB and
 # Postgres are: it compiles this adapter against the matrix's own `DataSystemUnderTest` port and
 # reserves its registration point. `available()` answers `false` unconditionally, under a named

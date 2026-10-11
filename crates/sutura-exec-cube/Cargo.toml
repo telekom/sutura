@@ -20,6 +20,13 @@ sutura-tls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# Signs the fixture tier's HS256 deployment token, behind `fixtures`.
+jsonwebtoken = { workspace = true, optional = true }
+
+[features]
+# The fixture tier's token, for the golden matrix in `sutura-app`'s tests. Default-off, like
+# `sutura-exec-clickhouse`'s feature of the same name.
+fixtures = ["dep:jsonwebtoken"]
 
 [dev-dependencies]
 # The loopback fake the HTTP transport cells dial.

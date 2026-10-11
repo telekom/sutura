@@ -3803,6 +3803,7 @@ dependencies = [
  "sutura-domain",
  "sutura-exec-bigquery",
  "sutura-exec-clickhouse",
+ "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
  "sutura-exec-oracle",
@@ -4074,6 +4075,7 @@ dependencies = [
 name = "sutura-exec-cube"
 version = "0.6.1"
 dependencies = [
+ "jsonwebtoken",
  "serde",
  "serde_json",
  "sutura-domain",
