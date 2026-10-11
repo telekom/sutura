@@ -165,11 +165,8 @@ where
     fn deliverable<'leg>(&'leg self, presented: &'leg Presented) -> CubeResult<&'leg Secret, T::Error> {
         let token = match *presented {
             Presented::SharedServiceUser { .. } => &self.token,
-            Presented::SubjectToken {
-                ref material,
-                impersonate: None,
-            } => material,
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+            Presented::SubjectToken { ref material } => material,
+            Presented::SubjectPrincipal { .. } => {
                 return Err(CubeError::Undeliverable {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),

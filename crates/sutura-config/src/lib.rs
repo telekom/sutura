@@ -64,8 +64,10 @@
 //!   a sidecar terminating TLS in front of a plaintext pod-local listener is the normal
 //!   arrangement - what is refused is not saying which of those it is, because that is what decides
 //!   how far the bearer token travels in cleartext.
-//! - No `security.access_token`, in production or on a non-loopback bind.
-//! - `rate_limit.enabled: false` in production.
+//! - No `security.access_token`, no `security.metrics_token`, or `rate_limit.enabled: false`, in
+//!   production or off-host. Off-host is a non-loopback bind, a `rate_limit.trusted_proxies` hop, a
+//!   `security.tls_termination` of `sidecar` or `ingress`, or a non-loopback `server.allowed_hosts`
+//!   entry - one predicate, which `/mcp` asks too.
 //! - `rate_limit.client_address: forwarded` with an empty `rate_limit.trusted_proxies`, or a
 //!   non-empty list that nothing reads.
 //! - `security.tls_termination: in-process` without a certificate and key, or in a binary built

@@ -310,3 +310,8 @@ fn an_unchanged_bundle_is_not_offered_to_the_gate() {
     assert!(matches!(service.adopt(with_bookings()), Ok(Adopted::Rotated { .. })));
     assert_eq!(offered.load(Ordering::SeqCst), 1);
 }
+
+/// A load and a refresh over a real `DuckDB`'s schema. `#[cfg(test)]` for the reason
+/// `super::not_validated`'s declaration gives.
+#[cfg(test)]
+mod schema;

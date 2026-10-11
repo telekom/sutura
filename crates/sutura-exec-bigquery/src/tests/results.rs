@@ -79,11 +79,6 @@ fn a_federated_leg_is_submitted_as_the_asking_subject_at_this_sources_own_declar
         Some("an-exchanged-token-for-the-asker"),
         "the leg ran as somebody other than the asker"
     );
-    assert_eq!(
-        asked.impersonate.as_deref(),
-        Some(super::fakes::A_DECLARED_ACCOUNT),
-        "the account this source declared for the asker did not ride on the leg"
-    );
 }
 
 #[test]

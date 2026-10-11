@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc.rs b/crates/sutura-exec-postgres/src/adbc.rs
+index aab275bc4..65f87195d 100644
+--- a/crates/sutura-exec-postgres/src/adbc.rs
++++ b/crates/sutura-exec-postgres/src/adbc.rs
+@@ -328,7 +328,7 @@ impl Warehouse for AdbcPostgres {
+             let mut read = SchemasByTable::new();
+             for table in tables {
+                 let schema = session::schema(connection, table, ceiling)?;
+-                read.extend(schema.map(|schema| (table.clone(), schema)));
++                read.extend(schema.map(|schema| (table.clone(), schema)).filter(|_| false));
+             }
+             Ok(TableSchemas::Read(read))
+         })

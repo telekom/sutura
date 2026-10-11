@@ -91,6 +91,10 @@ buildGoModule {
   '' + ''
     runHook postBuild
   '';
+  # The test `bigquery-adbc-forbidden.patch` adds for its 403 reason table. A build whose host
+  # cannot run its target skips the check phase, and this with it. The test resolves into its own
+  # module cache: the modules only `_test.go` files import stay out of the licence record below.
+  preCheck = "GOMODCACHE=$TMPDIR/test-modcache go test -run '^TestForbidden$' .";
   installPhase = ''
     runHook preInstall
     install -Dm755 libadbc_driver_bigquery.so $out/lib/libadbc_driver_bigquery.so

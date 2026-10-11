@@ -131,10 +131,7 @@ fn impersonating(transport: Scripted) -> CubeWarehouse<Scripted> {
 }
 
 fn subject_token(token: &Secret) -> Presented {
-    Presented::SubjectToken {
-        material: token.clone(),
-        impersonate: None,
-    }
+    Presented::SubjectToken { material: token.clone() }
 }
 
 fn shared() -> Presented {

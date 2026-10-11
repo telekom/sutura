@@ -71,7 +71,6 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
     // is the fallback the owner rejected. `Uncovered` over a path naming no `.so` is how the
     // ordering is observable without a driver: the identity is decided first.
     let assertion = Secret::new("a.caller.assertion");
-    let account = crate::adbc::a_declared_account();
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -79,10 +78,7 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsSubject {
-            assertion: &assertion,
-            target: &account,
-        },
+        JobIdentity::AsSubject { assertion: &assertion },
         JobDeadline::Boot,
     );
     let refused = endpoint(Impersonation::Disabled)
@@ -98,7 +94,6 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
     // only thing left to fail is the LOAD. Without this cell the refusal above passes over a
     // transport that refused every subject for any reason.
     let assertion = Secret::new("a.caller.assertion");
-    let account = crate::adbc::a_declared_account();
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -106,10 +101,7 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsSubject {
-            assertion: &assertion,
-            target: &account,
-        },
+        JobIdentity::AsSubject { assertion: &assertion },
         JobDeadline::Boot,
     );
     let failed = endpoint(impersonating())
@@ -207,6 +199,25 @@ fn the_listing_this_transport_cannot_do_is_not_an_authorization_refusal() {
     // are the two other predicates this error reaches, and neither may claim it either.
     assert!(!endpoint.result_did_not_fit(&refused), "{refused:?}");
     assert!(!endpoint.deadline_exceeded(&refused), "{refused:?}");
+}
+
+#[test]
+fn a_caller_whose_principal_holds_no_grant_is_refused_by_the_source_and_not_retried() {
+    // A caller with no grant on the dataset: BigQuery answers `accessDenied`, which the pinned
+    // driver gives the status `Unauthorized`. That reaches the caller as `source_refused`, never as
+    // a `503` that invites a retry. The control is a dropped connection, which a retry may answer.
+    let endpoint = endpoint(Impersonation::Disabled);
+    let refused = AdbcError::Adbc(super::DriverMessage::of(&adbc_core::error::Error::with_message_and_status(
+        "[bq] Could not run query: accessDenied: Access Denied: User does not have permission to query table",
+        adbc_core::error::Status::Unauthorized,
+    )));
+    assert!(endpoint.job_was_refused(&refused), "{refused:?}");
+    let dropped = AdbcError::Adbc(super::DriverMessage::of(&adbc_core::error::Error::with_message_and_status(
+        "[bq] Could not run query: connection reset by peer",
+        adbc_core::error::Status::IO,
+    )));
+    assert!(!endpoint.job_was_refused(&dropped), "{dropped:?}");
+    assert!(!endpoint.job_was_refused(&AdbcError::NoDryRun));
 }
 
 #[test]

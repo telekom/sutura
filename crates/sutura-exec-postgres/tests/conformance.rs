@@ -50,11 +50,15 @@
 // test code as far as clippy is concerned.
 #[cfg(test)]
 mod conformance {
+    use std::collections::BTreeSet;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use sutura_conformance::{Fixture, Missing, corpus};
     use sutura_dev::provisioned::{self, Provisioned};
+    use sutura_domain::model::{QualifiedTable, TableName};
+    use sutura_domain::warehouse::Warehouse as _;
+    use sutura_domain::warehouse::schema::TableSchemas;
     use sutura_exec_postgres::adbc::AdbcPostgres;
     use sutura_exec_postgres::fixture::FixtureCredential;
 
@@ -109,6 +113,40 @@ mod conformance {
     fn schema_counter() -> usize {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// The corpus table's columns as the server's catalog holds them, and a table it lacks left
+    /// absent - the read a load pins a Postgres source's schema by. The missing name sorts first, so
+    /// the corpus table is read after a failed read on the same connection.
+    #[test]
+    fn table_schemas_reads_the_corpus_columns_and_leaves_a_missing_table_absent() {
+        let warehouse = match open() {
+            Fixture::Standing(warehouse) => warehouse,
+            Fixture::Absent(missing) => {
+                println!("conformance postgres: NOT RUN - table_schemas - {missing}");
+                return;
+            }
+        };
+        let present = QualifiedTable::new(None, corpus::table());
+        let missing = QualifiedTable::new(None, TableName::parse("conformance_absent").expect("a test table is a table"));
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the adapter's own venue asking for the schemas a load pins"
+        )]
+        let read = warehouse.table_schemas(&BTreeSet::from([present.clone(), missing.clone()]));
+        let Ok(TableSchemas::Read(ref schemas)) = read else {
+            panic!("postgres did not read the schemas: {read:?}");
+        };
+        let header = corpus::csv().lines().next().expect("the corpus has a header");
+        let columns: Vec<&str> = schemas
+            .get(&present)
+            .expect("the corpus table is read")
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .collect();
+        assert_eq!(columns, header.split(',').collect::<Vec<_>>());
+        assert!(!schemas.contains_key(&missing), "a table the server lacks is absent");
     }
 
     // `executes_legs`, because this adapter declares `EXECUTES_LEGS`: a leg renders through

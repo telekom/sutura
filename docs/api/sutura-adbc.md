@@ -36,8 +36,25 @@ default-off feature, the way `sutura-exec-postgres` depends on `sutura-tls`.
 - `bind` builds the one-row Arrow batch a positional-parameter driver binds from.
   It returns the Arrow error directly; each adapter wraps it into its own error
   type, because the error vocabulary is the adapter's and not the FFI's.
+- `table_schema` asks a connection for one table's Arrow schema and reads the
+  driver's `NotFound` as the table being absent. A driver that answers a missing
+  table with any other status fails the read instead.
 - The driver-option constants, the transport, the identity decision and the result
   drain stay in each adapter. This crate names no data system.
+
+## `fn table_schema`
+
+```rust
+pub fn table_schema<C>(connection: &C, table: &sutura_domain::model::QualifiedTable) -> Result<Option<arrow_schema::SchemaRef>, adbc_core::error::Error>
+```
+
+The Arrow schema `connection` returns for `table`, `None` where the driver says it has no such
+table. The qualifier's project is the catalog and its dataset the schema.
+
+# Errors
+
+`CoreError` for every other status, so a source that could not be asked never reads as one
+that lacks the table.
 
 ## `fn linked_driver`
 

@@ -30,11 +30,8 @@
 //! `bigquery` leg beside a leg-executing shared-posture adapter is a CROSS-POSTURE answer,
 //! disclosed per leg rather than refused (`docs/adr/0040`). `BigQuery` then being the only impersonating adapter is why that had to
 //! be: every `BigQuery` federation with a shared-posture adapter is cross-posture by construction.
-//! The single mint below does not collapse them: that adapter's
-//! `DeclaredPrincipalBroker::mint` walks the `SourceSet` and resolves each source's OWN declared
-//! account for the asking subject out of that source's own map, so one mint over two sources yields
-//! one credential per leg
-//! (`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`). **The limits,
+//! The single mint below does not collapse them: `DeclaredPrincipalBroker::mint` walks the
+//! `SourceSet` and presents one credential per leg, each the asking subject's own. **The limits,
 //! beside the claim:** the published artefact links that adapter, but no federated answer has been
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
