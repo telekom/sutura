@@ -13,6 +13,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
+use sutura_domain::warehouse::schema::PinnedSchemas;
 use sutura_domain::warehouse::{AnchorRows, ResultBatches, RowSet, Value, Warehouse};
 
 // ---------------------------------------------------------------------------
@@ -162,7 +163,7 @@ fn a_federated_answer_mints_once_runs_both_legs_and_records_both_identities() {
     let broker = crate::tests_support::CountingBroker::default();
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &broker,
@@ -220,7 +221,7 @@ fn a_federated_answer_sums_both_legs_estimates_before_charging_the_ledger_once()
         std::time::Duration::from_secs(60),
     )));
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -316,7 +317,7 @@ fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
     );
     let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -375,7 +376,7 @@ fn a_federated_lookup_preflight_refusal_means_neither_leg_ever_executes() {
     );
     let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -428,7 +429,7 @@ fn a_federated_fact_preflight_failure_keeps_its_warehouse_cause_and_no_partial_a
     );
     let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
     let failure = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -486,7 +487,7 @@ fn a_federated_lookup_preflight_failure_means_the_fact_leg_never_executes() {
     );
     let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
     let failure = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -543,7 +544,7 @@ fn a_federated_answer_that_crosses_the_working_set_is_refused_not_error() {
 
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -599,7 +600,7 @@ fn a_deterministic_combine_failure_is_a_refusal_not_a_service_error() {
 
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -665,7 +666,7 @@ fn an_answer_whose_legs_run_under_two_postures_is_answered_and_records_both() {
     let broker = crate::tests_support::AcknowledgingBroker::over(&postures);
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &broker,
@@ -727,7 +728,7 @@ fn two_shared_sources_with_different_acknowledgements_are_still_answered() {
     let broker = crate::tests_support::AcknowledgingBroker::over(&postures);
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &broker,
@@ -784,7 +785,7 @@ fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
 
     let plan = federated_plan();
     let refused = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -898,7 +899,7 @@ fn a_federated_answer_is_refused_when_only_one_leg_can_execute() {
 
     let plan = federated_plan();
     let refused = answer_federated(
-        &bundle(),
+        (&bundle(), PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,

@@ -24,7 +24,7 @@ fn a_federated_leg_that_times_out_is_refused_not_a_503() {
 
     let plan = federated_plan();
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -68,7 +68,7 @@ fn a_federated_legs_pre_flight_that_times_out_is_refused_not_a_503() {
     );
     let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
@@ -127,7 +127,7 @@ fn a_federated_dry_run_that_spends_the_budget_refuses_both_legs_before_either_ex
         Budget::parse(std::time::Duration::from_millis(250)).expect("250ms"),
     );
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,

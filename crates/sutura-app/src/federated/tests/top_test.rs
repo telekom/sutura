@@ -66,7 +66,7 @@ pub(super) fn outcome_over(
     let broker = crate::tests_support::CountingBroker::default();
     let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
     answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         plan,
         &asked_by_a_person(),
         &broker,

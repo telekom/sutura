@@ -5538,6 +5538,10 @@ pub fn metric_digests(&self) -> &[MetricDigest]
 One digest per metric this answer measured, in query order.
 
 ```rust
+pub const fn schema_digest(&self) -> &SchemaDigest
+```
+
+```rust
 pub const fn version(&self) -> &DefinitionVersion
 ```
 
@@ -5701,7 +5705,7 @@ fn _pin(
 ```
 
 ```rust
-pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance
+pub fn provenance(&self, schemas: &SchemaDigest, executed_as: ExecutedAs) -> Provenance
 ```
 
 The provenance to attach to one answer produced from this bundle.
@@ -5728,16 +5732,16 @@ source's own entry carries, refused by `sutura_config::Settings::refusals` befor
 binds.
 
 ```
-use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::{pinned::{PinnedDefinitions, Provenance}, warehouse::schema::SchemaDigest};
 use sutura_domain::source::ExecutedAs;
 
-fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
-    pinned.provenance(both_legs)
+fn _mixed(pinned: &PinnedDefinitions, schemas: &SchemaDigest, both_legs: ExecutedAs) -> Provenance {
+    pinned.provenance(schemas, both_legs)
 }
 ```
 
 ```rust
-pub fn provenance_for<'a>(&self, executed_as: ExecutedAs, metrics: impl IntoIterator<Item>) -> Result<Provenance, NotDigestible>
+pub fn provenance_for<'a>(&self, schemas: &SchemaDigest, executed_as: ExecutedAs, metrics: impl IntoIterator<Item>) -> Result<Provenance, NotDigestible>
 ```
 
 The provenance to attach to one answer formed over the named metrics: the bundle digest
@@ -5961,6 +5965,8 @@ Why a bundle is not validated.
   **What it costs**, stated with the claim: a data system briefly unreachable at boot now stops
   a deployment that would have served, for a source carrying no anchored metric. For every
   source that carries one, the anchor pass already refused it.
+- `ColumnNotAtSource` - A column the bundle names that its source does not return. Boxed for the reason above.
+- `SchemaNotRead`
 
 #### Implements
 
@@ -13989,6 +13995,147 @@ The rows, for the boot path that compares them against what an author certified.
 ##### Implements
 
 `Clone`, `Debug`, `PartialEq`
+
+### Module `schema`
+
+The Arrow schema a data system returns for a bundle's tables, and the set pinned beside it.
+The Arrow schema a data system returns for the tables a bundle names, pinned beside the bundle.
+
+A catalog's column `data_type` is text for a person and never a cast, so the Arrow type of a
+column comes from the data system.
+`Warehouse::table_schemas` reads it at the load
+and at each refresh, under the deployment's configured identity, because no caller exists at
+either. `PinnedSchemas` holds what was read for the
+columns the bundle names, and nothing else: a column the source returns and the bundle does not
+name is not pinned.
+
+#### `enum TableSchemas`
+
+```rust
+pub enum TableSchemas
+```
+
+What one data system said about the schemas of the tables it was asked for.
+
+##### Variants
+
+- `NotAsked` - This adapter has no way to read a table's schema. Its source stays off the pinned set.
+- `Read` - The schema of each table the data system returned. A table it does not have is absent.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct SchemaDigest`
+
+```rust
+pub struct SchemaDigest
+```
+
+The digest of a `PinnedSchemas`: lower-case hex SHA-256 over each pinned model's name and,
+in order, each column's name, Arrow type and nullability.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+#### `struct PinnedSchemas`
+
+```rust
+pub struct PinnedSchemas
+```
+
+The Arrow schema of each model whose source returned one, cut to the columns the model names.
+
+Built from the bundle of the same load, and held in one snapshot with it. The key of that
+snapshot is the bundle's `DefinitionDigest` and this set's `SchemaDigest`, because a content
+hash of an unchanged bundle stays the same over a changed source.
+
+##### Methods
+
+```rust
+pub const fn digest(&self) -> &SchemaDigest
+```
+
+```rust
+pub fn of(&self, model: &ModelName) -> Option<&SchemaRef>
+```
+
+The pinned schema of one model, `None` where its source returned none.
+
+```rust
+pub fn pin(definitions: &Definitions, read: &BTreeMap<SourceName, SchemasByTable>) -> Result<Self, NotValidated>
+```
+
+Pins what each source returned against the models the bundle declares on it.
+
+A source absent from `read` answered `TableSchemas::NotAsked`, and its models are not
+pinned.
+
+# Errors
+
+`NotValidated::ColumnNotAtSource` for the first column a model names that its source did
+not return, a table the source does not have included.
+
+##### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
+#### `struct ColumnNotAtSource`
+
+```rust
+pub struct ColumnNotAtSource
+```
+
+A column the bundle names that its source did not return, which refuses the load.
+
+##### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn model(&self) -> &ModelName
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `struct SchemaNotRead`
+
+```rust
+pub struct SchemaNotRead
+```
+
+A data system that could not be asked for its tables' schemas, which refuses the load.
+
+##### Methods
+
+```rust
+pub const fn of(source: SourceName, message: String, chain: Vec<String>) -> Self
+```
+
+The adapter's own failure, walked to text because its type cannot cross into the domain.
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `type_alias SchemasByTable`
+
+One data system's schemas, by the table they describe.
 
 ### Module `arrow`
 

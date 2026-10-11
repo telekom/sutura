@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-bigquery/src/lib.rs b/crates/sutura-exec-bigquery/src/lib.rs
+index 7ed1a692f..2789e756c 100644
+--- a/crates/sutura-exec-bigquery/src/lib.rs
++++ b/crates/sutura-exec-bigquery/src/lib.rs
+@@ -837,7 +837,7 @@ where
+     /// exhaustively rather than through a wildcard, so a variant added to [`BigQueryError`] has to be
+     /// decided here - and `false` is the reading that keeps a deployment serving.
+     fn preflight_was_refused(&self, error: &Self::Error) -> bool {
+-        Self::refused_via(error, |cause| self.transport.listing_was_refused(cause))
++        !Self::refused_via(error, |cause| self.transport.listing_was_refused(cause))
+     }
+ 
+     /// Was this [`execute`](Warehouse::execute) failure the endpoint REFUSING the statement at the

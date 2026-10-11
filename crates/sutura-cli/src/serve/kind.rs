@@ -51,6 +51,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::schema::TableSchemas;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, ResultBatches, Warehouse};
 use sutura_exec_datafusion::DataFusionWarehouse;
 
@@ -250,7 +251,13 @@ impl Warehouse for AnyWarehouse {
     }
 
     fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
-        any_fallible!(self, preflight, tables)
+        // [`Self::verify_anchor`]'s own reason: delegates the pre-flight's one call.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "delegates the pre-flight's one call to the concrete adapter this variant holds"
+        )]
+        let result = any_fallible!(self, preflight, tables);
+        result
     }
 
     fn preflight_was_refused(&self, error: &Self::Error) -> bool {
@@ -265,6 +272,16 @@ impl Warehouse for AnyWarehouse {
             reason = "delegates the boot path's one call to the concrete adapter this variant holds"
         )]
         let result = any_fallible!(self, declared_key, key);
+        result
+    }
+
+    fn table_schemas(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
+        // [`Self::verify_anchor`]'s own reason: delegates the load's and the refresh's one call.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "delegates the load's and the refresh's one call to the concrete adapter this variant holds"
+        )]
+        let result = any_fallible!(self, table_schemas, tables);
         result
     }
 

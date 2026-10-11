@@ -107,7 +107,7 @@ fn a_federated_answer_dry_runs_each_leg_exactly_once() {
     .expect("two sources, one registry");
 
     let outcome = answer_federated(
-        &bundle(),
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
         &federated_plan(),
         &asked_by_a_person(),
         &crate::tests_support::CountingBroker::default(),

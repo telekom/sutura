@@ -462,7 +462,7 @@ where
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
         Compiled::Federated { plan } => {
             return answer_federated(
-                pinned,
+                (pinned, definitions.schemas().digest()),
                 &plan,
                 context,
                 broker,
@@ -756,7 +756,7 @@ where
     // The per-metric digests follow the question's metric order, which is also the column order a
     // measure occupies in the rows, so the Nth digest certifies the Nth measure column.
     let provenance = pinned
-        .provenance_for(executed_as, query.metrics())
+        .provenance_for(definitions.schemas().digest(), executed_as, query.metrics())
         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?;
     Ok(Answered::under(&credentials, ToolOutcome::Answer { provenance, rows }))
 }

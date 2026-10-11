@@ -7,10 +7,12 @@
 //! `Warehouse`, is what a reviewer has to notice - and it is a one-item diff in one place
 //! rather than a property of every call site.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
 use sutura_domain::warehouse::Warehouse;
+use sutura_domain::warehouse::schema::{PinnedSchemas, SchemaNotRead, TableSchemas};
 
 use crate::warehouses::Warehouses;
 
@@ -32,8 +34,11 @@ use crate::warehouses::Warehouses;
 /// threads, so a snapshot is a value several owners hold at once. `Clone` is therefore a counter
 /// bump, never a copy of the bundle, and a clone is the same proof - it cannot be made from
 /// anything else.
+///
+/// **It holds the schema set of the same load beside the bundle**, so one snapshot carries both, and
+/// a question that took it keeps both.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Validated<T>(Arc<T>);
+pub struct Validated<T>(Arc<T>, Arc<PinnedSchemas>);
 
 impl<T> Validated<T> {
     #[inline]
@@ -45,6 +50,12 @@ impl<T> Validated<T> {
     #[inline]
     pub fn share(&self) -> Arc<T> {
         Arc::clone(&self.0)
+    }
+
+    /// The schema set pinned at the same load as the validated value.
+    #[inline]
+    pub fn schemas(&self) -> &PinnedSchemas {
+        &self.1
     }
 }
 
@@ -150,6 +161,20 @@ pub fn verify_and_validate<W>(
 where
     W: Warehouse,
 {
+    let schemas = pin_schemas(&pinned, warehouses)?;
+    validate_with(pinned, schemas, warehouses)
+}
+
+/// [`verify_and_validate`] over a schema set the caller pinned from `pinned` itself, for a refresh
+/// that read the set before it knew whether anything changed.
+pub(crate) fn validate_with<W>(
+    pinned: PinnedDefinitions,
+    schemas: PinnedSchemas,
+    warehouses: &Warehouses<W>,
+) -> Result<Validated<PinnedDefinitions>, NotValidated>
+where
+    W: Warehouse,
+{
     // Before anything is executed: can this build execute every metric the bundle declares?
     if !W::EXECUTES_AUTHORED_SQL {
         let mut authored = pinned.definitions().metrics().values();
@@ -166,5 +191,48 @@ where
     super::declared_keys::hold(&pinned, warehouses)?;
     let report = super::verify_anchors(&pinned, warehouses);
     report.verdict(&pinned)?;
-    Ok(Validated(Arc::new(pinned)))
+    Ok(Validated(Arc::new(pinned), Arc::new(schemas)))
+}
+
+/// Reads each source's table schemas and pins them against the bundle: the load's and each
+/// refresh's one read.
+pub(crate) fn pin_schemas<W>(pinned: &PinnedDefinitions, warehouses: &Warehouses<W>) -> Result<PinnedSchemas, NotValidated>
+where
+    W: Warehouse,
+{
+    let models = pinned.definitions().models();
+    let mut read = BTreeMap::new();
+    for (source, warehouse) in warehouses.each() {
+        let tables: BTreeSet<_> = models
+            .values()
+            .filter(|model| model.source() == source)
+            .map(|model| model.table().clone())
+            .collect();
+        if tables.is_empty() {
+            continue;
+        }
+        // THE credential-free call, and the one `#[expect]` that lets it compile: the load and every
+        // refresh reach it through this function, and a further call site is a diff a reviewer sees.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the load and the refresh are the callers of the port method that reads table schemas with no \
+                      credential; the ban exists so that this is the only place it is called"
+        )]
+        let answered = warehouse.table_schemas(&tables);
+        match answered {
+            Ok(TableSchemas::Read(schemas)) => {
+                read.insert(source.clone(), schemas);
+            }
+            Ok(TableSchemas::NotAsked) => {}
+            Err(cause) => {
+                let (message, chain) = crate::flatten(&cause);
+                return Err(NotValidated::SchemaNotRead(Box::new(SchemaNotRead::of(
+                    source.clone(),
+                    message,
+                    chain,
+                ))));
+            }
+        }
+    }
+    PinnedSchemas::pin(pinned.definitions(), &read)
 }

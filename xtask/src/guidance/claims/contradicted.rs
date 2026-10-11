@@ -912,7 +912,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // name.
         evidence: &[Evidence {
             path: "crates/sutura-domain/src/pinned.rs",
-            holds: "pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance",
+            holds: "pub fn provenance(&self, schemas: &SchemaDigest, executed_as: ExecutedAs) -> Provenance",
         }],
         instead: "a federated answer whose legs decide identity differently is ANSWERED, and its \
                   `executed_as` carries one entry per source naming that leg's own posture - \

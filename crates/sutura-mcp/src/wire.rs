@@ -699,7 +699,7 @@ mod tests {
         )
         .expect("a one-cell result is a result set");
         let content = OutcomeContent::from(&ToolOutcome::Answer {
-            provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
+            provenance: crate::testing::provenance_of(crate::testing::ran_shared()),
             rows,
         });
         let rendered = serde_json::to_string(&content).expect("the outcome serializes");
@@ -731,7 +731,7 @@ mod tests {
         let rows = RowSet::new(vec![String::from("region")], vec![vec![Value::Text(String::from(cell))]])
             .expect("a one-cell result is a result set");
         OutcomeContent::from(&ToolOutcome::Answer {
-            provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
+            provenance: crate::testing::provenance_of(crate::testing::ran_shared()),
             rows,
         })
         .as_text()
@@ -812,7 +812,7 @@ mod tests {
         let rows = RowSet::new(vec![String::from("region")], vec![vec![Value::Text(String::from("north"))]])
             .expect("a one-cell result is a result set");
         let content = OutcomeContent::from(&ToolOutcome::Answer {
-            provenance: crate::testing::bundle().provenance(crate::testing::ran_two_postures()),
+            provenance: crate::testing::provenance_of(crate::testing::ran_two_postures()),
             rows,
         });
         let OutcomeContent::Answer { ref executed_as, .. } = content else {

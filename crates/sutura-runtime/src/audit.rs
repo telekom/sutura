@@ -253,7 +253,7 @@ mod tests {
             },
         );
         ToolOutcome::Answer {
-            provenance: pinned.provenance(ran_as),
+            provenance: pinned.provenance(sutura_domain::warehouse::schema::PinnedSchemas::default().digest(), ran_as),
             rows: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(1)]])
                 .expect("one column and one cell is rectangular"),
         }
