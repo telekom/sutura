@@ -4,8 +4,9 @@
 //! for, and the deadline is checked before every one, so a result that will be refused is refused
 //! at the batch that crosses the line. The driver hands a `NUMBER` with no fixed precision back as
 //! its exact decimal text; a value of that text that parses as an `i64` is read as
-//! [`Value::Integer`] and every other stays exact [`Value::Text`], the split the Postgres adapter
-//! draws for `NUMERIC`. A `DATE` or `TIMESTAMP` arrives as a microsecond timestamp and is read as
+//! [`Value::Integer`](sutura_domain::warehouse::Value::Integer) and every other stays exact
+//! [`Value::Text`](sutura_domain::warehouse::Value::Text), the split the Postgres adapter draws
+//! for `NUMERIC`. A `DATE` or `TIMESTAMP` arrives as a microsecond timestamp and is read as
 //! its day. Every other type is the domain reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
 
 use std::sync::Arc;
