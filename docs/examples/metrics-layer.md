@@ -65,6 +65,7 @@ sources:
     endpoint: "https://cube.example.com"
     token_file: "/run/sutura/cube-token"
     posture: "impersonation-at-source"
+    verification_identity: "sutura-deployment"
     delegation:
       - token_endpoint: "http://127.0.0.1:8180/realms/metrics-layer/protocol/openid-connect/token"
         client_id: "https://sutura.example.com"
@@ -76,12 +77,14 @@ Cube serves plain HTTP, and sutura sends a caller's token only over `https`. Put
 front of `cube-metrics`, and give its CA in `security.outbound.transport_anchors`.
 
 `token_file` holds a token of the `sutura-deployment` client. sutura sends it only for the checks
-it runs at startup.
+it runs at startup. `verification_identity` names the identity of those checks, because the
+`revenue` metric has an anchor.
 
 ## shared-service-user
 
 sutura sends the token of the `sutura-deployment` client on every request. Every caller reads
-`412345`, the answer of the deployment.
+`412345`, the answer of the deployment. `acknowledged_because` on the source records why every
+caller reads as one identity.
 
 ## Related
 

@@ -35,3 +35,4 @@ sources:
     # The token of the `sutura-deployment` client, sent on every request.
     token_file: "/run/sutura/cube-token"
     posture: "shared-service-user"
+    acknowledged_because: "every caller reads the metrics layer as the deployment's own client"

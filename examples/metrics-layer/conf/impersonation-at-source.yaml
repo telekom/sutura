@@ -35,6 +35,8 @@ sources:
     # The token of the `sutura-deployment` client. sutura sends it only for the startup checks.
     token_file: "/run/sutura/cube-token"
     posture: "impersonation-at-source"
+    # The catalog's `revenue` metric has an anchor. sutura checks it at startup as this identity.
+    verification_identity: "sutura-deployment"
     delegation:
       - token_endpoint: "http://127.0.0.1:8180/realms/metrics-layer/protocol/openid-connect/token"
         client_id: "https://sutura.example.com"

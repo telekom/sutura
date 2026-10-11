@@ -110,6 +110,7 @@ sources:
     endpoint: "https://cube.example.com"
     token_file: "/run/sutura/cube-token"
     posture: "impersonation-at-source"
+    verification_identity: "sutura-deployment"
     delegation:
       - token_endpoint: "http://127.0.0.1:8180/realms/metrics-layer/protocol/openid-connect/token"
         client_id: "https://sutura.example.com"
