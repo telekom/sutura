@@ -47,3 +47,87 @@ pub(crate) fn open_cube(
          links no Cube adapter. Build `sutura-cli` with `--features cube`, or declare a `files` source"
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "cube")]
+    use crate::serve::ENGINE_SOURCE;
+    use crate::serve::open_engine;
+    #[cfg(feature = "cube")]
+    use crate::serve::tests::entry;
+    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
+
+    /// One `cube` entry whose token file is not there, so a refusal naming that key is proof the
+    /// composition reached the credential step - and dialled nothing.
+    fn cube_entry(alias: &str) -> String {
+        format!(
+            "  {alias}:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+             token_file: \"/nonexistent/sutura-test-cube-token\"\n    posture: \"shared-service-user\"\n"
+        )
+    }
+
+    /// **Refused at startup and naming the source and the feature, not skipped**: a default build
+    /// links no Cube adapter. Compiled by `cargo xtask check-default-features` and RUN by
+    /// `cargo xtask check-default-feature-tests`; `--all-features` makes this cfg false.
+    #[test]
+    #[cfg(not(feature = "cube"))]
+    fn a_cube_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&cube_entry("warehouse")),
+                one_worker(),
+                default_timeout(),
+                None,
+            ),
+            "a kind this binary linked no adapter for must not start",
+        );
+        assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+        assert!(
+            error.contains("--features cube"),
+            "the refusal must say what to build: {error}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cube")]
+    fn a_cube_source_reaches_the_token_file_the_deployment_declared() {
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &registry(&cube_entry("warehouse")),
+                one_worker(),
+                default_timeout(),
+                None,
+            ),
+            "the declared token file is not there, so this deployment does not start",
+        );
+        assert!(error.contains("warehouse.token_file"), "{error}");
+    }
+
+    /// The mixed registry's `cube` group: the `files` half opens, then the Cube half is refused by
+    /// its own credential read rather than by the kind or the mix.
+    #[test]
+    #[cfg(feature = "cube")]
+    fn a_catalog_spanning_files_and_cube_reaches_the_cube_credential() {
+        let both = format!(
+            "{}{}",
+            entry(ENGINE_SOURCE, "shared-service-user", ""),
+            cube_entry("warehouse")
+        );
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[
+                    ("customers", ENGINE_SOURCE, "dim_customer"),
+                    ("products", "warehouse", "dim_product"),
+                ]),
+                &registry(&both),
+                one_worker(),
+                default_timeout(),
+                None,
+            ),
+            "a mixed catalog opens each kind and reaches the cube arm's own credential refusal",
+        );
+        assert!(error.contains("warehouse.token_file"), "{error}");
+    }
+}
