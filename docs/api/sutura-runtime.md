@@ -1441,6 +1441,15 @@ An empty buffer, teeing to standard output if `TEE_VARIABLE` is set.
 
 `Clone`, `Default`, `MakeWriter<'a>`, `Write`
 
+### `fn bridge_log`
+
+```rust
+pub fn bridge_log()
+```
+
+The service's own `log` bridge, for a test that installs its own global subscriber and has to see
+what a dependency logs through `log` the way the service would.
+
 ### `constant TEE_VARIABLE`
 
 Set this to anything non-empty to have a captured log also reach standard output.
