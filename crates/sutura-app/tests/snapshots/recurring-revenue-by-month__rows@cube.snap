@@ -1,0 +1,11 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+period	recurring_revenue
+Text(2026-01-01)	Integer(237320)
+Text(2026-02-01)	Integer(232822)
+Text(2026-03-01)	Integer(216700)
+Text(2026-04-01)	Integer(206160)
+Text(2026-05-01)	Integer(202994)
+Text(2026-06-01)	Integer(202121)

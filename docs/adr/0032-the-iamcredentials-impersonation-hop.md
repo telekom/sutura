@@ -1,6 +1,6 @@
 ---
 title: The iamcredentials impersonation hop
-description: WITHDRAWN by the second amendment - the hop, its port and the broker that made it are deleted and no served path performs one. The record of why a declared per-source subject-to-service-account map beat a direct principal:// grant, and of the comparison that argument rested on: a service-account email, which the shipped mechanism no longer produces.
+description: SUPERSEDED by the fourth amendment - BigQuery grants the caller's own pool principal directly (option 3) and no service account, hop or subject map remains. The record of why the declared map was taken first.
 ---
 
 # The iamcredentials impersonation hop
@@ -187,3 +187,13 @@ account, and the map decides both whether a caller is served and as whom. The po
 `iamcredentials` call this record designed and the broker that made it stay deleted: the hop is the
 driver's, not this process's. This is **built and unproven**: `docs/where-identity-is-proven.md`
 records the venue that would show it as `wired`, with no observed run.
+
+## Fourth amendment, 2026-10-10: option (3) replaces the hop, and the map is deleted
+
+`docs/adr/20261010193211-bigquery-grants-the-callers-wif-principal-directly.md` decides it. The
+credential document names no `service_account_impersonation_url`, so the federated token is the
+caller's own pool principal and BigQuery's grants on it decide what the caller reads.
+`workload_identity.impersonate` is deleted; a federating source presents every verified caller,
+and the pool's attribute conditions and BigQuery IAM decide who reaches data. Option (3)'s
+objection - that the acceptance text names a service-account email - no longer holds, because no
+caller has one.

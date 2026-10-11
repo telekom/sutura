@@ -71,14 +71,14 @@ Those three plus secure-by-design are the definition of *correct* in review here
   change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
-  who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: on BigQuery
-  the caller's own verified assertion is federated through the declared pool, and the account the
-  source's per-source map declares for that subject becomes the credential's
-  `service_account_impersonation_url` - an undeclared subject is refused, never run as the
-  deployment. The adapter venue that would show it is `wired` with **no observed run**; a served
+  who is asking) is built. Leg 2 is **observed at the BigQuery adapter, not at a served human caller**: on BigQuery
+  the caller's own verified assertion is federated through the declared pool, and the federated
+  token is that subject's own pool principal - no service account is impersonated, and BigQuery's
+  grants on that principal decide what it reads. An anonymous caller is refused, never run as the
+  deployment. The adapter venue passed on 2026-10-11 at
+  `github.com/telekom/sutura/actions/runs/38116387739`; a served
   venue is not built, by decision - sutura assumes the operator configures a valid issuer and pool,
-  and proves only its own half. The run this sentence once cited was of an HTTP exchange the ADBC
-  adoption deleted.
+  and the observed adapter run uses fixture assertions, not human sign-in.
   `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
   this claim while that page records no run - in prose files (`md`/`nix`/`yml`/`yaml`/`toml`/`sh`)
   and in `.rs` doc comments (`///`, `//!`) only. A `//` or `/* */` comment or a string literal in

@@ -25,6 +25,8 @@ members = [
   "crates/sutura-catalog-datacontract",
   # Declaring source: capabilities and limits are in docs/what-openmetadata-can-carry.md.
   "crates/sutura-catalog-openmetadata",
+  # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
+  "crates/sutura-catalog-cube",
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -59,6 +61,8 @@ members = [
   # sutura#127` PR 2). THE DATA SOURCE, not an engine. Shipped: `nix/shipped.nix` lists the
   # `oracle` feature of `sutura-cli`.
   "crates/sutura-exec-oracle",
+  # A Warehouse over a Cube metrics serving layer's REST API: Cube computes each metric.
+  "crates/sutura-exec-cube",
   "crates/sutura-adbc",
   # The PostgreSQL ADBC connector, held off `sutura-sql` so a catalog reader can share it.
   "crates/sutura-adbc-postgres",
@@ -124,6 +128,7 @@ sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
+sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
@@ -150,6 +155,8 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 # `cargo xtask unused-deps` is what keeps the line honest in either direction. Still no golden or
 # differential suite: the crate's own `lib.rs` header carries what remains unreached.
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
+# `sutura-app` inherits it as a development dependency, for the golden matrix.
+sutura-exec-cube = { path = "crates/sutura-exec-cube" }
 sutura-adbc = { path = "crates/sutura-adbc" }
 sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
 sutura-tls = { path = "crates/sutura-tls" }

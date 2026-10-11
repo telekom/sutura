@@ -8,10 +8,11 @@ use std::path::PathBuf;
 
 use sutura_domain::model::SourceName;
 
-use super::placement::SourcePlacement;
+use super::placement::{InvalidDelegation, SourcePlacement};
+use super::workload_identity::DelegationDeclared;
 // Through the parent rather than `placement`: the parent's import is also what resolves the
 // `BillingProject` links in its children's `//!` headers, which rustdoc reads in its scope.
-use super::{BillingProject, DatasetId, InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, oracle};
+use super::{BillingProject, DatasetId, InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, cube, oracle};
 
 /// Reads the fields that belong to this entry's kind, and refuses the ones that do not.
 ///
@@ -38,13 +39,14 @@ pub(super) fn parse_placement(
     if kind != SourceKind::ClickHouse {
         refuse_foreign_keys(alias, kind, [("impersonate", entry.impersonate.is_some())])?;
     }
-    // The removed allow-list, on every kind; and `oracle`'s own exchange on every other one.
+    // The removed allow-list, on every kind; and the exchange `oracle` and `cube` read, on every other one.
     if entry.subjects {
         return Err(InvalidSourceRegistry::SubjectsRemoved { alias: alias.clone() });
     }
-    if kind != SourceKind::Oracle {
+    if !matches!(kind, SourceKind::Oracle | SourceKind::Cube) {
         refuse_foreign_keys(alias, kind, [("delegation", entry.delegation.is_some())])?;
     }
+    cube::refuse_elsewhere(alias, kind, entry, written)?;
     match kind {
         SourceKind::Files => {
             refuse_foreign_keys(
@@ -196,6 +198,7 @@ pub(super) fn parse_placement(
         }
         SourceKind::ClickHouse => clickhouse::parse_placement(alias, kind, entry, written),
         SourceKind::Oracle => oracle::parse_placement(alias, kind, entry, written),
+        SourceKind::Cube => cube::parse_placement(alias, kind, entry, written),
         SourceKind::Duckdb => {
             refuse_foreign_keys(
                 alias,
@@ -278,6 +281,40 @@ pub(super) fn dialled_source_keys(
         ("client_certificate", written(entry.client_certificate)),
         ("client_key", written(entry.client_key)),
     ]
+}
+
+/// The hops each caller's token is exchanged through, for the two kinds that read one: required on
+/// an `impersonation-at-source` entry and refused on any other - and never beside
+/// `workload_identity`, which only `bigquery` reads.
+///
+/// `channel_refusal` is what an impersonating entry earns for the channel its kind declared, `None`
+/// when that channel is encrypted: every request sends the caller's exchanged token.
+pub(super) fn parse_delegation(
+    alias: &SourceName,
+    kind: SourceKind,
+    entry: &RawSourceEntry<'_>,
+    channel_refusal: Option<InvalidDelegation>,
+) -> Result<Vec<DelegationDeclared>, InvalidSourceRegistry> {
+    refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
+    let invalid = |cause| InvalidSourceRegistry::Delegation {
+        alias: alias.clone(),
+        cause,
+    };
+    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.delegation) {
+        (false, None) => return Ok(Vec::new()),
+        (false, Some(_)) => return Err(invalid(InvalidDelegation::NotImpersonating)),
+        (true, None | Some([])) => return Err(invalid(InvalidDelegation::Missing)),
+        (true, Some(declared)) => declared,
+    };
+    if let Some(cause) = channel_refusal {
+        return Err(invalid(cause));
+    }
+    let hops = declared
+        .iter()
+        .map(|hop| DelegationDeclared::of(alias, hop, "delegation.token_endpoint", "delegation.client_secret_file"))
+        .collect::<Result<Vec<_>, _>>()?;
+    super::workload_identity::refuse_broker_token_last(alias, "delegation", hops.last().map(DelegationDeclared::grant))?;
+    Ok(hops)
 }
 
 /// Refuses the first key in `keys` this entry wrote, naming it and the kind it does not belong to.

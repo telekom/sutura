@@ -621,7 +621,8 @@ impl Settings {
                         alias,
                         key: "workload_identity.delegation",
                     })
-                } else if let crate::SourcePlacement::Oracle { ref delegation, .. } = *source.placement()
+                } else if let crate::SourcePlacement::Oracle { ref delegation, .. }
+                | crate::SourcePlacement::Cube { ref delegation, .. } = *source.placement()
                     && !delegation.is_empty()
                 {
                     Some(NotFitToServe::DelegationWithoutDirectInbound {

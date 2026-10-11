@@ -39,6 +39,8 @@
 //!   seventh amendment* is prose nothing resolves, so a renumber still has to be carried by hand.
 //! * **`##` only.** A `###` amendment is a subsection of one, which is how this tree writes an
 //!   addendum, and folding both levels into one sequence would number an addendum as an amendment.
+//! * **A compound ordinal written with a space.** `## Twenty first amendment` has `Twenty` as its
+//!   first word, which is neither an ordinal nor shaped like one, so it reads as no amendment.
 //! * **A heading whose ordinal is not its first word.** `## **Second amendment**` is invisible
 //!   here - the first word decides, and a decorated heading reads as no amendment at all rather
 //!   than as a wrong one.
@@ -57,10 +59,7 @@
 use crate::causality::regions::PostImage;
 use crate::markdown;
 
-/// The ordinal words a heading may carry. The index is the position the word names, minus one.
-///
-/// Twenty because a record needing a twenty-first amendment has a bigger problem than its
-/// numbering, and an unknown word is reported as *not an amendment heading* rather than guessed at.
+/// The ordinal words below twenty. The index is the position the word names, minus one.
 const ORDINALS: &[&str] = &[
     "first",
     "second",
@@ -81,8 +80,47 @@ const ORDINALS: &[&str] = &[
     "seventeenth",
     "eighteenth",
     "nineteenth",
-    "twentieth",
 ];
+
+/// Twenty to ninety: the cardinal a compound ordinal is built on and the ordinal a round one is.
+/// The index is the tens digit, minus two.
+const TENS: &[(&str, &str)] = &[
+    ("twenty", "twentieth"),
+    ("thirty", "thirtieth"),
+    ("forty", "fortieth"),
+    ("fifty", "fiftieth"),
+    ("sixty", "sixtieth"),
+    ("seventy", "seventieth"),
+    ("eighty", "eightieth"),
+    ("ninety", "ninetieth"),
+];
+
+/// The position a heading's ordinal word names, `first` through `ninety-ninth` in any case.
+///
+/// Past that a word is not read, and [`amendment`] refuses a heading carrying one rather than
+/// skipping it.
+fn ordinal(word: &str) -> Option<usize> {
+    let tens = |at: usize| at.saturating_add(2).saturating_mul(10);
+    if let Some(at) = ORDINALS.iter().position(|ordinal| word.eq_ignore_ascii_case(ordinal)) {
+        return Some(at.saturating_add(1));
+    }
+    if let Some(at) = TENS.iter().position(|(_, ordinal)| word.eq_ignore_ascii_case(ordinal)) {
+        return Some(tens(at));
+    }
+    let (cardinal, unit) = word.split_once('-')?;
+    let at = TENS.iter().position(|(tens, _)| cardinal.eq_ignore_ascii_case(tens))?;
+    let unit = ORDINALS
+        .iter()
+        .take(9)
+        .position(|ordinal| unit.eq_ignore_ascii_case(ordinal))?;
+    Some(tens(at).saturating_add(unit).saturating_add(1))
+}
+
+/// Does the word end the way an ordinal does, whether or not [`ordinal`] can read it?
+fn is_ordinal_shaped(word: &str) -> bool {
+    word.get(word.len().saturating_sub(2)..)
+        .is_some_and(|tail| ["st", "nd", "rd", "th"].iter().any(|end| tail.eq_ignore_ascii_case(end)))
+}
 
 /// Is this word the noun, whatever punctuation the heading writes after it?
 ///
@@ -99,6 +137,9 @@ pub(super) enum Heading {
     Unnumbered,
     /// `## Nth amendment...` - claiming that position.
     Numbered(usize),
+    /// `## <ordinal-shaped word> amendment...` that [`ordinal`] cannot read. It still occupies its
+    /// position, and it is reported, because skipping it would let a wrong number there pass.
+    Unreadable,
 }
 
 /// One amendment heading, and the line a reader finds it on.
@@ -119,8 +160,12 @@ pub(super) fn amendment(line: &str) -> Option<Heading> {
     if is_amendment(first) {
         return Some(Heading::Unnumbered);
     }
-    let position = ORDINALS.iter().position(|word| first.eq_ignore_ascii_case(word))?;
-    is_amendment(words.next()?).then_some(Heading::Numbered(position.saturating_add(1)))
+    let heading = match ordinal(first) {
+        Some(position) => Heading::Numbered(position),
+        None if is_ordinal_shaped(first) => Heading::Unreadable,
+        None => return None,
+    };
+    is_amendment(words.next()?).then_some(heading)
 }
 
 /// The amendment headings of one page, in file order, against the positions they occupy.
@@ -143,12 +188,26 @@ pub(super) fn sequence_problems(rel: &str, lines: &[String]) -> (Vec<String>, us
     for (index, one) in found.iter().enumerate() {
         let position = index.saturating_add(1);
         let (line, named) = (one.line, name_of(position));
+        let fix = || {
+            if position > 99 {
+                String::from("this page has more amendments than the gate reads")
+            } else {
+                format!("write it as the {named} amendment")
+            }
+        };
         match one.heading {
             Heading::Unnumbered if position == 1 => {}
             Heading::Unnumbered => problems.push(format!(
                 "{rel}:{line}: an amendment with no ordinal, {position} of {} in file order - a reader \
-                 cannot cite it, so write it as the {named} amendment",
-                found.len()
+                 cannot cite it; {}",
+                found.len(),
+                fix()
+            )),
+            Heading::Unreadable => problems.push(format!(
+                "{rel}:{line}: an amendment heading whose ordinal this gate cannot read, {position} of {} \
+                 in file order - it reads first through ninety-ninth; {}",
+                found.len(),
+                fix()
             )),
             Heading::Numbered(claimed) if claimed == position => {}
             Heading::Numbered(claimed) => {
@@ -163,9 +222,18 @@ pub(super) fn sequence_problems(rel: &str, lines: &[String]) -> (Vec<String>, us
     (problems, found.len())
 }
 
-/// The word for a position, past the end of [`ORDINALS`] included.
-fn name_of(position: usize) -> &'static str {
-    ORDINALS.get(position.saturating_sub(1)).copied().unwrap_or("later")
+/// The word for a position: the inverse of [`ordinal`], and `later` past what it reads.
+fn name_of(position: usize) -> String {
+    if let Some(word) = ORDINALS.get(position.saturating_sub(1)) {
+        return (*word).to_owned();
+    }
+    TENS.iter()
+        .zip((20..).step_by(10))
+        .find_map(|((cardinal, round), base)| match position.checked_sub(base)? {
+            0 => Some((*round).to_owned()),
+            unit => ORDINALS.iter().take(9).nth(unit - 1).map(|word| format!("{cardinal}-{word}")),
+        })
+        .unwrap_or_else(|| String::from("later"))
 }
 
 /// Does this line END a block, so that a table may start on the next one with no blank between?

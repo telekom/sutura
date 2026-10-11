@@ -38,7 +38,7 @@ variables, in that order. [Configuration](configuration.md) lists the layers and
 
 Each data system and each catalog has its own settings. See the [integrations](integrations/index.md).
 
-`catalogs[].refresh_seconds` sets how often `sutura serve` reads the catalog again. The default is 900 seconds, and `0` is
+`sutura serve` reads all catalog entries again at the shortest `catalogs[].refresh_seconds` among them. The default is 900, and `0` is
 refused. A refresh swaps the served catalog. A new question uses the new snapshot, and a question in flight ends on the
 snapshot that it started with. A bundle that fails the start-up checks is refused, and the served catalog stays in place.
 On a `files` source, a bundle that names a table that the engine did not attach at start-up is refused until a restart.
@@ -88,7 +88,7 @@ The log has `INFO` lines about the check in two cases. When BigQuery is the only
 model of the catalog reads gets one line: every table is there. When there is more than one kind of data system, the
 check runs over every source, and each source that a model reads gets one line. BigQuery says that every table is
 there. Every other kind, `files` included, says that the adapter does not report which tables it holds. A deployment of
-one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle or DuckDB) logs no line about tables.
+one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle, DuckDB or Cube) logs no line about tables.
 
 ## Who is asking
 

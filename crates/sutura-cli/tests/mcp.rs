@@ -113,3 +113,11 @@ mod common;
 #[cfg(feature = "postgres")]
 #[path = "mcp/rdbms.rs"]
 mod rdbms;
+
+// `examples/cube` against the provisioned Cube, `#[ignore]`d behind `just cube-acceptance`.
+// `cfg(feature = "cube")` because a build without it refuses the example's catalog and source.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "cube")]
+#[path = "mcp/cube.rs"]
+mod cube;

@@ -3,6 +3,8 @@
 # line naming a test that is no longer #[ignore]d. It reads the literal attribute only:
 # see the gate's header for what it does not see.
 crates/sutura-app/tests/golden/data_systems.rs::the_bigquery_dataset_holds_the_example_corpus
+crates/sutura-catalog-cube/tests/provisioned.rs::a_token_the_tier_did_not_sign_is_refused
+crates/sutura-catalog-cube/tests/provisioned.rs::the_live_cube_serves_the_recorded_definitions
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_bearerless_read_is_401_under_the_enforced_tier
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_document_served_by_a_real_datahub_decodes_into_a_certified_metric
 crates/sutura-catalog-datahub/tests/provisioned.rs::the_provisioned_datahub_serves_the_surface_a_reader_would_call
@@ -14,12 +16,15 @@ crates/sutura-catalog-openmetadata/tests/provisioned.rs::the_golden_catalog_roun
 crates/sutura-catalog-openmetadata/tests/provisioned.rs::the_provisioned_openmetadata_serves_the_surface_a_reader_would_call
 crates/sutura-catalog-rdbms/tests/oracle_provisioned.rs::a_live_oracle_dictionary_binds_models_to_the_declared_source_alias
 crates/sutura-catalog-rdbms/tests/oracle_provisioned.rs::a_live_oracle_reader_refuses_when_the_documentation_schema_is_absent
+crates/sutura-cli/tests/mcp/cube.rs::the_cube_example_answers_a_metric_through_the_provisioned_cube
 crates/sutura-cli/tests/served/delegation_adbc.rs::a_spawned_deployment_exchanges_the_declared_callers_own_token_and_no_one_elses
 crates/sutura-cli/tests/served/delegation_adbc.rs::a_spawned_deployments_refused_exchange_answers_identity_unavailable_and_reaches_no_source
 crates/sutura-cli/tests/served/e2e_adbc.rs::served_datahub_metric_executes_through_adbc_bigquery
 crates/sutura-cli/tests/served/keycloak_test.rs::a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience
 crates/sutura-cli/tests/served/keycloak_test.rs::a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys
 crates/sutura-cli/tests/served/keycloak_test.rs::a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused
+crates/sutura-cli/tests/served/metrics_layer.rs::each_caller_reads_only_their_own_regions_through_the_metrics_layer_example
+crates/sutura-cli/tests/served/metrics_layer.rs::every_caller_reads_the_deployments_answer_with_a_shared_service_user
 crates/sutura-exec-bigquery/tests/declared_principal.rs::each_subject_executes_as_its_own_principal_at_the_declared_pool
 crates/sutura-exec-bigquery/tests/declared_principal.rs::the_deployments_own_identity_is_neither_subjects_principal
 crates/sutura-exec-oracle/tests/acceptance.rs::a_quoted_identifier_names_the_object_the_dictionary_stores

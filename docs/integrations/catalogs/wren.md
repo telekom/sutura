@@ -53,6 +53,10 @@ sources:
     posture: "shared-service-user"
 ```
 
+`sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
+
+The refresh reads the converted directory, not the Wren manifest. A change to the manifest reaches `sutura serve` only after you run `sutura import wren` again.
+
 ## What the command converts
 
 The command converts a column, one aggregate over one column, a ratio of two such aggregates, and

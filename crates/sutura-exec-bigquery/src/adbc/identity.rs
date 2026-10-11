@@ -8,27 +8,21 @@
 //! # The mechanism
 //!
 //! An impersonating source hands the driver a WORKLOAD-IDENTITY CREDENTIAL DOCUMENT naming a
-//! loopback source for the asking subject's own assertion, and the account that subject's
-//! questions are declared to execute as - [`super::subject`] builds both and carries the whole
-//! argument, including why a loopback URL rather than a file or an executable, and what the open
-//! port's exposure actually is.
+//! loopback source for the asking subject's own assertion - [`super::subject`] builds it and carries
+//! the whole argument, including why a loopback URL rather than a file or an executable, and what the
+//! open port's exposure actually is. The document names no second hop: the federated token Google's
+//! token service returns IS the subject's own pool principal, and `BigQuery`'s grants on that
+//! principal decide what it reads.
 //!
-//! # Two second hops, and only one of them is here
+//! # No second hop
 //!
-//! **This one** is the pool's principal impersonating a declared account, authorized by
-//! `roles/iam.workloadIdentityUser` **on that account**, bound to the pool subject the caller's
-//! assertion resolves to - the grant `test-infra/pulumi/google` already declares, because that
-//! role carries `iam.serviceAccounts.getAccessToken`. So F3 needs no new binding, and
-//! `roles/iam.serviceAccountTokenCreator` - which the deleted hop needed - stays inapplicable. The
-//! chain starts at a credential the CALLER possesses: no assertion, no token.
-//!
-//! **The deleted one** was `bigquery.impersonate.target_principal`, which impersonated a declared
-//! account from the DEPLOYMENT's own application default credentials - the subject's own
-//! credential was nowhere in that chain, and the owner rejected it. The option, the per-subject
-//! account newtype and the scope newtype that fed it are gone rather than kept beside the
-//! federating path: a fallback a misconfiguration could select is the defect, not a convenience.
-//! What makes them different is not the URL, which is the same endpoint - it is **who authorizes
-//! the call**, and in this one that is a principal only a verified caller can reach.
+//! Two were built and both are deleted. `bigquery.impersonate.target_principal` impersonated a
+//! declared account from the DEPLOYMENT's own application default credentials - the subject's own
+//! credential was nowhere in that chain, and the owner rejected it. A
+//! `service_account_impersonation_url` impersonated a declared account from the pool principal, and
+//! grants on the principal itself replaced it (`docs/adr/0032`). A fallback a misconfiguration could
+//! select is the defect, not a convenience. The chain starts at a credential the CALLER possesses:
+//! no assertion, no token.
 //!
 //! # Why the pool's values are parsed HERE, when configuration already parsed them
 //!
@@ -37,7 +31,6 @@
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::PrincipalName;
 
 use crate::transport::JobIdentity;
 
@@ -113,8 +106,7 @@ pub(super) struct JobAuthentication {
 ///
 /// [`AdbcError::Uncovered`] for a subject at a source that declares no pool: there is nothing to
 /// federate the assertion against, and opening the connection anyway would run the question as the
-/// deployment. [`AdbcError::UnusableTarget`] for a declared account this transport will not
-/// interpolate into an impersonation URL. [`AdbcError::SubjectSource`] or
+/// deployment. [`AdbcError::SubjectSource`] or
 /// [`AdbcError::NoRandomness`] where the loopback source cannot be opened safely - all refusals,
 /// never a weaker source.
 pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
@@ -123,22 +115,10 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
             options: Vec::new(),
             source: None,
         }),
-        (JobIdentity::AsSubject { assertion, target }, Impersonation::ThroughPool(pool)) => {
-            // **The narrowing, at the point of sending and not only at the point of declaring.**
-            // `target` becomes ONE PATH SEGMENT of the URL that decides which account this
-            // question runs as, and the Go library POSTs that URL verbatim with no scheme, host or
-            // shape check - so a value carrying `/` re-points the segment at a different account.
-            // `PrincipalName::parse` accepts `/`, because it is the parser every principal
-            // identifier in the domain shares. `sutura_config::DeclaredPrincipals::parse` refuses this
-            // at BOOT for the broker a served deployment attaches, and `Presented` is a public port any broker can
-            // construct, so the check belongs at both ends - the doctrine
-            // `crate::transport::ProjectId` and `WorkloadPool::parse` already follow.
-            if !names_a_service_account(target) {
-                return Err(AdbcError::UnusableTarget);
-            }
+        (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) => {
             let source = SubjectSource::bind(assertion)?;
             Ok(JobAuthentication {
-                options: credential_options(&source, pool, target),
+                options: credential_options(&source, pool),
                 source: Some(source),
             })
         }
@@ -169,7 +149,7 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
     clippy::disallowed_methods,
     reason = "a driver option is a plain string across the C ABI, so the credential document has to               be exposed exactly once - here, at the boundary, into a value that is built and               consumed inside `connect` and never logged. `SubjectSource::document` keeps it a               `Secret` up to this line so no other reader can print it, and               `the_credential_document_is_redacted_under_debug` is the cell on that"
 )]
-fn credential_options(source: &SubjectSource, pool: &WorkloadPool, target: &PrincipalName) -> DatabaseOptions {
+fn credential_options(source: &SubjectSource, pool: &WorkloadPool) -> DatabaseOptions {
     vec![
         (
             OptionDatabase::Other(AUTH_TYPE.into()),
@@ -181,7 +161,7 @@ fn credential_options(source: &SubjectSource, pool: &WorkloadPool, target: &Prin
         ),
         (
             OptionDatabase::Other(AUTH_CREDENTIALS.into()),
-            OptionValue::String(String::from(source.document(pool, target).expose_secret())),
+            OptionValue::String(String::from(source.document(pool).expose_secret())),
         ),
     ]
 }
@@ -191,8 +171,8 @@ fn credential_options(source: &SubjectSource, pool: &WorkloadPool, target: &Prin
 /// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
 /// `adbc_core` - and `credential_options` is the one place the credential document is exposed as
 /// text, into an `OptionValue::String`. `adbc_core`'s `OptionValue` derives `Debug`, so a
-/// `#[derive(Debug)]` on `JobAuthentication` would print the whole document: the loopback nonce,
-/// the header secret and the account the subject's questions run as. That is the same leak
+/// `#[derive(Debug)]` on `JobAuthentication` would print the whole document: the loopback nonce
+/// and the header secret. That is the same leak
 /// [`super::subject`]'s `no_debug` guard exists for, one layer up - `SubjectSource` holds the bare
 /// values and this type carries them through the foreign `Debug`.
 ///
@@ -217,26 +197,6 @@ mod no_debug {
     const _: fn() = || {
         let _ = <super::JobAuthentication as AmbiguousIfImpl<_>>::some_item;
     };
-}
-
-/// Is this a service-account address this transport can name in an impersonation URL?
-///
-/// **The send-side half**: `sutura_config::DeclaredPrincipals::parse` applies the same rule at boot,
-/// and a check belongs where the risk is - one path segment of the URL that decides which account a
-/// question runs as. The accepted set is the printable ASCII a service-account address is built
-/// from, so nothing that could close a JSON string, add a URL segment or carry a query can reach
-/// the document.
-fn names_a_service_account(target: &PrincipalName) -> bool {
-    /// RFC 5321's mailbox length, which is what `sutura_config` bounds the same value by.
-    const MOST: usize = 254;
-
-    let raw = target.as_str();
-    !raw.is_empty()
-        && raw.chars().count() <= MOST
-        && raw.matches('@').count() == 1
-        && raw
-            .chars()
-            .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' | '@'))
 }
 
 #[cfg(test)]
@@ -283,13 +243,7 @@ mod tests {
         // document SAYS is `subject`'s own suite; what this holds is that these three keys and no
         // others are what an impersonating leg puts on the database.
         let assertion = Secret::new("a.caller.assertion");
-        let sent = keys(
-            JobIdentity::AsSubject {
-                assertion: &assertion,
-                target: &crate::adbc::a_declared_account(),
-            },
-            &impersonating(),
-        );
+        let sent = keys(JobIdentity::AsSubject { assertion: &assertion }, &impersonating());
         for key in [AUTH_TYPE, AUTH_CREDENTIALS_TYPE, AUTH_CREDENTIALS] {
             assert!(sent.iter().any(|sent| sent.contains(key)), "{key} is not sent: {sent:?}");
         }
@@ -311,15 +265,9 @@ mod tests {
         // shared source one layer up) and reachable through `JobTransport`, which is public, so it
         // is a refusal and not an `unreachable!`.
         let assertion = Secret::new("a.caller.assertion");
-        let refused = authenticate(
-            JobIdentity::AsSubject {
-                assertion: &assertion,
-                target: &crate::adbc::a_declared_account(),
-            },
-            &Impersonation::Disabled,
-        )
-        .map(|_| ())
-        .expect_err("a source that declares no pool cannot federate a subject");
+        let refused = authenticate(JobIdentity::AsSubject { assertion: &assertion }, &Impersonation::Disabled)
+            .map(|_| ())
+            .expect_err("a source that declares no pool cannot federate a subject");
         assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
         assert!(!refused.to_string().contains("a.caller.assertion"), "{refused}");
     }
@@ -334,23 +282,10 @@ mod tests {
         // option list that is both non-empty and free of the credential document, and no arm that
         // returns an empty list for a subject.
         let assertion = Secret::new("a.caller.assertion");
-        let federated = keys(
-            JobIdentity::AsSubject {
-                assertion: &assertion,
-                target: &crate::adbc::a_declared_account(),
-            },
-            &impersonating(),
-        );
+        let federated = keys(JobIdentity::AsSubject { assertion: &assertion }, &impersonating());
         assert!(!federated.is_empty(), "a subject's leg authenticated as nobody");
         assert!(
-            authenticate(
-                JobIdentity::AsSubject {
-                    assertion: &assertion,
-                    target: &crate::adbc::a_declared_account(),
-                },
-                &Impersonation::Disabled
-            )
-            .is_err(),
+            authenticate(JobIdentity::AsSubject { assertion: &assertion }, &Impersonation::Disabled).is_err(),
             "a subject's leg fell back to the deployment's identity"
         );
         // And a principal switch has no spelling at all any more: `JobIdentity` declares two arms

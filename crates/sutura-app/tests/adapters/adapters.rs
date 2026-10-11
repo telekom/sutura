@@ -299,6 +299,19 @@ impl CatalogUnderTest for sutura_catalog_openmetadata::OpenMetadataCatalog<sutur
     }
 }
 
+/// A metrics serving layer: Cube, opened over its recorded metadata answer.
+///
+/// Its corpus is the answer the `cube` profile's Cube serves for `examples/cube/model`, recorded. It
+/// supplies the physical model and the descriptions; a measure stays in Cube and is reported, not
+/// defined. The universal cells hold because the bundle is measured against the declaration.
+impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader> {
+    const NAME: &'static str = "cube";
+
+    fn open() -> Self {
+        sutura_catalog_cube::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// The narrowest metadata source: `Rdbms`, opened over its recorded dictionary corpus.
 ///
 /// Like `datahub`, its corpus is NOT the example markdown - a database dictionary is not a directory
@@ -507,6 +520,32 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
     }
 }
 
+/// A metrics serving layer: Cube, over the compose `cube` profile's server (`just dev-up-cube`).
+///
+/// The tier holds the corpus already - `examples/cube/clickhouse` loads it at first start and
+/// `examples/cube/model` defines every measure over it - so `open_on` attaches no table: Cube
+/// computes each metric from its own model, and these cells measure that it answers what the
+/// catalog defines.
+///
+/// **What it executes as:** the tier's one deployment token under the matrix's `shared-service-user`
+/// posture, over plaintext loopback.
+impl DataSystemUnderTest for sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube> {
+    const NAME: &'static str = "cube";
+
+    fn available() -> bool {
+        cube_tier().is_some()
+    }
+
+    fn open_on(name: SourceName, _tables: Vec<(TableName, PathBuf)>) -> Self {
+        use sutura_exec_cube::http::{Endpoint, HttpCube, ReadBounds};
+        let endpoint = cube_tier().expect("`available()` guards the Open of every cube cell");
+        let at = Endpoint::parse(&format!("http://{endpoint}")).unwrap_or_else(|e| panic!("{endpoint}: {e}"));
+        let bounds = ReadBounds::parse(30, 1 << 20).expect("usable bounds");
+        let token = sutura_exec_cube::fixture::tier_token().unwrap_or_else(|e| panic!("{e}"));
+        Self::of(name, posture(), token, HttpCube::new(at, bounds, None))
+    }
+}
+
 /// The two-fact ratio's calendar, a table the example corpus lacks. Here rather than in
 /// `federated::corpus`, which adds it for every other data system, because the `bigquery`
 /// provisioning cell sits in the golden target and loads it too - one copy of the rows for both.
@@ -687,6 +726,25 @@ fn clickhouse_tier() -> Option<&'static Endpoint> {
         .as_ref()
 }
 
+/// This worktree's provisioned Cube endpoint, where `SUTURA_CUBE_TIER` names the Cube venue.
+///
+/// Opt-in, like [`bigquery_venue`]: every gate that sets `SUTURA_DEV_REQUIRE_TIER` provisions
+/// Postgres and `ClickHouse` and not Cube, so a discovery read there would fail every cube cell.
+/// Where the variable is set, [`postgres_tier`]'s reasoning holds for the `cube` entry
+/// `just dev-up-cube` publishes.
+fn cube_tier() -> Option<&'static Endpoint> {
+    static CACHED: OnceLock<Option<Endpoint>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            set("SUTURA_CUBE_TIER")?;
+            match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "cube") {
+                Provisioned::At(endpoint) => Some(endpoint),
+                Provisioned::Skipped(_) => None,
+            }
+        })
+        .as_ref()
+}
+
 /// The catalog the axes that are not *about* a catalog read through.
 ///
 /// Named once here rather than at each call site, so "which catalog produced this golden" has one
@@ -847,6 +905,14 @@ macro_rules! registered {
             declaring,
             sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
         );
+        // `sutura-catalog-cube`, a metrics serving layer read as a DECLARING source: the physical
+        // model and the descriptions out of Cube's metadata answer, with every measure reported and
+        // not defined - `github.com/telekom/sutura#1340`. Universal cells only.
+        $cell!(
+            cube,
+            declaring,
+            sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader>
+        );
         // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
         // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.
         $cell!(wren, declaring, crate::catalogs::WrenImport);
@@ -877,6 +943,9 @@ macro_rules! registered {
         );
         // `available()` also answers `false` unconditionally, for its own two reasons: see the impl.
         $cell!(oracle, sutura_exec_oracle::OracleWarehouse);
+        // A METRICS LAYER over HTTP: the plan becomes a Cube JSON query and Cube computes each
+        // metric. Its cells run against the compose `cube` profile and skip where none is up.
+        $cell!(cube, sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube>);
     };
 
     (dialects: $cell:ident) => {

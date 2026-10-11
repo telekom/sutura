@@ -1075,9 +1075,9 @@
 
         # `nix run .#bigquery-declared-principal` - LEG 2 for BigQuery, on the venue that can answer
         # it: do two declared subjects' questions execute as two DIFFERENT principals, neither of
-        # them the deployment's own? The source's declared map decides only which subjects may be
-        # served; which principal each becomes is the declared pool's, so no address this venue
-        # holds predicts the answer and the cells compare the two answers against each other.
+        # them the deployment's own? Each subject becomes its own principal in the declared pool,
+        # so no address this venue holds predicts the answer and the cells compare the two answers
+        # against each other.
         #
         # An app rather than a `checks.*` entry for `apps.keycloak-served-test`'s reason and one
         # more: it needs a real project, so a build sandbox with no network cannot host it at all.
@@ -1090,8 +1090,8 @@
         # account addresses it was authorized to impersonate; `docs/adr/0018`'s fifth amendment
         # priced that shorter chain and its sixth amendment withdrew it. What ships federates each
         # subject's OWN assertion against the declared pool, so this job places the deployment's
-        # credential (the control leg reads it) and one assertion per subject, and the two addresses
-        # are not passed at all.
+        # credential (the control leg reads it) and one assertion per subject, and no service account
+        # is impersonated.
         #
         # `--run-ignored only`, because both cells are `#[ignore]`d: `just validate` has no network,
         # and a leg that skipped on an absent environment would report green over nothing. They
@@ -1248,6 +1248,33 @@
             cargo run -q -p xtask -- dev-up --with openmetadata
             export SUTURA_DEV_REQUIRE_TIER=1
             exec cargo test --profile ci -p sutura-catalog-openmetadata --features http --test provisioned -- --ignored --nocapture "$@"
+          '');
+        };
+
+        # The Cube venue (#1340): starts the compose `cube` profile and runs the live cells - the
+        # metadata API read through `HttpMetaReader` against the recorded answer, a token the tier
+        # did not sign refused, `examples/cube` answered through a composed `sutura mcp`,
+        # `examples/metrics-layer` served as two callers through its `DataHub` fake, Keycloak and Cube, and
+        # `sutura-app`'s golden and differential cells for the `cube` data system - failing rather
+        # than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`.
+        # The `ci-cube-tier` CI job runs it; `just cube-acceptance` is its by-hand twin, and nothing
+        # checks that the two agree. An app for `apps.openmetadata-acceptance`'s reason. No teardown:
+        # the CI runner is ephemeral.
+        apps.cube-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-cube-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with cube
+            export SUTURA_DEV_REQUIRE_TIER=1
+            cargo test --profile ci -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
+            cargo test --profile ci -p sutura-cli --features cube --test mcp -- cube:: --ignored --nocapture
+            cargo test --profile ci -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture
+            export SUTURA_CUBE_TIER=1
+            exec cargo test --profile ci -p sutura-app --all-features --test golden --test differential -- cube:: --nocapture
           '');
         };
 

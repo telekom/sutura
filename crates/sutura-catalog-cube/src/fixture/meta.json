@@ -1,0 +1,506 @@
+{
+    "cubes": [
+        {
+            "name": "fct_subscription_monthly",
+            "type": "cube",
+            "title": "Fct Subscription Monthly",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per subscription per month - the monthly snapshot of every subscription.",
+            "connectedComponent": 1,
+            "measures": [
+                {
+                    "name": "fct_subscription_monthly.active_subscriptions",
+                    "title": "Fct Subscription Monthly Active Subscriptions",
+                    "description": "Distinct subscriptions active at the end of the month.",
+                    "shortTitle": "Active Subscriptions",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "countDistinct",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.subscription_base",
+                    "title": "Fct Subscription Monthly Subscription Base",
+                    "description": "Distinct subscriptions in the snapshot, whatever their status.",
+                    "shortTitle": "Subscription Base",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "countDistinct",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.subscription_months_billed",
+                    "title": "Fct Subscription Monthly Subscription Months Billed",
+                    "description": "Snapshot rows - one per subscription per month billed.",
+                    "shortTitle": "Subscription Months Billed",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "count",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.subscriptions_churned",
+                    "title": "Fct Subscription Monthly Subscriptions Churned",
+                    "description": "Subscriptions that churned during the month.",
+                    "shortTitle": "Subscriptions Churned",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "count",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.recurring_revenue",
+                    "title": "Fct Subscription Monthly Recurring Revenue",
+                    "description": "Recurring revenue from active subscriptions, in minor units.",
+                    "shortTitle": "Recurring Revenue",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "sum",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.mean_subscription_mrr",
+                    "title": "Fct Subscription Monthly Mean Subscription Mrr",
+                    "description": "The mean recurring revenue of an active subscription, in minor units.",
+                    "shortTitle": "Mean Subscription Mrr",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "avg",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.churn_rate",
+                    "title": "Fct Subscription Monthly Churn Rate",
+                    "description": "The share of the subscription base that churned during the month.",
+                    "shortTitle": "Churn Rate",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "number",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.revenue_per_churned_subscription",
+                    "title": "Fct Subscription Monthly Revenue Per Churned Subscription",
+                    "description": "Recurring revenue per churned subscription, in minor units.",
+                    "shortTitle": "Revenue Per Churned Subscription",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "number",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_subscription_monthly.revenue_per_customer",
+                    "title": "Fct Subscription Monthly Revenue Per Customer",
+                    "description": "Recurring revenue per active customer, in minor units.",
+                    "shortTitle": "Revenue Per Customer",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "number",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                }
+            ],
+            "dimensions": [
+                {
+                    "name": "fct_subscription_monthly.subscription_key",
+                    "title": "Fct Subscription Monthly Subscription Key",
+                    "type": "number",
+                    "description": "The surrogate key daily_usage joins on, through usage_subscription.",
+                    "shortTitle": "Subscription Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "fct_subscription_monthly.month",
+                    "title": "Fct Subscription Monthly Month",
+                    "type": "time",
+                    "description": "The first day of the month this snapshot row describes.",
+                    "shortTitle": "Month",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "fct_subscription_monthly.status",
+                    "title": "Fct Subscription Monthly Status",
+                    "type": "string",
+                    "description": "The subscription's state at the end of the month - active or terminated.",
+                    "shortTitle": "Status",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "fct_subscription_monthly.churned_in_month",
+                    "title": "Fct Subscription Monthly Churned in Month",
+                    "type": "boolean",
+                    "description": "Whether this subscription churned during the month, independent of its end-of-month status.",
+                    "shortTitle": "Churned in Month",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "fct_subscription_monthly.contract_term",
+                    "title": "Fct Subscription Monthly Contract Term",
+                    "type": "string",
+                    "description": "The subscription's own contract length - annual or monthly.",
+                    "shortTitle": "Contract Term",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [
+                {
+                    "name": "fct_subscription_monthly.active",
+                    "title": "Fct Subscription Monthly Active",
+                    "shortTitle": "Active",
+                    "isVisible": true,
+                    "public": true
+                }
+            ],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "dim_customer",
+            "type": "cube",
+            "title": "Dim Customer",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per customer, holding the attributes an answer may be grouped by.",
+            "connectedComponent": 1,
+            "measures": [],
+            "dimensions": [
+                {
+                    "name": "dim_customer.customer_key",
+                    "title": "Dim Customer Customer Key",
+                    "type": "number",
+                    "description": "The surrogate key every fact table joins on.",
+                    "shortTitle": "Customer Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "dim_customer.segment",
+                    "title": "Dim Customer Segment",
+                    "type": "string",
+                    "description": "The commercial segment of the customer - business, consumer or wholesale.",
+                    "shortTitle": "Segment",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "dim_customer.region",
+                    "title": "Dim Customer Region",
+                    "type": "string",
+                    "description": "Which of the five regions this customer is in.",
+                    "shortTitle": "Region",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "dim_product",
+            "type": "cube",
+            "title": "Dim Product",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per tariff.",
+            "connectedComponent": 1,
+            "measures": [],
+            "dimensions": [
+                {
+                    "name": "dim_product.product_key",
+                    "title": "Dim Product Product Key",
+                    "type": "number",
+                    "description": "The surrogate key subscriptions join on.",
+                    "shortTitle": "Product Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "dim_product.product_name",
+                    "title": "Dim Product Product Name",
+                    "type": "string",
+                    "description": "The tariff's own name.",
+                    "shortTitle": "Product Name",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                },
+                {
+                    "name": "dim_product.product_family",
+                    "title": "Dim Product Product Family",
+                    "type": "string",
+                    "description": "Which of the four product families this tariff belongs to.",
+                    "shortTitle": "Product Family",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "dim_region",
+            "type": "cube",
+            "title": "Dim Region",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per region, and the sales area it rolls up into.",
+            "connectedComponent": 1,
+            "measures": [],
+            "dimensions": [
+                {
+                    "name": "dim_region.region",
+                    "title": "Dim Region Region",
+                    "type": "string",
+                    "description": "The join key, the same text dim_customer.region holds.",
+                    "shortTitle": "Region",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "dim_region.sales_area",
+                    "title": "Dim Region Sales Area",
+                    "type": "string",
+                    "description": "The sales area this region rolls up into.",
+                    "shortTitle": "Sales Area",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": false
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        },
+        {
+            "name": "fct_usage_daily",
+            "type": "cube",
+            "title": "Fct Usage Daily",
+            "isVisible": true,
+            "public": true,
+            "description": "One row per subscription per day on which it used anything.",
+            "connectedComponent": 1,
+            "measures": [
+                {
+                    "name": "fct_usage_daily.voice_minutes",
+                    "title": "Fct Usage Daily Voice Minutes",
+                    "description": "Voice minutes used.",
+                    "shortTitle": "Voice Minutes",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "sum",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                },
+                {
+                    "name": "fct_usage_daily.data_per_subscription",
+                    "title": "Fct Usage Daily Data Per Subscription",
+                    "description": "Data used per subscription that used any, in gigabytes.",
+                    "shortTitle": "Data Per Subscription",
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "cumulativeTotal": false,
+                    "cumulative": false,
+                    "type": "number",
+                    "aggType": "number",
+                    "drillMembers": [],
+                    "drillMembersGrouped": {
+                        "measures": [],
+                        "dimensions": []
+                    },
+                    "isVisible": true,
+                    "public": true
+                }
+            ],
+            "dimensions": [
+                {
+                    "name": "fct_usage_daily.subscription_key",
+                    "title": "Fct Usage Daily Subscription Key",
+                    "type": "number",
+                    "description": "The subscription this usage belongs to.",
+                    "shortTitle": "Subscription Key",
+                    "suggestFilterValues": true,
+                    "formatDescription": {
+                        "name": "number",
+                        "specifier": ",.2~f"
+                    },
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                },
+                {
+                    "name": "fct_usage_daily.usage_date",
+                    "title": "Fct Usage Daily Usage Date",
+                    "type": "time",
+                    "description": "The day this row of usage was recorded on.",
+                    "shortTitle": "Usage Date",
+                    "suggestFilterValues": true,
+                    "isVisible": true,
+                    "public": true,
+                    "primaryKey": true
+                }
+            ],
+            "segments": [],
+            "hierarchies": [],
+            "folders": [],
+            "nestedFolders": []
+        }
+    ]
+}
