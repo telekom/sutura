@@ -407,6 +407,22 @@ mod tests {
     }
 
     #[test]
+    fn a_schema_read_runs_under_the_ceiling_in_a_transaction_of_its_own() {
+        let table = super::QualifiedTable::parse("public.orders").expect("a qualified table parses");
+        let mut connection = FakeConnection::answering(None);
+        let outcome = super::schema(&mut connection, &table, CEILING_MS);
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert_eq!(
+            connection.sent(),
+            vec![
+                Sent::AutoCommit(String::from("false")),
+                Sent::Update(String::from("SET LOCAL statement_timeout = 15000")),
+                Sent::Rollback,
+            ]
+        );
+    }
+
+    #[test]
     fn a_stream_failure_is_the_timeout_exactly_once_the_timeout_has_run_out() {
         use core::num::NonZeroU32;
         use std::time::Instant;
