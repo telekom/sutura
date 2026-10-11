@@ -11,7 +11,7 @@ use sutura_domain::model::SourceName;
 use super::placement::SourcePlacement;
 // Through the parent rather than `placement`: the parent's import is also what resolves the
 // `BillingProject` links in its children's `//!` headers, which rustdoc reads in its scope.
-use super::{BillingProject, DatasetId, InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, oracle};
+use super::{BillingProject, DatasetId, InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, cube, oracle};
 
 /// Reads the fields that belong to this entry's kind, and refuses the ones that do not.
 ///
@@ -42,6 +42,7 @@ pub(super) fn parse_placement(
     if kind != SourceKind::Oracle {
         refuse_foreign_keys(alias, kind, [("subjects", entry.subjects.is_some())])?;
     }
+    cube::refuse_elsewhere(alias, kind, entry, written)?;
     match kind {
         SourceKind::Files => {
             refuse_foreign_keys(
@@ -193,6 +194,7 @@ pub(super) fn parse_placement(
         }
         SourceKind::ClickHouse => clickhouse::parse_placement(alias, kind, entry, written),
         SourceKind::Oracle => oracle::parse_placement(alias, kind, entry, written),
+        SourceKind::Cube => cube::parse_placement(alias, kind, entry, written),
         SourceKind::Duckdb => {
             refuse_foreign_keys(
                 alias,

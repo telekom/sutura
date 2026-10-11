@@ -178,6 +178,8 @@ mod tests {
             port: Some(8123),
             database: None,
             service_name: None,
+            endpoint: None,
+            token_file: None,
             database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/ch-password"),

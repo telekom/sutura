@@ -329,6 +329,11 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::ClickHouse => grouped.clickhouse.push(source),
             sutura_config::SourceKind::Oracle => grouped.oracle.push(source),
             sutura_config::SourceKind::Duckdb => grouped.duckdb.push(source),
+            sutura_config::SourceKind::Cube => {
+                return Err(format!(
+                    "`sources.{source}` is `kind: cube`, which this build does not open yet"
+                ));
+            }
         }
     }
     Ok(grouped)

@@ -154,6 +154,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
                     | crate::sources::placement::SourcePlacement::Postgres { .. }
                     | crate::sources::placement::SourcePlacement::ClickHouse { .. }
                     | crate::sources::placement::SourcePlacement::Oracle { .. }
+                    | crate::sources::placement::SourcePlacement::Cube { .. }
                     | crate::sources::placement::SourcePlacement::Duckdb { .. } => {
                         panic!("the fixture tree declares files sources");
                     }
@@ -387,4 +388,26 @@ fn a_delegation_token_endpoint_with_userinfo_is_refused_at_load_without_being_qu
         assert!(rendered.contains("token_endpoint` carries an `@`"), "{rendered}");
         assert!(!rendered.contains("s3cret"), "{rendered}");
     }
+}
+
+#[test]
+fn a_cube_source_declared_to_impersonate_does_not_start() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+         token_file: \"/etc/sutura/cube-token\"\n    posture: \"impersonation-at-source\"\n",
+    );
+    let error = Settings::load(&sources).expect_err("one deployment token has no place to run a subject");
+    let cause = std::error::Error::source(error.reason()).expect("the refusal is the cause of the sources error");
+    assert!(cause.to_string().contains("runs no query as a subject"), "{cause}");
+}
+
+#[test]
+fn a_cube_source_with_its_endpoint_and_token_file_loads() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+         token_file: \"/etc/sutura/cube-token\"\n    posture: \"shared-service-user\"\n    \
+         acknowledged_because: \"one deployment token for everybody who asks\"\n",
+    );
+    let settings = Settings::load(&sources).expect("a complete cube source loads");
+    assert!(!settings.sources().is_empty());
 }

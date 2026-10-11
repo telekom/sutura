@@ -460,6 +460,9 @@ fn from_the_registry(
             }
             oracle::open(source, configured, registry, working_set(runtime))
         }
+        sutura_config::SourceKind::Cube => Err(format!(
+            "`sources.{source}` is `kind: cube`, which this build does not open yet"
+        )),
         sutura_config::SourceKind::Duckdb => {
             if let Some(given) = data {
                 return Err(format!(

@@ -580,6 +580,16 @@ pub enum SourcePlacement {
         /// is not there is refused there rather than created.
         database_file: PathBuf,
     },
+    /// A Cube metrics serving layer, reached over its REST API.
+    ///
+    /// No transport field: the request rides the outbound client, whose trust is
+    /// `security.outbound.transport_anchors`, and no per-source channel is declared.
+    Cube {
+        /// The API's base URL, `scheme://host[:port]`. Parsed where the HTTP client is built.
+        endpoint: String,
+        /// The file the deployment's one token is read from at boot, absolute.
+        token_file: PathBuf,
+    },
 }
 
 impl SourcePlacement {
@@ -597,6 +607,7 @@ impl SourcePlacement {
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
             Self::Oracle { .. } => SourceKind::Oracle,
+            Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
         }
     }

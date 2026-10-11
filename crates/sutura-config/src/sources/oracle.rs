@@ -202,6 +202,8 @@ mod tests {
             port: Some(1521),
             database: None,
             service_name: Some("FREEPDB1"),
+            endpoint: None,
+            token_file: None,
             database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/oracle-password"),
@@ -375,6 +377,8 @@ mod tests {
                 "service_name",
                 RawSourceEntry {
                     service_name: None,
+                    endpoint: None,
+                    token_file: None,
                     database_file: None,
                     ..oracle("warehouse")
                 },
@@ -475,6 +479,8 @@ mod tests {
         ] {
             let entry = RawSourceEntry {
                 service_name: Some(written),
+                endpoint: None,
+                token_file: None,
                 database_file: None,
                 ..oracle("warehouse")
             };
@@ -493,6 +499,8 @@ mod tests {
         SourceRegistry::parse(
             &[RawSourceEntry {
                 service_name: Some("orcl.example_1"),
+                endpoint: None,
+                token_file: None,
                 database_file: None,
                 ..oracle("warehouse")
             }],
@@ -614,6 +622,8 @@ mod tests {
             kind: "postgres",
             database: Some("sutura"),
             service_name: None,
+            endpoint: None,
+            token_file: None,
             subjects: Some(&one),
             ..oracle("warehouse")
         };

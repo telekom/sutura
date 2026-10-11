@@ -59,6 +59,8 @@ use sutura_domain::source::{
 /// composition roots already use - one file per kind - so the arm in [`parse_placement`] stays one
 /// call and the reading stays beside the kind it is about.
 mod clickhouse;
+/// The `cube` entry's own keys, read and refused - split out for the reason `clickhouse` is.
+mod cube;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
 /// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
@@ -144,6 +146,12 @@ pub enum SourceKind {
     /// `Warehouse::IMPERSONATION` is `NoPlaceForASubject` and an `impersonation-at-source` entry is
     /// refused at the composition root's posture cross-check.
     Duckdb,
+    /// A Cube metrics serving layer, queried through its REST API.
+    ///
+    /// Declarable and openable behind the `cube` feature. [`SourcePlacement::Cube`] carries the
+    /// deployment's endpoint and the file its token is read from. The one token is the whole
+    /// credential, so there is no place for a subject: `impersonation-at-source` is refused.
+    Cube,
 }
 
 /// The configured word did not name a kind of data system.
@@ -155,7 +163,7 @@ pub struct UnknownSourceKind {
 
 impl SourceKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle", "duckdb"];
+    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle", "duckdb", "cube"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind> {
@@ -166,6 +174,7 @@ impl SourceKind {
             "clickhouse" => Ok(Self::ClickHouse),
             "oracle" => Ok(Self::Oracle),
             "duckdb" => Ok(Self::Duckdb),
+            "cube" => Ok(Self::Cube),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -183,6 +192,7 @@ impl SourceKind {
             Self::ClickHouse => "clickhouse",
             Self::Oracle => "oracle",
             Self::Duckdb => "duckdb",
+            Self::Cube => "cube",
         }
     }
 }
@@ -454,6 +464,17 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: crate::sources::placement::InvalidOracleSubjects,
     },
+    /// A `cube` source declared `impersonation-at-source`: its one token is the whole credential, so a
+    /// subject has no place to run as.
+    #[error(
+        "`sources.{alias}` is `kind: cube` and its `posture` is `impersonation-at-source` - a Cube source \
+         is queried with one declared token and runs no query as a subject. Declare \
+         `posture: shared-service-user` with an `acknowledged_because`"
+    )]
+    CubeImpersonation { alias: SourceName },
+    /// A `cube` source's `endpoint` carries an `@`.
+    #[error("`sources.{alias}.endpoint` carries an `@` - credentials in the URL are refused, declare token_file")]
+    CubeEndpointCredentials { alias: SourceName },
     /// A workload-identity block was declared on a source that is not impersonating.
     ///
     /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -562,6 +583,8 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) port: Option<u16>,
     pub(crate) database: Option<&'raw str>,
     pub(crate) service_name: Option<&'raw str>,
+    pub(crate) endpoint: Option<&'raw str>,
+    pub(crate) token_file: Option<&'raw str>,
     pub(crate) database_file: Option<&'raw str>,
     pub(crate) user: Option<&'raw str>,
     pub(crate) password_file: Option<&'raw str>,
