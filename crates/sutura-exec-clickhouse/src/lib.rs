@@ -295,9 +295,7 @@ where
         let (statement, sign_in) = match *runs_as {
             RunsAs::Deployment => (Cow::Borrowed(query.sql()), None),
             RunsAs::Switched(ref user) => (Cow::Owned(user.execute_as(query.sql())), None),
-            RunsAs::SignedIn { ref user, token } => {
-                (Cow::Borrowed(query.sql()), Some(transport::SignIn::new(user.as_str(), token)))
-            }
+            RunsAs::SignedIn { ref user, token } => (Cow::Borrowed(query.sql()), Some(transport::SignIn::new(user, token))),
         };
         let body = self
             .transport

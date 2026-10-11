@@ -139,7 +139,7 @@ impl BasicAuth {
 #[derive(Debug, Clone, Copy)]
 pub struct SignIn<'a> {
     /// The `ClickHouse` user the caller signs in as.
-    user: &'a str,
+    user: &'a crate::execute_as::ClickHouseUser,
     /// The exchanged token, sent as the password.
     token: &'a sutura_domain::identity::Secret,
 }
@@ -147,14 +147,14 @@ pub struct SignIn<'a> {
 impl<'a> SignIn<'a> {
     /// The caller's verified name as the user, and the token they sign in with.
     #[must_use]
-    pub const fn new(user: &'a str, token: &'a sutura_domain::identity::Secret) -> Self {
+    pub const fn new(user: &'a crate::execute_as::ClickHouseUser, token: &'a sutura_domain::identity::Secret) -> Self {
         Self { user, token }
     }
 
     /// The user and token, for a fake transport to record.
     #[cfg(test)]
-    pub(crate) const fn parts(self) -> (&'a str, &'a sutura_domain::identity::Secret) {
-        (self.user, self.token)
+    pub(crate) fn parts(self) -> (&'a str, &'a sutura_domain::identity::Secret) {
+        (self.user.as_str(), self.token)
     }
 }
 
@@ -309,7 +309,7 @@ impl Http {
     fn authorization(&self, sign_in: Option<SignIn<'_>>) -> Option<String> {
         use base64::Engine as _;
         let (user, password) = match sign_in {
-            Some(SignIn { user, token }) => (user, token),
+            Some(SignIn { user, token }) => (user.as_str(), token),
             None => self.auth.as_ref().map(|auth| (auth.user.as_str(), &auth.password))?,
         };
         #[expect(
@@ -612,8 +612,9 @@ mod tests {
         let http = Http::connect(Endpoint::plaintext("localhost", 8123), Some(deployment), 1 << 20);
         let basic = |pair: &str| format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(pair));
         let token = sutura_domain::identity::Secret::new(String::from("exchanged-token"));
+        let user = crate::execute_as::ClickHouseUser::parse("analyst-a").expect("a test user is a user");
         assert_eq!(
-            http.authorization(Some(SignIn::new("analyst-a", &token))),
+            http.authorization(Some(SignIn::new(&user, &token))),
             Some(basic("analyst-a:exchanged-token"))
         );
         assert_eq!(http.authorization(None), Some(basic("sutura:deployment-password")));
