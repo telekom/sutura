@@ -5640,9 +5640,8 @@ always is one here: nothing about the question was wrong, and offering it as a r
 invite a client to retry a deployment bug until something works.</p>
 <h3 id="use-principalname"><code>use PrincipalName</code><a class="headerlink" href="#use-principalname" title="Permanent link">&para;</a></h3>
 <p>A name a data system knows a principal by.</p>
-<p>Two roles: the one a session is switched to, and the one a source is asked to execute as after
-the asker's own credential authenticated (<code>Presented::SubjectToken</code>'s <code>impersonate</code>).</p>
-<p><strong>Not a <code>Secret</code>, and that is a statement rather than an omission.</strong> A role or service-account
+<p>The one a session is switched to (<code>Presented::SubjectPrincipal</code>).</p>
+<p><strong>Not a <code>Secret</code>, and that is a statement rather than an omission.</strong> A role or user
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that
 redacted it would hide the one value an operator has to be able to read back in a log.</p>

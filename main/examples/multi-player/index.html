@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own Google service account.">
+        <meta name="description" content="Serve a DataHub catalog over BigQuery for several users, and ask each question as the caller's own workload identity principal.">
       
       
       
@@ -3390,7 +3390,7 @@
 <h1 id="multi-player">Multi player<a class="headerlink" href="#multi-player" title="Permanent link">&para;</a></h1>
 <p>This example runs sutura for several users. Keycloak is the identity provider. DataHub is the
 catalog, read with one token for every caller. BigQuery is the data system, and sutura asks it as
-the service account that it maps to each caller.</p>
+each caller's own principal in a workload identity pool. No caller has a service account.</p>
 <p>The example is in
 <a href="https://github.com/telekom/sutura/tree/main/examples/multi-player"><code>examples/multi-player</code></a>:</p>
 <table>
@@ -3415,7 +3415,7 @@ the service account that it maps to each caller.</p>
 </tr>
 <tr>
 <td><code>infra/</code></td>
-<td>A Pulumi program for the Google side: pool, accounts, dataset and row policies</td>
+<td>A Pulumi program for the Google side: pool, grants, dataset and row policies</td>
 </tr>
 <tr>
 <td><code>dbt/</code></td>
@@ -3436,11 +3436,11 @@ the service account that it maps to each caller.</p>
 <ul>
 <li>Docker, Pulumi, and a Google Cloud test project.</li>
 <li>A Pulumi credential for the test project. It must enable APIs. It must create and remove a
-  bucket, a dataset, tables, a workload identity pool, a provider, service accounts, IAM grants
-  and row access policies. Use this credential for setup and teardown only.</li>
+  bucket, a dataset, tables, a workload identity pool, a provider, IAM grants and row access
+  policies. Use this credential for setup and teardown only.</li>
 </ul>
-<p>In an enterprise deployment, operators create the accounts, the identity provider, the pool, the
-data and the grants in advance. sutura then needs no administrator or provisioning role. The
+<p>In an enterprise deployment, operators create the users, the identity provider, the pool, the data
+and the grants in advance. sutura then needs no administrator or provisioning role. The
 catalog needs its own read credential.</p>
 <h2 id="1-start-keycloak">1. Start Keycloak<a class="headerlink" href="#1-start-keycloak" title="Permanent link">&para;</a></h2>
 <p>Run all commands from <code>examples/multi-player</code>.</p>
@@ -3456,8 +3456,11 @@ catalog needs its own read credential.</p>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>pulumi<span class="w"> </span>stack<span class="w"> </span>output<span class="w"> </span>settings<span class="w"> </span>&gt;<span class="w"> </span>../conf/development.yaml
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nb">cd</span><span class="w"> </span>..
 </span></code></pre></div>
-<p>The program creates a workload identity pool that trusts the Keycloak realm, one service account
-for <code>alice</code> and one for <code>bob</code>, and a dataset whose row access policies give them different rows.
+<p>The program creates a workload identity pool that trusts the Keycloak realm, and a dataset. Its
+grants and row access policies name the pool principals of <code>alice</code> and <code>bob</code>, and give them
+different rows. Each caller must exist in BigQuery: <code>alice</code> and <code>bob</code> do, as their own pool
+principals with their own grants. <code>carol</code> gets no grant. The two principals read one dataset,
+and BigQuery applies each caller's own row access policy.
 It loads the CSV files of the <a href="../single-player/">single player</a> example into that dataset. Its
 output is the BigQuery source for sutura, in <code>conf/development.yaml</code>.</p>
 <h2 id="3-start-the-stack">3. Start the stack<a class="headerlink" href="#3-start-the-stack" title="Permanent link">&para;</a></h2>
@@ -3499,6 +3502,8 @@ Docker Desktop, run these commands in a container with <code>--network host</cod
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://127.0.0.1:8080/v1/query<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-01-01","end":"2026-07-01"}}'</span>
 </span></code></pre></div>
+<p>sutura exchanges the token at Keycloak for a token that the pool accepts. Google STS gives a
+federated token for the caller's own pool principal, and BigQuery runs the query as that principal.</p>
 <table>
 <thead>
 <tr>
@@ -3509,15 +3514,15 @@ Docker Desktop, run these commands in a container with <code>--network host</cod
 <tbody>
 <tr>
 <td><code>alice</code></td>
-<td>Her rows. BigQuery runs the query as her service account</td>
+<td>Her rows, the annual contracts. BigQuery runs the query as her principal</td>
 </tr>
 <tr>
 <td><code>bob</code></td>
-<td>Other rows, from the same question</td>
+<td>Other rows, the monthly contracts, from the same question</td>
 </tr>
 <tr>
 <td><code>carol</code></td>
-<td>A refusal. The source maps no account to her, so sutura runs nothing for her</td>
+<td>A refusal. BigQuery refuses her question, because she has no grant</td>
 </tr>
 </tbody>
 </table>

@@ -3294,11 +3294,6 @@ request (<code>within_the_lifetime_ceiling</code>'s own doc), so inside that win
 replayable - and Google would accept it, because it is the caller's real document. And the
 signing-key age bound <code>KeySetCache::stale_for</code> measures excludes a failing refresh. Neither is
 this crate's to fix; both are cited here because <em>the limit belongs beside the claim</em>.</p>
-<p><strong>What is still unproven, and no green run here changes it:</strong> nothing reachable from this
-repository shows Google ACCEPTING the assertion. The document is built and the loopback source
-is asserted against a real socket; the exchange needs a pool, a project and a hosted run.
-<code>docs/where-identity-is-proven.md</code> records that venue as <code>wired</code> and undispatched, so <strong>leg 2 is
-not proven.</strong></p>
 <h1 id="two-things-this-adapter-deliberately-does-not-offer">Two things this adapter deliberately does not offer<a class="headerlink" href="#two-things-this-adapter-deliberately-does-not-offer" title="Permanent link">&para;</a></h1>
 <p><strong>No arbitrary SQL entry point.</strong> <code>BigQueryWarehouse::execute</code> takes an <code>Executable</code> and
 renders the statement itself; <code>transport::JobRequest::new</code> is <code>pub(crate)</code>, so there is no way to
@@ -3334,19 +3329,6 @@ an owned <code>#[source]</code>.</p>
   broker presenting the other one gets. Accepting it would submit the job under the
   credential the transport already holds while provenance, read off this source's posture,
   reported the answer as impersonated.
-- <code>NoImpersonationTarget</code> - A subject's own credential arrived with no account declared beside it.</p>
-<p><strong>Refused rather than run as the pool principal, which is the half-configured state this
-  variant exists to keep off a dataset.</strong> The credential document's
-  <code>service_account_impersonation_url</code> is what makes a declared account decide anything; with
-  no account there is nothing to name, and the alternative to refusing is a question that runs
-  as whatever principal the pool resolves the subject to while the deployment's <code>impersonate</code>
-  map says it runs as somebody specific. <code>telekom/sutura#929</code>'s review is explicit that a
-  security-critical setting must not be accepted and then ignored - and <em>silently widened</em> is
-  the same defect from the other side.</p>
-<p>Reachable only from a broker that is not <code>sutura_config::DeclaredPrincipalBroker</code>: that one mints the
-  account off the map it parsed, so a served deployment refuses the declaration at boot
-  instead. <code>Presented</code> is a public port, so the refusal is typed rather than an
-  <code>unreachable!</code>.
 - <code>PresentedDisagreesWithPosture</code> - The leg's credential and this source's declared posture do not agree.
 - <code>Unreadable</code> - A result column could not be read as a domain value.</p>
 <p><strong>This one variant replaces seven</strong>, and the architecture decision is the record. The seven were an
@@ -3569,17 +3551,6 @@ here - stated with its limit in <code>AdbcBigQuery</code>'s own documentation.</
   is this process's own: a host with no usable loopback interface cannot serve an impersonated
   question, and saying that is better than a driver failing to fetch a token for reasons of
   its own.
-- <code>UnusableTarget</code> - A declared impersonation target is not one this transport will name in a request.</p>
-<p><strong>Its own variant rather than an <code>Self::Uncovered</code>, because it is a refusal about a
-  VALUE and the string in that one is a missing capability.</strong> The account rides into one path
-  segment of <code>service_account_impersonation_url</code>, which decides which account the question
-  runs as, and <code>cloud.google.com/go/auth</code>'s impersonation provider POSTs that URL verbatim
-  with no shape check at all. <code>sutura_domain::identity::PrincipalName</code>'s parser is the
-  domain's shared one and accepts <code>/</code>, so the narrowing is this crate's.</p>
-<p><strong>It carries nothing</strong>, deliberately: the shipped broker parses the same rule at boot and
-  names the value there, where an operator can act on it, and this arm is reachable only from
-  a broker that built a <code>Presented</code> by hand. A refusal at the send boundary that echoed the
-  value would put a caller-influenced string into an error that reaches a log.
 - <code>NoRandomness</code> - The operating system would not supply the randomness this request's two secrets need.</p>
 <p><strong>A refusal and not a fallback</strong>, and <code>subject::unguessable</code>'s own doc carries why: every
   constant available here would be written into the same document the driver reads, so the
@@ -3658,11 +3629,12 @@ bounds the scan without bounding the bill. And it is per JOB, so N questions cos
 <h3 id="use-unusableceiling"><code>use UnusableCeiling</code><a class="headerlink" href="#use-unusableceiling" title="Permanent link">&para;</a></h3>
 <p>Why a configured bytes-billed ceiling is not one this transport will send.</p>
 <h3 id="use-drivermessage"><code>use DriverMessage</code><a class="headerlink" href="#use-drivermessage" title="Permanent link">&para;</a></h3>
-<p>A driver message with every console job link cut out, so no rendered error says where a job ran.</p>
+<p>A driver message with every console job link cut out, so no rendered error says where a job ran,
+and the status the driver gave it.</p>
 <p>The pinned driver appends <code>(Query: &lt;link&gt;)</code> to the message of any error after the job was
 created (<code>go/record_reader.go</code>'s <code>runQuery</code>), and the link names the project, location and job.</p>
 <p><strong>The limit:</strong> this seal is rustc's ordinary privacy, not this repo's <code>check-newtype-leaks</code>
-gate - a private tuple field in a child module, so a <code>DriverMessage(..)</code> in <code>super</code> is <code>E0423</code>.
+gate - private fields in a child module, so a <code>DriverMessage { .. }</code> in <code>super</code> is <code>E0451</code>.
 Only <code>driver_message.rs</code> itself can skip <code>of</code>.</p>
 <h3 id="use-impersonation"><code>use Impersonation</code><a class="headerlink" href="#use-impersonation" title="Permanent link">&para;</a></h3>
 <p>Whether this source impersonates at all, and against which pool when it does.</p>
@@ -3812,21 +3784,13 @@ fact and <code>Presented::agrees_with</code> passes both subject shapes - they a
 </ul>
 <p>The shared posture, and the boot path - see <code>JobDeadline::Boot</code> for the other half of what
   "no caller" means to a request.
-- <code>AsSubject</code> - The asking subject's own verified assertion, and the account this deployment declared that subject's questions should execute as.</p>
+- <code>AsSubject</code> - The asking subject's own verified assertion.</p>
 <p><strong>The subject's own credential and not a stand-in for it</strong>, which is the whole of leg 2:
   <code>crate::adbc</code> puts the assertion behind a workload-identity credential document, so
-  Google's own token service verifies it and resolves the subject to the declared pool's
-  principal. Nothing on that path runs the question under the deployment's identity.</p>
-<p><strong><code>target</code> is the SECOND hop and is a field rather than a third arm</strong>, because it is not a
-  second mechanism: the credential the driver ends up holding is still derived from the
-  caller's own assertion, and the pool principal impersonating a declared account is one chain
-  with two links. It is not the deleted principal switch, which ran from the deployment's own
-  application default credentials with the caller's credential nowhere in the chain - that has
-  no spelling here and a broker presenting it is refused by
-  <code>BigQueryError::NoPrincipalSwitch</code>.</p>
-<p><strong>Both fields are read by <code>crate::adbc</code></strong>, and a transport that read only <code>assertion</code> would
-  run every declared caller as one pool principal while a deployment's <code>impersonate</code> map said
-  otherwise.</p>
+  Google's own token service verifies it and returns a federated token for the declared pool's
+  <code>principal://.../subject/&lt;sub&gt;</code>. <code>BigQuery</code> evaluates its grants and row policies against that
+  principal. Nothing on that path runs the question under the deployment's identity, and there
+  is no second hop to another account.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
 <h3 id="struct-jobrequest"><code>struct JobRequest</code><a class="headerlink" href="#struct-jobrequest" title="Permanent link">&para;</a></h3>
@@ -3858,9 +3822,7 @@ same shape it emits for every other dialect.</p>
 never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
 ignored it would answer as itself while provenance reported the asker. It does not make the
 source execute as the asker on its own: <code>JobIdentity::AsSubject</code> carries the subject's
-assertion and the account declared for that subject, and the declared pool is what resolves
-the assertion to a principal able to impersonate it - unproven against a live pool, per
-<code>docs/where-identity-is-proven.md</code>.</p>
+assertion, and the declared pool is what resolves it to the subject's own principal.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">params</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">ParamValue</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The values, in the order the statement's placeholders take them.</p>
