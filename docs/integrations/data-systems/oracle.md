@@ -121,8 +121,7 @@ query ends.
   connection.
 
 The database can also map the tokens of many callers to one shared schema. The query then runs with
-the caller's own permissions: the global roles that the database maps from the caller's token. It
-never runs with the permissions of a shared service user.
+the shared schema's grants plus the global roles that the database maps from the caller's token.
 
 With `shared-service-user`, sutura connects as the one user in `user`. Every caller's query runs
 with the permissions of that user.

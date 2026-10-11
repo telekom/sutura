@@ -165,6 +165,15 @@ fn an_on_behalf_of_answer_needs_no_issued_token_type_and_is_held_to_the_audience
         answered(Grant::OnBehalfOf, 200, &untyped.to_string(), &audience(), NOW)
             .expect("an on-behalf-of answer carries no issued_token_type"),
     );
+    for not_bearer in [
+        serde_json::json!({"access_token": good_token()}),
+        serde_json::json!({"access_token": good_token(), "token_type": "N_A"}),
+    ] {
+        assert!(matches!(
+            answered(Grant::OnBehalfOf, 200, &not_bearer.to_string(), &audience(), NOW),
+            Err(DelegationFailed::WrongTokenType)
+        ));
+    }
     let elsewhere = jwt(&serde_json::json!({"aud": "account", "exp": NOW + 300}));
     let untyped = serde_json::json!({"access_token": elsewhere, "token_type": "Bearer"});
     assert!(matches!(
