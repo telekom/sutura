@@ -586,7 +586,6 @@ mod tests {
         let with_a_pool = RawSourceEntry {
             workload_identity: Some(crate::raw::RawWorkloadIdentity {
                 audience: String::from("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q"),
-                impersonate: std::collections::BTreeMap::new(),
                 expected_issuer: None,
                 expected_audience: None,
                 delegation: None,

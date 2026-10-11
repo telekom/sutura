@@ -1,26 +1,45 @@
 //! A driver's error text with the console job link cut out, in its own module so that
 //! `DriverMessage::of` is the only way `super` can build one.
 
-use adbc_core::error::Error as CoreError;
+use adbc_core::error::{Error as CoreError, Status};
 
-/// A driver message with every console job link cut out, so no rendered error says where a job ran.
+/// A driver message with every console job link cut out, so no rendered error says where a job ran,
+/// and the status the driver gave it.
 ///
 /// The pinned driver appends `(Query: <link>)` to the message of any error after the job was
 /// created (`go/record_reader.go`'s `runQuery`), and the link names the project, location and job.
 ///
 /// **The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
-/// gate - a private tuple field in a child module, so a `DriverMessage(..)` in `super` is `E0423`.
+/// gate - private fields in a child module, so a `DriverMessage { .. }` in `super` is `E0451`.
 /// Only `driver_message.rs` itself can skip `of`.
 #[derive(Debug)]
-pub struct DriverMessage(String);
+pub struct DriverMessage {
+    text: String,
+    status: Status,
+}
 impl DriverMessage {
     pub(crate) fn of(error: &CoreError) -> Self {
-        Self(unlinked(&error.to_string()))
+        Self {
+            text: unlinked(&error.to_string()),
+            status: error.status,
+        }
+    }
+
+    /// Did the data system refuse the identity this call ran as?
+    ///
+    /// `Unauthorized` is what the pinned driver's `errToAdbcErr` (`go/util.go`) gives a job's
+    /// `accessDenied`, a gRPC `PermissionDenied` from the Storage Read API and a `401` from the
+    /// token exchange, and what `nix/bigquery-adbc-forbidden.patch` adds for a REST `403` whose
+    /// reason is `accessDenied`, `billingNotEnabled` or `blocked` - each refused again on every
+    /// retry until a grant or the pool changes. Every other status, a `403` for a rate or a quota
+    /// among them, is a failure a retry may answer.
+    pub(crate) const fn refused_the_identity(&self) -> bool {
+        matches!(self.status, Status::Unauthorized)
     }
 }
 impl std::fmt::Display for DriverMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.text)
     }
 }
 fn unlinked(message: &str) -> String {

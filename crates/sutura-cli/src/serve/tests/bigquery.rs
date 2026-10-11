@@ -10,7 +10,7 @@ use super::{bigquery_entry, default_timeout, one_worker, open_engine, opened_big
 use base64::Engine as _;
 #[cfg(feature = "bigquery")]
 use sutura_domain::identity::{
-    Agreed, CredentialBroker as _, Minted, Presented, PrincipalChain, PrincipalName, RequestContext, Secret, SourceSet, Subject,
+    Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
 };
 #[cfg(feature = "bigquery")]
 use sutura_domain::model::SourceName;
@@ -218,67 +218,35 @@ fn wif_with(extra: &str) -> String {
     format!("{}{extra}    verification_identity: \"sutura_anchor_reader\"\n", wif())
 }
 
-/// Two declared subjects, each mapped to its own account - the shape a served impersonating source
-/// is ADMITTED on. Whether either subject is answered is not a question this module asks.
-#[cfg(feature = "bigquery")]
-fn two_declared_subjects() -> &'static str {
-    "      impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n        \
-     \"analyst-b@example.com\": \"bq-b@acme-analytics.iam.gserviceaccount.com\"\n"
-}
-
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
-    // **THE NEGATIVE CONTROL for the two boot refusals below**, and it is the cell that says the
-    // composition works at all: without it both of those pass over a `build_broker` that refused
-    // every registry. A declared two-subject map builds a broker holding this source, so the
-    // refusals beneath are about what they name rather than about anything impersonating.
-    //
-    // **Named for admission, because admission is all it asserts.** It used to be named for the
-    // source being *answerable*, and review broke that name: a broker that admits this registry and
-    // then refuses to mint for every subject keeps this cell green, because what is read is
-    // `count()` and not an answer. What a declared subject is minted is the next cell's question, and
-    // no cell anywhere asks a real BigQuery as one.
+fn a_declared_workload_identity_admits_the_source_to_the_broker() {
+    // **THE NEGATIVE CONTROL for the boot refusals below**: without it they pass over a
+    // `build_broker` that refused every registry. A declared pool builds a broker holding this
+    // source - no subject map, because the data system's grants decide who reads what.
     let broker = super::super::broker::build_broker(
-        &registry(&bigquery_entry(
-            "warehouse",
-            "impersonation-at-source",
-            &wif_with(two_declared_subjects()),
-        )),
+        &registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with(""))),
         None,
     )
-    .expect("a declared two-subject map is a source this deployment can serve");
+    .expect("a declared pool is a source this deployment can serve");
     assert_eq!(broker.count(), 1);
 }
 
-/// The half [`a_declared_two_subject_map_admits_the_source_to_the_broker`] does not ask: the broker
-/// this root builds mints for a declared subject the account declared beside THAT subject, not
-/// another entry's. Minted here and read back off the presented leg, with no request sent anywhere.
+/// The broker this root builds presents each verified caller its OWN assertion, read back off the
+/// presented leg with no request sent anywhere.
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_declared_subject_is_minted_the_account_declared_beside_it() {
+fn each_verified_caller_is_presented_its_own_assertion() {
     let broker = super::super::broker::build_broker(
-        &registry(&bigquery_entry(
-            "warehouse",
-            "impersonation-at-source",
-            &wif_with(two_declared_subjects()),
-        )),
+        &registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with(""))),
         None,
     )
-    .expect("a declared two-subject map is a source this deployment can serve");
+    .expect("a declared pool is a source this deployment can serve");
     let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
     let asked = SourceSet::of(warehouse.clone());
-    for (subject_name, assertion, expected_account) in [
-        (
-            "analyst-a@example.com",
-            "assertion.for.analyst-a",
-            "bq-a@acme-analytics.iam.gserviceaccount.com",
-        ),
-        (
-            "analyst-b@example.com",
-            "assertion.for.analyst-b",
-            "bq-b@acme-analytics.iam.gserviceaccount.com",
-        ),
+    for (subject_name, assertion) in [
+        ("analyst-a@example.com", "assertion.for.analyst-a"),
+        ("analyst-b@example.com", "assertion.for.analyst-b"),
     ] {
         let subject = Subject::verified(subject_name).expect("a test subject is a subject");
         let minted = broker
@@ -286,42 +254,22 @@ fn a_declared_subject_is_minted_the_account_declared_beside_it() {
                 &RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new(assertion), 4_102_444_800),
                 &asked,
             )
-            .expect("a declared subject is mintable");
+            .expect("a verified caller is mintable");
         let Agreed::Granted { credentials } = minted
             .agreeing_with(&subject, &asked, 4_000_000_000)
             .expect("the grant agrees with the request")
         else {
-            panic!("a declared subject is granted");
+            panic!("a verified caller is granted");
         };
         match credentials.presented_for(&warehouse).expect("the source was asked for") {
-            Presented::SubjectToken { impersonate, .. } => assert_eq!(
-                impersonate.as_ref().map(PrincipalName::to_string).as_deref(),
-                Some(expected_account),
-                "{subject_name} must be minted the account declared beside it, not another entry's",
-            ),
-            other => panic!("an impersonating source presents a subject token, not {other:?}"),
+            Presented::SubjectToken { material } => {
+                #[expect(clippy::disallowed_methods, reason = "the cell asserts whose assertion reached the leg")]
+                let material = String::from(material.expose_secret());
+                assert_eq!(material, assertion, "{subject_name} must be presented its own assertion");
+            }
+            other => panic!("a federating source presents a subject token, not {other:?}"),
         }
     }
-}
-
-#[test]
-#[cfg(feature = "bigquery")]
-fn an_impersonating_source_naming_no_subject_does_not_boot() {
-    // **The defect class this whole composition was rebuilt to remove.** An impersonating source
-    // whose map names nobody can serve no caller: every question would be refused
-    // `credential_unavailable` while the startup log said the source opened. So it is a startup
-    // failure, and the refusal names the key an operator writes rather than the broker.
-    let error = super::super::broker::build_broker(
-        &registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with(""))),
-        None,
-    )
-    .map(drop)
-    .expect_err("a source that can serve no caller must not boot");
-    assert!(error.contains("warehouse"), "the refusal must name the entry: {error}");
-    assert!(
-        error.contains("impersonate"),
-        "the refusal must name the key to write: {error}"
-    );
 }
 
 #[test]
@@ -336,11 +284,10 @@ fn a_declared_pool_expectation_does_not_boot_because_nothing_in_this_build_reads
         &registry(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
-            &wif_with(&format!(
-                "{}      expected_issuer: \"https://issuer.example.com/realms/sutura\"\n      expected_audience: \
+            &wif_with(
+                "      expected_issuer: \"https://issuer.example.com/realms/sutura\"\n      expected_audience: \
              \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n",
-                two_declared_subjects()
-            )),
+            ),
         )),
         None,
     )
@@ -373,8 +320,8 @@ fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
 #[cfg(feature = "bigquery")]
 const POOL: &str = "pool-client-id";
 
-/// One source's declared delegation exchange, indented to sit inside `workload_identity:` after the
-/// `impersonate:` map - 6 spaces for `delegation:`, 8 for its keys, exactly as `sutura_config` reads.
+/// One source's declared delegation exchange, indented to sit inside `workload_identity:` - 6
+/// spaces for `delegation:`, 8 for its keys, exactly as `sutura_config` reads.
 #[cfg(feature = "bigquery")]
 fn delegation_block(endpoint: &str, secret_file: &std::path::Path) -> String {
     format!(
@@ -396,11 +343,7 @@ fn delegated_broker(
         &direct_registry(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
-            &wif_with(&format!(
-                "{}{}",
-                two_declared_subjects(),
-                delegation_block(endpoint, secret_file)
-            )),
+            &wif_with(&delegation_block(endpoint, secret_file)),
         )),
         outbound,
     )
@@ -467,7 +410,7 @@ fn issued() -> serde_json::Value {
 fn a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_back() {
     // THE positive cell for the delegated broker: the subject's OWN inbound assertion is the
     // subject token the identity provider exchanges, and what the source presents is the exchanged
-    // token - not the assertion - beside the account declared for that subject.
+    // token - not the assertion.
     let secret = SecretFileGuard::create("a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_back");
     let fake = FakeServer::start(vec![Scripted::ok(&issued())]);
     let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path(), None)
@@ -492,7 +435,7 @@ fn a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_bac
         panic!("a declared subject is granted");
     };
     match credentials.presented_for(&warehouse).expect("the source was asked for") {
-        Presented::SubjectToken { material, impersonate } => {
+        Presented::SubjectToken { material } => {
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the cell asserts the presented material is the exchanged token"
@@ -502,11 +445,6 @@ fn a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_bac
                 material,
                 exchanged(),
                 "the source must present the identity provider's token, not the caller's assertion"
-            );
-            assert_eq!(
-                impersonate.as_ref().map(PrincipalName::to_string).as_deref(),
-                Some("bq-a@acme-analytics.iam.gserviceaccount.com"),
-                "the account declared beside the subject must still be presented",
             );
         }
         other => panic!("a delegated source presents a subject token, not {other:?}"),
@@ -561,35 +499,6 @@ fn a_refused_exchange_fails_the_mint_and_never_presents_the_inbound_token() {
         "the refusal must never carry the inbound token: {chain}"
     );
     drop(fake.finish());
-}
-
-#[test]
-#[cfg(feature = "bigquery")]
-fn an_undeclared_subject_at_a_delegated_source_is_refused_before_any_exchange() {
-    // The authorization decision is decided BEFORE any exchange, so a caller this source does not
-    // name is refused without the identity provider ever being dialled - even when the source
-    // carries a declared delegation.
-    let secret = SecretFileGuard::create("an_undeclared_subject_at_a_delegated_source_is_refused_before_any_exchange");
-    let fake = FakeServer::start(vec![]);
-    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path(), None)
-        .expect("a direct deployment admits a declared delegation");
-    let asked = SourceSet::of(SourceName::parse("warehouse").expect("a test source is a source"));
-    let stranger = Subject::verified("stranger@example.com").expect("a test subject is a subject");
-    let minted = broker
-        .mint(
-            &RequestContext::with_assertion(
-                PrincipalChain::of(stranger),
-                Secret::new("assertion.for.stranger"),
-                4_102_444_800,
-            ),
-            &asked,
-        )
-        .expect("an undeclared subject is refused, not an error");
-    assert!(matches!(minted, Minted::Refused { .. }), "{minted:?}");
-    assert!(
-        fake.finish().is_empty(),
-        "an undeclared subject must stop before any exchange reaches the identity provider",
-    );
 }
 
 #[test]

@@ -2,11 +2,11 @@
 #
 # `workflow_dispatch` ONLY, and the reason is the same one the withdrawn exchanged-identity workflow
 # gave: this leg needs a project with a workload-identity pool whose provider trusts the issuer that
-# mints each subject's assertion, and one `roles/iam.workloadIdentityUser` binding per principal on
-# that pool. Wiring it into every push before those bindings exist would make it red forever. A
-# person dispatches it once the grants are applied. NOT
-# `roles/iam.serviceAccountTokenCreator` - an earlier round of this header asked for that, which is
-# the grant the withdrawn principal switch needed and the one that stopped applying.
+# mints each subject's assertion, and BigQuery grants on each subject's own pool principal
+# (`principal://.../subject/<sub>`). Wiring it into every push before those grants exist would make
+# it red forever. A person dispatches it once the grants are applied. No service account is
+# impersonated, so no `roles/iam.workloadIdentityUser` or `roles/iam.serviceAccountTokenCreator`
+# binding is needed.
 # `docs/where-identity-is-proven.md` moves this venue from `wired` to `yes` only after a run is
 # observed and reported there, never before. A run is outstanding evidence, not a merge
 # precondition: the owner accepted the ADBC adoption (telekom/sutura#929) with it unrun.
@@ -67,11 +67,10 @@ jobs:
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # THE DEPLOYMENT'S OWN IDENTITY, which is what the CONTROL leg reads back - the shared
-      # posture runs on application default credentials and impersonates nothing. It needs no grant
-      # on either declared account: the declared-principal legs federate each subject's own
-      # assertion against the pool instead, so what carries them is the pool's
-      # `roles/iam.workloadIdentityUser` bindings and not this key. Placed outside the
-      # checkout, never through `${{ }}` in a shell body, and removed at the end regardless of
+      # posture runs on application default credentials and impersonates nothing. The
+      # declared-principal legs federate each subject's own assertion against the pool instead, so
+      # what carries them is the BigQuery grants on each pool principal and not this key. Placed
+      # outside the checkout, never through `${{ }}` in a shell body, and removed at the end regardless of
       # outcome - the discipline the withdrawn leg established for three secrets, applied to one.
       - name: Place the CI credential outside the checkout
         env:
@@ -157,16 +156,6 @@ jobs:
           printenv SUTURA_BQ_PRINCIPAL_B_KEY > "$RUNNER_TEMP/principal-b-key.json"
           bash nix/bigquery-mint-assertion.sh "$RUNNER_TEMP/principal-a-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-a.txt"
           bash nix/bigquery-mint-assertion.sh "$RUNNER_TEMP/principal-b-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-b.txt"
-          # The two ACCOUNT ADDRESSES, read out of the same keys and not from a new secret:
-          # `telekom/sutura#929` F3 carries a declared impersonation target per subject, and the
-          # stack binds `roles/iam.workloadIdentityUser` on each principal's OWN account for its own
-          # pool subject - so the account each subject is declared to execute as is that key's
-          # `client_email`. Derived here rather than configured, because a second source for one
-          # value is a second thing to keep true.
-          python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' \
-            "$RUNNER_TEMP/principal-a-key.json" > "$RUNNER_TEMP/account-a.txt"
-          python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' \
-            "$RUNNER_TEMP/principal-b-key.json" > "$RUNNER_TEMP/account-b.txt"
           # The raw keys are spent once minted; removed promptly rather than held for the rest of
           # the job, narrowing the window either sits in cleartext on this runner.
           rm -f "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
@@ -175,22 +164,15 @@ jobs:
       # venue - see this file's own header. `SUTURA_BQ_PROJECT` arrives from the step above rather
       # than from an environment variable.
       #
-      # **What the leg asserts, since `telekom/sutura#929` F3's re-review: EXACT equality against
-      # the declared account, not merely that the two answers differ.** The credential document
-      # names the declared account as its `service_account_impersonation_url`, so
-      # `each_subject_executes_as_its_own_principal_at_the_declared_pool` reads `SESSION_USER()` and
-      # asserts it equals the account this step passes for that subject - `assert_eq!`, not
-      # `assert_ne!`. The two `assert_ne!`s beside it are kept for a narrower reason: they refuse a
-      # MISCONFIGURED venue (one assertion presented twice, one address declared twice), which two
-      # equalities against one address would both pass over. The two addresses ARE passed because
-      # the equality needs them, and running this step is what turns that expectation from
-      # untested into a claim a real run either meets or does not - nobody has dispatched this
-      # workflow yet, so the equality is what a green run will check, not evidence of one.
+      # **What the leg asserts.** The credential document names no second hop, so the federated
+      # token is the subject's own pool principal. The leg reads `SESSION_USER()` per subject and
+      # asserts the two answers differ from each other and from the deployment's own. The first
+      # `assert_ne!` refuses a MISCONFIGURED venue (one assertion presented twice).
       #
       # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
       # dispatch against a pool with no binding for these subjects is the run most likely to reach
       # it, and the message to expect there is an STS refusal of the subject token. The likeliest
-      # cause is a missing pool provider or `roles/iam.workloadIdentityUser` binding - but nobody has
+      # cause is a missing pool provider or a missing BigQuery grant on the pool principal - but nobody has
       # run this leg, so a refusal here is not yet evidence against the environment rather than
       # against the mechanism. Read the driver's text and decide, do not assume the binding.
       - name: Declared-principal leg
@@ -200,8 +182,6 @@ jobs:
           SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
           SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
           SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
-          SUTURA_BQ_ACCOUNT_A_FILE: ${{ runner.temp }}/account-a.txt
-          SUTURA_BQ_ACCOUNT_B_FILE: ${{ runner.temp }}/account-b.txt
         run: |
           set -eu
           if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
@@ -216,17 +196,11 @@ jobs:
             echo "one of the two minted assertions is missing or empty - one subject cannot show two" >&2
             exit 1
           fi
-          if [ ! -s "$SUTURA_BQ_ACCOUNT_A_FILE" ] || [ ! -s "$SUTURA_BQ_ACCOUNT_B_FILE" ]; then
-            echo "one of the two declared account addresses is missing - the step that reads them from the keys runs before this one" >&2
-            exit 1
-          fi
           # The assertions reach the leg as VALUES rather than paths, because the credential source
           # this transport builds is a loopback URL and the assertion never touches a file on the
           # far side either. Read here, in one step, from files this job placed and removes.
           SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
           SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
-          SUTURA_BQ_ACCOUNT_A="$(cat "$SUTURA_BQ_ACCOUNT_A_FILE")" \
-          SUTURA_BQ_ACCOUNT_B="$(cat "$SUTURA_BQ_ACCOUNT_B_FILE")" \
             nix run .#bigquery-declared-principal -- --no-capture
 
       - name: Remove the credentials

@@ -1,6 +1,7 @@
 # The Google side of the multi-player example: a workload identity pool that trusts the local
-# Keycloak realm, one service account per test user, and a dataset whose row access policies give
-# alice and bob different rows. Run ../setup.sh first: this program reads ../.local/jwks.json.
+# Keycloak realm, and a dataset whose grants and row access policies name alice's and bob's own pool
+# principals and give them different rows. No service account exists. Run ../setup.sh first: this
+# program reads ../.local/jwks.json.
 #
 #   pulumi stack init local && pulumi config set project <your-project-id>
 #   pulumi up
@@ -9,7 +10,7 @@
 # `pulumi destroy` removes everything this program created.
 name: sutura-multi-player
 runtime: yaml
-description: Test accounts and data for the sutura multi-player example.
+description: Test grants and data for the sutura multi-player example.
 
 config:
   project:
@@ -65,10 +66,6 @@ resources:
     type: gcp:projects:Service
     properties: { service: iam.googleapis.com, disableOnDestroy: false }
     options: { provider: "${google}" }
-  iamCredentialsApi:
-    type: gcp:projects:Service
-    properties: { service: iamcredentials.googleapis.com, disableOnDestroy: false }
-    options: { provider: "${google}" }
   stsApi:
     type: gcp:projects:Service
     properties: { service: sts.googleapis.com, disableOnDestroy: false }
@@ -107,47 +104,31 @@ resources:
           fn::readFile: ../.local/jwks.json
     options: { provider: "${google}" }
 
-  aliceAccount:
-    type: gcp:serviceaccount:Account
-    properties: { accountId: sutura-mp-alice, displayName: sutura example user alice }
-    options: { provider: "${google}", dependsOn: ["${iamApi}"] }
-  bobAccount:
-    type: gcp:serviceaccount:Account
-    properties: { accountId: sutura-mp-bob, displayName: sutura example user bob }
-    options: { provider: "${google}", dependsOn: ["${iamApi}"] }
-
-  # One subject per account: only alice's token may act as alice's account. No principalSet.
-  aliceWorkloadIdentityUser:
-    type: gcp:serviceaccount:IAMMember
-    properties:
-      serviceAccountId: ${aliceAccount.name}
-      role: roles/iam.workloadIdentityUser
-      member: ${poolPrincipal}/${aliceSubject}
-    options: { provider: "${google}" }
-  bobWorkloadIdentityUser:
-    type: gcp:serviceaccount:IAMMember
-    properties:
-      serviceAccountId: ${bobAccount.name}
-      role: roles/iam.workloadIdentityUser
-      member: ${poolPrincipal}/${bobSubject}
-    options: { provider: "${google}" }
-
+  # Each grant names the caller's own pool principal. carol has none, so BigQuery refuses her.
   aliceJobUser:
     type: gcp:projects:IAMMember
-    properties: { project: "${project}", role: roles/bigquery.jobUser, member: "${aliceAccount.member}" }
+    properties: { project: "${project}", role: roles/bigquery.jobUser, member: "${poolPrincipal}/${aliceSubject}" }
     options: { provider: "${google}" }
   bobJobUser:
     type: gcp:projects:IAMMember
-    properties: { project: "${project}", role: roles/bigquery.jobUser, member: "${bobAccount.member}" }
+    properties: { project: "${project}", role: roles/bigquery.jobUser, member: "${poolPrincipal}/${bobSubject}" }
     options: { provider: "${google}" }
   # The driver reads results through the BigQuery Storage Read API.
   aliceReadSessionUser:
     type: gcp:projects:IAMMember
-    properties: { project: "${project}", role: roles/bigquery.readSessionUser, member: "${aliceAccount.member}" }
+    properties: {
+      project: "${project}",
+      role: roles/bigquery.readSessionUser,
+      member: "${poolPrincipal}/${aliceSubject}",
+    }
     options: { provider: "${google}" }
   bobReadSessionUser:
     type: gcp:projects:IAMMember
-    properties: { project: "${project}", role: roles/bigquery.readSessionUser, member: "${bobAccount.member}" }
+    properties: {
+      project: "${project}",
+      role: roles/bigquery.readSessionUser,
+      member: "${poolPrincipal}/${bobSubject}",
+    }
     options: { provider: "${google}" }
 
   dataset:
@@ -246,7 +227,7 @@ resources:
       datasetId: ${dataset.datasetId}
       tableId: ${subscriptions.tableId}
       policyId: alice_annual
-      grantees: ["${aliceAccount.member}"]
+      grantees: ["${poolPrincipal}/${aliceSubject}"]
       filterPredicate: contract_term = 'annual'
     options: { provider: "${google}", dependsOn: ["${subscriptionsLoad}"] }
   bobRows:
@@ -255,23 +236,31 @@ resources:
       datasetId: ${dataset.datasetId}
       tableId: ${subscriptions.tableId}
       policyId: bob_monthly
-      grantees: ["${bobAccount.member}"]
+      grantees: ["${poolPrincipal}/${bobSubject}"]
       filterPredicate: contract_term = 'monthly'
     options: { provider: "${google}", dependsOn: ["${subscriptionsLoad}"] }
 
   # The read grant waits for both policies: before they exist, a reader sees every row.
   aliceDataViewer:
     type: gcp:bigquery:DatasetIamMember
-    properties: { datasetId: "${dataset.datasetId}", role: roles/bigquery.dataViewer, member: "${aliceAccount.member}" }
+    properties: {
+      datasetId: "${dataset.datasetId}",
+      role: roles/bigquery.dataViewer,
+      member: "${poolPrincipal}/${aliceSubject}",
+    }
     options: { provider: "${google}", dependsOn: ["${aliceRows}", "${bobRows}"] }
   bobDataViewer:
     type: gcp:bigquery:DatasetIamMember
-    properties: { datasetId: "${dataset.datasetId}", role: roles/bigquery.dataViewer, member: "${bobAccount.member}" }
+    properties: {
+      datasetId: "${dataset.datasetId}",
+      role: roles/bigquery.dataViewer,
+      member: "${poolPrincipal}/${bobSubject}",
+    }
     options: { provider: "${google}", dependsOn: ["${aliceRows}", "${bobRows}"] }
 
 outputs:
   # sutura's BigQuery source. JSON is YAML: `pulumi stack output settings > ../conf/development.yaml`.
-  # carol is not in `impersonate`, so sutura refuses her question instead of running it as anyone.
+  # Each verified caller federates as their own pool principal. BigQuery's grants decide the rows.
   settings:
     fn::toJSON:
       sources:
@@ -283,10 +272,6 @@ outputs:
           posture: impersonation-at-source
           workload_identity:
             audience: //iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${pool.workloadIdentityPoolId}/providers/${keycloakProvider.workloadIdentityPoolProviderId}
-            impersonate:
-              # alice and bob, by their Keycloak user id.
-              0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01: ${aliceAccount.email}
-              0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02: ${bobAccount.email}
             delegation:
               token_endpoint: http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token
               client_id: https://sutura.example.com

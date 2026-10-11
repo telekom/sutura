@@ -1,6 +1,6 @@
 ---
 title: BigQuery
-description: Answer questions over a BigQuery dataset, as one service account or as each caller's own account.
+description: Answer questions over a BigQuery dataset, as one service account or as each caller's own workload identity principal.
 ---
 
 # BigQuery
@@ -14,8 +14,9 @@ the source kind is `bigquery`. It can run a query as the caller. See [Identity](
 ## When to use it
 
 - Your data is in BigQuery, and BigQuery grants and row access policies control who sees what.
-- You want each caller's query to run as that caller's own service account.
-  `posture: impersonation-at-source` does this (secure-impersonation).
+- You want each caller's query to run as that caller's own principal in a workload identity pool.
+  `posture: impersonation-at-source` does this (secure-impersonation). No caller needs a service
+  account.
 - Or you want all queries to run as one service account. `posture: shared-service-user` does
   this.
 
@@ -35,7 +36,6 @@ and these keys:
 | Key                                               | Type          | Default  | Meaning                                                                                                                                          |
 | ------------------------------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `workload_identity.audience`                      | string        | required | The workload identity pool provider: `//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
-| `workload_identity.impersonate`                   | map           | required | Caller subject (`sub`) to service account email. A caller who is not in the map is refused                                                       |
 | `workload_identity.delegation.token_endpoint`     | URL           | none     | The token endpoint of your identity provider, for a token exchange                                                                               |
 | `workload_identity.delegation.client_id`          | string        | none     | The client ID that sutura uses for the exchange                                                                                                  |
 | `workload_identity.delegation.client_secret_file` | absolute path | none     | A file that holds the client secret                                                                                                              |
@@ -70,9 +70,6 @@ sources:
     posture: "impersonation-at-source"
     workload_identity:
       audience: "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/sutura/providers/keycloak"
-      impersonate:
-        0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a01: "sutura-mp-alice@my-project.iam.gserviceaccount.com"
-        0d6f2a1e-5b3c-4e8a-9f21-7c4b8e2d1a02: "sutura-mp-bob@my-project.iam.gserviceaccount.com"
       delegation:
         token_endpoint: "http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"
         client_id: "https://sutura.example.com"
@@ -87,13 +84,35 @@ driver then uses the application default credentials of the process.
 
 This data system supports `shared-service-user` and secure-impersonation.
 
-With `shared-service-user`, every query runs as the application default credentials of the
-process.
+With `shared-service-user`, every query runs as one identity: the application default
+credentials of the process.
 
-With `impersonation-at-source`, sutura gives the driver the caller's verified assertion. Google
-checks it against the pool in `audience`, and the query runs as the service account that
-`impersonate` maps to the caller. sutura refuses an anonymous caller and a caller who is not in
-the map. It never runs their query as the deployment.
+With `impersonation-at-source`, each caller has their own principal in the pool, and the query runs
+with that principal's own grants. No service account is used at any step:
+
+1. sutura verifies the caller's token.
+2. With `delegation`, sutura exchanges that token at your identity provider for a token that the
+   pool accepts.
+3. The driver sends the token to the Google Security Token Service (STS). STS accepts it only
+   when the pool provider in `audience` trusts its issuer, its signature is valid and its audience
+   matches. This is how the token proves who the caller is.
+4. STS gives a federated token for the caller's principal:
+   `principal://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/subject/<subject>`.
+   `<subject>` is the `google.subject` that the pool provider maps, for example the token's `sub`.
+5. BigQuery runs the query as that principal. The BigQuery grants and row access policies on that
+   principal decide which rows the caller sees.
+
+Each caller must exist in BigQuery, as their own pool principal with their own grants. Give each
+caller's principal the roles `roles/bigquery.jobUser`, `roles/bigquery.readSessionUser` and
+`roles/bigquery.dataViewer`, and name it in your row access policies. BigQuery refuses the query
+of a caller who has no grant. To limit which callers can get a federated token, set an attribute
+condition on the pool provider. sutura refuses an anonymous caller. It never runs their query as
+the deployment.
+
+!!! note
+
+    Callers can share one dataset, because BigQuery applies each caller's own grants and row access
+    policies to the query.
 
 ## Sizing
 

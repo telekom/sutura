@@ -209,7 +209,6 @@ fn credential_material_this_adapter_cannot_use_is_refused_before_anything_is_pre
     for handed in [
         Presented::SubjectToken {
             material: sutura_domain::identity::Secret::new("an-exchanged-token"),
-            impersonate: None,
         },
         Presented::SubjectPrincipal {
             name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
