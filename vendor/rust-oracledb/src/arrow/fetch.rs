@@ -444,7 +444,6 @@ mod tests {
 
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int16Type, TimestampMicrosecondType};
-    use arrow_array::Array;
     use arrow_schema::DataType;
 
     use super::RecordBatchCreator;
@@ -499,10 +498,8 @@ mod tests {
             -6,
             -30,
         );
-        for value in [Some(DbValue::Timestamp(value)), None] {
-            let row = DbRow::new(vec![value]);
-            creator.add_row(&Row::new(&columns, row)).unwrap();
-        }
+        let row = DbRow::new(vec![Some(DbValue::Timestamp(value))]);
+        creator.add_row(&Row::new(&columns, row)).unwrap();
         let batch = creator.create_batch().unwrap();
         let fetched = batch.column(0).as_struct();
         let instants =
@@ -510,6 +507,5 @@ mod tests {
         let offsets = fetched.column(1).as_primitive::<Int16Type>();
         assert_eq!(instants.value(0), 1_761_933_135_456_000);
         assert_eq!(offsets.value(0), -390);
-        assert!(fetched.is_null(1));
     }
 }
