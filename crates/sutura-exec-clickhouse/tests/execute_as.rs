@@ -45,7 +45,9 @@ mod execute_as {
     }
 
     /// Rows differ per caller because the SERVER evaluates each declared user's own row policy:
-    /// the same plan, the same service-user connection, two answers.
+    /// the same plan, the same service-user connection, two answers. A user the service user may not
+    /// become is refused by the server - never answered as the service user. In this one cell because
+    /// it is the one that loads this database's table.
     #[test]
     fn each_declared_user_reads_only_the_rows_its_own_policy_admits() {
         // The one database this row policy names: only this cell writes to it.
@@ -57,17 +59,17 @@ mod execute_as {
             .into_iter()
             .find(|case| case.name() == "decimal-total-by-day")
             .expect("the corpus has the case");
-        let rows_as = |name: &str| {
+        let run_as = |name: &str| {
             let presented = Presented::SubjectPrincipal {
                 name: PrincipalName::parse(name).expect("a tier user is a principal"),
             };
-            warehouse
-                .execute(Executable::Query(case.plan()), &presented, corpus::deadline())
-                .unwrap_or_else(|e| panic!("{name}: {e}"))
-                .rows()
+            warehouse.execute(Executable::Query(case.plan()), &presented, corpus::deadline())
         };
+        let rows_as = |name: &str| run_as(name).unwrap_or_else(|e| panic!("{name}: {e}")).rows();
         assert_eq!(rows_as("sutura_analyst_a"), case.expected().rows().len());
         assert_eq!(rows_as("sutura_analyst_b"), 0);
+        let refused = run_as("sutura_ungranted").expect_err("a user with no IMPERSONATE grant is refused");
+        assert!(warehouse.source_refused(&refused), "{refused}");
     }
 
     /// The tier's checker binds the token's `sub` to the Basic user: `sutura_caller_a`'s token signs
