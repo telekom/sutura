@@ -590,6 +590,10 @@ pub enum SourcePlacement {
         endpoint: String,
         /// The file the deployment's one token is read from at boot, absolute.
         token_file: PathBuf,
+        /// The hops each caller's token is exchanged through, in order, on an
+        /// `impersonation-at-source` entry; empty on any other. The last hop's token is the
+        /// request's bearer.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
 }
 
@@ -617,9 +621,9 @@ impl SourcePlacement {
 /// A `clickhouse` source's declared subject -> `ClickHouse` user map.
 pub type DeclaredUsers = BTreeMap<SubjectKey, String>;
 
-/// Why an `oracle` source's `delegation` is not one it can be served under.
+/// Why an `oracle` or `cube` source's `delegation` is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidOracleDelegation {
+pub enum InvalidDelegation {
     /// An impersonating source with no exchange, so no caller's token could open a session.
     #[error(
         "the source is `impersonation-at-source` and declares no `delegation` - name the token \
@@ -637,6 +641,13 @@ pub enum InvalidOracleDelegation {
          `transport_mode: verified`"
     )]
     Plaintext,
+    /// An impersonating `cube` source whose endpoint is not `https`: each request sends its
+    /// caller's token.
+    #[error(
+        "the source is `impersonation-at-source`, so each request sends its caller's token - declare \
+         an `https://` endpoint"
+    )]
+    PlaintextEndpoint,
 }
 
 /// Why a `clickhouse` source's `impersonate` map is not one it can be served under.

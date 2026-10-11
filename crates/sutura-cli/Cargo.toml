@@ -42,7 +42,7 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 #
 # `sutura-http-client` carries the delegation exchange a `direct` deployment composes for a source
 # declaring `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment), and an `oracle`
-# source's `delegation`.
+# or `cube` source's `delegation`.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "dep:sutura-http-client"]
 
 # The Postgres adapter: the ADBC transport, over the driver every musl release links
@@ -107,8 +107,9 @@ datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/http"]
 
 # The Cube metadata adapter's HTTP reader (issue #1340), for `catalog.kind: cube`. Default-off for
-# `openmetadata`'s reason: its outbound TLS stack arrives through `sutura-http-client`.
-cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http", "dep:sutura-exec-cube"]
+# `openmetadata`'s reason: its outbound TLS stack arrives through `sutura-http-client`, which also
+# carries a `cube` source's `delegation` exchange.
+cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http", "dep:sutura-exec-cube", "dep:sutura-http-client"]
 
 # The live RDBMS metadata adapter (`catalog.kind: rdbms`), issue #972: a reader over a real
 # Postgres documentation schema, and with it the outbound TLS stack that reader needs.

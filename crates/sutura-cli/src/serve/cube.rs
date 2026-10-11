@@ -30,6 +30,19 @@ pub(crate) fn open_cube(
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
+/// The service a cube-only deployment answers through: the declared-delegation broker, because an
+/// `impersonation-at-source` source sends each caller's exchanged token as the bearer.
+#[cfg(feature = "cube")]
+pub(super) fn served(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<super::CubeSource>,
+    settings: &sutura_config::Settings,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<super::Serving, String> {
+    let broker = super::broker::build_broker(settings.sources(), outbound)?;
+    super::started(catalogs, engines, broker, None, settings)
+}
+
 /// The refusal for a build that did not link the Cube adapter - `open_oracle`'s twin shape.
 #[cfg(not(feature = "cube"))]
 pub(crate) fn open_cube(
@@ -129,5 +142,89 @@ mod tests {
             "a mixed catalog opens each kind and reaches the cube arm's own credential refusal",
         );
         assert!(error.contains("warehouse.token_file"), "{error}");
+    }
+
+    /// An impersonating `cube` entry exchanging each caller's token through one hop, with neither its
+    /// token file nor its client secret file there.
+    #[cfg(feature = "cube")]
+    const IMPERSONATING: &str = "  warehouse:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+                                 token_file: \"/nonexistent/sutura-test-cube-token\"\n    \
+                                 posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \
+                                 \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+                                 client_secret_file: \"/nonexistent/sutura-test-cube-client-secret\"\n        \
+                                 audience: \"https://cube.example.com\"\n";
+
+    /// **An impersonating source passes the posture cross-check** and stops at its own token file -
+    /// before anything is dialled.
+    #[test]
+    #[cfg(feature = "cube")]
+    fn an_impersonating_cube_source_reaches_the_token_file_the_deployment_declared() {
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+                &crate::serve::tests::direct_registry(IMPERSONATING),
+                one_worker(),
+                default_timeout(),
+                None,
+            ),
+            "the declared token file is not there, so this deployment does not start",
+        );
+        assert!(error.contains("warehouse.token_file"), "{error}");
+    }
+
+    /// **A cube-only deployment serves an impersonating source through its delegation**, not as the
+    /// shared identity: the arm's service reads the declared client secret, so a file that is not
+    /// there refuses naming that key. The token file is there, so the Cube arm opens.
+    #[test]
+    #[cfg(feature = "cube")]
+    fn a_cube_only_deployment_serves_an_impersonating_source_through_its_delegation() {
+        use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+        use sutura_domain::model::SourceName;
+        use sutura_domain::pinned::DefinitionVersion;
+
+        let directory = std::env::temp_dir().join(format!("sutura-cli-cube-served-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let token = directory.join("token");
+        std::fs::write(&token, "cube-token-5d2b81").expect("the token file writes");
+        let settings = crate::serve::tests::direct_settings(&IMPERSONATING.replace(
+            "/nonexistent/sutura-test-cube-token",
+            token.to_str().expect("a scratch path is UTF-8"),
+        ));
+        let opened = open_engine(
+            &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+            settings.sources(),
+            one_worker(),
+            default_timeout(),
+            None,
+        );
+        let _ignored = std::fs::remove_dir_all(&directory);
+        let Ok(crate::serve::OpenedSources::Cube(engines)) = opened else {
+            panic!("a cube-only registry opens the Cube arm");
+        };
+        let catalog = CatalogSettings::parse(
+            SourceName::parse("structure").expect("a test name is a name"),
+            CatalogKind::Markdown,
+            std::path::PathBuf::from("/nowhere/catalog"),
+            std::path::PathBuf::from("/nowhere/data"),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        )
+        .expect("a directory and a version are a settings");
+        let catalogs = crate::catalog::open_catalog(&Catalogs::parse(vec![catalog]).expect("one name is a registry"), None)
+            .expect("a markdown catalog opens");
+        let error = super::served(&catalogs, engines, &settings, None)
+            .map(drop)
+            .expect_err("the declared client secret file is not there");
+        assert!(error.contains("sources.warehouse.delegation.client_secret_file"), "{error}");
+    }
+
+    /// **The broker composes the source's delegation**: it reads the declared client secret, so a
+    /// file that is not there refuses naming that key.
+    #[test]
+    #[cfg(feature = "cube")]
+    fn an_impersonating_cube_sources_delegation_reaches_its_client_secret_file() {
+        let error = crate::serve::broker::build_broker(&crate::serve::tests::direct_registry(IMPERSONATING), None)
+            .map(drop)
+            .expect_err("the declared client secret file is not there");
+        assert!(error.contains("sources.warehouse.delegation.client_secret_file"), "{error}");
     }
 }

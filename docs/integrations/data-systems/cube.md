@@ -26,6 +26,9 @@ and these keys:
 | ------------ | ------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
 | `endpoint`   | string        | required | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`. |
 | `token_file` | absolute path | required | A file that holds the Cube API token. sutura reads it at startup                                             |
+| `delegation` | list          | none     | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order                 |
+
+Each `delegation` hop has the keys of an [Oracle hop](oracle.md#settings).
 
 sutura does not connect at startup. The first request is sent for the first question. One request
 is bounded at 30 seconds, and one response at 8 MiB. For TLS, the adapter uses `security.outbound`.
@@ -41,9 +44,22 @@ Cube cannot run a part of a federated question.
 
 ## Identity
 
-This data system supports `shared-service-user`. sutura sends the token in `token_file` on every
-request, so every caller's query runs with that token. sutura refuses to start a `cube` source with
-`impersonation-at-source`.
+This data system supports `impersonation-at-source` and `shared-service-user`.
+
+With `shared-service-user`, sutura sends the token in `token_file` on every request, so every
+caller's query runs with that token.
+
+With `impersonation-at-source`, sutura exchanges the token that it verified for the caller through
+the hops in `delegation`, in order. The first hop sends the caller's token, and each next hop sends
+the token from the hop before it. Each request of the caller's query sends the token from the last
+hop as its bearer. Cube checks that token, and its security context decides what the caller may
+read.
+
+- If a hop fails, sutura refuses the query. It sends no later hop and no request to Cube.
+- sutura does not start without `delegation`, or when the last hop is `broker-token`.
+- The `endpoint` must be `https`, and `delegation` needs `security.inbound.mode: direct`.
+- sutura sends the token in `token_file` only for the checks it runs at startup. No caller's query
+  sends it.
 
 ## Example
 

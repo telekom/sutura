@@ -52,9 +52,9 @@ use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
-/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the three
+/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the four
 /// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle"))]
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube"))]
 mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
@@ -320,9 +320,8 @@ pub(crate) fn run() -> Result<(), String> {
         #[cfg(feature = "cube")]
         OpenedSources::Cube(engines) => {
             // No pre-flight, for the `Postgres` arm's reason: `CubeWarehouse` takes the port's
-            // default `preflight`. The shared-identity service, because a Cube source has one token
-            // and no place for a subject - the parse refuses `impersonation-at-source` on it.
-            (shared_identity_service(&catalogs, engines, None, &settings)?, None)
+            // default `preflight`.
+            (cube::served(&catalogs, engines, &settings, outbound.as_ref())?, None)
         }
         #[cfg(feature = "duckdb")]
         OpenedSources::Duckdb(engines) => {
@@ -343,7 +342,7 @@ pub(crate) fn run() -> Result<(), String> {
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
             let gate = adoption_gate(mixed.attached.clone(), true);
-            #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle"))]
+            #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube"))]
             let served = started(
                 &catalogs,
                 mixed.engines,
@@ -355,7 +354,7 @@ pub(crate) fn run() -> Result<(), String> {
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
             // source served as itself, and nothing else mintable.
-            #[cfg(not(any(feature = "bigquery", feature = "clickhouse", feature = "oracle")))]
+            #[cfg(not(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube")))]
             let served = shared_identity_service(&catalogs, mixed.engines, gate, &settings)?;
             (served, mixed.attached)
         }

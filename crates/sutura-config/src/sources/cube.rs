@@ -9,21 +9,22 @@ use std::path::PathBuf;
 
 use super::entry::dialled_source_keys;
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::SourcePlacement;
+use crate::sources::placement::{InvalidDelegation, SourcePlacement};
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: cube` entry into its placement.
 ///
-/// **The two declarations are the whole entry**: the API's `endpoint` and the `token_file` its one
-/// token is read from. Every dialled key, every `bigquery` and `files` key and a workload-identity
+/// **The API's `endpoint` and the `token_file` the deployment's token is read from**, and on an
+/// `impersonation-at-source` entry the `delegation` each caller's token is exchanged through for
+/// the request's bearer. Every dialled key, every `bigquery` and `files` key and a workload-identity
 /// block are refused, because the REST client reads none of them and a key written here would sit in
 /// the file doing nothing.
 ///
 /// # Errors
 ///
 /// A key that belongs to another kind; a missing `endpoint` or `token_file`; an `endpoint` carrying
-/// credentials; a relative `token_file`; and `posture: impersonation-at-source`, which a source with
-/// one deployment token has no place to run.
+/// credentials; a relative `token_file`; and a `delegation` that is missing on an impersonating
+/// entry, declared on any other, or sent to an endpoint that is not `https`.
 pub(super) fn parse_placement(
     alias: &SourceName,
     kind: SourceKind,
@@ -32,9 +33,6 @@ pub(super) fn parse_placement(
 ) -> Result<SourcePlacement, InvalidSourceRegistry> {
     super::refuse_foreign_keys(alias, kind, foreign_keys(entry, &written))?;
     super::refuse_foreign_keys(alias, kind, dialled_source_keys(entry, written))?;
-    if entry.posture.trim() == "impersonation-at-source" {
-        return Err(InvalidSourceRegistry::CubeImpersonation { alias: alias.clone() });
-    }
     let endpoint = super::required(alias, kind, "endpoint", entry.endpoint)?;
     if endpoint.contains('@') {
         return Err(InvalidSourceRegistry::CubeEndpointCredentials { alias: alias.clone() });
@@ -44,9 +42,16 @@ pub(super) fn parse_placement(
         "token_file",
         super::required(alias, kind, "token_file", entry.token_file)?,
     )?;
+    let delegation = super::parse_delegation(
+        alias,
+        kind,
+        entry,
+        (!endpoint.starts_with("https://")).then_some(InvalidDelegation::PlaintextEndpoint),
+    )?;
     Ok(SourcePlacement::Cube {
         endpoint: endpoint.to_owned(),
         token_file,
+        delegation,
     })
 }
 
@@ -70,15 +75,14 @@ pub(super) fn refuse_elsewhere(
     )
 }
 
-/// The five keys a `cube` entry has no use for beside the dialled ones: the `files` key, the three
-/// `bigquery` keys and a workload-identity block.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: &impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 5] {
+/// The four keys a `cube` entry has no use for beside the dialled ones: the `files` key and the
+/// three `bigquery` keys. A workload-identity block is `super::parse_delegation`'s refusal.
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: &impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 4] {
     [
         ("data_dir", written(entry.data_dir)),
         ("billing_project", written(entry.billing_project)),
         ("dataset", written(entry.dataset)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
-        ("workload_identity", entry.workload_identity.is_some()),
     ]
 }
 
@@ -87,6 +91,8 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     use crate::security::DeploymentIdentity;
+    use crate::sources::placement::InvalidDelegation;
+    use crate::sources::workload_identity::{DelegationDeclared, DelegationGrant};
     use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceKind, SourceRegistry, placement};
 
     fn alias(name: &str) -> SourceName {
@@ -141,7 +147,9 @@ mod tests {
         let configured = registry.get(&alias("metrics")).expect("the entry is there");
         assert_eq!(configured.kind(), SourceKind::Cube);
         match configured.placement() {
-            placement::SourcePlacement::Cube { endpoint, token_file } => {
+            placement::SourcePlacement::Cube {
+                endpoint, token_file, ..
+            } => {
                 assert_eq!(endpoint, "https://cube.example.com");
                 assert_eq!(token_file, std::path::Path::new("/etc/sutura/cube-token"));
             }
@@ -149,22 +157,75 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_cube_source_declared_to_impersonate_is_refused() {
-        let impersonating = RawSourceEntry {
+    fn hop(audience: &str) -> crate::raw::RawDelegation {
+        crate::raw::RawDelegation {
+            token_endpoint: String::from("https://idp.example.com/token"),
+            client_id: String::from("sutura"),
+            client_secret_file: String::from("/etc/sutura/client-secret"),
+            audience: String::from(audience),
+            grant: DelegationGrant::TokenExchange,
+        }
+    }
+
+    /// An impersonating entry declaring `delegation`. A test changes one field at a time.
+    fn impersonating(delegation: &[crate::raw::RawDelegation]) -> RawSourceEntry<'_> {
+        RawSourceEntry {
             posture: "impersonation-at-source",
             acknowledged_because: None,
+            delegation: Some(delegation),
             ..cube("metrics")
+        }
+    }
+
+    /// An impersonating source carries the hops each caller's token is exchanged through, in the
+    /// order written.
+    #[test]
+    fn an_impersonating_cube_source_declares_its_delegation_hops_in_order() {
+        let declared = [hop("sutura-app"), hop("https://cube.example.com")];
+        let registry =
+            SourceRegistry::parse(&[impersonating(&declared)], Some(&single_user())).expect("an impersonating cube entry parses");
+        let configured = registry.get(&alias("metrics")).expect("the entry is there");
+        let placement::SourcePlacement::Cube { delegation, .. } = configured.placement() else {
+            panic!("expected a cube placement, got {:?}", configured.placement());
         };
-        let error = refusal(impersonating);
-        assert!(
-            matches!(error, InvalidSourceRegistry::CubeImpersonation { .. }),
-            "got {error:?}"
-        );
-        assert!(
-            error.to_string().contains("runs no query as a subject"),
-            "the refusal names why: {error}"
-        );
+        let audiences: Vec<_> = delegation.iter().map(DelegationDeclared::audience).collect();
+        assert_eq!(audiences, ["sutura-app", "https://cube.example.com"]);
+    }
+
+    /// A delegation is refused where it would not be what each request sends: missing on an
+    /// impersonating entry, declared on a shared one, or bound for an endpoint that is not `https`.
+    #[test]
+    fn a_cube_delegation_is_refused_unless_an_impersonating_https_source_declares_it() {
+        let one = [hop("https://cube.example.com")];
+        for (entry, expected) in [
+            (
+                RawSourceEntry {
+                    delegation: None,
+                    ..impersonating(&one)
+                },
+                InvalidDelegation::Missing,
+            ),
+            (
+                RawSourceEntry {
+                    delegation: Some(&one),
+                    ..cube("metrics")
+                },
+                InvalidDelegation::NotImpersonating,
+            ),
+            (
+                RawSourceEntry {
+                    endpoint: Some("http://cube.example.com"),
+                    ..impersonating(&one)
+                },
+                InvalidDelegation::PlaintextEndpoint,
+            ),
+        ] {
+            let error = refusal(entry);
+            assert!(
+                matches!(error, InvalidSourceRegistry::Delegation { ref cause, .. } if *cause == expected),
+                "{error:?}"
+            );
+        }
     }
 
     #[test]

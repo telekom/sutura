@@ -18,8 +18,10 @@
 //!
 //! # Identity
 //!
-//! A `shared-service-user` source sends the deployment's declared Cube token on every request. The
-//! token is a [`Secret`]: no error of this crate carries it, or Cube's own text.
+//! A `shared-service-user` source sends the deployment's declared Cube token on every request. An
+//! `impersonation-at-source` source sends each question's own token - the one the credential broker
+//! exchanged the caller's for - and Cube's own check of that token decides what the caller may read.
+//! Each token is a [`Secret`]: no error of this crate carries it, or Cube's own text.
 //!
 //! [`Secret`]: sutura_domain::identity::Secret
 
@@ -87,10 +89,10 @@ where
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
     #[error(
-        "source `{at}` was handed {presented}, and this adapter sends only the deployment's declared Cube \
-         token. This is a wiring defect between the credential broker and the source declaration"
+        "source `{at}` was handed {presented}, which this adapter cannot send to Cube. This is a wiring \
+         defect between the credential broker and the source declaration"
     )]
-    NoPlaceForASubject { at: String, presented: &'static str },
+    Undeliverable { at: String, presented: &'static str },
     #[error("the credential broker presented a leg that disagrees with how this source is declared")]
     PresentedDisagreesWithPosture {
         #[source]
@@ -146,7 +148,8 @@ impl<T> CubeWarehouse<T>
 where
     T: CubeTransport,
 {
-    /// A source that sends `token`, the deployment's declared Cube token, on every request.
+    /// A source over `transport`. `token` is the deployment's declared Cube token: every request of a
+    /// shared source and every boot anchor check sends it.
     #[must_use]
     pub const fn of(source: SourceName, posture: SourcePosture, token: Secret, transport: T) -> Self {
         Self {
@@ -157,20 +160,26 @@ where
         }
     }
 
-    fn deliverable(&self, presented: &Presented) -> CubeResult<&Secret, T::Error> {
-        match *presented {
-            Presented::SharedServiceUser { .. } => {}
+    /// The token `presented` sends: the declared one for a shared leg, the caller's own for a
+    /// subject's token - and only where the leg agrees with this source's declared posture.
+    fn deliverable<'leg>(&'leg self, presented: &'leg Presented) -> CubeResult<&'leg Secret, T::Error> {
+        let token = match *presented {
+            Presented::SharedServiceUser { .. } => &self.token,
+            Presented::SubjectToken {
+                ref material,
+                impersonate: None,
+            } => material,
             Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
-                return Err(CubeError::NoPlaceForASubject {
+                return Err(CubeError::Undeliverable {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),
                 });
             }
-        }
+        };
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| CubeError::PresentedDisagreesWithPosture { cause })?;
-        Ok(&self.token)
+        Ok(token)
     }
 
     fn run(&self, plan: &QueryPlan, limit: u32, token: &Secret, deadline: Deadline) -> CubeResult<RowSet, T::Error> {
@@ -196,7 +205,9 @@ where
 {
     type Error = CubeError<T::Error>;
 
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    /// **A subject's own token arrives here**, at an `impersonation-at-source` source, and is the
+    /// bearer of each request that question makes.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
     fn source(&self) -> &SourceName {
         &self.source

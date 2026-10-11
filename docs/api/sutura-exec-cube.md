@@ -26,8 +26,10 @@ answer, read with the same credential: a member Cube does not serve refuses the 
 
 # Identity
 
-A `shared-service-user` source sends the deployment's declared Cube token on every request. The
-token is a `Secret`: no error of this crate carries it, or Cube's own text.
+A `shared-service-user` source sends the deployment's declared Cube token on every request. An
+`impersonation-at-source` source sends each question's own token - the one the credential broker
+exchanged the caller's for - and Cube's own check of that token decides what the caller may read.
+Each token is a `Secret`: no error of this crate carries it, or Cube's own text.
 
 `Secret`: sutura_domain::identity::Secret
 
@@ -54,7 +56,7 @@ Why Cube did not answer a plan.
 - `NotExpressible`
 - `AbsentMember`
 - `LegWithoutCombiner`
-- `NoPlaceForASubject`
+- `Undeliverable`
 - `PresentedDisagreesWithPosture`
 - `ZeroDenominator`
 - `NotFinite`
@@ -81,7 +83,8 @@ One Cube deployment, as one source.
 pub const fn of(source: SourceName, posture: SourcePosture, token: Secret, transport: T) -> Self
 ```
 
-A source that sends `token`, the deployment's declared Cube token, on every request.
+A source over `transport`. `token` is the deployment's declared Cube token: every request of a
+shared source and every boot anchor check sends it.
 
 ### Implements
 

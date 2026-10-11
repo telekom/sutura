@@ -72,7 +72,7 @@ pub mod workload_identity;
 
 /// The per-entry reader - see its header for why it is its own file.
 mod entry;
-use entry::{parse_absolute, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
+use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
 
 /// What kind of data system a source is.
 ///
@@ -461,21 +461,14 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: crate::sources::placement::InvalidImpersonate,
     },
-    /// An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+    /// An `oracle` or `cube` source's `delegation` is missing, misplaced, or declared over a
+    /// plaintext channel.
     #[error("`sources.{alias}.delegation` is not usable")]
-    OracleDelegation {
+    Delegation {
         alias: SourceName,
         #[source]
-        cause: crate::sources::placement::InvalidOracleDelegation,
+        cause: crate::sources::placement::InvalidDelegation,
     },
-    /// A `cube` source declared `impersonation-at-source`: its one token is the whole credential, so a
-    /// subject has no place to run as.
-    #[error(
-        "`sources.{alias}` is `kind: cube` and its `posture` is `impersonation-at-source` - a Cube source \
-         is queried with one declared token and runs no query as a subject. Declare \
-         `posture: shared-service-user` with an `acknowledged_because`"
-    )]
-    CubeImpersonation { alias: SourceName },
     /// A `cube` source's `endpoint` carries an `@`.
     #[error("`sources.{alias}.endpoint` carries an `@` - credentials in the URL are refused, declare token_file")]
     CubeEndpointCredentials { alias: SourceName },
@@ -748,10 +741,10 @@ fn parse_entry(
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
     let workload_identity = match entry.workload_identity.as_ref() {
-        // A `clickhouse` source declares its subject map as `impersonate` and an `oracle` source its
-        // `subjects` instead - see their placements.
+        // A `clickhouse` source declares its subject map as `impersonate`, an `oracle` source its
+        // `subjects` and a `cube` source its `delegation` instead - see their placements.
         None if matches!(entry.posture.trim(), "impersonation-at-source")
-            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle) =>
+            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle | SourceKind::Cube) =>
         {
             return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
         }

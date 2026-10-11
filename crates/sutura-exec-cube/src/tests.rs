@@ -2,7 +2,7 @@ use core::cell::RefCell;
 use std::collections::VecDeque;
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::identity::{Presented, Secret};
+use sutura_domain::identity::{Presented, PrincipalName, Secret};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
@@ -118,6 +118,23 @@ fn warehouse(transport: Scripted) -> CubeWarehouse<Scripted> {
         Secret::new(String::from(TOKEN)),
         transport,
     )
+}
+
+/// The same source declared `impersonation-at-source`: each question sends its caller's token.
+fn impersonating(transport: Scripted) -> CubeWarehouse<Scripted> {
+    CubeWarehouse::of(
+        source(),
+        SourcePosture::ImpersonationAtSource,
+        Secret::new(String::from(TOKEN)),
+        transport,
+    )
+}
+
+fn subject_token(token: &Secret) -> Presented {
+    Presented::SubjectToken {
+        material: token.clone(),
+        impersonate: None,
+    }
 }
 
 fn shared() -> Presented {
@@ -404,17 +421,61 @@ fn the_declared_token_is_what_every_request_carries() {
 }
 
 #[test]
-fn a_subject_token_is_refused_before_any_request() {
+fn a_subject_token_at_a_shared_source_is_refused_before_any_request() {
     let warehouse = warehouse(Scripted::answering(answer(serde_json::json!([]))));
-    let presented = Presented::SubjectToken {
-        material: Secret::new(String::from("a-callers-token")),
-        impersonate: None,
+    let refused = warehouse
+        .execute(
+            Executable::Query(&active_subscriptions(None)),
+            &subject_token(&Secret::new(String::from("a-callers-token"))),
+            deadline(),
+        )
+        .expect_err("a shared source sends only its declared token");
+    assert!(
+        matches!(refused, CubeError::PresentedDisagreesWithPosture { .. }),
+        "{refused:?}"
+    );
+    assert_eq!(*warehouse.transport.sent.borrow(), Sent::new());
+}
+
+/// A principal is no bearer Cube reads, so an impersonating source refuses it before any request.
+#[test]
+fn a_principal_at_an_impersonating_source_is_refused_before_any_request() {
+    let warehouse = impersonating(Scripted::answering(answer(serde_json::json!([]))));
+    let presented = Presented::SubjectPrincipal {
+        name: PrincipalName::parse("analyst_a").expect("a test principal is a principal"),
     };
     let refused = warehouse
         .execute(Executable::Query(&active_subscriptions(None)), &presented, deadline())
-        .expect_err("a shared source sends only its declared token");
-    assert!(matches!(refused, CubeError::NoPlaceForASubject { .. }), "{refused:?}");
+        .expect_err("a principal is not a token");
+    assert!(matches!(refused, CubeError::Undeliverable { .. }), "{refused:?}");
     assert_eq!(*warehouse.transport.sent.borrow(), Sent::new());
+}
+
+/// What Cube received for one question asked with `token` at an impersonating source: this
+/// adapter's row in the delegation packs.
+fn delivered(token: &Secret) -> Vec<u8> {
+    let warehouse = impersonating(Scripted::answering(answer(serde_json::json!([]))));
+    drop(
+        warehouse
+            .execute(
+                Executable::Query(&active_subscriptions(None)),
+                &subject_token(token),
+                deadline(),
+            )
+            .expect("Cube answers"),
+    );
+    warehouse
+        .transport
+        .sent
+        .borrow()
+        .iter()
+        .flat_map(|(bearer, _)| bearer.bytes())
+        .collect()
+}
+
+sutura_conformance::delegation_packs! {
+    adapter: cube,
+    deliver: crate::tests::delivered,
 }
 
 #[test]

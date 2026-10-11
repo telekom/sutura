@@ -5842,8 +5842,7 @@ convenience, and nothing needs to clone a startup refusal.
   `crate::DeclaredPrincipals::target`. There is no `scope` key: the credential
   document has no `scopes` member, so one would reach nothing.
 - `Impersonate` - A `clickhouse` source's `impersonate` map is not usable.
-- `OracleDelegation` - An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
-- `CubeImpersonation` - A `cube` source declared `impersonation-at-source`: its one token is the whole credential, so a subject has no place to run as.
+- `Delegation` - An `oracle` or `cube` source's `delegation` is missing, misplaced, or declared over a plaintext channel.
 - `CubeEndpointCredentials` - A `cube` source's `endpoint` carries an `@`.
 - `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
@@ -6399,19 +6398,20 @@ then on the variant is the answer.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `enum InvalidOracleDelegation`
+#### `enum InvalidDelegation`
 
 ```rust
-pub enum InvalidOracleDelegation
+pub enum InvalidDelegation
 ```
 
-Why an `oracle` source's `delegation` is not one it can be served under.
+Why an `oracle` or `cube` source's `delegation` is not one it can be served under.
 
 ##### Variants
 
 - `Missing` - An impersonating source with no exchange, so no caller's token could open a session.
 - `NotImpersonating` - An exchange on a source that is not impersonating, which nothing would run.
 - `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
+- `PlaintextEndpoint` - An impersonating `cube` source whose endpoint is not `https`: each request sends its caller's token.
 
 ##### Implements
 

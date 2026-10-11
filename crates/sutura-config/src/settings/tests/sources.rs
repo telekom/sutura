@@ -414,15 +414,31 @@ fn a_delegation_token_endpoint_with_userinfo_is_refused_at_load_without_being_qu
     }
 }
 
+/// A Cube source's `delegation` sends each caller's exchanged token, so it serves on a `direct`
+/// deployment and is not fit to serve on any other - the refusal an Oracle delegation earns.
 #[test]
-fn a_cube_source_declared_to_impersonate_does_not_start() {
-    let sources = Sources::defaults(Environment::Development).with_overlay(
-        "security:\n  identity: \"multi-user\"\nsources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
-         token_file: \"/etc/sutura/cube-token\"\n    posture: \"impersonation-at-source\"\n",
+fn a_cube_source_impersonating_through_a_delegation_serves_only_a_direct_deployment() {
+    let cube = "sources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+                token_file: \"/etc/sutura/cube-token\"\n    posture: \"impersonation-at-source\"\n    delegation:\n      - \
+                token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+                client_secret_file: \"/etc/sutura/client-secret\"\n        audience: \"https://cube.example.com\"\n";
+    let security = "security:\n  identity: \"multi-user\"\n";
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("{security}{cube}")))
+        .expect_err("a Cube delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("metrics").expect("a legal identifier"),
+            key: "delegation",
+        }]
     );
-    let error = Settings::load(&sources).expect_err("one deployment token has no place to run a subject");
-    let cause = std::error::Error::source(error.reason()).expect("the refusal is the cause of the sources error");
-    assert!(cause.to_string().contains("runs no query as a subject"), "{cause}");
+    let settings =
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("{security}{DIRECT_INBOUND}{cube}")))
+            .expect("a direct deployment admits a Cube delegation");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
 }
 
 #[test]

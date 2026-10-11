@@ -29,6 +29,9 @@ jsonwebtoken = { workspace = true, optional = true }
 fixtures = ["dep:jsonwebtoken"]
 
 [dev-dependencies]
+# `sutura_conformance::delegation_packs!`, the multi-hop rows this adapter's per-caller token is held
+# to. A DEV edge, as `sutura-exec-oracle` takes it.
+sutura-conformance = { workspace = true }
 # The loopback fake the HTTP transport cells dial.
 sutura-http-client = { workspace = true, features = ["test"] }
 

@@ -39,6 +39,7 @@ pub(crate) fn build(
     let sutura_config::SourcePlacement::Cube {
         ref endpoint,
         ref token_file,
+        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -67,4 +68,16 @@ pub(crate) fn build(
         token,
         HttpCube::rotating(endpoint, bounds, agent),
     ))
+}
+
+/// The hops a `cube` source's `delegation` declares, in order - empty for a shared source and for
+/// any other placement. The broker exchanges each caller's token through them for the request's
+/// bearer.
+pub(crate) fn declared_delegation(
+    configured: &sutura_config::ConfiguredSource,
+) -> &[sutura_config::sources::workload_identity::DelegationDeclared] {
+    let sutura_config::SourcePlacement::Cube { ref delegation, .. } = *configured.placement() else {
+        return &[];
+    };
+    delegation
 }

@@ -4076,6 +4076,7 @@ dependencies = [
  "jsonwebtoken",
  "serde",
  "serde_json",
+ "sutura-conformance",
  "sutura-domain",
  "sutura-http-client",
  "sutura-tls",
