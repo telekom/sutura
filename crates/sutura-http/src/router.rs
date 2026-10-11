@@ -951,8 +951,8 @@ mod tests {
         let single_user = "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n";
         // The switch never set, so `Settings::load` had nothing to refuse: no mode declared, then
         // `multi-user`.
-        for overlay in [String::new(), String::from("security:\n  identity: \"multi-user\"\n")] {
-            let refused = mounted(&overlay).expect_err("this mount assembles nothing");
+        for overlay in ["", "security:\n  identity: \"multi-user\"\n"] {
+            let refused = mounted(overlay).expect_err("this mount assembles nothing");
             assert!(
                 refused
                     .to_string()
