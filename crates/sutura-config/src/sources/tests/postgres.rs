@@ -29,7 +29,8 @@ fn postgres(written: &str) -> RawSourceEntry<'_> {
         client_certificate: None,
         client_key: None,
         impersonate: None,
-        subjects: None,
+        subjects: false,
+        delegation: None,
     }
 }
 

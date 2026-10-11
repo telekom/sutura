@@ -499,12 +499,31 @@ pub(crate) const fn working_set(runtime: sutura_config::RuntimeSettings) -> sutu
 /// PARSED the way an operator's file is parsed.
 #[cfg(test)]
 fn declaring(alias: &str, body: &str, posture: &str) -> sutura_config::SourceRegistry {
+    declaring_under("", alias, body, posture)
+}
+
+/// [`declaring`] on a deployment that verifies callers `direct`ly, which a declared `delegation`
+/// needs.
+#[cfg(all(test, feature = "oracle"))]
+fn declaring_direct(alias: &str, body: &str, posture: &str) -> sutura_config::SourceRegistry {
+    declaring_under(
+        "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+         authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/nonexistent/keys.json\"\n    \
+         algorithms: [\"RS256\"]\n",
+        alias,
+        body,
+        posture,
+    )
+}
+
+#[cfg(test)]
+fn declaring_under(inbound: &str, alias: &str, body: &str, posture: &str) -> sutura_config::SourceRegistry {
     // `single-user` with its own reason, which is what lets a `shared-service-user` entry take the
     // mode's acknowledgement as its witness - a per-source `acknowledged_because` would work too, and
     // the mode is the honest one for a command-line tool.
     let overlay = format!(
         "security:\n  identity: single-user\n  single_user_because: \"one developer, one laptop, one \
-         set of files\"\nsources:\n  {alias}:\n    posture: \"{posture}\"\n{body}\n"
+         set of files\"\n{inbound}sources:\n  {alias}:\n    posture: \"{posture}\"\n{body}\n"
     );
     sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),

@@ -139,10 +139,14 @@ pub(crate) struct RawSource {
     /// `impersonation-at-source`, refused otherwise - see `crate::sources::clickhouse`.
     #[serde(default)]
     pub(crate) impersonate: Option<std::collections::BTreeMap<String, String>>,
-    /// An `oracle` source's subjects, whose own verified token opens each of their sessions: required
-    /// when it is `impersonation-at-source`, refused otherwise - see `crate::sources::oracle`.
+    /// The removed `oracle` allow-list, read only so that a configuration still declaring it is
+    /// refused naming the key rather than as an unknown one.
     #[serde(default)]
-    pub(crate) subjects: Option<Vec<String>>,
+    pub(crate) subjects: Option<serde::de::IgnoredAny>,
+    /// An `oracle` source's token exchange, as ordered hops: required when it is
+    /// `impersonation-at-source`, refused otherwise - see `crate::sources::oracle`.
+    #[serde(default)]
+    pub(crate) delegation: Option<Vec<RawDelegation>>,
     /// The host a `postgres` source dials over TCP. Mutual with `unix_socket`.
     #[serde(default)]
     pub(crate) host: Option<String>,
@@ -225,6 +229,10 @@ pub(crate) struct RawDelegation {
     pub(crate) client_id: String,
     pub(crate) client_secret_file: String,
     pub(crate) audience: String,
+    /// Which request the endpoint is sent. Absent is `token-exchange`, the shape every
+    /// configuration had before the key existed.
+    #[serde(default)]
+    pub(crate) grant: crate::sources::workload_identity::DelegationGrant,
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.

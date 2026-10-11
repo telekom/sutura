@@ -329,6 +329,10 @@ pub enum InvalidSourceRegistry {
     /// before the startup log prints the resolved settings, and never quoted back.
     #[error("`sources.{alias}.{key}` carries an `@` - credentials in the URL are refused")]
     CredentialsInUrl { alias: SourceName, key: &'static str },
+    /// A delegation whose last hop is `broker-token`: that token is for the next identity provider,
+    /// so no hop exchanges it for the data system.
+    #[error("`sources.{alias}.{key}` ends in a `broker-token` hop - add the hop that exchanges its token for the data system")]
+    DelegationEndsInBrokerToken { alias: SourceName, key: &'static str },
     /// The `posture:` word is not one of the two.
     #[error("`sources.{alias}.posture` does not say how this source establishes identity")]
     Posture {
@@ -447,13 +451,20 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: crate::sources::placement::InvalidImpersonate,
     },
-    /// An `oracle` source's `subjects` are not usable.
-    #[error("`sources.{alias}.subjects` is not usable")]
-    OracleSubjects {
+    /// An `oracle` source's `delegation` is missing, misplaced, or declared over `plaintext`.
+    #[error("`sources.{alias}.delegation` is not usable")]
+    OracleDelegation {
         alias: SourceName,
         #[source]
-        cause: crate::sources::placement::InvalidOracleSubjects,
+        cause: crate::sources::placement::InvalidOracleDelegation,
     },
+    /// The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still
+    /// declaring one is refused rather than read as if it still narrowed who is served.
+    #[error(
+        "`sources.{alias}.subjects` is removed: every verified caller's exchanged token is sent and the \
+         database decides what that caller may read - remove the key"
+    )]
+    SubjectsRemoved { alias: SourceName },
     /// A workload-identity block was declared on a source that is not impersonating.
     ///
     /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -556,7 +567,9 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) verification_identity: Option<&'raw str>,
     pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
     pub(crate) impersonate: Option<&'raw std::collections::BTreeMap<String, String>>,
-    pub(crate) subjects: Option<&'raw [String]>,
+    /// Whether the removed `subjects` key is written - see [`InvalidSourceRegistry::SubjectsRemoved`].
+    pub(crate) subjects: bool,
+    pub(crate) delegation: Option<&'raw [crate::raw::RawDelegation]>,
     pub(crate) host: Option<&'raw str>,
     pub(crate) unix_socket: Option<&'raw str>,
     pub(crate) port: Option<u16>,
@@ -699,6 +712,15 @@ fn parse_entry(
         }
     };
 
+    workload_identity::refuse_broker_token_last(
+        alias,
+        "workload_identity.delegation",
+        entry
+            .workload_identity
+            .as_ref()
+            .and_then(|raw| raw.delegation.as_ref())
+            .map(|hop| hop.grant),
+    )?;
     // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
     // impersonating shape, and only it. An impersonating entry must name the provider its
     // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
@@ -728,7 +750,14 @@ fn parse_entry(
             .with_delegation(
                 raw.delegation
                     .as_ref()
-                    .map(|delegation| workload_identity::DelegationDeclared::of(alias, delegation))
+                    .map(|delegation| {
+                        workload_identity::DelegationDeclared::of(
+                            alias,
+                            delegation,
+                            "workload_identity.delegation.token_endpoint",
+                            "workload_identity.delegation.client_secret_file",
+                        )
+                    })
                     .transpose()?,
             ),
         ),

@@ -277,7 +277,8 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     assert_eq!(
         *refusals,
         vec![NotFitToServe::DelegationWithoutDirectInbound {
-            alias: SourceName::parse("local").expect("a legal identifier")
+            alias: SourceName::parse("local").expect("a legal identifier"),
+            key: "workload_identity.delegation",
         }]
     );
     assert_eq!(
@@ -300,7 +301,30 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     assert_eq!(
         *refusals,
         vec![NotFitToServe::DelegationWithoutDirectInbound {
-            alias: SourceName::parse("local").expect("a legal identifier")
+            alias: SourceName::parse("local").expect("a legal identifier"),
+            key: "workload_identity.delegation",
+        }]
+    );
+
+    // An Oracle source's own `delegation` hops send the same token, so they are refused the same way.
+    let oracle = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  warehouse:\n    \
+         kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"orcl.example.com\"\n    \
+         user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    transport_mode: \"verified\"\n    \
+         transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    posture: \"impersonation-at-source\"\n    delegation:\n      \
+         - token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+         client_secret_file: \"/run/secrets/idp-client\"\n        grant: \"on-behalf-of\"\n        \
+         audience: \"database-client-id\"\n",
+    );
+    let error = Settings::load(&oracle).expect_err("an Oracle delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            key: "delegation",
         }]
     );
 

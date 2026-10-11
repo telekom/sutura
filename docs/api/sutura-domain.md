@@ -3467,10 +3467,13 @@ state an exchange can return, so the forever variant is unrepresentable here.
 
 ### `use Delegation`
 
-What one impersonating source exchanges through.
+What one impersonating source exchanges through: an ordered chain of hops.
 
-`Arc` because a cloned broker shares its source's one identity provider client - one TLS agent,
-one credential - rather than building another. A composition root builds one per source that
+Each hop exchanges the previous hop's token - the caller's own inbound token for the first -
+for one carrying that hop's audience.
+
+`Arc` because a cloned broker shares its source's identity provider clients - one TLS agent,
+one credential each - rather than building more. A composition root builds one per source that
 declares a delegation, never one per deployment.
 
 ### `use DelegationExchange`

@@ -214,3 +214,95 @@ fn a_failed_exchange_is_an_error_and_names_no_token() {
     let chain = format!("{failed} / {failed:?}");
     assert!(!chain.contains("inbound:"), "the error leaked the caller's token: {chain}");
 }
+
+/// One authenticating source whose callers' assertions are exchanged at `idp`.
+fn authenticating_warehouse(idp: &Arc<FakeIdp>) -> DeclaredPrincipalBroker {
+    DeclaredPrincipalBroker::empty().authenticating(
+        source("warehouse"),
+        Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience()),
+    )
+}
+
+/// An authenticating source lists no caller: any verified asker is presented the token their own
+/// assertion is exchanged for, with no principal beside it.
+#[test]
+fn an_authenticating_source_presents_the_exchanged_token_and_no_principal() {
+    let (idp, asked) = fake(false);
+    let broker = authenticating_warehouse(&idp);
+    let at = source("warehouse");
+    let sources = SourceSet::of(at.clone());
+    let mint = || {
+        broker
+            .mint(&asking("anyone@example.com"), &sources)
+            .expect("the broker answers")
+    };
+    assert_eq!(
+        super::presented_at(mint(), "anyone@example.com", &sources, &at),
+        "delegated:inbound:anyone@example.com"
+    );
+    assert_eq!(super::target_at(mint(), "anyone@example.com", &sources, &at), None);
+    let expected = (
+        String::from("inbound:anyone@example.com"),
+        String::from("https://workforce-pool.example.com"),
+    );
+    assert_eq!(
+        asked.try_iter().collect::<Vec<_>>(),
+        vec![expected.clone(), expected],
+        "each mint exchanges the caller's own inbound token for the declared audience"
+    );
+}
+
+/// A request with no verified caller is refused even when it carries an assertion, and so is a
+/// verified caller with no assertion - and neither reaches the identity provider.
+#[test]
+fn an_authenticating_source_refuses_an_anonymous_or_assertionless_caller_and_asks_no_idp() {
+    let (idp, asked) = fake(false);
+    let anonymous = RequestContext::with_assertion(
+        PrincipalChain::of(Subject::TheDeploymentItself),
+        Secret::new("inbound:nobody"),
+        INBOUND_EXPIRES,
+    );
+    for context in [anonymous, super::no_caller(), super::no_assertion("analyst-a@example.com")] {
+        let refused = authenticating_warehouse(&idp)
+            .mint(&context, &SourceSet::of(source("warehouse")))
+            .expect("a refusal, not an error");
+        assert!(
+            matches!(refused, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+            "{refused:?}"
+        );
+    }
+    let reached: Vec<Asked> = asked.try_iter().collect();
+    assert!(
+        reached.is_empty(),
+        "a refused request reached the identity provider: {reached:?}"
+    );
+}
+
+/// An authenticating source's leg lapses at the earlier of the asker's assertion and the token it
+/// was exchanged for, whichever of the two that is.
+#[test]
+fn an_authenticating_sources_leg_lapses_with_the_earlier_of_the_assertion_and_the_exchanged_token() {
+    const ASSERTION_FIRST: u64 = NOW + 60;
+    let (idp, _asked) = fake(false);
+    let broker = authenticating_warehouse(&idp);
+    let sources = SourceSet::of(source("warehouse"));
+    let short_lived = RequestContext::with_assertion(
+        PrincipalChain::of(Subject::verified("analyst-a@example.com").expect("a test subject is a subject")),
+        Secret::new("inbound:analyst-a@example.com"),
+        ASSERTION_FIRST,
+    );
+    for (context, lapses) in [
+        (asking("analyst-a@example.com"), DELEGATED_EXPIRES),
+        (short_lived, ASSERTION_FIRST),
+    ] {
+        let minted = broker.mint(&context, &sources).expect("the broker answers");
+        let credentials = super::granted(minted, "analyst-a@example.com", &sources);
+        credentials
+            .still_usable_at(lapses - 1)
+            .expect("usable until the earlier lifetime's last second");
+        assert!(
+            credentials.still_usable_at(lapses).is_err(),
+            "a leg outlived the earlier of its two lifetimes, which ends at {lapses}"
+        );
+    }
+}

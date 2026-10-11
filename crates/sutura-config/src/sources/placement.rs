@@ -11,7 +11,7 @@
 //! argument that is **ours rather than the provider's format rules restated** - see
 //! [`BillingProject`].
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::identity::{InvalidPrincipalId, SubjectKey};
@@ -568,9 +568,10 @@ pub enum SourcePlacement {
         password_file: PathBuf,
         /// How the channel to this source is secured.
         channel: OracleChannel,
-        /// The subjects whose own verified token opens each of their sessions. Non-empty exactly
-        /// when the source is `impersonation-at-source`, which also requires a `verified` channel.
-        subjects: OracleSubjects,
+        /// The hops each caller's verified token is exchanged through, in order, for the token
+        /// that opens their session. Non-empty exactly when the source is
+        /// `impersonation-at-source`, which also requires a `verified` channel.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
     /// A local `DuckDB` database file. No dial, no credential and no channel: the file is opened in
     /// this process, read-only, under the process's own operating-system identity.
@@ -605,28 +606,20 @@ impl SourcePlacement {
 /// A `clickhouse` source's declared subject -> `ClickHouse` user map.
 pub type DeclaredUsers = BTreeMap<SubjectKey, String>;
 
-/// An `oracle` source's declared subjects.
-pub type OracleSubjects = BTreeSet<SubjectKey>;
-
-/// Why an `oracle` source's `subjects` are not ones it can be served under.
+/// Why an `oracle` source's `delegation` is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidOracleSubjects {
-    /// An impersonating source declared no subject, so no caller could ever be served there.
+pub enum InvalidOracleDelegation {
+    /// An impersonating source with no exchange, so no caller's token could open a session.
     #[error(
-        "the source is `impersonation-at-source` and declares no `subjects` - name each subject whose \
-         own token may open a session here"
+        "the source is `impersonation-at-source` and declares no `delegation` - name the token \
+         endpoint, the client and the audience each caller's token is exchanged for"
     )]
     Missing,
-    /// Subjects on a source that is not impersonating, which nothing would read.
+    /// An exchange on a source that is not impersonating, which nothing would run.
     #[error(
-        "`subjects` is declared on a source that is not `impersonation-at-source` - remove it, or write the posture you meant"
+        "`delegation` is declared on a source that is not `impersonation-at-source` - remove it, or write the posture you meant"
     )]
     NotImpersonating,
-    #[error("a declared subject is not usable")]
-    Subject {
-        #[source]
-        cause: InvalidPrincipalId,
-    },
     /// An impersonating source over `plaintext`: each session sends its caller's token.
     #[error(
         "the source is `impersonation-at-source`, so each session sends its caller's token - declare \

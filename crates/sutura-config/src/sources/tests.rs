@@ -62,7 +62,8 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         client_certificate: None,
         client_key: None,
         impersonate: None,
-        subjects: None,
+        subjects: false,
+        delegation: None,
     }
 }
 
@@ -430,7 +431,8 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         client_certificate: None,
         client_key: None,
         impersonate: None,
-        subjects: None,
+        subjects: false,
+        delegation: None,
     }
 }
 
@@ -697,6 +699,34 @@ fn a_workload_identity_block_with_an_empty_audience_is_refused_naming_the_audien
             error,
             InvalidSourceRegistry::WorkloadIdentity {
                 cause: super::workload_identity::InvalidWorkloadIdentity::Empty { what: "audience" },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_workload_identity_delegation_of_one_broker_token_hop_is_refused() {
+    let entries = [RawSourceEntry {
+        workload_identity: Some(crate::raw::RawWorkloadIdentity {
+            delegation: Some(crate::raw::RawDelegation {
+                token_endpoint: String::from("https://idp.example.com/realms/example/broker/entra/token"),
+                client_id: String::from("sutura"),
+                client_secret_file: String::from("/etc/sutura/client-secret"),
+                audience: String::from("11111111-1111-4111-8111-111111111111"),
+                grant: super::workload_identity::DelegationGrant::BrokerToken,
+            }),
+            ..wif()
+        }),
+        ..impersonating("warehouse")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("its one hop is its last");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::DelegationEndsInBrokerToken {
+                key: "workload_identity.delegation",
                 ..
             }
         ),

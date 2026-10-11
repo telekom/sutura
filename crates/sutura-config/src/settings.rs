@@ -612,8 +612,24 @@ impl Settings {
         }
         self.sources
             .each()
-            .filter(|(_, source)| source.workload_identity().is_some_and(|wif| wif.delegation().is_some()))
-            .map(|(alias, _)| NotFitToServe::DelegationWithoutDirectInbound { alias: alias.clone() })
+            .filter_map(|(alias, source)| {
+                let alias = alias.clone();
+                if source.workload_identity().is_some_and(|wif| wif.delegation().is_some()) {
+                    Some(NotFitToServe::DelegationWithoutDirectInbound {
+                        alias,
+                        key: "workload_identity.delegation",
+                    })
+                } else if let crate::SourcePlacement::Oracle { ref delegation, .. } = *source.placement()
+                    && !delegation.is_empty()
+                {
+                    Some(NotFitToServe::DelegationWithoutDirectInbound {
+                        alias,
+                        key: "delegation",
+                    })
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 

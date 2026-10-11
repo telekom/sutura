@@ -40,9 +40,10 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
 # check rather than the four `cross` link builds and a developer's memory.
 #
-# `wire` is the delegation exchange a `direct` deployment composes for a source declaring
-# `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment).
-bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "sutura-exec-bigquery/wire"]
+# `sutura-http-client` carries the delegation exchange a `direct` deployment composes for a source
+# declaring `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment), and an `oracle`
+# source's `delegation`.
+bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "dep:sutura-http-client"]
 
 # The Postgres adapter: the ADBC transport, over the driver every musl release links
 # (`nix/shipped.nix`) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names elsewhere.
@@ -69,7 +70,7 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 # Default-off for a source build, and in `nix/shipped.nix`'s `features`, so every release carries
 # it. `optional` keeps the driver and its own `rustls` stack out of a source build that did not ask
 # for it.
-oracle = ["dep:sutura-exec-oracle", "sutura-catalog-rdbms?/live-oracle"]
+oracle = ["dep:sutura-exec-oracle", "sutura-catalog-rdbms?/live-oracle", "dep:sutura-http-client"]
 
 # A local DuckDB database file, opened read-only - the zero-infrastructure source, raw SQL included.
 #
@@ -188,6 +189,9 @@ sutura-exec-clickhouse = { workspace = true, optional = true }
 sutura-exec-oracle = { workspace = true, optional = true }
 # The DuckDB adapter, behind the `duckdb` feature above - optional for `sutura-exec-bigquery`'s reason.
 sutura-exec-duckdb = { workspace = true, optional = true }
+# The one delegation exchange client, behind `bigquery` and `oracle` - the two sources that
+# exchange a caller's token - optional for `sutura-exec-bigquery`'s reason.
+sutura-http-client = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
@@ -259,10 +263,10 @@ mimalloc = { workspace = true }
 # converter to `sutura-catalog-wren`, so nothing in the shipped binary's own code names it.
 serde_json = { workspace = true }
 # The hosted served acceptance loads its own BigQuery tables through the adapter's fixture-only
-# importer. This feature is absent from the shipped binary. `wire` is the real delegation exchange
-# the Keycloak tier cell drives (#1208), over `sutura-http-client`'s bounded agent; `tls-test` is
+# importer. This feature is absent from the shipped binary. `sutura-http-client`'s `delegation` is
+# the real exchange the Keycloak tier cell drives (#1208), over its bounded agent; `tls-test` is
 # the loopback TLS identity provider the delegation exchange's `security.outbound` cell dials.
-sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
+sutura-exec-bigquery = { workspace = true, features = ["fixtures"] }
 # The served Postgres cells load the example into the tier through the adapter's fixture-only
 # loader and open it with the fixture's driver; its `FixtureAdmin` holds the harness's advisory
 # lock and installs the documentation schema (`tests/served/harness/postgres.rs`,

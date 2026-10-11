@@ -9,7 +9,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
 
-use super::{DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredSubjects, NoDeclaredPrincipals};
+use super::{DeclaredPrincipalBroker, DeclaredPrincipals, NoDeclaredPrincipals};
 
 /// The instant every agreement below is measured against: 2096-10-02.
 ///
@@ -515,100 +515,6 @@ fn a_switching_source_presents_the_declared_principal_and_refuses_an_undeclared_
     assert_eq!(
         DeclaredPrincipals::switched(BTreeMap::new()),
         Err(NoDeclaredPrincipals::Empty)
-    );
-}
-
-fn authenticating() -> DeclaredPrincipalBroker {
-    let declared = DeclaredSubjects::parse(std::collections::BTreeSet::from([subject("analyst-a@example.com")]))
-        .expect("a one-subject declaration names somebody");
-    DeclaredPrincipalBroker::empty().authenticating(source("ledger"), declared)
-}
-
-/// An authenticating source is presented the asker's own assertion, with no principal beside it:
-/// the source opens the session with it and resolves who that is.
-#[test]
-fn an_authenticating_source_presents_the_askers_own_assertion_and_no_principal() {
-    let at = source("ledger");
-    let asked = SourceSet::of(at.clone());
-    let mint = || {
-        authenticating()
-            .mint(&caller("analyst-a@example.com"), &asked)
-            .expect("a declared caller is minted for")
-    };
-    assert_eq!(
-        presented_at(mint(), "analyst-a@example.com", &asked, &at),
-        "assertion.for.analyst-a@example.com"
-    );
-    assert_eq!(target_at(mint(), "analyst-a@example.com", &asked, &at), None);
-}
-
-/// A verified caller the source does not declare is refused, never served its own token anyway.
-#[test]
-fn an_authenticating_source_refuses_a_caller_it_does_not_declare() {
-    let at = source("ledger");
-    let refused = authenticating()
-        .mint(&caller("someone-else@example.com"), &SourceSet::of(at.clone()))
-        .expect("a refusal, not an error");
-    assert!(
-        matches!(refused, Minted::Refused { ref source } if *source == at),
-        "{refused:?}"
-    );
-}
-
-/// A request with no verified caller is refused, even one carrying an assertion, and so is a
-/// declared caller with no assertion to open a session with.
-#[test]
-fn an_authenticating_source_refuses_an_anonymous_caller() {
-    let at = source("ledger");
-    let anonymous = RequestContext::with_assertion(
-        PrincipalChain::of(Subject::TheDeploymentItself),
-        sutura_domain::identity::Secret::new("assertion.for.nobody"),
-        A_FIXTURE_EXPIRY,
-    );
-    for context in [anonymous, no_caller(), no_assertion("analyst-a@example.com")] {
-        let refused = authenticating()
-            .mint(&context, &SourceSet::of(at.clone()))
-            .expect("a refusal, not an error");
-        assert!(
-            matches!(refused, Minted::Refused { ref source } if *source == at),
-            "{refused:?}"
-        );
-    }
-    assert_eq!(
-        DeclaredSubjects::parse(std::collections::BTreeSet::new()),
-        Err(NoDeclaredPrincipals::Empty)
-    );
-}
-
-/// An authenticating source's leg is usable for as long as the asker's own assertion is, the same
-/// lifetime `the_minted_expiry_is_the_asking_assertions_own` holds for a federated leg.
-#[test]
-fn an_authenticating_sources_leg_lapses_with_the_askers_own_assertion() {
-    let lapses_at = 1_700_000_000;
-    let asked = SourceSet::of(source("ledger"));
-    let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
-    let mint = || {
-        authenticating()
-            .mint(&caller_expiring_at("analyst-a@example.com", lapses_at), &asked)
-            .expect("a declared caller is minted for")
-    };
-    let refused = mint()
-        .agreeing_with(&asked_by, &asked, lapses_at + 1)
-        .expect_err("a lapsed assertion is not one a leg may present");
-    assert!(
-        matches!(
-            refused,
-            sutura_domain::identity::CredentialsDoNotFitTheRequest::Expired {
-                deadline_unix_seconds,
-                ..
-            } if deadline_unix_seconds == lapses_at
-        ),
-        "the refusal names the assertion's own deadline: {refused:?}"
-    );
-    drop(
-        mint()
-            .agreeing_with(&asked_by, &asked, lapses_at - 1)
-            .expect("an assertion still in date is one a leg may present"),
     );
 }
 
