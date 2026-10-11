@@ -124,9 +124,15 @@ mod postgres;
 /// any material to rotate, so a default-features build (no `postgres`/`datahub`/`openmetadata`)
 /// must not compile a `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS
 /// rotation and the removed `tokio-postgres` source channel's were callers; the datahub and
-/// openmetadata reader rotators and a `bigquery` source's delegation exchange remain - a Postgres
-/// source's libpq re-reads its files per connect.
-#[cfg(any(feature = "bigquery", feature = "datahub", feature = "openmetadata"))]
+/// openmetadata reader rotators and the delegation exchange of a `bigquery`, `clickhouse` or
+/// `oracle` source remain - a Postgres source's libpq re-reads its files per connect.
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "datahub",
+    feature = "openmetadata",
+    feature = "oracle"
+))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
