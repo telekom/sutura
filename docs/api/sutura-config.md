@@ -1585,6 +1585,10 @@ that exists in a record rather than in a linked crate is still a word an operato
   turns on `sutura-catalog-rdbms`'s `live` reader over a Postgres documentation schema); a
   build without it refuses the kind by name naming the feature, the same stand
   `Self::Openmetadata` makes. The composition root decides which, never the settings parse.
+- `Cube` - A Cube metrics serving layer's metadata API, decided by `sutura-catalog-cube` over its `MetaReader` port.
+
+  **Openable behind `sutura-cli`'s default-off `cube` feature; a build without it refuses this
+  kind by name**, the stand `Self::Openmetadata` makes. It takes the same reader fields.
 
 #### Methods
 
@@ -1738,24 +1742,14 @@ binary in this repository could open until issue #202's reader arrived. `parse_c
 calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
 ```rust
-pub const fn with_openmetadata_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
+pub fn with_http_reader(self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings>
 ```
 
-Adds the two `catalog.kind: openmetadata`-only bounds, when the deployment declared either.
-
-**Infallible, unlike `Self::with_openmetadata_reader`, because `None` is a valid value
-here rather than a missing required one** - it selects the reader's own recommended default
-(`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
-
-```rust
-pub fn with_openmetadata_reader(self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings>
-```
-
-Adds the two `catalog.kind: openmetadata`-only fields to an already-parsed entry.
+Adds the two reader fields of a `catalog.kind: openmetadata` or `cube` entry.
 
 A separate step rather than two more parameters on `Self::parse`, for the same reason
 `Self::with_datahub_reader` is one: `parse_catalogs` calls it only when `kind` parsed as
-`CatalogKind::Openmetadata`, so every other kind is unaffected by fields only a reader over
+`CatalogKind::Openmetadata` or `CatalogKind::Cube`, so every other kind is unaffected by fields only a reader over
 a real deployment needs.
 
 ```rust
@@ -1764,6 +1758,16 @@ pub fn with_rdbms(self, rdbms: RdbmsSettings) -> Self
 
 Adds the `catalog.kind: rdbms`-only settings. `parse_catalogs` calls this only when `kind`
 parsed as `CatalogKind::Rdbms`.
+
+```rust
+pub const fn with_read_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
+```
+
+Adds the two read bounds of a `catalog.kind: openmetadata` or `cube` entry, when the deployment declared either.
+
+**Infallible, unlike `Self::with_http_reader`, because `None` is a valid value
+here rather than a missing required one** - it selects the reader's own recommended default
+(`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
 
 ```rust
 pub fn with_refresh_seconds(self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings>
@@ -1793,7 +1797,7 @@ Why a catalog configuration is not usable.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
 - `CredentialsInEndpoint` - `catalogs[].endpoint` carries an `@`. A catalog endpoint is `scheme://host[:port]`, so an `@` is userinfo however the URL parser splits it - refused here, before the startup log prints the resolved settings, and never quoted back.
-- `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
+- `MissingForReader` - A `catalog.kind: openmetadata` or `cube` entry did not declare a field its reader needs.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is the default interval, not "never".
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.

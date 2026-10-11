@@ -105,6 +105,10 @@ datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 # crate's feature is what an operator building `sutura` types.
 openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/http"]
 
+# The Cube metadata adapter's HTTP reader (issue #1340), for `catalog.kind: cube`. Default-off for
+# `openmetadata`'s reason: its outbound TLS stack arrives through `sutura-http-client`.
+cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http"]
+
 # The live RDBMS metadata adapter (`catalog.kind: rdbms`), issue #972: a reader over a real
 # Postgres documentation schema, and with it the outbound TLS stack that reader needs.
 #
@@ -195,6 +199,8 @@ sutura-catalog-datahub = { workspace = true, optional = true }
 # reason `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for
 # it - the outbound HTTP stack that comes with it stays out of the default build.
 sutura-catalog-openmetadata = { workspace = true, optional = true }
+# The Cube metadata adapter, behind the `cube` feature above, optional for `openmetadata`'s reason.
+sutura-catalog-cube = { workspace = true, optional = true }
 # The RDBMS metadata adapter, behind the `rdbms` feature above. Optional for the same reason
 # `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for it -
 # its `live` feature pulls the reader and its outbound TLS stack, and this root links neither

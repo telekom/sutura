@@ -3944,6 +3944,7 @@ dependencies = [
  "serde_norway",
  "sutura-adbc-postgres",
  "sutura-app",
+ "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
  "sutura-catalog-local",

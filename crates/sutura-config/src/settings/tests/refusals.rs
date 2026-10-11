@@ -121,7 +121,7 @@ fn a_bad_source_kind_is_a_settings_error() {
 /// settings before a reader parses its endpoint, so a userinfo endpoint is refused at load, unquoted.
 #[test]
 fn a_catalog_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
-    for reader in ["kind: datahub\n    metric_property: m", "kind: openmetadata"] {
+    for reader in ["kind: datahub\n    metric_property: m", "kind: openmetadata", "kind: cube"] {
         for endpoint in ["https://svc:s3cret@catalog.example", "https://svc/x:s3cret@catalog.example"] {
             let sources = Sources::defaults(Environment::Development).with_overlay(format!(
                 "catalogs:\n  - name: catalog\n    {reader}\n    dir: catalog\n    data_dir: data\n    version: test-1\n    endpoint: {endpoint}\n    token_file: /nowhere/token\n"

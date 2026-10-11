@@ -76,13 +76,13 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                     // for being an unusable bound if the deployment WROTE a zero.
                     .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
             }
-            CatalogKind::Openmetadata => {
+            CatalogKind::Openmetadata | CatalogKind::Cube => {
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
                 let token_file = raw_catalog.token_file.clone().unwrap_or_default();
                 settings
-                    .with_openmetadata_reader(endpoint, PathBuf::from(token_file))
+                    .with_http_reader(endpoint, PathBuf::from(token_file))
                     .map_err(|cause| SettingsError::Catalog { cause })?
-                    .with_openmetadata_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
+                    .with_read_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
             }
         };
         // Every kind, not `datahub` alone - `#975`. Applied after the kind-specific step above so
