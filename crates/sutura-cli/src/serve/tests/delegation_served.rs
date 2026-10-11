@@ -70,7 +70,7 @@ impl Drop for SecretFile {
 enum Seen {
     /// The deployment's own identity.
     Transport,
-    /// A subject's credential, and the account it is to execute as.
+    /// A subject's own credential.
     Subject { assertion: String },
 }
 
