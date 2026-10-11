@@ -136,24 +136,24 @@ the source decides whose access governs the rows.
 
 #### The two surfaces
 
-| Control                       | `/v1`                                                                        | `/mcp`                                                                                                     |
-| ----------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Deployment token              | `security.access_token`, else `401`                                          | The same                                                                                                   |
-| Caller identity               | `security.inbound`, else `401` with a challenge                              | The same                                                                                                   |
-| Scope                         | `403` with `code: insufficient_scope`                                        | `tools/list` shows only the granted tools. A call to another tool is a JSON-RPC error that names the scope |
-| `Host` list                   | `403` with `code: host_not_allowed`                                          | The same. A request with no `Host` gets `400`                                                              |
-| Rate limit                    | The API tier                                                                 | The same bucket: requests to `/v1` and `/mcp` spend one burst                                              |
-| Body cap                      | `server.max_body_bytes`, `413` with `code: too_large`                        | The same cap. The `413` has the body of the MCP transport                                                  |
-| Request deadline              | `server.request_timeout_seconds`, `408`                                      | The same deadline. A question that outruns it gets a tool error                                            |
-| Concurrency                   | `runtime.max_concurrent_queries`, `503` with `at_capacity`                   | The same bound. A full deployment answers with a tool error                                                |
-| Row and byte caps of a result | `413` with `code: result_too_large`                                          | The same caps                                                                                              |
-| A refused question            | The status and the `code` of [the table](#a-refusal-carries-a-status)        | `"outcome": "refusal"` and the same `code` in the tool result, with no `status`                            |
-| Correlation id                | The `x-correlation-id` of the request, or a new id, on each of its log lines | The same                                                                                                   |
-| Log                           | The request line, and a `question received` line with the metric and grain   | The request line                                                                                           |
-| Audit record                  | One for each outcome                                                         | The same                                                                                                   |
-| Metrics                       | `401` count, question count and duration, admission wait, shed               | `401` count                                                                                                |
-| TLS                           | The one listener                                                             | The same                                                                                                   |
-| Interface description         | `/openapi.json` and `/docs`                                                  | `initialize` and `tools/list`                                                                              |
+| Control                       | `/v1`                                                                        | `/mcp`                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Deployment token              | `security.access_token`, else `401`                                          | The same                                                                                                           |
+| Caller identity               | `security.inbound`, else `401` with a challenge                              | The same                                                                                                           |
+| Scope                         | `403` with `code: insufficient_scope`                                        | `tools/list` shows only the granted tools. A call to another tool is a JSON-RPC error that names the scope         |
+| `Host` list                   | `403` with `code: host_not_allowed`                                          | The same. A request with no `Host` gets `400`                                                                      |
+| Rate limit                    | The API tier                                                                 | The same bucket: requests to `/v1` and `/mcp` spend one burst                                                      |
+| Body cap                      | `server.max_body_bytes`, `413` with `code: too_large`                        | The same cap. The `413` has the body of the MCP transport                                                          |
+| Request deadline              | `server.request_timeout_seconds`, `408`                                      | The same deadline. A question that outruns it gets a tool error, or the `408` when the request bound expires first |
+| Concurrency                   | `runtime.max_concurrent_queries`, `503` with `at_capacity`                   | The same bound. A full deployment answers with a tool error                                                        |
+| Row and byte caps of a result | `413` with `code: result_too_large`                                          | The same caps                                                                                                      |
+| A refused question            | The status and the `code` of [the table](#a-refusal-carries-a-status)        | `"outcome": "refusal"` and the same `code` in the tool result, with no `status`                                    |
+| Correlation id                | The `x-correlation-id` of the request, or a new id, on each of its log lines | The same                                                                                                           |
+| Log                           | The request line, and a `question received` line with the metric and grain   | The request line                                                                                                   |
+| Audit record                  | One for each outcome                                                         | The same                                                                                                           |
+| Metrics                       | `401` and `429` counts, question count and duration, admission wait, shed    | `401` and `429` counts                                                                                             |
+| TLS                           | The one listener                                                             | The same                                                                                                           |
+| Interface description         | `/openapi.json` and `/docs`                                                  | `initialize` and `tools/list`                                                                                      |
 
 `sutura mcp` serves the same two tools over standard input and output, for a locally launched agent. It has no
 caller identity and grants every capability. `runtime.max_concurrent_queries` and
