@@ -85,7 +85,9 @@ Requirements:
 - The server setting `access_control_improvements.allow_impersonate_user = 1`.
 - A ClickHouse user for each caller, named by the caller's `sub`.
 - `GRANT IMPERSONATE ON <user> TO <the user in user>` for each caller's user. `ALL ON *.*` includes
-  `IMPERSONATE` on every user, so do not grant `ALL` to the user in `user`.
+  `IMPERSONATE` on every user, so do not grant `ALL` to the user in `user`. Grant `IMPERSONATE` on
+  each caller's user by name and never `IMPERSONATE ON *`, because a wildcard lets a verified caller
+  run as any user their `sub` names.
 - ClickHouse Cloud does not support `EXECUTE AS`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
