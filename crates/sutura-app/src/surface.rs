@@ -115,8 +115,11 @@ pub trait Surface: Send + Sync + 'static {
     /// Replaces the served bundle with a freshly loaded one, or says why it did not.
     ///
     /// A bundle with the digest already served, over the schema set already served, is
-    /// [`Adopted::Unchanged`] and costs one schema read. Any other is held to what boot holds the first one to - every anchor, every declared key, and the
-    /// deployment's own pre-flight - and only a bundle that passed all of it is stored, **whole**.
+    /// [`Adopted::Unchanged`] and costs one schema read. A bundle with a new digest is held to what
+    /// boot holds the first one to - every anchor, every declared key, and the deployment's own
+    /// pre-flight - and only a bundle that passed all of it is stored, **whole**. The served bundle
+    /// over a new schema set is held to every anchor and every declared key, but not to the
+    /// pre-flight: that gate runs only when the bundle digest changed.
     /// A refusal leaves the bundle already served in place: a question never sees a partial or an
     /// unvalidated one.
     ///
