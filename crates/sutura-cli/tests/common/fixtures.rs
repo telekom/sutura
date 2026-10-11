@@ -17,10 +17,16 @@ pub(crate) const SOURCE: &str = "warehouse";
 /// The declared environment key the fixture rows carry.
 pub(crate) const ENVIRONMENT: &str = "test";
 
+/// The schema holding the `orders` table the rows describe. One for every run, so [`expected`]
+/// needs no argument; [`install_documentation_schema`] creates it under an advisory lock, because
+/// two concurrent `CREATE ... IF NOT EXISTS` of one name can both try and one then fails.
+const ORDERS_SCHEMA: &str = "sutura_fixture_orders";
+
 /// Installs the documentation-schema fixture: a per-run schema with a `columns` table whose
-/// rows describe `public.orders` (model `orders`, one primary-key column and one `amount`
+/// rows describe `ORDERS_SCHEMA.orders` (model `orders`, one primary-key column and one `amount`
 /// column), bound to `ENVIRONMENT` and not soft-deleted - over the tier's published endpoint at
-/// `host` and `port`, as the fixture role.
+/// `host` and `port`, as the fixture role. The table itself exists too, because the load reads the
+/// schema of every table a bundle names and refuses one the source lacks.
 pub(crate) fn install_documentation_schema(host: &str, port: u16) -> String {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -28,7 +34,10 @@ pub(crate) fn install_documentation_schema(host: &str, port: u16) -> String {
         .as_nanos();
     let schema = format!("sutura_dictionary_{nonce}_{}", std::process::id());
     let statement = format!(
-        "CREATE SCHEMA {schema}; \
+        "SELECT pg_advisory_xact_lock(4242); \
+         CREATE SCHEMA IF NOT EXISTS {ORDERS_SCHEMA}; \
+         CREATE TABLE IF NOT EXISTS {ORDERS_SCHEMA}.orders (order_id bigint, amount numeric); \
+         CREATE SCHEMA {schema}; \
          CREATE TABLE {schema}.columns ( \
            environment text NOT NULL, \
            catalog_name text, \
@@ -47,9 +56,9 @@ pub(crate) fn install_documentation_schema(host: &str, port: u16) -> String {
            (environment, schema_name, table_name, model_name, table_description, \
             column_name, column_ordinal, column_type, column_description, is_primary_key, is_deleted) \
          VALUES \
-           ('{ENVIRONMENT}', 'public', 'orders', 'orders', 'Customer orders.', \
+           ('{ENVIRONMENT}', '{ORDERS_SCHEMA}', 'orders', 'orders', 'Customer orders.', \
             'order_id', 1, 'bigint', 'The order key.', true, false), \
-           ('{ENVIRONMENT}', 'public', 'orders', 'orders', 'Customer orders.', \
+           ('{ENVIRONMENT}', '{ORDERS_SCHEMA}', 'orders', 'orders', 'Customer orders.', \
             'amount', 2, 'numeric', 'The order total.', false, false)"
     );
     let source = SourceName::parse(CATALOG).expect("the catalog name parses");
@@ -89,7 +98,7 @@ pub(crate) fn expected(version: &str) -> PinnedDefinitions {
     let model = Model::new(
         ModelName::parse("orders").expect("the fixture model name parses"),
         SourceName::parse(SOURCE).expect("the fixture source alias parses"),
-        QualifiedTable::parse("public.orders").expect("the fixture table parses"),
+        QualifiedTable::parse(format!("{ORDERS_SCHEMA}.orders")).expect("the fixture table parses"),
         columns,
         Description::parse("Customer orders.").expect("the fixture description parses"),
     )

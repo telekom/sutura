@@ -27,10 +27,11 @@
 //!
 //! # The documentation-schema fixture
 //!
-//! A per-run schema holds a `columns` table with two rows describing `public.orders` (model
-//! `orders`, one `order_id` primary-key column and one `amount` column), `environment: test`,
-//! `is_deleted: false` - the documented fixed schema `PostgresReader` reads, the same shape
-//! `crates/sutura-catalog-rdbms/tests/provisioned.rs` installs.
+//! A per-run schema holds a `columns` table with two rows describing
+//! `sutura_fixture_orders.orders` (model `orders`, one `order_id` primary-key column and one
+//! `amount` column), `environment: test`, `is_deleted: false` - the documented fixed schema
+//! `PostgresReader` reads, the same shape `crates/sutura-catalog-rdbms/tests/provisioned.rs`
+//! installs.
 //!
 //! # RED/GREEN
 //!

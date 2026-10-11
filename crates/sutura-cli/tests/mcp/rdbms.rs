@@ -6,11 +6,12 @@
 //!
 //! The fixture is the documentation schema `served/rdbms.rs` installs, the same shape
 //! `crates/sutura-catalog-rdbms/tests/provisioned.rs` reads: a per-run schema with a `columns`
-//! table whose rows describe `public.orders`. The settings are the same `catalog.kind: rdbms` and
-//! `kind: postgres` source pair, over the provisioned tier's verified TLS connection. The spawn
-//! harness is this suite's own (`spawn_configured`/`Agent`). The fixture install, its constants
-//! and the independently built bundle live in `tests/common/`, which both test binaries mount as
-//! `crate::common`, so the two cells cannot drift onto different rows.
+//! table whose rows describe `sutura_fixture_orders.orders`, which the tier holds too. The settings
+//! are the same `catalog.kind: rdbms` and `kind: postgres` source pair, over the provisioned tier's
+//! verified TLS connection. The spawn harness is this suite's own (`spawn_configured`/`Agent`). The
+//! fixture install, its constants and the independently built bundle live in `tests/common/`,
+//! which both test binaries mount as `crate::common`, so the two cells cannot drift onto different
+//! rows.
 //!
 //! This cell proves the stdio transport specifically: the composed binary opens the rdbms catalog
 //! through the ONE opener `sutura serve` uses, loads it (reading the dictionary from Postgres),
