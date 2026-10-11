@@ -254,6 +254,9 @@ by it, because the driver reads its handshake with no timeout.
 
 ## Module `fixture`
 
+The fixture tier's credential - a value that cannot exist unconfigured.
+
+Behind the default-off `fixtures` feature - see that module's own header for why.
 The fixture tier's credential: **configured, or refused by name.**
 
 Behind the default-off `fixtures` feature - `sutura-exec-postgres::fixture`'s own reason, one

@@ -6,20 +6,21 @@
 //! its exact decimal text; a value of that text that parses as an `i64` is read as
 //! [`Value::Integer`](sutura_domain::warehouse::Value::Integer) and every other stays exact
 //! [`Value::Text`](sutura_domain::warehouse::Value::Text), the split the Postgres adapter draws
-//! for `NUMERIC`. A `DATE` or `TIMESTAMP` arrives as a microsecond timestamp and is read as
-//! its day. Every other type is the domain reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
+//! for `NUMERIC`. A `DATE` or `TIMESTAMP` arrives as a microsecond timestamp, a `TIMESTAMP WITH
+//! TIME ZONE` as that timestamp in UTC beside the value's offset, and each is read as its date-time
+//! text; a `TIMESTAMP WITH LOCAL TIME ZONE` column is refused by name. Every other type is the
+//! domain reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
 
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray as _;
-use arrow_array::types::{Date32Type, TimestampMicrosecondType};
-use arrow_array::{ArrayRef, RecordBatch};
+use arrow_array::types::{Int16Type, TimestampMicrosecondType};
+use arrow_array::{Array as _, ArrayRef, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use sutura_domain::warehouse::{Accumulating, ResultBudget, RowSet, UnannouncedBatch, UnreadableCell, Value};
 
+use crate::datetime::{date_text, local_zone_refused};
 use crate::{OracleError, execute_err_mapped};
-
-const MICROS_PER_DAY: i64 = 86_400_000_000;
 
 /// Runs `sql` on `connection` and reads its answer - see the module header.
 pub(crate) fn query(
@@ -33,6 +34,13 @@ pub(crate) fn query(
     let batches = connection
         .query_arrow_batches(sql, sets.as_slice())
         .map_err(execute_err_mapped)?;
+    if let Some(column) = batches
+        .columns()
+        .iter()
+        .find(|column| column.db_type() == oracledb::DB_TYPE_TIMESTAMP_LTZ)
+    {
+        return Err(local_zone_refused(column.name()));
+    }
     let schema = batches.schema();
     let numbers: Vec<usize> = batches
         .columns()
@@ -81,14 +89,14 @@ pub(crate) fn read(
     exact_numbers(read, numbers)
 }
 
-/// `schema` with every microsecond timestamp read as a day.
+/// `schema` with every date-typed column read as its text.
 fn dated(schema: &SchemaRef) -> SchemaRef {
     let fields: Vec<Field> = schema
         .fields()
         .iter()
         .map(|field| {
-            if is_timestamp(field.data_type()) {
-                field.as_ref().clone().with_data_type(DataType::Date32)
+            if is_timestamp(field.data_type()) || is_zoned(field.data_type()) {
+                field.as_ref().clone().with_data_type(DataType::Utf8)
             } else {
                 field.as_ref().clone()
             }
@@ -101,23 +109,52 @@ fn is_timestamp(data_type: &DataType) -> bool {
     *data_type == DataType::Timestamp(TimeUnit::Microsecond, None)
 }
 
-/// `batch` under `schema`, each timestamp column cast to the day it falls on.
+/// A `TIMESTAMP WITH TIME ZONE` column as the driver hands it: the UTC instant beside the offset.
+fn is_zoned(data_type: &DataType) -> bool {
+    let DataType::Struct(fields) = data_type else {
+        return false;
+    };
+    let mut types = fields.iter().map(|field| field.data_type());
+    matches!(
+        (types.next(), types.next(), types.next()),
+        (
+            Some(DataType::Timestamp(TimeUnit::Microsecond, _)),
+            Some(DataType::Int16),
+            None
+        )
+    )
+}
+
+/// `batch` under `schema`, each date-typed column as its text.
 fn dated_batch(schema: &SchemaRef, batch: &RecordBatch) -> Result<RecordBatch, OracleError> {
-    let columns: Vec<ArrayRef> = batch
+    let columns = batch
         .columns()
         .iter()
         .map(|column| {
-            if is_timestamp(column.data_type()) {
-                // An `i64` of microseconds divided by a day's is at most 106 751 991, inside `i32`.
-                let days = column
+            let texts: StringArray = if is_timestamp(column.data_type()) {
+                column
                     .as_primitive::<TimestampMicrosecondType>()
-                    .unary::<_, Date32Type>(|micros| i32::try_from(micros.div_euclid(MICROS_PER_DAY)).unwrap_or(i32::MAX));
-                Arc::new(days) as ArrayRef
+                    .iter()
+                    .map(|micros| micros.map(|micros| date_text(micros, None)).transpose())
+                    .collect::<Result<_, _>>()?
+            } else if is_zoned(column.data_type()) {
+                let parts = column.as_struct();
+                let instants = parts.column(0).as_primitive::<TimestampMicrosecondType>();
+                let offsets = parts.column(1).as_primitive::<Int16Type>();
+                (0..parts.len())
+                    .map(|row| {
+                        parts
+                            .is_valid(row)
+                            .then(|| date_text(instants.value(row), Some(offsets.value(row))))
+                            .transpose()
+                    })
+                    .collect::<Result<_, _>>()?
             } else {
-                Arc::clone(column)
-            }
+                return Ok(Arc::clone(column));
+            };
+            Ok(Arc::new(texts) as ArrayRef)
         })
-        .collect();
+        .collect::<Result<Vec<_>, OracleError>>()?;
     RecordBatch::try_new(Arc::clone(schema), columns).map_err(|cause| OracleError::Batch { cause })
 }
 
@@ -171,8 +208,8 @@ mod tests {
     use std::cell::Cell;
     use std::sync::Arc;
 
-    use arrow_array::{ArrayRef, RecordBatch, StringArray, TimestampMicrosecondArray};
-    use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
+    use arrow_array::{Array as _, ArrayRef, Int16Array, RecordBatch, StringArray, StructArray, TimestampMicrosecondArray};
+    use arrow_schema::{DataType, Field, Fields, Schema, SchemaRef, TimeUnit};
     use sutura_domain::warehouse::{ResultBudget, RowSet, Value};
 
     use super::{Stop, read};
@@ -269,25 +306,61 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_timestamp_reads_as_its_day() {
+    fn timestamp_batch(micros: Vec<Option<i64>>) -> RecordBatch {
         let schema = Arc::new(Schema::new(vec![Field::new(
             "D",
             DataType::Timestamp(TimeUnit::Microsecond, None),
             true,
         )]));
-        // 2026-10-11T23:59:59.999999 and 1969-12-31T12:00:00.
-        let micros = TimestampMicrosecondArray::from(vec![Some(1_791_763_199_999_999), Some(-43_200_000_000), None]);
-        let batch = RecordBatch::try_new(schema, vec![Arc::new(micros)]).expect("one timestamp column");
+        let column: ArrayRef = Arc::new(TimestampMicrosecondArray::from(micros));
+        RecordBatch::try_new(schema, vec![column]).expect("one timestamp column")
+    }
+
+    fn texts(batch: RecordBatch) -> Vec<Vec<Value>> {
         let (answer, _) = read_counting(vec![batch], &[], stop(1 << 20, None), || Ok(()));
-        let rows = answer.expect("the days read");
-        assert_eq!(
-            rows.rows(),
-            &[
-                vec![Value::Text(String::from("2026-10-11"))],
-                vec![Value::Text(String::from("1969-12-31"))],
-                vec![Value::Null],
-            ]
-        );
+        answer.expect("the dates read").rows().to_vec()
+    }
+
+    fn text(raw: &str) -> Vec<Value> {
+        vec![Value::Text(String::from(raw))]
+    }
+
+    #[test]
+    fn a_date_with_a_time_of_day_keeps_it_in_its_batch() {
+        // 2026-10-11T13:45:30.
+        let rows = texts(timestamp_batch(vec![Some(1_791_726_330_000_000), None]));
+        assert_eq!(rows, [text("2026-10-11T13:45:30"), vec![Value::Null]]);
+    }
+
+    #[test]
+    fn only_midnight_with_no_fraction_reads_as_the_day() {
+        // 2026-10-11T00:00:00 and one microsecond past it.
+        let rows = texts(timestamp_batch(vec![
+            Some(1_791_676_800_000_000),
+            Some(1_791_676_800_000_001),
+        ]));
+        assert_eq!(rows, [text("2026-10-11"), text("2026-10-11T00:00:00.000001")]);
+    }
+
+    #[test]
+    fn a_time_of_day_before_1970_lands_on_its_day() {
+        let rows = texts(timestamp_batch(vec![Some(-43_200_000_000), Some(-1)]));
+        assert_eq!(rows, [text("1969-12-31T12:00:00"), text("1969-12-31T23:59:59.999999")]);
+    }
+
+    #[test]
+    fn a_zoned_timestamp_keeps_its_own_offset() {
+        let instants = TimestampMicrosecondArray::from(vec![Some(1_761_933_135_456_000), None]).with_timezone("UTC");
+        let fields = Fields::from(vec![
+            Field::new("timestamp", instants.data_type().clone(), true),
+            Field::new("offset_minutes", DataType::Int16, true),
+        ]);
+        let offsets = Int16Array::from(vec![Some(-360), None]);
+        let nulls = offsets.nulls().cloned();
+        let zoned = StructArray::new(fields, vec![Arc::new(instants), Arc::new(offsets)], nulls);
+        let schema = Arc::new(Schema::new(vec![Field::new("T", zoned.data_type().clone(), true)]));
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(zoned)]).expect("one zoned column");
+        // The driver's reading of `2025-10-31 11:52:15.456 -06:00`: the UTC instant beside the offset.
+        assert_eq!(texts(batch), [text("2025-10-31T11:52:15.456-06:00"), vec![Value::Null]]);
     }
 }

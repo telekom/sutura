@@ -146,7 +146,8 @@ second column displays the Arrow type.
 | ---------------------- | ---------- |
 | `DB_TYPE_CHAR`, `DB_TYPE_VARCHAR`, `DB_TYPE_NCHAR`, and `DB_TYPE_NVARCHAR` | `Utf8` |
 | `DB_TYPE_RAW`, `DB_TYPE_LONG_RAW`, and `DB_TYPE_BLOB` | `Binary` |
-| `DB_TYPE_DATE`, `DB_TYPE_TIMESTAMP`, `DB_TYPE_TIMESTAMP_TZ`, and `DB_TYPE_TIMESTAMP_LTZ` | `Timestamp(Microsecond, None)` |
+| `DB_TYPE_DATE`, `DB_TYPE_TIMESTAMP`, and `DB_TYPE_TIMESTAMP_LTZ` | `Timestamp(Microsecond, None)` |
+| `DB_TYPE_TIMESTAMP_TZ` | `Struct` of `timestamp`, a `Timestamp(Microsecond, "UTC")`, and `offset_minutes`, an `Int16` |
 | `DB_TYPE_BINARY_FLOAT` | `Float32` |
 | `DB_TYPE_BINARY_DOUBLE` | `Float64` |
 | `DB_TYPE_BOOLEAN` | `Boolean` |

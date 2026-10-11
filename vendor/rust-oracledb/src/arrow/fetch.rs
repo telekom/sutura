@@ -36,10 +36,10 @@ use arrow_array::builder::make_builder;
 use arrow_array::builder::{
     BinaryBuilder, BooleanBuilder, Decimal128Builder, Float32Builder,
     Float64Builder, Int8Builder, Int16Builder, Int32Builder, Int64Builder,
-    StringBuilder, TimestampMicrosecondBuilder, UInt8Builder, UInt16Builder,
-    UInt32Builder, UInt64Builder,
+    StringBuilder, StructBuilder, TimestampMicrosecondBuilder, UInt8Builder,
+    UInt16Builder, UInt32Builder, UInt64Builder,
 };
-use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
+use arrow_schema::{DataType, Field, Fields, Schema, SchemaRef, TimeUnit};
 
 use crate::bind_params::BindParameters;
 use crate::constants;
@@ -68,6 +68,8 @@ fn default_type(col: &Metadata) -> Result<DataType, Error> {
         Ok(DataType::Utf8)
     } else if col.db_type().is_binary_type() {
         Ok(DataType::Binary)
+    } else if col.db_type() == crate::DB_TYPE_TIMESTAMP_TZ {
+        Ok(timestamp_with_offset())
     } else if col.db_type().is_date_type() {
         Ok(DataType::Timestamp(TimeUnit::Microsecond, None))
     } else {
@@ -103,6 +105,19 @@ fn default_type(col: &Metadata) -> Result<DataType, Error> {
             _ => Err(Error::unsupported_db_type(col.db_type())),
         }
     }
+}
+
+/// Returns the type used for a TIMESTAMP WITH TIME ZONE value: the instant
+/// in UTC, beside the offset of the value from UTC in minutes. An Arrow
+/// timestamp holds one time zone for all of its column, but each value in a
+/// TIMESTAMP WITH TIME ZONE column can have a different offset.
+fn timestamp_with_offset() -> DataType {
+    let instant =
+        DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()));
+    DataType::Struct(Fields::from(vec![
+        Field::new("timestamp", instant, true),
+        Field::new("offset_minutes", DataType::Int16, true),
+    ]))
 }
 
 /// Performs a query with one or more sets of parameters and returns a single
@@ -321,6 +336,29 @@ impl RecordBatchCreator {
                     .unwrap()
                     .append_option(value)
             }
+            DataType::Struct(_) => {
+                let value =
+                    row.get::<Option<OracleTimestamp>>(column_index)?;
+                let micros =
+                    value.map(|v| v.to_timestamp_micros()).transpose()?;
+                let offset = value.map(|v| {
+                    i16::from(v.tz_hour_offset()) * 60
+                        + i16::from(v.tz_minute_offset())
+                });
+                let builder = builder
+                    .as_any_mut()
+                    .downcast_mut::<StructBuilder>()
+                    .unwrap();
+                builder
+                    .field_builder::<TimestampMicrosecondBuilder>(0)
+                    .unwrap()
+                    .append_option(micros);
+                builder
+                    .field_builder::<Int16Builder>(1)
+                    .unwrap()
+                    .append_option(offset);
+                builder.append(value.is_some());
+            }
             DataType::UInt8 => {
                 builder
                     .as_any_mut()
@@ -405,12 +443,14 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::cast::AsArray;
+    use arrow_array::types::{Int16Type, TimestampMicrosecondType};
+    use arrow_array::Array;
     use arrow_schema::DataType;
 
     use super::RecordBatchCreator;
     use crate::db_value::DbValue;
     use crate::metadata::Metadata;
-    use crate::ora_type::OracleNumber;
+    use crate::ora_type::{OracleNumber, OracleTimestamp};
     use crate::row::{DbRow, Row};
 
     #[test]
@@ -436,5 +476,40 @@ mod tests {
             assert_eq!(fetched.value(index), exact);
         }
         assert_eq!(fetched.value(0), "9007199254740993");
+    }
+
+    #[test]
+    fn timestamp_with_time_zone_is_fetched_with_its_offset() {
+        let columns = Arc::new(vec![Metadata::new_scalar(
+            "T",
+            crate::DB_TYPE_TIMESTAMP_TZ,
+            0,
+        )]);
+        let mut creator = RecordBatchCreator::new(&columns).unwrap();
+        // 2025-10-31 11:22:15.456 -06:30, read as UTC fields beside the
+        // offset.
+        let value = OracleTimestamp::new_timestamp_tz(
+            2025,
+            10,
+            31,
+            17,
+            52,
+            15,
+            456_000_000,
+            -6,
+            -30,
+        );
+        for value in [Some(DbValue::Timestamp(value)), None] {
+            let row = DbRow::new(vec![value]);
+            creator.add_row(&Row::new(&columns, row)).unwrap();
+        }
+        let batch = creator.create_batch().unwrap();
+        let fetched = batch.column(0).as_struct();
+        let instants =
+            fetched.column(0).as_primitive::<TimestampMicrosecondType>();
+        let offsets = fetched.column(1).as_primitive::<Int16Type>();
+        assert_eq!(instants.value(0), 1_761_933_135_456_000);
+        assert_eq!(offsets.value(0), -390);
+        assert!(fetched.is_null(1));
     }
 }

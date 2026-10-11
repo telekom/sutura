@@ -15,4 +15,7 @@ a_result_over_the_byte_budget_is_refused_before_the_second_fetch # names the str
 a_spent_deadline_between_fetches_stops_the_read # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
 a_read_stops_at_the_answer_witness # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
 a_number_of_seventeen_or_more_digits_stays_exact # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
-a_timestamp_reads_as_its_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_date_with_a_time_of_day_keeps_it_in_its_batch # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+only_midnight_with_no_fraction_reads_as_the_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_time_of_day_before_1970_lands_on_its_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_zoned_timestamp_keeps_its_own_offset # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
