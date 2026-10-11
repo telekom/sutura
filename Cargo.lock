@@ -2769,6 +2769,8 @@ name = "oracledb"
 version = "26.0.0-beta.5"
 dependencies = [
  "aes",
+ "arrow-array",
+ "arrow-schema",
  "base16ct",
  "base64ct",
  "cbc",
@@ -4085,6 +4087,8 @@ dependencies = [
 name = "sutura-exec-oracle"
 version = "0.6.1"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
  "oracledb",
  "parking_lot",
  "rcgen",

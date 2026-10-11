@@ -62,7 +62,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, Real, ResultBatches, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -70,6 +70,7 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 ///
 /// Behind the default-off `fixtures` feature - see that module's own header for why.
 #[cfg(feature = "fixtures")]
+mod batches;
 pub mod fixture;
 
 /// Why this data system could not answer.
@@ -134,6 +135,24 @@ pub enum OracleError {
     /// a caller is refused rather than told to retry.
     #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
     OverBudget { most_bytes: usize },
+    /// The driver's batches did not match the schema it announced - a driver defect.
+    #[error("the driver's answer did not match the schema it announced")]
+    Unannounced {
+        #[source]
+        cause: sutura_domain::warehouse::UnannouncedBatch,
+    },
+    /// A column of the driver's batches did not read as its own schema's type - a driver defect.
+    #[error("the driver's answer did not read as its own schema")]
+    Unreadable {
+        #[source]
+        cause: sutura_domain::warehouse::UnreadableCell,
+    },
+    /// A batch could not be rebuilt with its dates read as days - a defect in this adapter.
+    #[error("a result batch could not be rebuilt with its dates read as days")]
+    Batch {
+        #[source]
+        cause: arrow_schema::ArrowError,
+    },
     /// A key probe's result was not the pair of counts its statement projects.
     ///
     /// A defect in the rendering or in this adapter's value mapping, never anything about the data:
@@ -447,9 +466,9 @@ impl OracleWarehouse {
     }
 
     /// One round trip on `session`: set the connection's call timeout to what `deadline` has left
-    /// (never forwarding an expired one - see [`refuse_if_spent`]), run the statement, and read
-    /// every row through [`Self::cell`]. An asker's session is opened first and closed on return,
-    /// both under the lock.
+    /// (never forwarding an expired one - see [`refuse_if_spent`]) before the statement and before
+    /// each further round trip, run the statement, and read its batches through [`batches`]. An
+    /// asker's session is opened first and closed on return, both under the lock.
     fn run_with_deadline(
         &self,
         session: Session<'_>,
@@ -473,8 +492,16 @@ impl OracleWarehouse {
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
         let bound = Self::bind(query.params());
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
-        let cursor = connection.query(query.sql(), &refs).map_err(execute_err_mapped)?;
-        rows_from_cursor(cursor, self.result_budget, most_rows)
+        let stop = batches::Stop {
+            budget: self.result_budget,
+            most_rows,
+        };
+        batches::query(connection, query.sql(), &refs, stop, || {
+            let remaining = refuse_if_spent(deadline)?;
+            connection
+                .set_call_timeout(Some(remaining))
+                .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })
+        })
     }
 
     /// The boot path's own runner - no deadline, called only from [`Warehouse::verify_anchor`] and
@@ -486,60 +513,11 @@ impl OracleWarehouse {
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
         let bound = Self::bind(query.params());
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
-        let cursor = self.connection.query(query.sql(), &refs).map_err(execute_err_mapped)?;
-        rows_from_cursor(cursor, self.result_budget, None)
-    }
-
-    /// One cell, as a domain value, dispatched on the column's declared type.
-    ///
-    /// **Reasoned from the driver's documented types, not measured against a live Oracle** - the
-    /// module header's own limit.
-    fn cell(label: &str, column: &oracledb::Metadata, row: &oracledb::Row, index: usize) -> Result<Value, OracleError> {
-        let decode_err = |cause: oracledb::Error| OracleError::ValueDecode {
-            column: String::from(label),
-            cause: cause.into(),
+        let stop = batches::Stop {
+            budget: self.result_budget,
+            most_rows: None,
         };
-        let db_type = column.db_type();
-        if db_type == oracledb::DB_TYPE_BOOLEAN {
-            Ok(row
-                .get::<Option<bool>>(index)
-                .map_err(decode_err)?
-                .map_or(Value::Null, |v| Value::Integer(i64::from(v))))
-        } else if db_type == oracledb::DB_TYPE_NUMBER {
-            Ok(row
-                .get::<Option<oracledb::OracleNumber>>(index)
-                .map_err(decode_err)?
-                .map_or(Value::Null, |value| numeric_cell(&value)))
-        } else if db_type.is_string_type() {
-            Ok(row
-                .get::<Option<String>>(index)
-                .map_err(decode_err)?
-                .map_or(Value::Null, Value::Text))
-        } else if db_type.is_date_type() {
-            row.get::<Option<oracledb::OracleTimestamp>>(index)
-                .map_err(decode_err)?
-                .map_or(Ok(Value::Null), |ts| date_cell(&ts))
-        } else if db_type == oracledb::DB_TYPE_BINARY_DOUBLE {
-            row.get::<Option<f64>>(index).map_err(decode_err)?.map_or_else(
-                || Ok(Value::Null),
-                |v| {
-                    Real::parse(v).map(Value::Real).map_err(|cause| OracleError::NotFinite {
-                        column: String::from(label),
-                        cause,
-                    })
-                },
-            )
-        } else if db_type == oracledb::DB_TYPE_BINARY_FLOAT {
-            Err(OracleError::UnsupportedType {
-                column: String::from(label),
-                oracle_type: "BINARY_FLOAT; a 32-bit float has no exact 64-bit rendering",
-            })
-        } else {
-            Err(OracleError::UnsupportedType {
-                column: String::from(label),
-                oracle_type: db_type.name(),
-            })
-        }
+        batches::query(&self.connection, query.sql(), &refs, stop, || Ok(()))
     }
 }
 
@@ -631,64 +609,6 @@ fn oracle_date(date: sutura_domain::calendar::Date) -> oracledb::OracleTimestamp
     oracledb::OracleTimestamp::new_date(year, month, day)
 }
 
-/// The reverse of [`oracle_date`]: a `DATE`/`TIMESTAMP` column, back to a domain
-/// [`Value::Text`] carrying its ISO day - the domain's Arrow reader renders a Postgres `DATE` the
-/// same way.
-fn date_cell(ts: &oracledb::OracleTimestamp) -> Result<Value, OracleError> {
-    sutura_domain::calendar::Date::new(ts.year(), ts.month(), ts.day())
-        .map(|date| Value::Text(date.to_iso()))
-        .map_err(|_cause| OracleError::UnsupportedType {
-            column: String::from("<date>"),
-            oracle_type: "a date this build cannot represent",
-        })
-}
-
-/// Maps a decoded `NUMBER` exactly: a value whose driver-rendered base-10 text parses as an `i64`
-/// maps to [`Value::Integer`], every other value maps to exact [`Value::Text`] -
-/// the Postgres adapter's own `NUMERIC` split, over `OracleNumber`'s `Display` rather than a
-/// hand-rolled decoder, since the driver already carries an exact base-10 rendering.
-fn numeric_cell(value: &oracledb::OracleNumber) -> Value {
-    let text = value.to_string();
-    text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer)
-}
-
-fn rows_from_cursor(
-    cursor: oracledb::Cursor,
-    budget: sutura_domain::warehouse::ResultBudget,
-    most_rows: Option<usize>,
-) -> Result<RowSet, OracleError> {
-    let columns: Vec<oracledb::Metadata> = cursor.columns().to_vec();
-    let labels: Vec<String> = columns.iter().map(|c| c.name().to_owned()).collect();
-    let values = cursor.map(|row| {
-        let row = row.map_err(execute_err_mapped)?;
-        columns
-            .iter()
-            .enumerate()
-            .map(|(index, column)| OracleWarehouse::cell(column.name(), column, &row, index))
-            .collect::<Result<Vec<_>, _>>()
-    });
-    collect_rows(labels, values, budget, most_rows)
-}
-
-fn collect_rows(
-    labels: Vec<String>,
-    rows: impl Iterator<Item = Result<Vec<Value>, OracleError>>,
-    budget: sutura_domain::warehouse::ResultBudget,
-    most_rows: Option<usize>,
-) -> Result<RowSet, OracleError> {
-    let mut collected = sutura_domain::warehouse::Budgeted::collecting(budget);
-    for cells in rows {
-        let cells = cells?;
-        collected.push(cells).map_err(|cause| OracleError::OverBudget {
-            most_bytes: cause.most_bytes(),
-        })?;
-        if most_rows.is_some_and(|most| collected.delivered() >= most) {
-            break;
-        }
-    }
-    collected.finish(labels).map_err(|cause| OracleError::Shape { cause })
-}
-
 /// The error from opening the connection, with a refused redirect as its own variant.
 fn connect_err(cause: oracledb::Error) -> OracleError {
     let cause = DriverError::from(cause);
@@ -706,7 +626,13 @@ fn connect_err(cause: oracledb::Error) -> OracleError {
 ///
 /// **Not measured against a live Oracle** - the module header's own limit; `1476` is Oracle's
 /// documented error number for this condition.
-fn execute_err_mapped(cause: oracledb::Error) -> OracleError {
+pub(crate) fn execute_err_mapped(cause: oracledb::Error) -> OracleError {
+    if let oracledb::ErrorKind::UnsupportedDbType(db_type) = *cause.kind() {
+        return OracleError::UnsupportedType {
+            column: String::from("<not named by the driver>"),
+            oracle_type: db_type.name(),
+        };
+    }
     let cause = DriverError::from(cause);
     if cause.has_ora_code(1476) {
         OracleError::DivisionByZero { cause }
@@ -810,7 +736,7 @@ impl Warehouse for OracleWarehouse {
         matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031))
     }
 
-    /// Answers for the MATERIALISATION BUDGET alone: `rows_from_cursor` collects against this
+    /// Answers for the MATERIALISATION BUDGET alone: `batches::read` charges each batch against this
     /// adapter's own budget, so a result refused for crossing it is exactly *the result did not
     /// fit* - a governance outcome the caller cannot retry past, reached as a refusal rather than
     /// the `503` a data-system failure would mean. Every other failure shape stays `false`.
@@ -821,49 +747,14 @@ impl Warehouse for OracleWarehouse {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
     use std::time::{Duration, Instant};
 
     use sutura_domain::plan::Executable;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
-    use sutura_domain::warehouse::{ResultBudget, Value};
 
-    use super::{
-        Channel, Dial, OracleError, OracleWarehouse, Session, TokenSessions, collect_rows, ezconnect, refuse_if_spent,
-        session_for,
-    };
+    use super::{Channel, Dial, OracleError, OracleWarehouse, Session, TokenSessions, ezconnect, refuse_if_spent, session_for};
 
     mod routing;
-
-    fn result_budget(bytes: usize) -> ResultBudget {
-        ResultBudget::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test budget is positive"))
-    }
-
-    #[test]
-    fn an_oracle_row_stream_stops_at_the_answer_witness() {
-        let read = Cell::new(0_usize);
-        let rows = std::iter::from_fn(|| {
-            read.set(read.get().saturating_add(1));
-            Some(Ok(vec![Value::Integer(1)]))
-        });
-        let result =
-            collect_rows(vec![String::from("value")], rows, result_budget(1024), Some(2)).expect("two rows fit the byte budget");
-        assert_eq!(result.rows().len(), 2);
-        assert_eq!(read.get(), 2, "the third row was never decoded");
-    }
-
-    #[test]
-    fn an_oracle_row_stream_refuses_when_the_second_row_crosses_the_byte_budget() {
-        let read = Cell::new(0_usize);
-        let rows = std::iter::from_fn(|| {
-            read.set(read.get().saturating_add(1));
-            Some(Ok(vec![Value::Text("x".repeat(200))]))
-        });
-        let error = collect_rows(vec![String::from("value")], rows, result_budget(1000), None)
-            .expect_err("the second row exceeds the conversion budget");
-        assert!(matches!(error, OracleError::OverBudget { most_bytes: 1000 }), "{error:?}");
-        assert_eq!(read.get(), 2, "the third row was never decoded");
-    }
 
     /// **An IPv6 loopback literal is dialled, not looked up.** `sutura-config` accepts `::1` as a
     /// loopback host; unbracketed, the driver reads the whole string as a `tnsnames.ora` alias and

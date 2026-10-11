@@ -217,13 +217,18 @@ impl Statement {
         params: BindParameters,
     ) -> Result<arrow_array::RecordBatch, Error> {
         self.statement.check_binds(&params)?;
-        let mut client = self.client_ref.lock()?;
-        arrow::query_single_batch(
-            &mut client,
-            &mut self.statement,
-            &self.client_ref,
-            params,
-        )
+        arrow::query_single_batch(self, params)
+    }
+
+    #[cfg(feature = "arrow")]
+    /// Performs a query against the database and returns an iterator of
+    /// Arrow RecordBatch structures, one for each round trip to the database.
+    pub fn query_arrow_batches<'a>(
+        mut self,
+        params: BindParameters<'a>,
+    ) -> Result<arrow::ArrowBatches<'a>, Error> {
+        self.statement.check_binds(&params)?;
+        arrow::ArrowBatches::new(self, params)
     }
 
     /// Executes the statement with the given parameters and returns a Cursor

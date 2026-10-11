@@ -70,6 +70,8 @@ mod vector;
 mod write_buffer;
 
 // public structs
+#[cfg(feature = "arrow")]
+pub use crate::arrow::ArrowBatches;
 pub use crate::config::Config;
 pub use crate::config::PoolConfig;
 pub use crate::connection::Connection;
