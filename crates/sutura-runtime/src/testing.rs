@@ -21,7 +21,7 @@ use std::io;
 use std::sync::Arc;
 
 // Only the subscriber-building helpers below need these, and those are `cfg(test)` - see the header
-// for why. Under `test-capture` alone the module is the writer and nothing else.
+// for why. Under `test-capture` alone the module is the writer and the `log` bridge.
 #[cfg(test)]
 use sutura_config::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
 
@@ -107,6 +107,12 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
     fn make_writer(&'a self) -> Self::Writer {
         self.clone()
     }
+}
+
+/// The service's own `log` bridge, for a test that installs its own global subscriber and has to see
+/// what a dependency logs through `log` the way the service would.
+pub fn bridge_log() {
+    crate::telemetry::bridge_log();
 }
 
 /// Settings for a test subscriber.

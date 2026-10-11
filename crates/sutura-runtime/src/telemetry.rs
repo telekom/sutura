@@ -104,13 +104,18 @@ where
 /// rather than about the service.
 pub fn install(telemetry: &TelemetrySettings) -> Result<(), TelemetryNotInstalled> {
     let subscriber = subscriber(telemetry, std::io::stdout)?;
-    // The `log` crate bridge. Several dependencies still emit through `log`; without this their
-    // diagnostics are dropped silently rather than appearing in the same stream as everything else.
-    // The HTTP client's wire-level trace target, `ureq_proto`, never crosses, whatever the filter
-    // says.
-    drop(tracing_log::LogTracer::builder().ignore_crate("ureq_proto").init());
+    bridge_log();
     drop(tracing::subscriber::set_global_default(subscriber));
     Ok(())
+}
+
+/// The `log` crate bridge, once per process; a second call is ignored.
+///
+/// Several dependencies still emit through `log`; without this their diagnostics are dropped
+/// silently rather than appearing in the same stream as everything else. The HTTP client's
+/// wire-level trace target, `ureq_proto`, never crosses, whatever the filter says.
+pub(crate) fn bridge_log() {
+    drop(tracing_log::LogTracer::builder().ignore_crate("ureq_proto").init());
 }
 
 /// The filter: `RUST_LOG` if it is set and parses, otherwise the configured directive.

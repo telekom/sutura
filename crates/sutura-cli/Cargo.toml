@@ -284,6 +284,9 @@ sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 # The served DuckDB cells write the example into a database file through the adapter's fixture-only
 # writer. This feature is absent from the shipped binary.
 sutura-exec-duckdb = { workspace = true, features = ["fixtures"] }
+# The served ClickHouse password cell loads the example into the tier through the adapter's
+# fixture-only importer. This feature is absent from the shipped binary.
+sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
 # The `examples/cube` cell (`tests/mcp/cube.rs`) signs the tier's deployment token through the
 # adapter's fixture-only signer. This feature is absent from the shipped binary.
 sutura-exec-cube = { workspace = true, features = ["fixtures"] }

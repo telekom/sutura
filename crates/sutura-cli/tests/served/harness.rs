@@ -77,7 +77,7 @@ pub(crate) use postgres::settings as postgres_settings;
 // directly and builds its own `sources:` entry through `source_entry` - the same two calls
 // `load_into_tier` above makes, rather than a second discovery.
 #[cfg(feature = "postgres")]
-pub(crate) use postgres::{DiscoveredTier, discover_tier, source_entry};
+pub(crate) use postgres::{DiscoveredTier, discover_tier, load_into_tier, source_entry};
 #[cfg(feature = "postgres")]
 pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // `derived_catalog` is its own line, `#[cfg(feature = "postgres")]`: `two_kind` above is its only
@@ -392,6 +392,8 @@ pub(crate) struct Reply {
     /// needs, and because what it must NOT contain is the interesting half: a challenge that said
     /// which check failed would tell a caller holding a forgery which half of it to fix.
     pub(crate) challenge: Option<String>,
+    /// The status line and every header, as sent.
+    pub(crate) head: String,
 }
 
 impl Reply {

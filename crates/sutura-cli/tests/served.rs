@@ -207,6 +207,13 @@ mod corpus;
 #[path = "served/two_kind.rs"]
 mod two_kind;
 
+// A source password sent for real and held out of every reply and log line (#1293).
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "agent")]
+#[path = "served/source_password.rs"]
+mod source_password;
+
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {

@@ -145,6 +145,9 @@ fn served(case: &str, idp: &FakeServer) -> Served {
         idp.endpoint(),
         secret.0.display(),
     );
+    // `/mcp` beside `/v1` wherever the transport is linked, so a cell can ask over both.
+    #[cfg(feature = "agent")]
+    let overlay = format!("{overlay}server:\n  agent_surface:\n    enabled: true\n");
     let settings =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay)).expect("the overlay loads");
     // The composition root's own broker, built from the settings it would read.
@@ -171,7 +174,15 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("a direct deployment"))
         .expect("a published key set builds a gate");
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission).with_inbound_identity(Arc::new(gate));
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission);
+    #[cfg(feature = "agent")]
+    let state = {
+        let mount = super::super::agent_mount(&state)
+            .expect("the agent mount builds")
+            .expect("the overlay enabled the agent surface");
+        state.with_agent_surface(mount)
+    };
+    let state = state.with_inbound_identity(Arc::new(gate));
     Served {
         app: sutura_http::router(&state).expect("the test router assembles"),
         issuer,
@@ -281,7 +292,8 @@ const CAPTURE_PROBE: &str = "outbound-echo capture is live";
 /// The delegation client's secret, as [`served`] writes it to the secret file.
 const CLIENT_SECRET: &str = "idp-client-secret";
 
-/// Every line this process logs from the first call on, at `trace`, from any thread.
+/// Every line this process logs from the first call on, at `trace`, from any thread, through
+/// `tracing` or through `log` over the service's own bridge.
 ///
 /// Global, unlike `sutura-http`'s token-echo capture, because the exchange runs on the blocking pool
 /// and a subscriber scoped to the calling thread does not see that pool. Once per process: where
@@ -301,6 +313,7 @@ fn logged() -> &'static sutura_runtime::testing::Capture {
         let subscriber =
             sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
         tracing::subscriber::set_global_default(subscriber).expect("no other subscriber is installed in this process");
+        sutura_runtime::testing::bridge_log();
         sink
     })
 }
@@ -337,6 +350,51 @@ async fn everything_returned(app: axum::Router, token: &str) -> String {
     received
 }
 
+/// The status line, every header and the body of an `initialize` and then the `/mcp` `ask_metric`
+/// call [`respond`] asks over `/v1`.
+#[cfg(feature = "agent")]
+async fn everything_returned_over_mcp(app: axum::Router, token: &str) -> String {
+    use core::fmt::Write as _;
+    use tower::ServiceExt as _;
+
+    let initialize = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                   "clientInfo": {"name": "sutura-delegation-served", "version": "0.0.0"}}
+    });
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "ask_metric", "arguments": {
+            "metrics": ["recurring_revenue"], "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}
+        }}
+    });
+    let mut received = String::new();
+    for message in [initialize, call] {
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header(axum::http::header::HOST, "localhost")
+            .header(axum::http::header::ACCEPT, "application/json, text/event-stream")
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(axum::body::Body::from(message.to_string()))
+            .expect("a well-formed request builds");
+        let (parts, body) = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("a tower service's Error is Infallible")
+            .into_parts();
+        writeln!(received, "{}", parts.status).expect("writing to a String cannot fail");
+        for (name, value) in &parts.headers {
+            writeln!(received, "{name}: {}", String::from_utf8_lossy(value.as_bytes())).expect("writing to a String cannot fail");
+        }
+        let body = axum::body::to_bytes(body, usize::MAX).await.expect("the response body reads");
+        received.push_str(&String::from_utf8_lossy(&body));
+    }
+    received
+}
+
 /// `token`, and each segment of it long enough to be worth a log line on its own.
 fn and_its_segments(token: &str) -> impl Iterator<Item = String> + '_ {
     core::iter::once(String::from(token)).chain(token.split('.').filter(|part| part.len() >= 10).map(String::from))
@@ -354,14 +412,22 @@ async fn no_outbound_credential_reaches_a_response_or_a_log_line() {
     );
     let [answered, refused] = CALLERS;
     let exchanged = exchanged(answered);
-    // The second answer quotes what it was sent, as an identity provider's error text may.
-    let idp = FakeServer::start(vec![
-        Scripted::ok(&issued(&exchanged)),
-        Scripted::status(
-            401,
-            &format!(r#"{{"error":"invalid_client","error_description":"{CLIENT_SECRET} is not {exchanged}"}}"#),
-        ),
-    ]);
+    // Each surface asks twice, and each second answer quotes what it was sent, as an identity
+    // provider's error text may.
+    let surfaces = if cfg!(feature = "agent") { 2 } else { 1 };
+    let idp = FakeServer::start(
+        (0..surfaces)
+            .flat_map(|_| {
+                [
+                    Scripted::ok(&issued(&exchanged)),
+                    Scripted::status(
+                        401,
+                        &format!(r#"{{"error":"invalid_client","error_description":"{CLIENT_SECRET} is not {exchanged}"}}"#),
+                    ),
+                ]
+            })
+            .collect(),
+    );
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-no-echo", &idp);
@@ -370,6 +436,10 @@ async fn no_outbound_credential_reaches_a_response_or_a_log_line() {
     let mut received = String::new();
     for token in &tokens {
         received.push_str(&everything_returned(app.clone(), token).await);
+    }
+    #[cfg(feature = "agent")]
+    for token in &tokens {
+        received.push_str(&everything_returned_over_mcp(app.clone(), token).await);
     }
 
     assert!(
@@ -380,13 +450,17 @@ async fn no_outbound_credential_reaches_a_response_or_a_log_line() {
     );
     let offered = offered(idp);
     assert!(
-        offered.len() == tokens.len()
+        offered.len() == tokens.len() * surfaces
             && offered
                 .iter()
                 .all(|offer| offer.contains(&format!("client_secret={CLIENT_SECRET}"))),
         "the client secret must have been sent, or its absence below proves nothing: {offered:?}"
     );
     let logged = log.contents();
+    assert!(
+        logged.contains(r#""log.target":"ureq::run""#),
+        "the capture holds no line the HTTP client logged through `log`, so a dependency's `log` records are outside it"
+    );
     let secrets: Vec<String> = core::iter::once(String::from(CLIENT_SECRET))
         .chain(and_its_segments(&exchanged))
         .chain(tokens.iter().flat_map(|token| and_its_segments(token)))
