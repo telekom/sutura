@@ -3397,6 +3397,8 @@ markdown catalog at the output:</p>
 </span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/srv/sutura/data"</span>
 </span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
 </span></code></pre></div>
+<p><code>sutura serve</code> reads all catalog entries again at the shortest <code>refresh_seconds</code> among them. The default is 900, and <code>0</code> is refused. See <a href="../../../serving/">Serving</a>.</p>
+<p>The refresh reads the converted directory, not the Wren manifest. A change to the manifest reaches <code>sutura serve</code> only after you run <code>sutura import wren</code> again.</p>
 <h2 id="what-the-command-converts">What the command converts<a class="headerlink" href="#what-the-command-converts" title="Permanent link">&para;</a></h2>
 <p>The command converts a column, one aggregate over one column, a ratio of two such aggregates, and
 a join on equal columns. It refuses anything else by name in <code>report.txt</code>: for example SQL models,

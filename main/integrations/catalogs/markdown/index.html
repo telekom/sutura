@@ -3370,6 +3370,7 @@ relationships, metrics, cubes and knowledge.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <p>This catalog reads only the <a href="../../#catalog-settings">settings that every catalog has</a>.
 It reads <code>name</code>, <code>version</code> and <code>dir</code>. It requires <code>data_dir</code>, but does not read it.</p>
+<p><code>sutura serve</code> reads all catalog entries again at the shortest <code>refresh_seconds</code> among them. The default is 900, and <code>0</code> is refused. See <a href="../../../serving/">Serving</a>.</p>
 <p><code>kind: markdown</code> is also the value when <code>kind</code> is absent. The built-in default is this entry:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">catalogs</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">"model"</span>
@@ -3377,6 +3378,7 @@ It reads <code>name</code>, <code>version</code> and <code>dir</code>. It requir
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">dir</span><span class="p">:</span><span class="w"> </span><span class="s">"catalog"</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"data"</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">"unversioned"</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">refresh_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">900</span>
 </span></code></pre></div>
 <p>A relative <code>dir</code> resolves against the working directory of the process.</p>
 <h2 id="the-files">The files<a class="headerlink" href="#the-files" title="Permanent link">&para;</a></h2>

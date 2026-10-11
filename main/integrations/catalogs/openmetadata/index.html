@@ -3406,6 +3406,7 @@ and these keys. It requires <code>dir</code> and <code>data_dir</code>, but does
 </tr>
 </tbody>
 </table>
+<p><code>sutura serve</code> reads all catalog entries again at the shortest <code>refresh_seconds</code> among them. The default is 900, and <code>0</code> is refused. See <a href="../../../serving/">Serving</a>.</p>
 <p>For TLS, the reader uses <code>security.outbound</code>: <code>transport_anchors</code> and an optional
 <code>client_certificate</code> and <code>client_key</code>.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>

@@ -3561,6 +3561,7 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 </tr>
 </tbody>
 </table>
+<p><code>sutura serve</code> reads all catalog entries again at the shortest <code>refresh_seconds</code> among them. The default is 900, and <code>0</code> is refused. See <a href="../../../serving/">Serving</a>.</p>
 <p><code>plaintext</code> needs a loopback IP address as <code>host</code>. <code>verified</code> and <code>mutual</code> need <code>host</code>, not
 <code>unix_socket</code>. A build with the <code>rdbms</code> feature reads PostgreSQL dictionaries; the Oracle
 dictionary needs a build with the <code>oracle</code> feature. The Oracle reader refuses a listener that
