@@ -1,5 +1,0 @@
-# `NotValidated` variants nothing provokes yet, checked by `cargo xtask check-refusal-coverage`.
-# One per line:
-#
-#   <Variant> <ISO date> <why nothing provokes it, and what would end that>
-SchemaNotRead 2026-10-11 no cell makes a data system fail a schema read; ends when an adapter cell or a fake that fails the read carries one

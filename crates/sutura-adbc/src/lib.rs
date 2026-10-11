@@ -28,7 +28,8 @@
 //!   It returns the Arrow error directly; each adapter wraps it into its own error
 //!   type, because the error vocabulary is the adapter's and not the FFI's.
 //! - `table_schema` asks a connection for one table's Arrow schema and reads the
-//!   driver's `NotFound` as the table being absent, the one status every driver shares.
+//!   driver's `NotFound` as the table being absent. A driver that answers a missing
+//!   table with any other status fails the read instead.
 //! - The driver-option constants, the transport, the identity decision and the result
 //!   drain stay in each adapter. This crate names no data system.
 

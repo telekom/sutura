@@ -422,16 +422,21 @@ fn serving_duckdb() -> (Service<SharedDuckDb>, SharedDuckDb) {
 
 #[test]
 fn a_bundle_naming_a_column_or_a_table_the_source_lacks_is_refused_at_the_load() {
-    // Catches a load that never reads the source's schema, and a driver's "no such table" taken for
-    // a source that could not be asked: both refuse as the column, never as an unread schema.
+    // Catches a load that never reads the source's schema, and one that reads a failed read as a
+    // table with no columns. DuckDB's driver answers a table it lacks with `Internal`, not
+    // `NotFound`, so that half refuses as an unread schema.
     let lacking_column = duckdb_with("lacking-column", "order_date,amount\n2026-06-03,197122\n");
-    for (lacking, warehouse) in [("a column", lacking_column), ("the table", duckdb())] {
-        let refused = verify_and_validate(served(), &Warehouses::of(warehouse)).err();
-        let Some(NotValidated::ColumnNotAtSource(ref missing)) = refused else {
-            panic!("a source lacking {lacking} refuses the bundle's column, not {refused:?}");
-        };
-        assert_eq!(missing.column().as_str(), "amount_cents", "a source lacking {lacking}");
-    }
+    let refused = verify_and_validate(served(), &Warehouses::of(lacking_column)).err();
+    let Some(NotValidated::ColumnNotAtSource(ref missing)) = refused else {
+        panic!("a source lacking a column refuses the bundle's column, not {refused:?}");
+    };
+    assert_eq!(missing.column().as_str(), "amount_cents");
+
+    let refused = verify_and_validate(served(), &Warehouses::of(duckdb())).err();
+    let Some(NotValidated::SchemaNotRead(ref unread)) = refused else {
+        panic!("a source lacking the table refuses its schema as unread, not {refused:?}");
+    };
+    assert_eq!(unread.source(), &source());
 }
 
 #[test]

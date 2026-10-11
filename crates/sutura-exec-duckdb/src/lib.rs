@@ -754,8 +754,8 @@ impl Warehouse for DuckDbWarehouse {
         KeyUniqueness::read(&rows).map_err(|cause| DuckDbError::KeyCounts { cause })
     }
 
-    /// Each table's schema as the driver binds it, on one connection. A table the database does not
-    /// have is absent, not an error.
+    /// Each table's schema as the driver binds it, on one connection. The driver answers a table the
+    /// database does not have with `Internal`, not `NotFound`, so a missing table fails the read.
     fn table_schemas(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
         let connection = self
             .database
