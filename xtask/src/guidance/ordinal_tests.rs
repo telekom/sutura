@@ -102,9 +102,13 @@ fn an_ordinal_the_reader_cannot_read_is_reported_rather_than_skipped() {
     assert_eq!(walked, 100);
     assert_eq!(problems.len(), 1, "{problems:#?}");
     assert!(problems[0].starts_with("a.md:100:"), "{problems:#?}");
-    assert_eq!(amendment("## Twenty-tenth amendment"), Some(Heading::Unreadable));
-    assert_eq!(amendment("## Thirty-eleventh amendment"), Some(Heading::Unreadable));
     assert!(!problems[0].contains("write it as"), "{problems:#?}");
+    for word in ["Twenty-tenth", "Thirty-eleventh"] {
+        let (reported, seen) = sequence_problems("a.md", &[format!("## {word} amendment")]);
+        assert_eq!(seen, 1, "{word}");
+        assert_eq!(reported.len(), 1, "{reported:#?}");
+        assert!(reported[0].contains("cannot read"), "{reported:#?}");
+    }
 }
 
 #[test]
