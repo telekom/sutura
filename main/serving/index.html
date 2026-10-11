@@ -3572,6 +3572,9 @@ snapshot that it started with. A bundle that fails the start-up checks is refuse
 On a <code>files</code> source, a bundle that names a table that the engine did not attach at start-up is refused until a restart.</p>
 <h2 id="start-up-refusals">Start-up refusals<a class="headerlink" href="#start-up-refusals" title="Permanent link">&para;</a></h2>
 <p>Every row below is a refusal to start, not a warning. sutura reports all refusals at once and names the setting.</p>
+<p>Off-host means that callers can arrive from other hosts: a non-loopback <code>server.host</code>, a <code>rate_limit.trusted_proxies</code>
+hop, a <code>security.tls_termination</code> of <code>sidecar</code> or <code>ingress</code>, or a <code>server.allowed_hosts</code> entry that is not a loopback
+address. <code>localhost</code> is a name, not an address, so it counts. <code>/v1</code>, <code>/metrics</code> and <code>/mcp</code> use this one rule.</p>
 <table>
 <thead>
 <tr>
@@ -3585,7 +3588,7 @@ On a <code>files</code> source, a bundle that names a table that the engine did 
 <td>Declare <code>sidecar</code>, <code>ingress</code> or <code>in-process</code> (<a href="#tls">TLS</a>)</td>
 </tr>
 <tr>
-<td>No <code>security.access_token</code> and no <code>security.inbound</code>, in production or on a non-loopback bind</td>
+<td>No <code>security.access_token</code> and no <code>security.inbound</code>, in production or off-host</td>
 <td>Set one of them</td>
 </tr>
 <tr>
@@ -3593,7 +3596,7 @@ On a <code>files</code> source, a bundle that names a table that the engine did 
 <td>Remove one: both use <code>Authorization: Bearer</code></td>
 </tr>
 <tr>
-<td><code>GET /metrics</code> reachable with no <code>security.metrics_token</code>, in production or on a non-loopback bind</td>
+<td><code>GET /metrics</code> reachable with no <code>security.metrics_token</code>, in production or off-host</td>
 <td>Set <code>security.metrics_token</code></td>
 </tr>
 <tr>
@@ -3641,8 +3644,8 @@ On a <code>files</code> source, a bundle that names a table that the engine did 
 <td>Name the real proxy hops</td>
 </tr>
 <tr>
-<td><code>rate_limit.enabled: false</code> in production</td>
-<td>Remove it</td>
+<td><code>rate_limit.enabled: false</code>, in production or off-host</td>
+<td>Set <code>rate_limit.enabled: true</code></td>
 </tr>
 <tr>
 <td><code>server.port: 0</code> in production</td>
@@ -3755,10 +3758,9 @@ the source decides whose access governs the rows.</p>
 <ul>
 <li>With <code>security.inbound</code>, <code>tools/list</code> shows only the tools that the scope of the caller grants. The tools are
   <code>describe_catalog</code> and <code>ask_metric</code>, and <code>run_sql</code> when it is on.</li>
-<li>Without <code>security.inbound</code>, <code>/mcp</code> serves only a <code>single-user</code> deployment that is reachable from this host only, or
-  that is behind both <code>security.access_token</code> and <code>rate_limit.enabled</code>. Then it answers every caller as the
-  deployment, with every tool. A declared <code>rate_limit.trusted_proxies</code> hop, a <code>security.tls_termination</code> of <code>sidecar</code>
-  or <code>ingress</code>, or a non-loopback entry in <code>server.allowed_hosts</code> counts as off-host.</li>
+<li>Without <code>security.inbound</code>, <code>/mcp</code> serves only a <code>single-user</code> deployment that is not
+  <a href="#start-up-refusals">off-host</a>, or that is behind both <code>security.access_token</code> and <code>rate_limit.enabled</code>. Then it
+  answers every caller as the deployment, with every tool.</li>
 <li><code>/mcp</code> has the same rate limit, body cap, deployment token and <code>Host</code> list as <code>/v1</code>.</li>
 </ul>
 <p><code>sutura mcp</code> serves the same two tools over standard input and output, for a locally launched agent. It has no
@@ -3822,6 +3824,9 @@ writes an audit record. The page of the data system says what bounds a statement
 </tr>
 </tbody>
 </table>
+<p><code>/openapi.json</code> and <code>/docs</code> do not check <code>security.inbound</code>, so with <code>security.inbound</code> and no <code>security.access_token</code>
+they answer every caller. This is by design: the document is the same for every deployment of a build, apart from
+<code>tools.run_sql.enabled</code>, and it holds no catalog, source or credential. Set <code>api.docs: false</code> to keep it off.</p>
 <p><code>/health</code> and <code>/metrics</code> sit outside the <code>/v1</code> prefix, and <code>/metrics</code> is outside the concurrency bound. <code>/metrics</code> shares
 the listener with the API, so only a network control can keep it internal. Its labels are fixed, and no label holds a question, a
 caller or a source.</p>

@@ -3252,8 +3252,10 @@ for; a process that does not start is read by everybody.</p>
   a sidecar terminating TLS in front of a plaintext pod-local listener is the normal
   arrangement - what is refused is not saying which of those it is, because that is what decides
   how far the bearer token travels in cleartext.</li>
-<li>No <code>security.access_token</code>, in production or on a non-loopback bind.</li>
-<li><code>rate_limit.enabled: false</code> in production.</li>
+<li>No <code>security.access_token</code>, no <code>security.metrics_token</code>, or <code>rate_limit.enabled: false</code>, in
+  production or off-host. Off-host is a non-loopback bind, a <code>rate_limit.trusted_proxies</code> hop, a
+  <code>security.tls_termination</code> of <code>sidecar</code> or <code>ingress</code>, or a non-loopback <code>server.allowed_hosts</code>
+  entry - one predicate, which <code>/mcp</code> asks too.</li>
 <li><code>rate_limit.client_address: forwarded</code> with an empty <code>rate_limit.trusted_proxies</code>, or a
   non-empty list that nothing reads.</li>
 <li><code>security.tls_termination: in-process</code> without a certificate and key, or in a binary built
