@@ -858,6 +858,10 @@ cube-acceptance:
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 SUTURA_CUBE_TIER=1 cargo test -p sutura-app --all-features --test golden --test differential -- cube:: --nocapture
 
+# The `ci-cube-tier` CI job's cells under the job's own name, which is where `adapters::exemptions`
+# says the `cube` cells run instead of `just test`.
+ci-cube-tier: cube-acceptance
+
 # Start the Oracle tier and run its live cells - the adapter's acceptance cell (#127) and the
 # catalog reader's (#972) - failing rather than skipping. CI runs the same cells through
 # `nix run .#oracle-acceptance`; keep the two filters aligned.

@@ -773,7 +773,10 @@ services:
   # own client. The issuer is fixed, so a token asked for on the published port and one asked for by
   # `cube-metrics` inside this network carry the same `iss`.
   cube-keycloak:
-    # CI venue: compose only - the `cube` block's reason.
+    # CI venue: compose only.
+    # Because: `cube-metrics` runs in docker and fetches this issuer's keys, and a container on a
+    #   Linux runner cannot reach the nix Keycloak tier on the host's loopback.
+    # Converges: with the `cube` block; the nix Keycloak tier then serves this realm.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
     profiles:
       - cube
@@ -808,7 +811,9 @@ services:
   # The Cube of `examples/metrics-layer`: its model over `cube-clickhouse`, and every request's token
   # verified against `cube-keycloak`'s keys. The claims of that token are the security context.
   cube-metrics:
-    # CI venue: compose only - the `cube` block's reason.
+    # CI venue: compose only.
+    # Because: the `cube` block's - Cube is not in `nixpkgs`, and a nix check has no docker socket.
+    # Converges: with the `cube` block, when Cube is packaged as a nix-native tier.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
     profiles:
       - cube

@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 //! `examples/metrics-layer` serves the recorded `DataHub` corpus through Cube: a Cube source asks
 //! for each table of the catalog as the cube of that name, for each column as one of its members,
-//! and for each metric as a measure. `cube/model.yml` must therefore name all of them.
+//! and for each metric as a measure. The example's catalog gives each table its model's name (this
+//! corpus keeps its own warehouse names), so `cube/model.yml` must name each model, column and metric.
 
 #[cfg(test)]
 mod tests {
@@ -36,15 +37,15 @@ mod tests {
         let definitions = pinned.definitions();
         assert!(!definitions.models().is_empty(), "the recorded corpus declares no table");
         for model in definitions.models().values() {
-            let table = model.table_name().as_str();
+            let cube = model.name().as_str();
             let members = cubes
-                .get(table)
-                .unwrap_or_else(|| panic!("no cube `{table}` in the example model: {cubes:?}"));
+                .get(cube)
+                .unwrap_or_else(|| panic!("no cube `{cube}` in the example model: {cubes:?}"));
             for column in model.columns() {
                 let column = column.name().as_str();
                 assert!(
                     members.contains(&column),
-                    "cube `{table}` has no member `{column}`: {members:?}"
+                    "cube `{cube}` has no member `{column}`: {members:?}"
                 );
             }
         }
