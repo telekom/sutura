@@ -44,6 +44,7 @@ pub(super) enum Sent {
         statement: usize,
         sql: String,
     },
+    TableSchema(String),
 }
 
 type Log = Rc<RefCell<Vec<Sent>>>;
@@ -174,8 +175,9 @@ impl Connection for FakeConnection {
         &self,
         _catalog: Option<&str>,
         _db_schema: Option<&str>,
-        _table_name: &str,
+        table_name: &str,
     ) -> AdbcResult<arrow_schema::Schema> {
+        self.log.borrow_mut().push(Sent::TableSchema(String::from(table_name)));
         Err(not_asked("describe a table"))
     }
 

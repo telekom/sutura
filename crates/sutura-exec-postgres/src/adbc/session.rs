@@ -417,6 +417,7 @@ mod tests {
             vec![
                 Sent::AutoCommit(String::from("false")),
                 Sent::Update(String::from("SET LOCAL statement_timeout = 15000")),
+                Sent::TableSchema(String::from("orders")),
                 Sent::Rollback,
             ]
         );
