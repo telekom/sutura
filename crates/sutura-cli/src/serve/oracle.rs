@@ -278,4 +278,82 @@ mod tests {
         assert!(plaintext.contains("unknown packet type 3"), "{plaintext}");
         assert!(!verified.contains("unknown packet type 3"), "{verified}");
     }
+
+    /// **The broker serves an impersonating source through its declared delegation**: a verified
+    /// caller's own assertion is exchanged at the declared endpoint, and the source is presented
+    /// what came back, with no principal beside it.
+    #[test]
+    #[cfg(feature = "oracle")]
+    fn the_broker_presents_the_token_a_callers_assertion_is_exchanged_for() {
+        use base64::Engine as _;
+        use sutura_domain::identity::{
+            Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+        };
+        use sutura_http_client::test_support::{FakeServer, Scripted};
+
+        let claims = serde_json::json!({"aud": "https://db.example.com", "exp": 4_102_444_799_u64});
+        let exchanged = format!(
+            "e30.{}.signature",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string())
+        );
+        let fake = FakeServer::start(vec![Scripted::ok(&serde_json::json!({
+            "access_token": exchanged,
+            "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "token_type": "Bearer",
+        }))]);
+        let secret = std::env::temp_dir().join(format!("sutura-oracle-broker-client-secret-{}", std::process::id()));
+        std::fs::write(&secret, "idp-client-secret\n").expect("the client secret file is writable");
+        let entry = format!(
+            "  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+             service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
+             posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"{}/token\"\n        \
+             client_id: \"sutura\"\n        client_secret_file: \"{}\"\n        audience: \"https://db.example.com\"\n",
+            fake.endpoint(),
+            secret.display()
+        );
+        let built = crate::serve::broker::build_broker(&direct_registry(&entry), None);
+        drop(std::fs::remove_file(&secret));
+        let broker = built.expect("a declared delegation builds a broker");
+        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let asked = SourceSet::of(at.clone());
+        let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject");
+        let minted = broker
+            .mint(
+                &RequestContext::with_assertion(
+                    PrincipalChain::of(asked_by.clone()),
+                    Secret::new("assertion.for.analyst-a"),
+                    4_102_444_800,
+                ),
+                &asked,
+            )
+            .expect("a mint answers");
+        let Ok(Agreed::Granted { credentials }) = minted.agreeing_with(&asked_by, &asked, 4_000_000_000) else {
+            panic!("a verified caller is served");
+        };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a cell asserting WHOSE token the leg carries needs its text"
+        )]
+        let presented = match credentials.presented_for(&at) {
+            Ok(Presented::SubjectToken {
+                material,
+                impersonate: None,
+            }) => String::from(material.expose_secret()),
+            other => panic!("expected the exchanged token and no principal, got {other:?}"),
+        };
+        assert_eq!(
+            presented, exchanged,
+            "the source must be presented the identity provider's token"
+        );
+        let requests = fake.finish();
+        let [request] = requests.as_slice() else {
+            panic!("expected exactly one exchange, got {requests:?}");
+        };
+        assert!(
+            request.body().contains("subject_token=assertion.for.analyst-a"),
+            "{}",
+            request.body()
+        );
+    }
 }
