@@ -36,6 +36,9 @@ const CALLERS: [(&str, &str); 2] = [
 /// The audience the exchanged token is asked for and carries.
 const POOL: &str = "pool-client-id";
 
+/// The delegation client's secret, distinctive enough that nothing else can contain it by chance.
+const CLIENT_SECRET: &str = "outbound-canary-5e0b3f71";
+
 /// What the identity provider issues `subject` for [`POOL`]: a signed token from an issuer this
 /// deployment does not trust for leg 1, so it can never be mistaken for the caller's own.
 fn exchanged(subject: &str) -> String {
@@ -143,7 +146,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
         .expect("a mock issuer generates a key pair");
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
     let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
-    std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
+    std::fs::write(&secret.0, format!("{CLIENT_SECRET}\n")).expect("the client secret file is writable");
     let [(first, first_as), (second, second_as)] = CALLERS;
     let overlay = format!(
         "{}  identity: \"multi-user\"\nsources:\n{}      impersonate:\n        \"{first}\": \"{first_as}\"\n        \
@@ -190,9 +193,9 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     }
 }
 
-/// One `/v1/query` for the bundle's metric, carrying `token`: the status and the body.
-async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String) {
-    use axum::body::{Body, to_bytes};
+/// One `/v1/query` for the bundle's metric, carrying `token`.
+async fn respond(app: axum::Router, token: &str) -> axum::response::Response {
+    use axum::body::Body;
     use tower::ServiceExt as _;
 
     let request = axum::http::Request::builder()
@@ -205,7 +208,14 @@ async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String)
             r#"{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
         ))
         .expect("a well-formed request builds");
-    let response = app.oneshot(request).await.expect("a tower service's Error is Infallible");
+    app.oneshot(request).await.expect("a tower service's Error is Infallible")
+}
+
+/// [`respond`]'s status and body.
+async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String) {
+    use axum::body::to_bytes;
+
+    let response = respond(app, token).await;
     let status = response.status();
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -283,5 +293,110 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
     assert!(
         offer.contains(&format!("subject_token={token}")),
         "the identity provider must have been offered the caller's own verified token: {offer}"
+    );
+}
+
+/// What [`logged`] writes at `trace` from the blocking pool, to prove the capture sees that level there.
+const CAPTURE_PROBE: &str = "outbound-echo capture is live";
+
+/// Every line this process logs from the first call on, at `trace`, from any thread.
+///
+/// Global, unlike `sutura-http`'s token-echo capture, because the exchange runs on the blocking pool
+/// and a subscriber scoped to the calling thread does not see that pool. Once per process: where
+/// cells share one, each reads every other's lines too, which only adds to what an absence is
+/// checked against. The subscriber reads `RUST_LOG` before `trace`, so the cell refuses to read a
+/// capture its probe did not reach.
+fn logged() -> &'static sutura_runtime::testing::Capture {
+    static CAPTURE: std::sync::OnceLock<sutura_runtime::testing::Capture> = std::sync::OnceLock::new();
+    CAPTURE.get_or_init(|| {
+        let sink = sutura_runtime::testing::Capture::new();
+        let telemetry = sutura_config::TelemetrySettings::new(
+            sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+            sutura_config::LogFilter::parse("trace").expect("a test directive is a directive"),
+            sutura_config::LogFormat::Bunyan,
+            true,
+        );
+        let subscriber =
+            sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+        tracing::subscriber::set_global_default(subscriber).expect("no other subscriber is installed in this process");
+        sink
+    })
+}
+
+/// The status line, every header as `name: value`, and the body of one `/v1/query`.
+async fn everything_returned(app: axum::Router, token: &str) -> String {
+    use core::fmt::Write as _;
+
+    let (parts, body) = respond(app, token).await.into_parts();
+    let mut received = format!("{}\n", parts.status);
+    for (name, value) in &parts.headers {
+        writeln!(received, "{name}: {}", String::from_utf8_lossy(value.as_bytes())).expect("writing to a String cannot fail");
+    }
+    let body = axum::body::to_bytes(body, usize::MAX).await.expect("the response body reads");
+    received.push_str(&String::from_utf8_lossy(&body));
+    received
+}
+
+/// `token`, and each segment of it long enough to be worth a log line on its own.
+fn and_its_segments(token: &str) -> impl Iterator<Item = String> + '_ {
+    core::iter::once(String::from(token)).chain(token.split('.').filter(|part| part.len() >= 10).map(String::from))
+}
+
+#[tokio::test]
+async fn no_outbound_credential_reaches_a_response_or_a_log_line() {
+    let log = logged();
+    sutura_runtime::spawn_carrying_span(|| tracing::trace!("{CAPTURE_PROBE}"))
+        .await
+        .expect("the probe ran");
+    assert!(
+        log.contents().contains(CAPTURE_PROBE),
+        "the capture did not see a `trace` line from the blocking pool, so it is not a record of everything logged: is RUST_LOG set?"
+    );
+    let [(answered, _), (refused, _)] = CALLERS;
+    let exchanged = exchanged(answered);
+    // The second answer quotes what it was sent, as an identity provider's error text may.
+    let idp = FakeServer::start(vec![
+        Scripted::ok(&issued(&exchanged)),
+        Scripted::status(
+            401,
+            &format!(r#"{{"error":"invalid_client","error_description":"{CLIENT_SECRET} is not {exchanged}"}}"#),
+        ),
+    ]);
+    let Served {
+        app, issuer, transport, ..
+    } = served("delegation-served-no-echo", &idp);
+    let tokens = [answered, refused].map(|subject| issuer.mint(&accepted_by(subject)).expect("the issuer signs a token"));
+
+    let mut received = String::new();
+    for token in &tokens {
+        received.push_str(&everything_returned(app.clone(), token).await);
+    }
+
+    assert!(
+        transport
+            .try_iter()
+            .any(|seen| matches!(&seen, Seen::Subject { assertion, .. } if *assertion == exchanged)),
+        "the exchanged token must have reached the source, or its absence below proves nothing: {received}"
+    );
+    let offered = offered(idp);
+    assert!(
+        offered.len() == tokens.len()
+            && offered
+                .iter()
+                .all(|offer| offer.contains(&format!("client_secret={CLIENT_SECRET}"))),
+        "the client secret must have been sent, or its absence below proves nothing: {offered:?}"
+    );
+    let logged = log.contents();
+    let secrets: Vec<String> = core::iter::once(String::from(CLIENT_SECRET))
+        .chain(and_its_segments(&exchanged))
+        .chain(tokens.iter().flat_map(|token| and_its_segments(token)))
+        .collect();
+    let leaked: Vec<&String> = secrets
+        .iter()
+        .filter(|secret| received.contains(secret.as_str()) || logged.contains(secret.as_str()))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "an outbound credential was sent back or logged: {leaked:?}"
     );
 }

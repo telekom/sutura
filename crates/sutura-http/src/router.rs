@@ -374,12 +374,18 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // wrong-token attempt costs a cell. See the module documentation.
     let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
     let versioned = host_checked(versioned, hosts.as_ref());
-    let versioned = if limits.enabled() {
+    // Built once: `/mcp` is layered with a clone of this one, and a clone shares the store, so a
+    // caller has one burst across both surfaces rather than one on each.
+    let api = if limits.enabled() {
         let (layer, handle) = middleware::api_rate_limit_layer(state.metrics(), limits.api(), key.clone()).map_err(limiter)?;
         limiters.push(handle);
-        versioned.layer(layer)
+        Some(layer)
     } else {
-        versioned.layer(middleware::disabled_rate_limit_layer())
+        None
+    };
+    let versioned = match &api {
+        Some(layer) => versioned.layer(layer.clone()),
+        None => versioned.layer(middleware::disabled_rate_limit_layer()),
     };
 
     // Public discovery and liveness. No token, and the tighter tier: nothing here is worth polling
@@ -464,7 +470,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     #[cfg(feature = "agent")]
     {
         let mut ungoverned: Vec<&'static str> = Vec::new();
-        if let Some(mount) = agent_subtree(state, settings.security().inbound(), &key, hosts.as_ref(), &mut limiters)? {
+        if let Some(mount) = agent_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
             // `merge_into`, and never a bare `merge`: it is the one call that both merges this
             // subtree and records its path, so a merged ungoverned route always reaches
             // `check_ungoverned` below.
@@ -695,9 +701,8 @@ fn inbound_layered(
 fn agent_subtree(
     state: &ServiceState,
     declared: Option<&sutura_config::InboundIdentity>,
-    key: &ClientAddress,
     hosts: Option<&HostAllowlist>,
-    limiters: &mut Vec<LimiterHandle>,
+    api: Option<&middleware::RateLimit>,
 ) -> Result<Option<Ungoverned>, RouterNotBuilt> {
     let Some(mount) = state.agent_surface() else {
         return Ok(None);
@@ -729,16 +734,12 @@ fn agent_subtree(
         .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)));
     let mount = mount.layered(|router| host_checked(router, hosts));
     // `route_layer` like every layer here, so only `/mcp` itself is charged: a `layer` would also wrap
-    // this subtree's fallback, which the final merge makes the whole router's.
-    let limits = state.settings().rate_limit();
-    if !limits.enabled() {
-        return Ok(Some(
-            mount.layered(|router| router.route_layer(middleware::disabled_rate_limit_layer())),
-        ));
-    }
-    let (layer, handle) = middleware::api_rate_limit_layer(state.metrics(), limits.api(), key.clone()).map_err(limiter)?;
-    limiters.push(handle);
-    Ok(Some(mount.layered(|router| router.route_layer(layer))))
+    // this subtree's fallback, which the final merge makes the whole router's. `api` is the versioned
+    // surface's own limiter, so the two spend one bucket.
+    Ok(Some(mount.layered(|router| match api {
+        Some(layer) => router.route_layer(layer.clone()),
+        None => router.route_layer(middleware::disabled_rate_limit_layer()),
+    })))
 }
 
 /// `router` behind the `Host` check, where this deployment enforces one.
@@ -945,8 +946,7 @@ mod tests {
                 crate::state::SpendHeadroomPush::NoCeilingConfigured,
             );
             let state = state.with_agent_surface(mount);
-            let key = crate::client_address::ClientAddress::from_settings(state.settings().rate_limit());
-            super::agent_subtree(&state, None, &key, None, &mut Vec::new()).map(|mount| mount.is_some())
+            super::agent_subtree(&state, None, None, None).map(|mount| mount.is_some())
         };
         let single_user = "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n";
         // The switch never set, so `Settings::load` had nothing to refuse: no mode declared, then
