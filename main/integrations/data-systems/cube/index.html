@@ -3705,10 +3705,13 @@ Cube filter on <code>/cubejs-api/v1/load</code>. Before a query is sent, sutura 
 with the same token: a member that Cube does not serve refuses the question.</p>
 <p>Cube cannot run a part of a federated question.</p>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
-<p>This data system supports <code>impersonation-at-source</code> and <code>shared-service-user</code>.</p>
+<p>This data system supports <code>impersonation-at-source</code> and <code>shared-service-user</code>. In both, Cube runs
+its warehouse query with the database identity in its own driver settings (<code>CUBEJS_DB_USER</code> in the
+example), not with the caller's identity. The two differ in the token that Cube receives: each
+caller's own token, or one token for every caller.</p>
 <h3 id="impersonation-at-source">impersonation-at-source<a class="headerlink" href="#impersonation-at-source" title="Permanent link">&para;</a></h3>
 <p>Each caller must exist in the identity provider that Cube trusts, and the claims of the caller's
-own token decide what the caller may read. The query runs with the caller's own permissions.</p>
+own token decide what the caller may read. Cube applies its access policy from those claims.</p>
 <p>sutura exchanges the token that it verified for the caller through the hops in <code>delegation</code>, in
 order. The first hop sends the caller's token, and each next hop sends the token from the hop
 before it. Each request of the caller's query sends the token from the last hop as its bearer.</p>
@@ -3750,9 +3753,12 @@ before it. Each request of the caller's query sends the token from the last hop 
 <p>Cube then uses the claims of that token as the security context. An <code>access_policy</code> in the data
 model filters rows by those claims, for example by a claim that holds the caller's groups. A
 caller whose token does not carry the claim reads no rows.</p>
+<p>Key Cube's result cache and pre-aggregations on each caller's security context:
+<code>context_to_app_id</code>, <code>context_to_orchestrator_id</code> and <code>pre_aggregations_schema</code> in <code>cube.py</code>
+(<code>contextToAppId</code>, <code>contextToOrchestratorId</code> and <code>preAggregationsSchema</code> in <code>cube.js</code>).</p>
 <h3 id="shared-service-user">shared-service-user<a class="headerlink" href="#shared-service-user" title="Permanent link">&para;</a></h3>
 <p>One token for every caller. sutura sends the token in <code>token_file</code> on every request, so every
-caller's query runs with that token, and Cube applies the security context of that token.</p>
+caller's query receives the security context of that token.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <p><code>examples/cube</code> declares the markdown catalog of <code>examples/single-player</code> over a <code>cube</code> source.
 <code>just dev-up-cube</code> starts a Cube that serves <code>examples/cube/model</code> over the same data.</p>

@@ -3595,11 +3595,11 @@ metric, and Cube decides which rows each caller reads.</p>
 <tbody>
 <tr>
 <td><code>conf/impersonation-at-source.yaml</code></td>
-<td>The sutura settings: each caller's query runs as that caller</td>
+<td>The sutura settings: Cube receives each caller's own token</td>
 </tr>
 <tr>
 <td><code>conf/shared-service-user.yaml</code></td>
-<td>The sutura settings: every caller's query runs as the deployment</td>
+<td>The sutura settings: Cube receives the deployment's token</td>
 </tr>
 <tr>
 <td><code>keycloak/realm.json</code></td>
