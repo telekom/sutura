@@ -77,9 +77,8 @@ Cube then uses the claims of that token as the security context. An `access_poli
 model filters rows by those claims, for example by a claim that holds the caller's groups. A
 caller whose token does not carry the claim reads no rows.
 
-Cube's result cache and pre-aggregations must be keyed per caller (`context_to_orchestrator_id`,
-`pre_aggregations_schema`), or callers can see each other's rows. The example does not set them.
-See [#1373](https://github.com/telekom/sutura/issues/1373).
+Key Cube's result cache and pre-aggregations on each caller's security context
+(`context_to_orchestrator_id`, `pre_aggregations_schema`).
 
 ### shared-service-user
 
