@@ -79,8 +79,18 @@ for target in "${targets[@]}"; do
       # gitignored because it grows by thousands of generated files, and the second is the tracked
       # seed set it reads and never writes. `fuzz/.gitignore` argues the split.
       mkdir -p "fuzz/corpus/$target"
+      # `sql_expression` alone gets a 4096 MB RSS alarm. Under ASAN its RSS climbs with the
+      # execution count while the same target without ASAN stays flat: the quarantine holds about
+      # 1 GB of freed memory, and the StackDepot keeps every distinct allocation stack for the life
+      # of the process. On the CI runner that crossed the 2048 MB default at ~2.56M executions of
+      # a 900 s run, with no input at fault (the artifact was the empty input). `-malloc_limit_mb`
+      # defaults to the RSS limit, so it keeps the 2048 MB alarm on one allocation.
+      limits=()
+      if [ "$target" = sql_expression ]; then
+        limits=(-rss_limit_mb=4096 -malloc_limit_mb=2048)
+      fi
       nix run .#fuzz -- run "$codegen_units" "$target" "fuzz/corpus/$target" "fuzz/seeds/$target" -- \
-        -max_total_time="$seconds" -max_len=8192 -print_final_stats=1 "${dict[@]}"
+        -max_total_time="$seconds" -max_len=8192 -print_final_stats=1 "${dict[@]}" "${limits[@]}"
       ;;
     *)
       echo "run-fuzz: unknown mode '$mode' (expected 'run' or 'smoke')" >&2
