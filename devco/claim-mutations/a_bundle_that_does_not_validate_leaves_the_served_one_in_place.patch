@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/proof.rs b/crates/sutura-app/src/proof.rs
+--- a/crates/sutura-app/src/proof.rs
++++ b/crates/sutura-app/src/proof.rs
+@@ -190,7 +190,7 @@
+     // and neither topology refused it.
+     super::declared_keys::hold(&pinned, warehouses)?;
+     let report = super::verify_anchors(&pinned, warehouses);
+-    report.verdict(&pinned)?;
++    let _ = report.verdict(&pinned);
+     Ok(Validated(Arc::new(pinned), Arc::new(schemas)))
+ }
+ 

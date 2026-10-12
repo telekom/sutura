@@ -22,3 +22,6 @@ a_zoned_timestamp_keeps_its_own_offset # names the streamed-batch read (batches.
 every_batch_of_an_answer_is_read # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
 only_a_number_column_is_read_as_an_integer # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
 a_local_time_zone_column_is_refused_by_name # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_type_the_dialect_does_not_list_is_a_recorded_utf8_column_and_never_dropped # new in this branch's schema/tests.rs, so the base tree has no such test
+a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_not # new in this branch's schema/tests.rs, so the base tree has no such test
+each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread # new in this branch's schema/tests.rs, so the base tree has no such test

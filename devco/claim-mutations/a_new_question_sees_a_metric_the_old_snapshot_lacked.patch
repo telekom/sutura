@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/surface.rs b/crates/sutura-app/src/surface.rs
+--- a/crates/sutura-app/src/surface.rs
++++ b/crates/sutura-app/src/surface.rs
+@@ -613,7 +613,7 @@
+         let digest = validated.get().digest().clone();
+         // One poller calls this; a second concurrent caller would at worst store a bundle that is
+         // itself fully validated, last writer winning - never a partial one.
+-        *self.definitions.write().unwrap_or_else(PoisonError::into_inner) = validated;
++        drop(validated);
+         Ok(Adopted::Rotated {
+             previous: current.get().digest().clone(),
+             digest,

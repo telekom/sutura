@@ -1,0 +1,31 @@
+diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
+--- a/crates/sutura-app/src/lib.rs
++++ b/crates/sutura-app/src/lib.rs
+@@ -755,12 +755,16 @@
+     //
+     // The per-metric digests follow the question's metric order, which is also the column order a
+     // measure occupies in the rows, so the Nth digest certifies the Nth measure column.
++    let live = LIVE.lock().unwrap().clone();
++    let pinned = live.as_ref().unwrap_or(pinned);
+     let provenance = pinned
+         .provenance_for(definitions.schemas().digest(), executed_as, query.metrics())
+         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?;
+     Ok(Answered::under(&credentials, ToolOutcome::Answer { provenance, rows }))
+ }
+ 
++pub(crate) static LIVE: std::sync::Mutex<Option<PinnedDefinitions>> = std::sync::Mutex::new(None);
++
+ /// The refusal for a deadline that ran out, naming the budget it was opened with.
+ ///
+ /// One function so `answer`, `dry_run_leg` and `run_leg`
+diff --git a/crates/sutura-app/src/surface.rs b/crates/sutura-app/src/surface.rs
+--- a/crates/sutura-app/src/surface.rs
++++ b/crates/sutura-app/src/surface.rs
+@@ -611,6 +611,7 @@
+         }
+         let validated = validate_with(next, schemas, &self.warehouses).map_err(|cause| NotAdopted::NotValidated { cause })?;
+         let digest = validated.get().digest().clone();
++        *crate::LIVE.lock().unwrap() = Some(validated.get().clone());
+         // One poller calls this; a second concurrent caller would at worst store a bundle that is
+         // itself fully validated, last writer winning - never a partial one.
+         *self.definitions.write().unwrap_or_else(PoisonError::into_inner) = validated;
