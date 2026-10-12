@@ -258,10 +258,11 @@ impl Warehouse for PricedWarehouse {
 /// `direct_overlay`'s twin that also configures a per-replica spend ceiling, so the served surface
 /// reports a real headroom and `ServiceState` registers the spend gauge. Also turns on
 /// `server.agent_surface.enabled`, so the composition root's own `agent_mount(&state)` builds the
-/// mount rather than the test hand-wiring one - the cell exercises the real seam.
+/// mount rather than the test hand-wiring one - the cell exercises the real seam. And turns on
+/// `tools.run_sql.enabled`, so a `run_sql` call reaches `Serving::run_sql` rather than the switch.
 fn priced_overlay(issuer: &MockIssuer, key_set_path: &str) -> String {
     format!(
-        "{}\nserver:\n  agent_surface:\n    enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\n",
+        "{}\nserver:\n  agent_surface:\n    enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\ntools:\n  run_sql:\n    enabled: true\n",
         direct_overlay(issuer, key_set_path)
     )
 }

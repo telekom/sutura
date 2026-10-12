@@ -174,7 +174,11 @@ pub fn capability_of(method: &Method, route: &str) -> Option<Capability> {
 /// capability this applies to; a second one gains a parameter here rather than a widened boolean.
 #[must_use]
 pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted {
-    let permitted = asked.permitted().clone();
+    switched(asked.permitted().clone(), run_sql_enabled)
+}
+
+/// [`permitted_for`]'s narrowing, over a [`Permitted`] that is not inside an `Asked` yet.
+fn switched(permitted: Permitted, run_sql_enabled: bool) -> Permitted {
     if run_sql_enabled {
         permitted
     } else {
@@ -186,8 +190,11 @@ pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted {
 ///
 /// **Total over both cases a deployment on this surface can be in, and refuses neither.** A verified
 /// caller yields its scopes; no verified caller - because `security.inbound` is not declared -
-/// yields [`Permitted::every_capability`], exactly as [`permitted_for`] answered before this existed.
-/// So installing this layer changes nothing [`permitted_for`] returns.
+/// yields [`Permitted::every_capability`]. Either is then narrowed by `tools.run_sql.enabled` as
+/// [`permitted_for`] narrows it, HERE and not only in [`require_capability`]: the agent surface
+/// reads this `Asked` with no [`require_capability`] in front of it, so a tool this deployment never
+/// turned on has to be gone from the value itself. [`permitted_for`] narrowing it again changes
+/// nothing it returns.
 ///
 /// **The only place either half of `Asked` is derived.** `crate::routes::v1::query::ask` and
 /// `crate::routes::v1::run_sql::run_sql` read `asked.context()` from their own required
@@ -221,6 +228,7 @@ pub(crate) async fn establish_asked(
             )
         },
     );
+    let permitted = switched(permitted, state.settings().tools().run_sql_enabled());
     drop(request.extensions_mut().insert(Asked::established(context, permitted)));
     next.run(request).await
 }
