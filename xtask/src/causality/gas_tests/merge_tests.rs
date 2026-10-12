@@ -20,6 +20,9 @@ fn verdict(trailer: &str, on_merge: bool) -> Verdict {
     git(&dir, &["init", "-q", "-b", "main"]);
     git(&dir, &["config", "user.email", "test@example.com"]);
     git(&dir, &["config", "user.name", "test"]);
+    // Both of `repo::root`'s markers, or it falls back to the repository this test was built in.
+    std::fs::write(dir.join("Cargo.toml"), "[workspace]\n").unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
     std::fs::write(dir.join("README.md"), "base\n").unwrap();
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", "init"]);
