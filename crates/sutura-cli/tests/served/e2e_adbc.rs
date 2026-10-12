@@ -260,8 +260,8 @@ mod tests {
     /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the hosted cell with
     /// every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with the
     /// rule's message, before it writes a file or starts a tier. **The limit:** the fakes name nothing, so
-    /// without the guard the child fails later, at the missing credential file, and it is the rule's
-    /// message that is then absent.
+    /// without the guard the child runs on to a failure of its own, and it is the rule's message that
+    /// is then absent.
     #[test]
     fn a_hosted_adbc_cell_is_refused_outside_ci() {
         let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))

@@ -608,8 +608,9 @@ fn a_bigquery_open_over_a_table_the_dataset_lacks_is_refused() {
 /// **A live `bigquery` cell refuses outside CI**, offline: a child of this binary runs one `bigquery`
 /// cell with every venue variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the venue
 /// with the rule's message. The venue is read once per process, so a child is the only way to give it
-/// another environment. **The limit:** the fakes name nothing, so a venue without the guard fails the
-/// child later, at the missing driver, and it is the rule's message that is then absent.
+/// another environment. **The limit:** the fakes name nothing, so a venue without the guard lets the
+/// child run its anchors, each of which fails to load the driver, and the child panics at the
+/// `anchor_report` snapshot instead - it is the rule's message that is then absent.
 #[test]
 fn a_live_bigquery_cell_is_refused_outside_ci() {
     let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
