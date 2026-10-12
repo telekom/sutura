@@ -178,7 +178,7 @@ where
 pub(crate) struct Charged<'p>(Vec<(&'p LegPlan, AtomicBool)>);
 
 impl Charged<'_> {
-    /// Spends `leg`'s token: `false` for a leg the charged cut did not give out, or one spent before.
+    /// Spends `leg`'s token: `false` for a leg that is not among the cut's own legs, or one spent before.
     fn spend(&self, leg: &LegPlan) -> bool {
         self.0
             .iter()

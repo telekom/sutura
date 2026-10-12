@@ -300,7 +300,7 @@ mod two_fact_test;
 #[cfg(test)]
 mod dry_run_count_test;
 
-/// The leg runner's refusal of a leg the charged cut did not give out, split out for the same
+/// The leg runner's refusal of a leg that is not among the cut's own legs, split out for the same
 /// `max-lines` reason; its counting fake lives there for the reason `dry_run_count_test` states.
 #[cfg(test)]
 mod charged_leg_test;

@@ -1,4 +1,4 @@
-//! The leg runner refuses a leg that the charged cut did not give out
+//! The leg runner refuses a leg that is not among the cut's own legs
 //! (`docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md` decision 4).
 //!
 //! Both fakes live in this `#[cfg(test)]` file for the reason `dry_run_count_test` states.
@@ -72,7 +72,7 @@ impl Warehouse for CountingLegs {
 /// The production combiner, except for what `execute` does with the fact leg the cut gave out.
 struct Misuses(DataFusionCombiner, Runs);
 
-/// How [`Misuses`] runs a leg the charged cut did not give out.
+/// How [`Misuses`] runs a leg that is not among the cut's own legs.
 #[derive(Clone, Copy)]
 enum Runs {
     /// Runs the fact leg a second time: a leg the charged cut gave out once.
@@ -80,6 +80,9 @@ enum Runs {
     /// Runs a clone of the fact leg once and never the leg itself: a leg the cut never held, equal
     /// to one it did.
     ACloneOfTheFactLeg,
+    /// Runs a clone of the fact leg at a source the registry does not have: a leg the cut never
+    /// held, refused before its warehouse is looked up.
+    ACloneAtAnUnregisteredSource,
 }
 
 impl FederationCombiner for Misuses {
@@ -109,13 +112,28 @@ impl FederationCombiner for Misuses {
                 runner.run(fact).map_err(ExecuteError::Leg)
             }
             Runs::ACloneOfTheFactLeg => runner.run(&fact.clone()).map_err(ExecuteError::Leg),
+            Runs::ACloneAtAnUnregisteredSource => {
+                let mut elsewhere = fact.clone();
+                if let sutura_domain::plan::LegPlan::Fact { source, .. } = &mut elsewhere {
+                    *source = unregistered();
+                }
+                runner.run(&elsewhere).map_err(ExecuteError::Leg)
+            }
         }
     }
 }
 
+/// A source the registry of [`refused_as_not_given_out`] does not have.
+const UNREGISTERED: &str = "nowhere";
+
+/// [`UNREGISTERED`] parsed outside [`Misuses`]'s `execute`, which returns a `Result`.
+fn unregistered() -> SourceName {
+    SourceName::parse(UNREGISTERED).expect("a test source")
+}
+
 /// Answers the federated plan through a combiner that `runs` a leg without a token: it is refused
-/// as `LegNotGivenOut` at the fact source, after the fact warehouse executed `executes` times.
-fn refused_as_not_given_out(runs: Runs, executes: usize) {
+/// as `LegNotGivenOut` at `at`, after the fact warehouse executed `executes` times.
+fn refused_as_not_given_out(runs: Runs, at: &str, executes: usize) {
     let fact_source = SourceName::parse("facts").expect("a test source");
     let warehouses = Warehouses::of(CountingLegs::answering(fact_source.clone(), federated_fact_rows()))
         .and(CountingLegs::answering(
@@ -123,6 +141,7 @@ fn refused_as_not_given_out(runs: Runs, executes: usize) {
             federated_lookup_rows(),
         ))
         .expect("two sources, one registry");
+    let at = SourceName::parse(at).expect("a test source");
 
     let failure = answer_federated(
         (&bundle(), PinnedSchemas::default().digest()),
@@ -136,15 +155,17 @@ fn refused_as_not_given_out(runs: Runs, executes: usize) {
         &SpendLedger::no_budget(),
         sutura_domain::plan::RowCeilings::DEFAULT,
     )
-    .expect_err("a leg the charged cut did not give out is this workspace's own defect, not an answer");
-    assert!(
-        matches!(
-            &failure,
-            crate::ServiceError::Miswired {
-                cause: crate::FederationMiswired::LegNotGivenOut { at }
-            } if *at == fact_source
-        ),
-        "the uncharged fact leg is refused as a defect: {failure:?}"
+    .expect_err("a leg that is not among the cut's own legs is this workspace's own defect, not an answer");
+    let crate::ServiceError::Miswired {
+        cause: cause @ crate::FederationMiswired::LegNotGivenOut { at: refused },
+    } = &failure
+    else {
+        panic!("the uncharged leg is refused as a defect: {failure:?}");
+    };
+    assert_eq!(*refused, at);
+    assert_eq!(
+        cause.to_string(),
+        format!("a leg at `{at}` was run that is not among the cut's own legs")
     );
     assert_eq!(
         warehouses.get(&fact_source).expect("the fact leg is registered").executes(),
@@ -155,10 +176,15 @@ fn refused_as_not_given_out(runs: Runs, executes: usize) {
 
 #[test]
 fn a_leg_the_charged_cut_did_not_give_out_is_refused() {
-    refused_as_not_given_out(Runs::TheFactLegTwice, 1);
+    refused_as_not_given_out(Runs::TheFactLegTwice, "facts", 1);
 }
 
 #[test]
 fn an_equal_leg_the_charged_cut_never_held_is_refused() {
-    refused_as_not_given_out(Runs::ACloneOfTheFactLeg, 0);
+    refused_as_not_given_out(Runs::ACloneOfTheFactLeg, "facts", 0);
+}
+
+#[test]
+fn a_leg_the_charged_cut_never_held_is_refused_before_its_warehouse_is_looked_up() {
+    refused_as_not_given_out(Runs::ACloneAtAnUnregisteredSource, UNREGISTERED, 0);
 }

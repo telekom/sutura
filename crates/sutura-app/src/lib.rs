@@ -291,7 +291,7 @@ pub enum FederationMiswired {
     ///
     /// The cut's legs are [`Cut::legs`](sutura_domain::plan::Cut::legs), each yielded once, so a leg
     /// outside that sequence is a wiring defect and names its source in `at`.
-    #[error("a leg at `{at}` was run that the charged cut did not give out")]
+    #[error("a leg at `{at}` was run that is not among the cut's own legs")]
     LegNotGivenOut {
         /// `at` for the reason [`Self::LegsCollide`] gives.
         at: sutura_domain::model::SourceName,
