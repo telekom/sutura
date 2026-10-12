@@ -145,7 +145,7 @@ pub(crate) struct RawSource {
     pub(crate) subjects: Option<serde::de::IgnoredAny>,
     /// An `oracle` source's token exchange, as ordered hops: required when it is
     /// `impersonation-at-source`, refused otherwise - see `crate::sources::oracle`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub(crate) delegation: Option<Vec<RawDelegation>>,
     /// The host a `postgres` source dials over TCP. Mutual with `unix_socket`.
     #[serde(default)]
@@ -215,9 +215,21 @@ pub(crate) struct RawWorkloadIdentity {
     pub(crate) expected_audience: Option<String>,
     /// The delegation hops a `direct` deployment runs before this pool will accept its caller, in
     /// order - see `crate::sources::workload_identity::DelegationDeclared`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub(crate) delegation: Option<Vec<RawDelegation>>,
 }
+
+/// A `delegation` key written with no value (`delegation:` or `delegation: null`) reads as an empty
+/// list rather than as an absent key, so it is refused as the empty list is.
+fn null_as_empty<'de, D>(deserializer: D) -> Result<Hops, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <Hops as serde::Deserialize>::deserialize(deserializer).map(|hops| Some(hops.unwrap_or_default()))
+}
+
+/// A `delegation` key, absent or as read.
+type Hops = Option<Vec<RawDelegation>>;
 
 /// One source's delegation exchange, as read. Every key is required, so a missing one is serde's
 /// refusal naming it. `client_secret_file` is a PATH: the secret is read by the composition root.

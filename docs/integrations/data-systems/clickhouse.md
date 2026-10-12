@@ -22,17 +22,17 @@ parameters. The crate is `sutura-exec-clickhouse`, and the source kind is `click
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                  | Type                      | Default  | Meaning                                                                                 |
-| -------------------- | ------------------------- | -------- | --------------------------------------------------------------------------------------- |
-| `host`               | string                    | required | The host of the HTTP interface                                                          |
-| `port`               | integer                   | required | The HTTP port. ClickHouse uses `8123` for HTTP and `8443` for HTTPS                     |
-| `user`               | string                    | required | The user for HTTP Basic authentication                                                  |
-| `password_file`      | absolute path             | required | A file that holds the password. sutura reads it at startup                              |
-| `transport_mode`     | string                    | required | `plaintext` (HTTP), `verified` or `mutual` (HTTPS)                                      |
-| `transport_anchors`  | `system` or absolute path | none     | The CA file, or `system` for the host trust store. Required for `verified` and `mutual` |
-| `client_certificate` | absolute path             | none     | The client certificate. `mutual` only                                                   |
-| `client_key`         | absolute path             | none     | The client key. `mutual` only                                                           |
-| `delegation`         | list                      | none     | `impersonation-at-source` only: the hops that exchange the caller's token, in order     |
+| Key                  | Type                      | Default  | Meaning                                                                                                                  |
+| -------------------- | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `host`               | string                    | required | The host of the HTTP interface                                                                                           |
+| `port`               | integer                   | required | The HTTP port. ClickHouse uses `8123` for HTTP and `8443` for HTTPS                                                      |
+| `user`               | string                    | required | The user for HTTP Basic authentication                                                                                   |
+| `password_file`      | absolute path             | required | A file that holds the password. sutura reads it at startup                                                               |
+| `transport_mode`     | string                    | required | `plaintext` (HTTP), `verified` or `mutual` (HTTPS)                                                                       |
+| `transport_anchors`  | `system` or absolute path | none     | The CA file, or `system` for the host trust store. Required for `verified` and `mutual`                                  |
+| `client_certificate` | absolute path             | none     | The client certificate. `mutual` only                                                                                    |
+| `client_key`         | absolute path             | none     | The client key. `mutual` only                                                                                            |
+| `delegation`         | list                      | none     | `impersonation-at-source` only: the hops that exchange the caller's token, in order. Must not be present without a value |
 
 Each hop in `delegation` has the keys of an [Oracle](oracle.md#settings) hop.
 

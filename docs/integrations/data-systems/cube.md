@@ -22,11 +22,11 @@ The `cube` catalog kind reads the same deployment's metadata API. The crate is `
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key          | Type          | Default  | Meaning                                                                                                      |
-| ------------ | ------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `endpoint`   | string        | required | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`. |
-| `token_file` | absolute path | required | A file that holds the Cube API token. sutura reads it at startup                                             |
-| `delegation` | list          | none     | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order                 |
+| Key          | Type          | Default  | Meaning                                                                                                                           |
+| ------------ | ------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`   | string        | required | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`.                      |
+| `token_file` | absolute path | required | A file that holds the Cube API token. sutura reads it at startup                                                                  |
+| `delegation` | list          | none     | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value |
 
 Each `delegation` hop has the keys of an [Oracle hop](oracle.md#settings).
 
