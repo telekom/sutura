@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-const TRAILER: &str = "Weakens-Test:";
+pub(super) const TRAILER: &str = "Weakens-Test:";
 
 /// What the range's commit messages declared: a deleted test's name to the stated reason.
 #[derive(Debug, Default, PartialEq, Eq)]

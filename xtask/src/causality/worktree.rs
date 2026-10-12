@@ -99,8 +99,20 @@ pub(super) fn head_commit(root: &Path) -> String {
 /// That is the fail-closed direction and it is the point of the carrier: a claim that is not in a
 /// commit is not in review either.
 pub(super) fn messages(root: &Path, base: &Commit) -> String {
+    range_log(root, base, &[])
+}
+
+/// The MERGE commits in `base..HEAD` - more than one parent - in [`messages`]' own framing, so
+/// [`commit_logs`] splits them unchanged. Read for one refusal, `super::refusals::report_merged_trailers`.
+pub(super) fn merges(root: &Path, base: &Commit) -> String {
+    range_log(root, base, &["--merges"])
+}
+
+fn range_log(root: &Path, base: &Commit, filter: &[&str]) -> String {
     git(root)
-        .args(["log", "-z", "--format=%H%x00%B", &format!("{}..HEAD", base.as_str())])
+        .args(["log", "-z", "--format=%H%x00%B"])
+        .args(filter)
+        .arg(format!("{}..HEAD", base.as_str()))
         .output()
         .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }

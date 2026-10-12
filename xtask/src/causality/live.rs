@@ -35,7 +35,7 @@ use super::worktree;
 use crate::causality::coverage::Coverage;
 use crate::workflows::contexts::block_keys;
 
-const TRAILER: &str = "Live-Cell:";
+pub(super) const TRAILER: &str = "Live-Cell:";
 
 /// The repository-relative path of the exemptions a system must be exempted under.
 pub(super) const EXEMPTIONS: &str = "crates/sutura-app/tests/adapters/exemptions.rs";

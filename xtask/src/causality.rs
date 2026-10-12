@@ -595,6 +595,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let Ok(exemptions) = Exemptions::read(&root).map_err(|e| eprintln!("xtask test-causality: FAILED - {e}")) else {
         return Verdict::Fail;
     };
+    if refusals::report_merged_trailers(&worktree::merges(&root, at)) == Verdict::Fail {
+        return Verdict::Fail;
+    }
     let Some(live) = live::Live::read(&root, &worktree::messages(&root, at)) else {
         return Verdict::Fail;
     };
