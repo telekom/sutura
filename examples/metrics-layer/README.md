@@ -6,8 +6,8 @@ computes each metric, and Cube decides which rows each caller reads. Read the wa
 
 | File                                | What it holds                                                                     |
 | ----------------------------------- | --------------------------------------------------------------------------------- |
-| `conf/impersonation-at-source.yaml` | Each caller's query runs with that caller's own token in Cube                     |
-| `conf/shared-service-user.yaml`     | Every caller's query runs with the token of the deployment's own client           |
+| `conf/impersonation-at-source.yaml` | Cube receives each caller's own token                                             |
+| `conf/shared-service-user.yaml`     | Cube receives the deployment's token                                              |
 | `keycloak/realm.json`               | Two callers, `alice` (region `north`) and `bob` (region `south`), and the clients |
 | `cube/model.yml`                    | The `orders` and `customers` cubes, and the access policy on `orders`             |
 | `clickhouse/init.sql`               | The tables that Cube reads                                                        |
