@@ -49,6 +49,7 @@
           "config": {
             "claim.name": "regions",
             "full.path": "false",
+            "multivalued": "true",
             "access.token.claim": "true",
             "id.token.claim": "false",
             "introspection.token.claim": "true",

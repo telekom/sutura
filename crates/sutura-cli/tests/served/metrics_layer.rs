@@ -14,6 +14,7 @@
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
     use std::io::{ErrorKind, Read as _};
     use std::net::{TcpListener, TcpStream};
     use std::path::{Path, PathBuf};
@@ -85,6 +86,22 @@ mod tests {
                 ("password", name),
             ],
         )
+    }
+
+    /// Cube's access policy reads `regions`, so a token without it fails here, naming only the claim
+    /// keys it does carry - never the token or a value.
+    fn assert_carries_regions(token: &str) {
+        let payload = token.split('.').nth(1).expect("an access token is a compact JWT");
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .expect("a token payload is base64url");
+        let claims: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&bytes).expect("a token payload is a JSON object");
+        assert!(
+            claims.contains_key("regions"),
+            "the deployment's token carries no `regions` claim; its claims: {:?}",
+            claims.keys().collect::<Vec<_>>()
+        );
     }
 
     /// The anchored question's shape, asked of `cube-metrics` directly.
@@ -221,6 +238,7 @@ mod tests {
                 ("client_secret", DEPLOYMENT_SECRET),
             ],
         );
+        assert_carries_regions(&deployment);
         let cube = tier("cube-metrics");
         await_cube(&cube, &deployment);
         let ca = files.0.join("cube-ca.pem");
