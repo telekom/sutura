@@ -200,7 +200,7 @@ mod tests {
         )
         .join("\n");
         assert!(
-            said.contains("workload_identity.delegation"),
+            said.contains(&format!("`sources.{BQ_SOURCE}.workload_identity.delegation` is declared and")),
             "the refusal must name the delegation block:\n{said}"
         );
         assert!(
