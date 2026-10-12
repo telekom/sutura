@@ -50,7 +50,8 @@ fn read_request(stream: &std::net::TcpStream) -> std::io::Result<(String, String
 }
 
 /// A loopback stand-in for the `clickhouse` HTTP interface: a declared-key probe is answered as a
-/// unique key and every other statement with no rows. Each request line it read is sent back.
+/// unique key and every other statement with the June row `recurring_revenue`'s anchor certifies.
+/// Each request line it read is sent back.
 fn stand_in() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
     let address = listener.local_addr().expect("a bound listener has a local address");
@@ -66,7 +67,7 @@ fn stand_in() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
             let answer = if body.contains(ROWS_LABEL) {
                 format!("[\"{ROWS_LABEL}\",\"{DISTINCT_LABEL}\"]\n[\"UInt64\",\"UInt64\"]\n[\"1\",\"1\"]\n")
             } else {
-                String::from("[\"month\",\"recurring_revenue\"]\n[\"Date\",\"Int64\"]\n")
+                String::from("[\"month\",\"recurring_revenue\"]\n[\"Date\",\"Int64\"]\n[\"2026-06-01\",202121]\n")
             };
             let reply = format!(
                 "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
@@ -78,7 +79,7 @@ fn stand_in() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
     (address, received)
 }
 
-/// `text` without its `anchor:` block: the stand-in holds no data to re-execute one against.
+/// `text` without its `anchor:` block: the stand-in answers one anchor and no other.
 fn without_the_anchor(text: &str) -> String {
     let mut inside = false;
     let kept: Vec<&str> = text
@@ -91,7 +92,8 @@ fn without_the_anchor(text: &str) -> String {
     kept.join("\n")
 }
 
-/// The example catalog, copied to `root/catalog` with no anchor and [`CANARY`] as one more region.
+/// The example catalog, copied to `root/catalog` with `recurring_revenue`'s anchor as its only one
+/// and [`CANARY`] as one more region.
 fn catalog_with_the_canary(root: &std::path::Path) -> std::path::PathBuf {
     let catalog = root.join("catalog");
     let copied = std::process::Command::new("cp")
@@ -102,7 +104,8 @@ fn catalog_with_the_canary(root: &std::path::Path) -> std::path::PathBuf {
         .expect("cp runs");
     assert!(copied.success(), "the example catalog did not copy");
     let metrics = std::fs::read_dir(catalog.join("metrics")).expect("the copied metrics directory reads");
-    for metric in metrics.map(|entry| entry.expect("a metrics directory entry reads").path()) {
+    let paths = metrics.map(|entry| entry.expect("a metrics directory entry reads").path());
+    for metric in paths.filter(|path| !path.ends_with("recurring_revenue.md")) {
         let text = std::fs::read_to_string(&metric).expect("a copied metric reads");
         std::fs::write(&metric, without_the_anchor(&text)).expect("a derived metric writes");
     }
