@@ -7185,7 +7185,6 @@ convenience, and nothing needs to clone a startup refusal.</p>
   that are not the same. This one names the key.
 - <code>CredentialsInUrl</code> - A declared URL carries an <code>@</code> - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
 - <code>DelegationEndsInBrokerToken</code> - A delegation whose last hop is <code>broker-token</code>: that token is for the next identity provider, so no hop exchanges it for the data system.
-- <code>DelegationNotOneHop</code> - A <code>workload_identity.delegation</code> list that is not exactly one hop.
 - <code>Posture</code> - The <code>posture:</code> word is not one of the two.
 - <code>Kind</code> - The <code>kind:</code> word does not name a data system this build has an adapter for.</p>
 <p><strong>This is where "a source this build cannot open" is refused now</strong>, and it is a parse error
@@ -7863,8 +7862,9 @@ the audience as a provider resource (the <code>WifAudience</code> parse).</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-345-1"><a id="__codelineno-345-1" name="__codelineno-345-1" href="#__codelineno-345-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DelegationDeclared</span>
 </span></code></pre></div>
 <p>One delegation hop a <code>direct</code> deployment runs before the pool will accept its caller.</p>
-<p>The architecture decision's fourth amendment: the caller's inbound token is exchanged at
-<code>token_endpoint</code> for one whose <code>aud</code> is <code>audience</code>, the pool provider's client ID.</p>
+<p>The architecture decision's fourth amendment: the first hop exchanges the caller's inbound token at
+<code>token_endpoint</code> for one whose <code>aud</code> is <code>audience</code>, each later hop exchanges the token the hop
+before it returned, and the last hop's token is the one the pool provider accepts.</p>
 <p><strong>Held as written and parsed by the crate that sends it</strong>, at boot, by <code>sutura_cli</code>'s
 <code>build_broker</code> - the endpoint, client ID and audience each go into a request only that adapter
 builds, so its parse is the one that decides whether they can be sent, and a refusal there is

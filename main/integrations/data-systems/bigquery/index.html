@@ -3641,35 +3641,42 @@ and these keys:</p>
 <td><code>workload_identity.delegation</code></td>
 <td>list</td>
 <td>none</td>
-<td>The token exchange for the caller's token, as a list of one item</td>
+<td>The hops that exchange the caller's token, in order. Not empty</td>
 </tr>
 <tr>
 <td><code>workload_identity.delegation[].token_endpoint</code></td>
 <td>URL</td>
 <td>required</td>
-<td>The token endpoint of your identity provider</td>
+<td>The token endpoint of the identity provider for this hop</td>
 </tr>
 <tr>
 <td><code>workload_identity.delegation[].client_id</code></td>
 <td>string</td>
 <td>required</td>
-<td>The client ID that sutura uses for the exchange</td>
+<td>The client ID that sutura uses at this identity provider</td>
 </tr>
 <tr>
 <td><code>workload_identity.delegation[].client_secret_file</code></td>
 <td>absolute path</td>
 <td>required</td>
-<td>A file that holds the client secret</td>
+<td>A file that holds the client secret. sutura reads it at startup</td>
+</tr>
+<tr>
+<td><code>workload_identity.delegation[].grant</code></td>
+<td>string</td>
+<td><code>token-exchange</code></td>
+<td><code>token-exchange</code> (RFC 8693), <code>on-behalf-of</code> (Microsoft Entra ID), or <code>broker-token</code> (Keycloak sends back the token of an external identity provider). The last hop is not <code>broker-token</code></td>
 </tr>
 <tr>
 <td><code>workload_identity.delegation[].audience</code></td>
 <td>string</td>
 <td>required</td>
-<td>The audience that the exchanged token must carry</td>
+<td>The audience that the token from this hop must carry. With <code>on-behalf-of</code>, sutura asks for the scope <code>&lt;audience&gt;/.default</code>.</td>
 </tr>
 </tbody>
 </table>
-<p>With <code>delegation</code>, sutura exchanges the caller's token at your identity provider for a token that
+<p>With <code>delegation</code>, the first hop exchanges the caller's token at its identity provider, and each
+next hop exchanges the token from the hop before it. The token from the last hop is the one that
 the pool accepts. <code>delegation</code> needs <code>security.inbound.mode: direct</code>. Without <code>delegation</code>, sutura
 sends the caller's verified token to the pool as it is. Do not write <code>expected_issuer</code> or
 <code>expected_audience</code>: sutura refuses to start with them.</p>
@@ -3706,7 +3713,7 @@ credentials of the process.</p>
 with that principal's own grants. No service account is used at any step:</p>
 <ol>
 <li>sutura verifies the caller's token.</li>
-<li>With <code>delegation</code>, sutura exchanges that token at your identity provider for a token that the
+<li>With <code>delegation</code>, sutura exchanges that token through each hop in order, for a token that the
    pool accepts.</li>
 <li>The driver sends the token to the Google Security Token Service (STS). STS accepts it only
    when the pool provider in <code>audience</code> trusts its issuer, its signature is valid and its audience
