@@ -4054,7 +4054,7 @@ the source decides whose access governs the rows.</p>
 <tr>
 <td>Request deadline</td>
 <td><code>server.request_timeout_seconds</code>, <code>408</code></td>
-<td>The same deadline. A question that outruns it gets a tool error</td>
+<td>The same deadline. A question that outruns it gets a tool error, or the <code>408</code> when the request bound expires first</td>
 </tr>
 <tr>
 <td>Concurrency</td>
@@ -4088,8 +4088,8 @@ the source decides whose access governs the rows.</p>
 </tr>
 <tr>
 <td>Metrics</td>
-<td><code>401</code> count, question count and duration, admission wait, shed</td>
-<td><code>401</code> count</td>
+<td><code>401</code> and <code>429</code> counts, question count and duration, admission wait, shed</td>
+<td><code>401</code> and <code>429</code> counts</td>
 </tr>
 <tr>
 <td>TLS</td>

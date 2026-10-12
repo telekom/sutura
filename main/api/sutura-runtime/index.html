@@ -4320,6 +4320,11 @@ and dropped inside one statement, and no runtime is involved in the tests that u
 <p>An empty buffer, teeing to standard output if <code>TEE_VARIABLE</code> is set.</p>
 <h4 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Default</code>, <code>MakeWriter&lt;'a&gt;</code>, <code>Write</code></p>
+<h3 id="fn-bridge_log"><code>fn bridge_log</code><a class="headerlink" href="#fn-bridge_log" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bridge_log</span><span class="p">()</span>
+</span></code></pre></div>
+<p>The service's own <code>log</code> bridge, for a test that installs its own global subscriber and has to see
+what a dependency logs through <code>log</code> the way the service would.</p>
 <h3 id="constant-tee_variable"><code>constant TEE_VARIABLE</code><a class="headerlink" href="#constant-tee_variable" title="Permanent link">&para;</a></h3>
 <p>Set this to anything non-empty to have a captured log also reach standard output.</p>
 <p><code>cargo nextest</code> shows a failing test's output, so this is what makes the log of the request
