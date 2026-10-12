@@ -3638,27 +3638,33 @@ and these keys:</p>
 <td>The workload identity pool provider: <code>//iam.googleapis.com/projects/&lt;number&gt;/locations/global/workloadIdentityPools/&lt;pool&gt;/providers/&lt;provider&gt;</code></td>
 </tr>
 <tr>
-<td><code>workload_identity.delegation.token_endpoint</code></td>
-<td>URL</td>
+<td><code>workload_identity.delegation</code></td>
+<td>list</td>
 <td>none</td>
-<td>The token endpoint of your identity provider, for a token exchange</td>
+<td>The token exchange for the caller's token, as a list of one item</td>
 </tr>
 <tr>
-<td><code>workload_identity.delegation.client_id</code></td>
+<td><code>workload_identity.delegation[].token_endpoint</code></td>
+<td>URL</td>
+<td>required</td>
+<td>The token endpoint of your identity provider</td>
+</tr>
+<tr>
+<td><code>workload_identity.delegation[].client_id</code></td>
 <td>string</td>
-<td>none</td>
+<td>required</td>
 <td>The client ID that sutura uses for the exchange</td>
 </tr>
 <tr>
-<td><code>workload_identity.delegation.client_secret_file</code></td>
+<td><code>workload_identity.delegation[].client_secret_file</code></td>
 <td>absolute path</td>
-<td>none</td>
+<td>required</td>
 <td>A file that holds the client secret</td>
 </tr>
 <tr>
-<td><code>workload_identity.delegation.audience</code></td>
+<td><code>workload_identity.delegation[].audience</code></td>
 <td>string</td>
-<td>none</td>
+<td>required</td>
 <td>The audience that the exchanged token must carry</td>
 </tr>
 </tbody>
@@ -3685,10 +3691,10 @@ build can select the feature:</p>
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">workload_identity</span><span class="p">:</span>
 </span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/sutura/providers/keycloak"</span>
 </span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">      </span><span class="nt">delegation</span><span class="p">:</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/sutura/exchange-secret"</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura-gcp-pool"</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">          </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">          </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/sutura/exchange-secret"</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">          </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura-gcp-pool"</span>
 </span></code></pre></div>
 <p>For one shared account, use <code>posture: shared-service-user</code> and leave out <code>workload_identity</code>. The
 driver then uses the application default credentials of the process.</p>
