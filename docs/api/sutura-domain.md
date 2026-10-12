@@ -5968,8 +5968,7 @@ Why a bundle is not validated.
   **What it costs**, stated with the claim: a data system briefly unreachable at boot now stops
   a deployment that would have served, for a source carrying no anchored metric. For every
   source that carries one, the anchor pass already refused it.
-- `ColumnNotAtSource` - A column the bundle names that its source does not return. Boxed for the reason above.
-- `SchemaNotRead`
+- `FederatedModelUntyped` - A federated model whose catalog declares no column type: a missing declaration, not a type to fall back from. The federation planner takes each federated table's schema from the catalog.
 
 #### Implements
 
@@ -14115,32 +14114,13 @@ The rows, for the boot path that compares them against what an author certified.
 ### Module `schema`
 
 The Arrow schema a data system returns for a bundle's tables, and the set pinned beside it.
-The Arrow schema a data system returns for the tables a bundle names, pinned beside the bundle.
+The Arrow schema of the tables a bundle federates, pinned beside the bundle.
 
-A catalog's column `data_type` is text for a person and never a cast, so the Arrow type of a
-column comes from the data system.
-`Warehouse::table_schemas` reads it at the load
-and at each refresh, under the deployment's configured identity, because no caller exists at
-either. `PinnedSchemas` holds what was read for the
-columns the bundle names, and nothing else: a column the source returns and the bundle does not
-name is not pinned.
-
-#### `enum TableSchemas`
-
-```rust
-pub enum TableSchemas
-```
-
-What one data system said about the schemas of the tables it was asked for.
-
-##### Variants
-
-- `NotAsked` - This adapter has no way to read a table's schema. Its source stays off the pinned set.
-- `Read` - The schema of each table the data system returned. A table it does not have is absent.
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
+A catalog's column `data_type` is text, and `TypeDialect` reads it as an Arrow type in the
+spelling of the data system the model's source is. `PinnedSchemas` holds what the catalog
+declared for each federated model, and nothing else: no data source is read for it, at the load
+or at a refresh. A column whose type the dialect does not list, or that the catalog gives no
+type, is a `Utf8` column and is recorded as having fallen back.
 
 #### `struct SchemaDigest`
 
@@ -14167,11 +14147,11 @@ pub fn as_str(&self) -> &str
 pub struct PinnedSchemas
 ```
 
-The Arrow schema of each model whose source returned one, cut to the columns the model names.
+The Arrow schema of each federated model, from the columns its catalog declared.
 
 Built from the bundle of the same load, and held in one snapshot with it. The key of that
-snapshot is the bundle's `DefinitionDigest` and this set's `SchemaDigest`, because a content
-hash of an unchanged bundle stays the same over a changed source.
+snapshot is the bundle's `DefinitionDigest` and this set's `SchemaDigest`. The digest covers
+each column's fallback as well as its type, so a column that stops falling back moves it.
 
 ##### Methods
 
@@ -14180,78 +14160,39 @@ pub const fn digest(&self) -> &SchemaDigest
 ```
 
 ```rust
+pub fn fell_back(&self, model: &ModelName) -> impl Iterator<Item>
+```
+
+The columns of one model that are `Utf8` because their type was missing or not listed.
+
+```rust
 pub fn of(&self, model: &ModelName) -> Option<&SchemaRef>
 ```
 
-The pinned schema of one model, `None` where its source returned none.
+The pinned schema of one model, `None` where it is not federated or its source has no dialect.
 
 ```rust
-pub fn pin(definitions: &Definitions, read: &BTreeMap<SourceName, SchemasByTable>) -> Result<Self, NotValidated>
+pub fn pin(definitions: &Definitions, dialects: &BTreeMap<SourceName, TypeDialect>) -> Result<Self, NotValidated>
 ```
 
-Pins what each source returned against the models the bundle declares on it.
-
-A source absent from `read` answered `TableSchemas::NotAsked`, and its models are not
-pinned.
+Pins the catalog's columns of each federated model: one whose relationship joins it to a
+model on another source. A model whose source has no entry in `dialects` is not pinned.
 
 # Errors
 
-`NotValidated::ColumnNotAtSource` for the first column a model names that its source did
-not return, a table the source does not have included.
+`NotValidated::FederatedModelUntyped` for the first model of a pinned source that declares
+no column type at all. That is a missing declaration, and not a type to fall back from.
 
 ##### Implements
 
 `Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
 
-#### `struct ColumnNotAtSource`
+#### `use TypeDialect`
 
-```rust
-pub struct ColumnNotAtSource
-```
+The spelling of a column type: which data system the source is.
 
-A column the bundle names that its source did not return, which refuses the load.
-
-##### Methods
-
-```rust
-pub const fn column(&self) -> &ColumnName
-```
-
-```rust
-pub const fn model(&self) -> &ModelName
-```
-
-##### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
-
-#### `struct SchemaNotRead`
-
-```rust
-pub struct SchemaNotRead
-```
-
-A data system that could not be asked for its tables' schemas, which refuses the load.
-
-##### Methods
-
-```rust
-pub const fn of(source: SourceName, message: String, chain: Vec<String>) -> Self
-```
-
-The adapter's own failure, walked to text because its type cannot cross into the domain.
-
-```rust
-pub const fn source(&self) -> &SourceName
-```
-
-##### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
-
-#### `type_alias SchemasByTable`
-
-One data system's schemas, by the table they describe.
+The same word means different types across systems (`INTEGER` is 32 bits in Postgres and 64 in
+`BigQuery`, `DATE` carries a time in Oracle), so the mapping is per dialect.
 
 ### Module `arrow`
 

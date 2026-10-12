@@ -1,7 +1,7 @@
 //! The Arrow schema of the tables a bundle federates, pinned beside the bundle.
 //!
 //! A catalog's column `data_type` is text, and [`TypeDialect`] reads it as an Arrow type in the
-//! spelling of the data system the model's source is. [`PinnedSchemas`] holds what the catalog
+//! spelling of the data system the model's source is. [`PinnedSchemas`](crate::warehouse::schema::PinnedSchemas) holds what the catalog
 //! declared for each federated model, and nothing else: no data source is read for it, at the load
 //! or at a refresh. A column whose type the dialect does not list, or that the catalog gives no
 //! type, is a `Utf8` column and is recorded as having fallen back.

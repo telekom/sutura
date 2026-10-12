@@ -154,6 +154,7 @@ reader back to all of them.
   rather than defaulted in either direction - `ManyToOne` as a default assumes the fan-out away,
   and `OneToMany` refuses every dimension.
 - `Identifier` - A name on a snapshot did not parse as the identifier kind it claims to be.
+- `Table` - A dataset's name is not a table path: a table, `dataset.table` or `project.dataset.table`.
 - `Sutura` - The `sutura` structured property's scalar value is not the metric content it claims to be.
 - `EmptyViaChain` - A dimension's `via` chain is empty, which `DataHub` can carry but no `ViaChain` can hold.
 

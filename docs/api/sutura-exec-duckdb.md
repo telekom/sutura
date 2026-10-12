@@ -76,7 +76,6 @@ Why this data system could not answer.
 - `Connect`
 - `Prepare`
 - `Execute`
-- `Schema` - The driver could not say what columns a table has - a table it lacks included (`Internal`).
 - `Batch`
 - `Parameters`
 - `Unannounced`
