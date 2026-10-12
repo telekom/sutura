@@ -142,6 +142,9 @@ pub(crate) const RECORD_BUDGET: Duration = Duration::from_secs(30);
 pub(crate) const STOP_BUDGET: Duration = Duration::from_secs(45);
 
 /// One environment value a hosted cell needs, or a panic naming the variable and never its value.
+#[cfg(unix)]
+#[cfg(feature = "bigquery")]
+#[cfg(feature = "datahub")]
 pub(crate) fn live_env(name: &str) -> String {
     match std::env::var(name) {
         Ok(value) if !value.trim().is_empty() => value,
