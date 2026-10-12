@@ -616,7 +616,7 @@ impl Settings {
             .each()
             .filter_map(|(alias, source)| {
                 let alias = alias.clone();
-                if source.workload_identity().is_some_and(|wif| wif.delegation().is_some()) {
+                if source.workload_identity().is_some_and(|wif| !wif.delegation().is_empty()) {
                     Some(NotFitToServe::DelegationWithoutDirectInbound {
                         alias,
                         key: "workload_identity.delegation",

@@ -714,13 +714,13 @@ fn a_workload_identity_block_with_an_empty_audience_is_refused_naming_the_audien
 fn a_workload_identity_delegation_of_one_broker_token_hop_is_refused() {
     let entries = [RawSourceEntry {
         workload_identity: Some(crate::raw::RawWorkloadIdentity {
-            delegation: Some(crate::raw::RawDelegation {
+            delegation: Some(vec![crate::raw::RawDelegation {
                 token_endpoint: String::from("https://idp.example.com/realms/example/broker/entra/token"),
                 client_id: String::from("sutura"),
                 client_secret_file: String::from("/etc/sutura/client-secret"),
                 audience: String::from("11111111-1111-4111-8111-111111111111"),
                 grant: super::workload_identity::DelegationGrant::BrokerToken,
-            }),
+            }]),
             ..wif()
         }),
         ..impersonating("warehouse")
@@ -736,6 +736,38 @@ fn a_workload_identity_delegation_of_one_broker_token_hop_is_refused() {
         ),
         "{error:?}"
     );
+}
+
+#[test]
+fn a_workload_identity_delegation_that_is_not_one_hop_is_refused() {
+    let hop = || crate::raw::RawDelegation {
+        token_endpoint: String::from("https://idp.example.com/realms/example/protocol/openid-connect/token"),
+        client_id: String::from("sutura"),
+        client_secret_file: String::from("/etc/sutura/client-secret"),
+        audience: String::from("warehouse"),
+        grant: super::workload_identity::DelegationGrant::TokenExchange,
+    };
+    // An empty list and a list of two are each refused, and the refusal counts what was written.
+    for (delegation, written) in [(Vec::new(), 0), (vec![hop(), hop()], 2)] {
+        let entries = [RawSourceEntry {
+            posture: "impersonation-at-source",
+            acknowledged_because: None,
+            workload_identity: Some(crate::raw::RawWorkloadIdentity {
+                delegation: Some(delegation),
+                ..wif()
+            }),
+            ..bigquery("warehouse")
+        }];
+        let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a delegation is one hop");
+        assert!(
+            matches!(
+                error,
+                InvalidSourceRegistry::DelegationNotOneHop { ref alias, hops }
+                    if alias.as_str() == "warehouse" && hops == written
+            ),
+            "{error:?}"
+        );
+    }
 }
 
 mod postgres;

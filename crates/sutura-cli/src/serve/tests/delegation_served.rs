@@ -138,8 +138,8 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
     std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
     let overlay = format!(
-        "{}  identity: \"multi-user\"\nsources:\n{}      delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
-         client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
+        "{}  identity: \"multi-user\"\nsources:\n{}      delegation:\n        - token_endpoint: \"{}/token\"\n          client_id: \"sutura\"\n          \
+         client_secret_file: \"{}\"\n          audience: \"{POOL}\"\n",
         direct_overlay(&issuer, &published.path().to_string_lossy()),
         super::bigquery_entry("warehouse", "impersonation-at-source", super::wif()),
         idp.endpoint(),

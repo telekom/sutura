@@ -33,13 +33,14 @@ and these keys:
 
 `impersonation-at-source` needs a `workload_identity` block:
 
-| Key                                               | Type          | Default  | Meaning                                                                                                                                          |
-| ------------------------------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `workload_identity.audience`                      | string        | required | The workload identity pool provider: `//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
-| `workload_identity.delegation.token_endpoint`     | URL           | none     | The token endpoint of your identity provider, for a token exchange                                                                               |
-| `workload_identity.delegation.client_id`          | string        | none     | The client ID that sutura uses for the exchange                                                                                                  |
-| `workload_identity.delegation.client_secret_file` | absolute path | none     | A file that holds the client secret                                                                                                              |
-| `workload_identity.delegation.audience`           | string        | none     | The audience that the exchanged token must carry                                                                                                 |
+| Key                                                 | Type          | Default  | Meaning                                                                                                                                          |
+| --------------------------------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `workload_identity.audience`                        | string        | required | The workload identity pool provider: `//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>` |
+| `workload_identity.delegation`                      | list          | none     | The token exchange for the caller's token, as a list of one item                                                                                 |
+| `workload_identity.delegation[].token_endpoint`     | URL           | required | The token endpoint of your identity provider                                                                                                     |
+| `workload_identity.delegation[].client_id`          | string        | required | The client ID that sutura uses for the exchange                                                                                                  |
+| `workload_identity.delegation[].client_secret_file` | absolute path | required | A file that holds the client secret                                                                                                              |
+| `workload_identity.delegation[].audience`           | string        | required | The audience that the exchanged token must carry                                                                                                 |
 
 With `delegation`, sutura exchanges the caller's token at your identity provider for a token that
 the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `delegation`, sutura
@@ -71,10 +72,10 @@ sources:
     workload_identity:
       audience: "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/sutura/providers/keycloak"
       delegation:
-        token_endpoint: "http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"
-        client_id: "https://sutura.example.com"
-        client_secret_file: "/run/sutura/exchange-secret"
-        audience: "sutura-gcp-pool"
+        - token_endpoint: "http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"
+          client_id: "https://sutura.example.com"
+          client_secret_file: "/run/sutura/exchange-secret"
+          audience: "sutura-gcp-pool"
 ```
 
 For one shared account, use `posture: shared-service-user` and leave out `workload_identity`. The

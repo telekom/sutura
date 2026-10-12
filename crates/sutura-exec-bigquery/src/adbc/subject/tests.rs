@@ -370,3 +370,19 @@ fn the_document_names_no_second_hop_so_the_token_is_the_callers_own_principal() 
     // With no hop, the STS leg asks for the API client's own scopes, so no `scopes` member either.
     assert!(document.get("scopes").is_none(), "{document}");
 }
+
+/// What the driver's own URL provider is served by a loopback source bound with `token`, the way
+/// an impersonating source binds one for each question: this adapter's row in the delegation packs.
+fn delivered(token: &Secret) -> Vec<u8> {
+    let held = SubjectSource::bind(token).expect("loopback is bindable");
+    let (url, secret) = credentials(&document(&held));
+    match fetch_sending(&url, &[(SECRET_HEADER, &secret)]) {
+        Answered::Served(body) => body.into_bytes(),
+        refused @ Answered::Refused(_) => panic!("the source served no token: {refused:?}"),
+    }
+}
+
+sutura_conformance::delegation_packs! {
+    adapter: bigquery,
+    deliver: super::delivered,
+}

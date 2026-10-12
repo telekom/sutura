@@ -320,13 +320,13 @@ fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
 #[cfg(feature = "bigquery")]
 const POOL: &str = "pool-client-id";
 
-/// One source's declared delegation exchange, indented to sit inside `workload_identity:` - 6
-/// spaces for `delegation:`, 8 for its keys, exactly as `sutura_config` reads.
+/// One source's declared delegation hop, indented to sit inside `workload_identity:` - 6 spaces
+/// for `delegation:`, 8 for its one item's `-`, 10 for its keys, exactly as `sutura_config` reads.
 #[cfg(feature = "bigquery")]
 fn delegation_block(endpoint: &str, secret_file: &std::path::Path) -> String {
     format!(
-        "      delegation:\n        token_endpoint: \"{endpoint}\"\n        client_id: \"sutura\"\n        \
-         client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
+        "      delegation:\n        - token_endpoint: \"{endpoint}\"\n          client_id: \"sutura\"\n          \
+         client_secret_file: \"{}\"\n          audience: \"{POOL}\"\n",
         secret_file.display()
     )
 }

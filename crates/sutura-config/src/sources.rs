@@ -343,6 +343,9 @@ pub enum InvalidSourceRegistry {
     /// so no hop exchanges it for the data system.
     #[error("`sources.{alias}.{key}` ends in a `broker-token` hop - add the hop that exchanges its token for the data system")]
     DelegationEndsInBrokerToken { alias: SourceName, key: &'static str },
+    /// A `workload_identity.delegation` list that is not exactly one hop.
+    #[error("`sources.{alias}.workload_identity.delegation` lists {hops} hops - write exactly one")]
+    DelegationNotOneHop { alias: SourceName, hops: usize },
     /// The `posture:` word is not one of the two.
     #[error("`sources.{alias}.posture` does not say how this source establishes identity")]
     Posture {
@@ -736,8 +739,10 @@ fn parse_entry(
         entry
             .workload_identity
             .as_ref()
-            .and_then(|raw| raw.delegation.as_ref())
-            .map(|hop| hop.grant),
+            .and_then(|raw| match raw.delegation.as_deref() {
+                Some([hop]) => Some(hop.grant),
+                _ => None,
+            }),
     )?;
     // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
     // impersonating shape, and only it. An impersonating entry must name the provider its
@@ -754,8 +759,8 @@ fn parse_entry(
         Some(_) if !matches!(entry.posture.trim(), "impersonation-at-source") => {
             return Err(InvalidSourceRegistry::WorkloadIdentityNotImpersonating { alias: alias.clone() });
         }
-        Some(raw) => Some(
-            WorkloadIdentityConfig::parse_with_expectations(
+        Some(raw) => {
+            let config = WorkloadIdentityConfig::parse_with_expectations(
                 &raw.audience,
                 raw.expected_issuer.as_deref(),
                 raw.expected_audience.as_deref(),
@@ -763,21 +768,24 @@ fn parse_entry(
             .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
                 alias: alias.clone(),
                 cause,
-            })?
-            .with_delegation(
-                raw.delegation
-                    .as_ref()
-                    .map(|delegation| {
-                        workload_identity::DelegationDeclared::of(
-                            alias,
-                            delegation,
-                            "workload_identity.delegation.token_endpoint",
-                            "workload_identity.delegation.client_secret_file",
-                        )
-                    })
-                    .transpose()?,
-            ),
-        ),
+            })?;
+            let hops = match raw.delegation.as_deref() {
+                None => Vec::new(),
+                Some([hop]) => vec![workload_identity::DelegationDeclared::of(
+                    alias,
+                    hop,
+                    "workload_identity.delegation.token_endpoint",
+                    "workload_identity.delegation.client_secret_file",
+                )?],
+                Some(declared) => {
+                    return Err(InvalidSourceRegistry::DelegationNotOneHop {
+                        alias: alias.clone(),
+                        hops: declared.len(),
+                    });
+                }
+            };
+            Some(config.with_delegation(hops))
+        }
     };
     Ok(ConfiguredSource {
         placement,

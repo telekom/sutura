@@ -273,7 +273,7 @@ outputs:
           workload_identity:
             audience: //iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${pool.workloadIdentityPoolId}/providers/${keycloakProvider.workloadIdentityPoolProviderId}
             delegation:
-              token_endpoint: http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token
-              client_id: https://sutura.example.com
-              client_secret_file: /run/sutura/exchange-secret
-              audience: sutura-gcp-pool
+              - token_endpoint: http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token
+                client_id: https://sutura.example.com
+                client_secret_file: /run/sutura/exchange-secret
+                audience: sutura-gcp-pool

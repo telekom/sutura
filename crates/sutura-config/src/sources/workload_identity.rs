@@ -56,10 +56,11 @@ pub struct WorkloadIdentityConfig {
     expected_issuer: Option<crate::IssuerUrl>,
     /// The audience the pool's provider accepts - the STS audience a subject token must carry.
     expected_audience: Option<WifAudience>,
-    delegation: Option<DelegationDeclared>,
+    /// In declaration order; empty is no hop.
+    delegation: Vec<DelegationDeclared>,
 }
 
-/// The delegation exchange a `direct` deployment runs before the pool will accept its caller.
+/// One delegation hop a `direct` deployment runs before the pool will accept its caller.
 ///
 /// `docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
 /// `token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
@@ -219,23 +220,23 @@ impl WorkloadIdentityConfig {
             audience: WifAudience::parse(audience.as_ref())?,
             expected_issuer,
             expected_audience,
-            delegation: None,
+            delegation: Vec::new(),
         })
     }
 
-    /// The same declaration, with the delegation exchange its callers' tokens go through.
+    /// The same declaration, with the delegation hops its callers' tokens go through, in order.
     #[must_use]
-    pub fn with_delegation(mut self, delegation: Option<DelegationDeclared>) -> Self {
+    pub fn with_delegation(mut self, delegation: Vec<DelegationDeclared>) -> Self {
         self.delegation = delegation;
         self
     }
 
-    /// The delegation exchange, if declared. `Some` requires `security.inbound.mode: direct` -
-    /// `crate::NotFitToServe::DelegationWithoutDirectInbound`.
+    /// The delegation hops, in declaration order; empty when none is declared. A hop requires
+    /// `security.inbound.mode: direct` - `crate::NotFitToServe::DelegationWithoutDirectInbound`.
     #[inline]
     #[must_use]
-    pub const fn delegation(&self) -> Option<&DelegationDeclared> {
-        self.delegation.as_ref()
+    pub const fn delegation(&self) -> &[DelegationDeclared] {
+        self.delegation.as_slice()
     }
 
     /// The provider audience.

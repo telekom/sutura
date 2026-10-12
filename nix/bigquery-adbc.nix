@@ -94,7 +94,13 @@ buildGoModule {
   # The test `bigquery-adbc-forbidden.patch` adds for its 403 reason table. A build whose host
   # cannot run its target skips the check phase, and this with it. The test resolves into its own
   # module cache: the modules only `_test.go` files import stay out of the licence record below.
-  preCheck = "GOMODCACHE=$TMPDIR/test-modcache go test -run '^TestForbidden$' .";
+  # The whole phase is replaced because the default one loops over `getGoDirs`, which only the
+  # default `buildPhase` defines.
+  checkPhase = ''
+    runHook preCheck
+    GOMODCACHE=$TMPDIR/test-modcache go test -run '^TestForbidden$' .
+    runHook postCheck
+  '';
   installPhase = ''
     runHook preInstall
     install -Dm755 libadbc_driver_bigquery.so $out/lib/libadbc_driver_bigquery.so
@@ -114,6 +120,19 @@ buildGoModule {
         install -Dm644 "$lic" "$out/share/licenses/$current/''${lic##*/}"
       done
     done
+    # The record may name only modules the shipped library was built from, as its Go build info
+    # says: the main module, each `dep`, and a `=>` in place of the `dep` it replaces. Runs on every
+    # triple, since a cross build skips the check phase.
+    go version -m "$out/lib/libadbc_driver_bigquery.so" \
+      | awk '$1 == "mod" || $1 == "=>" || ($1 == "dep" && NF == 4) { print $2 "@" $3 }' \
+      | sort -u > "$TMPDIR/built-modules.txt"
+    extra="$(cut -d' ' -f1 "$out/lib/DRIVER-MODULES.txt" | sed 's/!\(.\)/\u\1/g' | sort -u \
+      | comm -23 - "$TMPDIR/built-modules.txt")"
+    if [ -n "$extra" ]; then
+      echo "DRIVER-MODULES.txt lists modules the driver was not built from:" >&2
+      echo "$extra" >&2
+      exit 1
+    fi
     runHook postInstall
   '';
   passthru.triple = crossSystemName;

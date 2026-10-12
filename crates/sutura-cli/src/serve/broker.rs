@@ -117,11 +117,12 @@ fn federating(
     }
     let delegation = workload
         .delegation()
-        .map(|declaration| {
+        .split_first()
+        .map(|(first, then)| {
             delegation(
                 &format!("sources.{alias}.workload_identity.delegation"),
-                declaration,
-                &[],
+                first,
+                then,
                 outbound,
             )
         })

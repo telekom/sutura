@@ -5655,6 +5655,7 @@ convenience, and nothing needs to clone a startup refusal.
   that are not the same. This one names the key.
 - `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
 - `DelegationEndsInBrokerToken` - A delegation whose last hop is `broker-token`: that token is for the next identity provider, so no hop exchanges it for the data system.
+- `DelegationNotOneHop` - A `workload_identity.delegation` list that is not exactly one hop.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 
@@ -6614,11 +6615,11 @@ pub const fn audience(&self) -> &WifAudience
 The provider audience.
 
 ```rust
-pub const fn delegation(&self) -> Option<&DelegationDeclared>
+pub const fn delegation(&self) -> &[DelegationDeclared]
 ```
 
-The delegation exchange, if declared. `Some` requires `security.inbound.mode: direct` -
-`crate::NotFitToServe::DelegationWithoutDirectInbound`.
+The delegation hops, in declaration order; empty when none is declared. A hop requires
+`security.inbound.mode: direct` - `crate::NotFitToServe::DelegationWithoutDirectInbound`.
 
 ```rust
 pub const fn expected_audience(&self) -> Option<&WifAudience>
@@ -6652,10 +6653,10 @@ the inbound side: the issuer as an absolute `https` URI (the `crate::IssuerUrl` 
 the audience as a provider resource (the `WifAudience` parse).
 
 ```rust
-pub fn with_delegation(self, delegation: Option<DelegationDeclared>) -> Self
+pub fn with_delegation(self, delegation: Vec<DelegationDeclared>) -> Self
 ```
 
-The same declaration, with the delegation exchange its callers' tokens go through.
+The same declaration, with the delegation hops its callers' tokens go through, in order.
 
 ##### Implements
 
@@ -6667,7 +6668,7 @@ The same declaration, with the delegation exchange its callers' tokens go throug
 pub struct DelegationDeclared
 ```
 
-The delegation exchange a `direct` deployment runs before the pool will accept its caller.
+One delegation hop a `direct` deployment runs before the pool will accept its caller.
 
 The architecture decision's fourth amendment: the caller's inbound token is exchanged at
 `token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.

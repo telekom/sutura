@@ -213,10 +213,10 @@ pub(crate) struct RawWorkloadIdentity {
     /// twin on the audience side.
     #[serde(default)]
     pub(crate) expected_audience: Option<String>,
-    /// The delegation exchange a `direct` deployment runs before this pool will accept its caller -
-    /// see `crate::sources::workload_identity::DelegationDeclared`.
+    /// The delegation hops a `direct` deployment runs before this pool will accept its caller, in
+    /// order - see `crate::sources::workload_identity::DelegationDeclared`.
     #[serde(default)]
-    pub(crate) delegation: Option<RawDelegation>,
+    pub(crate) delegation: Option<Vec<RawDelegation>>,
 }
 
 /// One source's delegation exchange, as read. Every key is required, so a missing one is serde's
