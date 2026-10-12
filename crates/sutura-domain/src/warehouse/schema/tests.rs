@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
-use arrow_schema::DataType;
+use arrow_schema::{DataType, TimeUnit};
 
 use super::{PinnedSchemas, TypeDialect};
-use crate::catalog::{Column, Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
+use crate::catalog::{Column, ColumnType, Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
 use crate::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
 use crate::pinned::NotValidated;
 
@@ -100,4 +100,72 @@ fn a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_n
     assert_eq!(model.as_str(), "customers");
     let local = PinnedSchemas::pin(&bundle(orders(), untyped(), "lake"), &dialects()).expect("both models share a source");
     assert_eq!(local, PinnedSchemas::default());
+}
+
+#[test]
+fn each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread() {
+    use TypeDialect::{BigQuery, ClickHouse, DuckDb, Oracle, Postgres};
+    let micros = |zone: Option<&str>| DataType::Timestamp(TimeUnit::Microsecond, zone.map(Into::into));
+    let seconds = DataType::Timestamp(TimeUnit::Second, None);
+    let cases = [
+        (Postgres, "BIGINT", Some(DataType::Int64)),
+        (Postgres, "integer", Some(DataType::Int32)),
+        (DuckDb, "int2", Some(DataType::Int16)),
+        (Postgres, "float4", Some(DataType::Float32)),
+        (Postgres, "double precision", Some(DataType::Float64)),
+        (Postgres, "numeric(12, 2)", Some(DataType::Decimal128(12, 2))),
+        (Postgres, "numeric", None),
+        (Postgres, "numeric(39, 0)", None),
+        (Postgres, "numeric(5, 9)", None),
+        (Postgres, "date", Some(DataType::Date32)),
+        (Postgres, "timestamp", Some(micros(None))),
+        (Postgres, "timestamptz", Some(micros(Some("UTC")))),
+        (Postgres, "bytea", Some(DataType::Binary)),
+        (Postgres, "varchar(20)", Some(DataType::Utf8)),
+        (Postgres, "bool", Some(DataType::Boolean)),
+        (Postgres, "varchar(20", None),
+        (Postgres, "geography", None),
+        (ClickHouse, "Int8", Some(DataType::Int8)),
+        (ClickHouse, "Int16", Some(DataType::Int16)),
+        (ClickHouse, "Int32", Some(DataType::Int32)),
+        (ClickHouse, "Int64", Some(DataType::Int64)),
+        (ClickHouse, "UInt8", Some(DataType::UInt8)),
+        (ClickHouse, "UInt16", Some(DataType::UInt16)),
+        (ClickHouse, "UInt32", Some(DataType::UInt32)),
+        (ClickHouse, "UInt64", Some(DataType::UInt64)),
+        (ClickHouse, "Float32", Some(DataType::Float32)),
+        (ClickHouse, "Float64", Some(DataType::Float64)),
+        (ClickHouse, "Date32", Some(DataType::Date32)),
+        (ClickHouse, "DateTime", Some(seconds.clone())),
+        (ClickHouse, "Decimal(10, 3)", Some(DataType::Decimal128(10, 3))),
+        (ClickHouse, "Nullable(Int64)", Some(DataType::Int64)),
+        (ClickHouse, "LowCardinality(Nullable(String))", Some(DataType::Utf8)),
+        (ClickHouse, "Array(Int64)", None),
+        (BigQuery, "INTEGER", Some(DataType::Int64)),
+        (BigQuery, "FLOAT64", Some(DataType::Float64)),
+        (BigQuery, "NUMERIC", Some(DataType::Decimal128(38, 9))),
+        (BigQuery, "NUMERIC(10, 2)", Some(DataType::Decimal128(10, 2))),
+        (BigQuery, "BYTES", Some(DataType::Binary)),
+        (BigQuery, "DATE", Some(DataType::Date32)),
+        (BigQuery, "TIMESTAMP", Some(micros(Some("UTC")))),
+        (BigQuery, "DATETIME", Some(micros(None))),
+        (BigQuery, "STRING", Some(DataType::Utf8)),
+        (BigQuery, "GEOGRAPHY", None),
+        (Oracle, "VARCHAR2(40)", Some(DataType::Utf8)),
+        (Oracle, "NUMBER(10, 2)", Some(DataType::Decimal128(10, 2))),
+        (Oracle, "NUMBER", None),
+        (Oracle, "INTEGER", Some(DataType::Decimal128(38, 0))),
+        (Oracle, "BINARY_FLOAT", Some(DataType::Float32)),
+        (Oracle, "BINARY_DOUBLE", Some(DataType::Float64)),
+        (Oracle, "DATE", Some(seconds)),
+        (Oracle, "TIMESTAMP(6)", Some(micros(None))),
+        (Oracle, "TIMESTAMP", Some(micros(None))),
+        (Oracle, "RAW(16)", Some(DataType::Binary)),
+        (Oracle, "BLOB", Some(DataType::Binary)),
+        (Oracle, "XMLTYPE", None),
+    ];
+    for (dialect, spelling, expected) in cases {
+        let declared = ColumnType::parse(spelling).expect("a test type is a type");
+        assert_eq!(dialect.arrow(&declared), expected, "{dialect:?} reads {spelling}");
+    }
 }
