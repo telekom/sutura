@@ -627,11 +627,20 @@ struct BigQueryVenue {
 /// **`SUTURA_BQ_DATASET` is the switch, and past it nothing is optional**: a half-configured venue
 /// panics naming the variable, because one that skipped would be a green run over nothing. No value
 /// is printed - a public log should not learn a resource name from a refusal.
+///
+/// **Past the switch the run must also be in CI**, so a live cell never runs from a developer's shell
+/// even when every variable is set. **The limit:** `GITHUB_ACTIONS` is an environment value, so a shell
+/// that exports `true` passes; and a cell that reads its own environment instead of this venue is not
+/// held by it.
 fn bigquery_venue() -> Option<&'static BigQueryVenue> {
     static CACHED: OnceLock<Option<BigQueryVenue>> = OnceLock::new();
     CACHED
         .get_or_init(|| {
             let dataset = set("SUTURA_BQ_DATASET")?;
+            assert!(
+                set("GITHUB_ACTIONS").is_some_and(|ci| ci == "true"),
+                "a live bigquery cell runs only in CI (GITHUB_ACTIONS=true); this host names a bigquery venue outside CI"
+            );
             let required = |name: &str| {
                 set(name).unwrap_or_else(|| panic!("SUTURA_BQ_DATASET names a bigquery venue and {name} is unset or empty"))
             };

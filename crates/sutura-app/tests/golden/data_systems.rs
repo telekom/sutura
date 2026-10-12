@@ -605,6 +605,34 @@ fn a_bigquery_open_over_a_table_the_dataset_lacks_is_refused() {
     ));
 }
 
+/// **A live `bigquery` cell refuses outside CI**, offline: a child of this binary runs one `bigquery`
+/// cell with every venue variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the venue
+/// with the rule's message. The venue is read once per process, so a child is the only way to give it
+/// another environment. **The limit:** the fakes name nothing, so a venue without the guard fails the
+/// child later, at the missing driver, and it is the rule's message that is then absent.
+#[test]
+fn a_live_bigquery_cell_is_refused_outside_ci() {
+    let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
+        .args([
+            "--exact",
+            "data_systems::bigquery::every_declared_anchor_reproduces_its_number",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("SUTURA_BQ_DATASET", "no_such_dataset")
+        .env("SUTURA_BQ_PROJECT", "no-such-project")
+        .env("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/key.json")
+        .env("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")
+        .env("INSTA_UPDATE", "no")
+        .output()
+        .expect("a child of the test binary starts");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && said.contains("a live bigquery cell runs only in CI (GITHUB_ACTIONS=true)"),
+        "the child must stop at the venue with the CI rule, and said:\n{said}"
+    );
+}
+
 /// One cell of the data-system axis.
 macro_rules! cell {
     ($name:ident, $adapter:ty) => {
