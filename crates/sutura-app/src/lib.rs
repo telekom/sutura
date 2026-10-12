@@ -262,10 +262,10 @@ pub enum ServiceError<E, M, C> {
 /// The federated path's own wiring, in the four shapes it cannot answer for.
 ///
 /// **Every arm is unreachable through `sutura_semantic::plan::federated_plan`, the one production
-/// splitter, and the provided `FederationCombiner::execute`, and each is typed anyway rather than
-/// assumed away.** A previous revision reached for
-/// a `DuplicateLabels` combine failure for the first of them - a failure about a leg RESULT, minted
-/// from a value that has nothing to do with one - which is the shape this enum replaces.
+/// splitter, and the provided `FederationCombiner::execute`. Each is typed anyway rather than
+/// assumed away.** A previous revision reached for a `DuplicateLabels` combine failure for the
+/// first of them - a failure about a leg RESULT, minted from a value that has nothing to do with
+/// one - which is the shape this enum replaces.
 #[derive(Debug, thiserror::Error)]
 pub enum FederationMiswired {
     /// The two legs named one data system, so the provenance record could not hold both.
@@ -286,8 +286,11 @@ pub enum FederationMiswired {
         #[source]
         cause: sutura_domain::plan::LegsAreNotOneOfEach,
     },
-    /// The combiner ran a leg that the charged cut did not give out: one it ran before, or one the
-    /// cut never held.
+    /// A leg was run that is not among the cut's own legs: one that already ran, or one the cut
+    /// never held.
+    ///
+    /// The cut's legs are [`Cut::legs`](sutura_domain::plan::Cut::legs), each yielded once, so a leg
+    /// outside that sequence is a wiring defect and names its source in `at`.
     #[error("a leg at `{at}` was run that the charged cut did not give out")]
     LegNotGivenOut {
         /// `at` for the reason [`Self::LegsCollide`] gives.
