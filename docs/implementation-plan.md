@@ -182,9 +182,9 @@ here because a spent constraint read as a live one costs a reviewer the same tim
 **The limit, stated next to the claim:** these are orderings between changes, not a statement about
 what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS
 the asker - is **built and unproven**: on BigQuery the caller's own verified assertion is federated
-through the declared pool, and the account the source's per-source map declares for that subject
-becomes the credential's `service_account_impersonation_url` - an undeclared subject is refused,
-never run as the deployment. The adapter venue that would show it is `wired` with
+through the declared pool, and the federated token is that subject's own pool principal - no
+service account is impersonated, and BigQuery's grants on that principal decide what it reads. An
+anonymous caller is refused, never run as the deployment. The adapter venue that would show it is `wired` with
 nobody having dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC
 adoption deleted. See
 [where each identity claim is proven](where-identity-is-proven.md) for which venue may be cited for

@@ -68,6 +68,8 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 | `connection.transport_anchors`                           | path    | none                | The CA file for `verified` and `mutual`                              |
 | `connection.client_certificate`, `connection.client_key` | path    | none                | The client identity for `mutual`                                     |
 
+`sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
+
 `plaintext` needs a loopback IP address as `host`. `verified` and `mutual` need `host`, not
 `unix_socket`. A build with the `rdbms` feature reads PostgreSQL dictionaries; the Oracle
 dictionary needs a build with the `oracle` feature. The Oracle reader refuses a listener that

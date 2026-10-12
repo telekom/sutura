@@ -16,6 +16,11 @@ pidfile="$home/tier.pid"
 portfile="$home/port"
 log="$home/server.log"
 cred="$home/password"
+# The TEST-ONLY token checker (`nix/clickhouse-tier-checker.py`), its key, and the one token minted
+# for `sutura_caller_a` at `start` - minted once, so `credentials` answers the same on every call.
+checker="${CLICKHOUSE_TIER_CHECKER:?the tier wrapper sets CLICKHOUSE_TIER_CHECKER}"
+token_key="$home/token-key"
+token="$home/token"
 # A SIBLING of `home`, so `start`'s cold path cannot delete the lock a live server holds.
 lockfile="$state/clickhouse.lock"
 user=sutura
@@ -59,6 +64,10 @@ PY
 # revoke. `sutura_ungranted` exists and is not granted. The three log in with a digest of a value
 # nobody keeps. A row policy on `execute_as.conformance_events` (the conformance corpus table) shows
 # `sutura_analyst_a` every row and `sutura_analyst_b` none; `$user` has no policy and reads all.
+#
+# Token sign-in: `sutura_caller_a` and `sutura_caller_b` sign in through `checker`, which answers
+# ClickHouse's `GET` with 200 only for a valid token whose `sub` is the Basic user. A row policy on
+# `signed_in.conformance_events` shows `sutura_caller_a` every row and `sutura_caller_b` none.
 write_config() {
   digest="$(printf '%s' "$password" | sha256sum | cut -d' ' -f1)"
   unusable="$(od -An -v -tx1 -N24 < /dev/urandom | tr -d ' \n' | sha256sum | cut -d' ' -f1)"
@@ -94,6 +103,15 @@ $(for analyst in sutura_analyst_a:1 sutura_analyst_b:0 sutura_ungranted:0; do
     printf '    grants:\n      query:\n        - GRANT SELECT ON execute_as.*\n'
     printf '    databases:\n      execute_as:\n        conformance_events:\n          filter: "%s"\n' "${analyst#*:}"
   done)
+$(for caller in sutura_caller_a:1 sutura_caller_b:0; do
+    printf '  %s:\n    http_authentication:\n      server: checker\n      scheme: basic\n' "${caller%:*}"
+    printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
+    printf '    grants:\n      query:\n        - GRANT SELECT ON signed_in.*\n'
+    printf '    databases:\n      signed_in:\n        conformance_events:\n          filter: "%s"\n' "${caller#*:}"
+  done)
+http_authentication_servers:
+  checker:
+    uri: http://127.0.0.1:$checker_port/
 profiles:
   default: {}
 quotas:
@@ -131,12 +149,18 @@ start() {
   # Hex from `/dev/urandom`: no character in it needs quoting in the config or the header.
   password="$(od -An -v -tx1 -N24 < /dev/urandom | tr -d ' \n')"
   ( umask 077; printf '%s' "$password" > "$cred" )
+  ( umask 077
+    od -An -v -tx1 -N32 < /dev/urandom | tr -d ' \n' > "$token_key"
+    python3 "$checker" mint "$token_key" sutura_caller_a > "$token" )
   for _attempt in $(seq 1 10); do
     port="$(allocate_port)"
+    checker_port="$(allocate_port)"
     write_config
     # The watchdog would fork the server into a child; off, so the process the lock names IS it.
     set -m
-    ( exec {start_fd}>"$lockfile"
+    # The checker starts before the lock is opened, so it never holds it; it shares the group `stop` signals.
+    ( python3 "$checker" serve "$checker_port" "$token_key" &
+      exec {start_fd}>"$lockfile"
       flock -x "$start_fd"
       CLICKHOUSE_WATCHDOG_ENABLE=0 exec clickhouse server --config-file="$home/config.yaml"
     ) >"$log" 2>&1 &
@@ -158,6 +182,8 @@ start() {
       stop
       exit 1
     fi
+    # The server is gone; its checker is not.
+    kill -TERM -- "-$pid" 2>/dev/null || true
     if ! grep -q "Address already in use" "$log"; then
       echo "clickhouse tier: the server exited before it answered" >&2
       tail -20 "$log" >&2
@@ -209,16 +235,17 @@ stop() {
   rm -rf "${home:?the tier home is unset}"
 }
 
-# The two exports the adapter's `fixture::credential_from_env` reads, for a caller to `eval`. An
-# absent credential is a refusal, not an empty answer.
+# The two exports the adapter's `fixture::credential_from_env` reads and the token-sign-in cell's
+# token, for a caller to `eval`. An absent credential is a refusal, not an empty answer.
 credentials() {
-  if [ ! -s "$cred" ]; then
+  if [ ! -s "$cred" ] || [ ! -s "$token" ]; then
     echo "clickhouse tier: no credential is published for this worktree, so the suite's clickhouse" >&2
     echo "               cells would refuse. \`just clickhouse-tier start\` publishes one." >&2
     exit 1
   fi
   printf 'export SUTURA_CLICKHOUSE_TIER_USER=%s\n' "$user"
   printf 'export SUTURA_CLICKHOUSE_TIER_PASSWORD=%s\n' "$(cat "$cred")"
+  printf 'export SUTURA_CLICKHOUSE_TIER_TOKEN=%s\n' "$(cat "$token")"
 }
 
 # 0 a server of ours is running AND `endpoints.json` publishes it at the port it answers on;

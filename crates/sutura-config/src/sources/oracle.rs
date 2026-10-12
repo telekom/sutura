@@ -9,11 +9,8 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{
-    HostName, InvalidOracleDelegation, OracleChannel, OracleServiceName, SourcePlacement, TlsServerName,
-};
+use crate::sources::placement::{HostName, InvalidDelegation, OracleChannel, OracleServiceName, SourcePlacement, TlsServerName};
 use crate::sources::transport::{SourceTransport, TrustAnchors};
-use crate::sources::workload_identity::DelegationDeclared;
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
@@ -111,7 +108,12 @@ pub(super) fn parse_placement(
         } => return Err(refused("verified with `transport_anchors: system`")),
         SourceTransport::Mutual { .. } => return Err(refused("mutual")),
     };
-    let delegation = parse_delegation(alias, kind, entry, &channel)?;
+    let delegation = super::parse_delegation(
+        alias,
+        kind,
+        entry,
+        matches!(channel, OracleChannel::Plaintext).then_some(InvalidDelegation::Plaintext),
+    )?;
     Ok(SourcePlacement::Oracle {
         host,
         port,
@@ -121,37 +123,6 @@ pub(super) fn parse_placement(
         channel,
         delegation,
     })
-}
-
-/// The hops each caller's token is exchanged through: required on an `impersonation-at-source`
-/// entry, which must be `verified`, and refused on any other - and never beside
-/// `workload_identity`, which only `bigquery` reads.
-fn parse_delegation(
-    alias: &SourceName,
-    kind: SourceKind,
-    entry: &RawSourceEntry<'_>,
-    channel: &OracleChannel,
-) -> Result<Vec<DelegationDeclared>, InvalidSourceRegistry> {
-    super::refuse_foreign_keys(alias, kind, [("workload_identity", entry.workload_identity.is_some())])?;
-    let invalid = |cause| InvalidSourceRegistry::OracleDelegation {
-        alias: alias.clone(),
-        cause,
-    };
-    let declared = match (entry.posture.trim() == "impersonation-at-source", entry.delegation) {
-        (false, None) => return Ok(Vec::new()),
-        (false, Some(_)) => return Err(invalid(InvalidOracleDelegation::NotImpersonating)),
-        (true, None | Some([])) => return Err(invalid(InvalidOracleDelegation::Missing)),
-        (true, Some(declared)) => declared,
-    };
-    if *channel == OracleChannel::Plaintext {
-        return Err(invalid(InvalidOracleDelegation::Plaintext));
-    }
-    let hops = declared
-        .iter()
-        .map(|hop| DelegationDeclared::of(alias, hop, "delegation.token_endpoint", "delegation.client_secret_file"))
-        .collect::<Result<Vec<_>, _>>()?;
-    super::workload_identity::refuse_broker_token_last(alias, "delegation", hops.last().map(DelegationDeclared::grant))?;
-    Ok(hops)
 }
 
 /// The six keys an `oracle` entry has no use for, paired with whether this entry wrote each.
@@ -206,6 +177,8 @@ mod tests {
             port: Some(1521),
             database: None,
             service_name: Some("FREEPDB1"),
+            endpoint: None,
+            token_file: None,
             database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/oracle-password"),
@@ -213,7 +186,7 @@ mod tests {
             transport_anchors: None,
             client_certificate: None,
             client_key: None,
-            impersonate: None,
+            impersonate: false,
             subjects: false,
             delegation: None,
         }
@@ -380,6 +353,8 @@ mod tests {
                 "service_name",
                 RawSourceEntry {
                     service_name: None,
+                    endpoint: None,
+                    token_file: None,
                     database_file: None,
                     ..oracle("warehouse")
                 },
@@ -480,6 +455,8 @@ mod tests {
         ] {
             let entry = RawSourceEntry {
                 service_name: Some(written),
+                endpoint: None,
+                token_file: None,
                 database_file: None,
                 ..oracle("warehouse")
             };
@@ -498,6 +475,8 @@ mod tests {
         SourceRegistry::parse(
             &[RawSourceEntry {
                 service_name: Some("orcl.example_1"),
+                endpoint: None,
+                token_file: None,
                 database_file: None,
                 ..oracle("warehouse")
             }],
@@ -583,7 +562,7 @@ mod tests {
     /// shared one, over `plaintext`, and beside a `workload_identity` block.
     #[test]
     fn an_oracle_delegation_is_refused_unless_an_impersonating_verified_source_declares_it() {
-        use placement::InvalidOracleDelegation;
+        use placement::InvalidDelegation;
 
         let one = [hop("https://db.example.com", DelegationGrant::OnBehalfOf)];
         let cases = [
@@ -592,15 +571,15 @@ mod tests {
                     delegation: None,
                     ..impersonating(&one)
                 },
-                InvalidOracleDelegation::Missing,
+                InvalidDelegation::Missing,
             ),
-            (impersonating(&[]), InvalidOracleDelegation::Missing),
+            (impersonating(&[]), InvalidDelegation::Missing),
             (
                 RawSourceEntry {
                     delegation: Some(&one),
                     ..oracle("warehouse")
                 },
-                InvalidOracleDelegation::NotImpersonating,
+                InvalidDelegation::NotImpersonating,
             ),
             (
                 RawSourceEntry {
@@ -609,20 +588,19 @@ mod tests {
                     transport_anchors: None,
                     ..impersonating(&one)
                 },
-                InvalidOracleDelegation::Plaintext,
+                InvalidDelegation::Plaintext,
             ),
         ];
         for (entry, expected) in cases {
             let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the delegation is refused");
             assert!(
-                matches!(error, InvalidSourceRegistry::OracleDelegation { ref cause, .. } if *cause == expected),
+                matches!(error, InvalidSourceRegistry::Delegation { ref cause, .. } if *cause == expected),
                 "{expected:?}: {error}"
             );
         }
         let with_a_pool = RawSourceEntry {
             workload_identity: Some(crate::raw::RawWorkloadIdentity {
                 audience: String::from("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q"),
-                impersonate: std::collections::BTreeMap::new(),
                 expected_issuer: None,
                 expected_audience: None,
                 delegation: None,

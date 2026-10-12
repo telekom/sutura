@@ -11,3 +11,14 @@
 # with its reason once its test runs at base - nothing refuses one that merely stopped being needed.
 the_distinct_key_pull_up_answers_and_reserves_working_set # linux-only cell (cfg target_os = linux); no linux base run here; old name stated the opposite
 every_corpus_question_has_one_fresh_child_outcome_in_each_topology # #[cfg(target_os = "linux")]: not compiled on a macOS causality run; runs in the nix checks / CI on Linux
+a_result_over_the_byte_budget_is_refused_before_the_second_fetch # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_spent_deadline_between_fetches_stops_the_read # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_read_stops_at_the_answer_witness # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_number_of_seventeen_or_more_digits_stays_exact # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_date_with_a_time_of_day_keeps_it_in_its_batch # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+only_midnight_with_no_fraction_reads_as_the_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_time_of_day_before_1970_lands_on_its_day # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_zoned_timestamp_keeps_its_own_offset # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+every_batch_of_an_answer_is_read # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+only_a_number_column_is_read_as_an_integer # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there
+a_local_time_zone_column_is_refused_by_name # names the streamed-batch read (batches.rs, declared in lib.rs) the base lacks; the base run reverts lib.rs, so the module is not compiled there

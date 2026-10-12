@@ -475,35 +475,6 @@ fn a_forwarded_header_is_not_believed_without_a_named_hop() {
 }
 
 #[test]
-fn a_trusted_proxy_list_that_nothing_reads_is_refused() {
-    // The other direction, and it is refused for the reason every unknown key here is an error: a
-    // list that has no effect reads as a control that is in place.
-    let sources = Sources::defaults(Environment::Development)
-        .with_overlay("rate_limit:\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n    - \"10.1.0.0/16\"\n");
-    let error = Settings::load(&sources).expect_err("a list nothing reads is refused");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a posture refusal, got {error:?}");
-    };
-    assert_eq!(*refusals, vec![NotFitToServe::TrustedProxiesWithoutForwarding { count: 2 }]);
-}
-
-#[test]
-fn forwarded_keying_with_a_named_hop_loads() {
-    // The positive case, without which the two refusals above are satisfied by refusing every
-    // forwarded configuration there is.
-    let sources = Sources::defaults(Environment::Development)
-        .with_overlay("rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n");
-    let settings = Settings::load(&sources).expect("a named hop and a header source load");
-    assert_eq!(settings.rate_limit().client_address(), ClientAddressSource::Forwarded);
-    assert!(
-        settings
-            .rate_limit()
-            .trusted_proxies()
-            .trusts("10.1.2.3".parse().expect("a test address is an address"))
-    );
-}
-
-#[test]
 fn in_process_tls_needs_material_and_material_needs_in_process_tls() {
     // Both halves of one question. Either mismatch is a listener that is not what the file says: a
     // declaration with no key cannot serve TLS, and a key with no declaration is never read.
@@ -983,6 +954,10 @@ mod allowed_hosts;
 /// twins. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod agent_surface;
+
+/// The same off-host predicate asked by the `/v1` and `/metrics` refusals. Same reason as `governance`.
+#[cfg(test)]
+mod off_host;
 
 /// The `catalogs[].refresh_seconds` default and refusals. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]

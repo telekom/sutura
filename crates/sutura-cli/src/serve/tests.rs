@@ -84,6 +84,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::Oracle(_)) => panic!("expected the file engine, got the Oracle arm"),
         #[cfg(feature = "duckdb")]
         Ok(OpenedSources::Duckdb(_)) => panic!("expected the file engine, got the DuckDB arm"),
+        #[cfg(feature = "cube")]
+        Ok(OpenedSources::Cube(_)) => panic!("expected the file engine, got the Cube arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }
@@ -105,9 +107,15 @@ pub(super) fn registry(entries: &str) -> sutura_config::SourceRegistry {
 
 /// [`registry`] on a deployment that verifies callers `direct`ly, which a declared `delegation`
 /// needs.
-#[cfg(feature = "oracle")]
+#[cfg(any(feature = "oracle", feature = "cube"))]
 pub(super) fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
-    registry_under(
+    direct_settings(entries).sources().clone()
+}
+
+/// The settings [`direct_registry`] reads its registry from, for a cell that serves them.
+#[cfg(any(feature = "oracle", feature = "cube"))]
+pub(super) fn direct_settings(entries: &str) -> sutura_config::Settings {
+    settings_under(
         "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
          authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/nonexistent/keys.json\"\n    \
          algorithms: [\"RS256\"]\n",
@@ -116,6 +124,11 @@ pub(super) fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
 }
 
 fn registry_under(inbound: &str, entries: &str) -> sutura_config::SourceRegistry {
+    settings_under(inbound, entries).sources().clone()
+}
+
+/// The whole settings tree [`registry_under`] reads its registry from.
+fn settings_under(inbound: &str, entries: &str) -> sutura_config::Settings {
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
              files\"\n{inbound}sources:\n{entries}"
@@ -124,8 +137,6 @@ fn registry_under(inbound: &str, entries: &str) -> sutura_config::SourceRegistry
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
     )
     .expect("the test settings load")
-    .sources()
-    .clone()
 }
 
 /// One `sources:` entry over the example data directory.

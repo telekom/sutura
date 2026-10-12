@@ -1766,6 +1766,13 @@ why it earned the same treatment: a regression cell, measured to fail under exac
 and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
 for the wrong reason.
 
+**A cell trailer on a merge commit is refused** by `refusals::report_merged_trailers`, which
+`causality::run` calls before any trailer reader: a `Claim-Cell:`, `Weakens-Test:`, `Live-Cell:` or
+`Cleanup-Split:` line on a merge commit of `base..HEAD` exits 1, because the squash drops a merge
+commit's message. A line matches as each reader's first filter does, trimmed and then prefixed by the
+trailer. Re-cut the merge as a linear commit. It reads parent counts, not the repository's merge
+settings, so it assumes squash merges.
+
 ## The Live-Cell trailer
 
 `Live-Cell: <test-fn-name> <system> <ci-job>` moves a `crates/sutura-app/tests/` matrix cell out of

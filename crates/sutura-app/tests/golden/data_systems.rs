@@ -358,6 +358,14 @@ where
             rendered.contains("division by zero"),
             "{system} neither refused a non-finite cell nor reported the server's division-by-zero:\n{rendered}"
         ),
+        // Cube answers a zero denominator as no value, which the adapter refuses naming the metric.
+        "cube" => assert!(
+            rendered.contains(&format!(
+                "the metric {} declares that a zero denominator fails",
+                january.metric()
+            )),
+            "cube did not refuse the zero denominator's empty answer naming the metric:\n{rendered}"
+        ),
         // The engine, DuckDB and ClickHouse divide with IEEE semantics and receive a non-finite
         // value, which the adapter refuses NAMING THE COLUMN - the strong assertion kept for the
         // adapters that can make it. ClickHouse reaches it only because it asks for the value as
@@ -595,6 +603,35 @@ fn a_bigquery_open_over_a_table_the_dataset_lacks_is_refused() {
         crate::adapters::source(),
         vec![(table, data_root().join("not_in_the_dataset.csv"))],
     ));
+}
+
+/// **A live `bigquery` cell refuses outside CI**, offline: a child of this binary runs one `bigquery`
+/// cell with every venue variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the venue
+/// with the rule's message. The venue is read once per process, so a child is the only way to give it
+/// another environment. **The limit:** the fakes name nothing, so a venue without the guard lets the
+/// child run its anchors, each of which fails to load the driver, and the child panics at the
+/// `anchor_report` snapshot instead - it is the rule's message that is then absent.
+#[test]
+fn a_live_bigquery_cell_is_refused_outside_ci() {
+    let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
+        .args([
+            "--exact",
+            "data_systems::bigquery::every_declared_anchor_reproduces_its_number",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("SUTURA_BQ_DATASET", "no_such_dataset")
+        .env("SUTURA_BQ_PROJECT", "no-such-project")
+        .env("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/key.json")
+        .env("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")
+        .env("INSTA_UPDATE", "no")
+        .output()
+        .expect("a child of the test binary starts");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && said.contains("a live bigquery cell runs only in CI (GITHUB_ACTIONS=true)"),
+        "the child must stop at the venue with the CI rule, and said:\n{said}"
+    );
 }
 
 /// One cell of the data-system axis.

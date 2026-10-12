@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-runtime/src/admission.rs b/crates/sutura-runtime/src/admission.rs
+index fefa9aab1..b7c3700de 100644
+--- a/crates/sutura-runtime/src/admission.rs
++++ b/crates/sutura-runtime/src/admission.rs
+@@ -124,7 +124,7 @@ impl Admission {
+     #[must_use]
+     pub(crate) fn new(concurrency: QueryConcurrency, timeout: AdmissionTimeout) -> Self {
+         Self {
+-            slots: Arc::new(Semaphore::new(concurrency.count())),
++            slots: Arc::new(Semaphore::new(concurrency.count() + 1)),
+             bound: concurrency.count(),
+             wait: timeout.duration(),
+         }

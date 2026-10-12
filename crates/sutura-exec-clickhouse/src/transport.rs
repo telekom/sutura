@@ -38,7 +38,16 @@ pub trait ClickHouseTransport {
     /// `JSONCompactEachRowWithNamesAndTypes` bytes: a names row, a types row, then one row per
     /// result row - `crate::rows_from_json` is the shared decode both this trait's implementors
     /// answer into.
-    fn run(&self, statement: &str, params: &[ParamValue], deadline: Deadline) -> RunResult<Self::Error>;
+    ///
+    /// `sign_in` replaces the deployment's declared credential for this one request with a caller's
+    /// own; `None` signs in as the deployment.
+    fn run(
+        &self,
+        statement: &str,
+        params: &[ParamValue],
+        deadline: Deadline,
+        sign_in: Option<SignIn<'_>>,
+    ) -> RunResult<Self::Error>;
 
     /// Was this failure the endpoint refusing the statement at the identity/authorization level?
     /// `Warehouse::source_refused`'s delegate, one port further down - `Self::Error` is this
@@ -122,6 +131,30 @@ impl BasicAuth {
             user: user.into(),
             password,
         }
+    }
+}
+
+/// A caller's own HTTP Basic sign-in for one request: their verified name as the user, and the token
+/// their verified assertion was exchanged for as the password.
+#[derive(Debug, Clone, Copy)]
+pub struct SignIn<'a> {
+    /// The `ClickHouse` user the caller signs in as.
+    user: &'a crate::execute_as::ClickHouseUser,
+    /// The exchanged token, sent as the password.
+    token: &'a sutura_domain::identity::Secret,
+}
+
+impl<'a> SignIn<'a> {
+    /// The caller's verified name as the user, and the token they sign in with.
+    #[must_use]
+    pub const fn new(user: &'a crate::execute_as::ClickHouseUser, token: &'a sutura_domain::identity::Secret) -> Self {
+        Self { user, token }
+    }
+
+    /// The user and token, for a fake transport to record.
+    #[cfg(test)]
+    pub(crate) fn parts(self) -> (&'a str, &'a sutura_domain::identity::Secret) {
+        (self.user.as_str(), self.token)
     }
 }
 
@@ -256,7 +289,7 @@ impl Http {
         let mut url = self.url()?;
         url.query_pairs_mut().append_pair("query", query);
         let mut request = self.agent.post(url.as_str());
-        if let Some(header) = self.authorization() {
+        if let Some(header) = self.authorization(None) {
             request = request.header("Authorization", header);
         }
         let response = request.send(data).map_err(|cause| HttpError::Transport { cause })?;
@@ -272,17 +305,20 @@ impl Http {
         Ok(url)
     }
 
-    fn authorization(&self) -> Option<String> {
-        self.auth.as_ref().map(|auth| {
-            use base64::Engine as _;
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the credential's destination is the Authorization header of the one request \
-                          this adapter makes, which is the one place the value itself is the payload"
-            )]
-            let raw = format!("{}:{}", auth.user, auth.password.expose_secret());
-            format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(raw))
-        })
+    /// The caller's own sign-in when one is given, else the deployment's declared credential.
+    fn authorization(&self, sign_in: Option<SignIn<'_>>) -> Option<String> {
+        use base64::Engine as _;
+        let (user, password) = match sign_in {
+            Some(SignIn { user, token }) => (user.as_str(), token),
+            None => self.auth.as_ref().map(|auth| (auth.user.as_str(), &auth.password))?,
+        };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the credential's destination is the Authorization header of the one request \
+                      this adapter makes, which is the one place the value itself is the payload"
+        )]
+        let raw = format!("{user}:{}", password.expose_secret());
+        Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(raw)))
     }
 }
 
@@ -294,7 +330,13 @@ fn base_config(config: sutura_http_client::AgentConfig) -> sutura_http_client::A
 impl ClickHouseTransport for Http {
     type Error = HttpError;
 
-    fn run(&self, statement: &str, params: &[ParamValue], deadline: Deadline) -> RunResult<Self::Error> {
+    fn run(
+        &self,
+        statement: &str,
+        params: &[ParamValue],
+        deadline: Deadline,
+        sign_in: Option<SignIn<'_>>,
+    ) -> RunResult<Self::Error> {
         crate::deadline::refuse_if_spent(deadline)?;
         let rewritten = rewrite_placeholders(statement, params)?;
         let sent = format!("{rewritten} FORMAT {RESPONSE_FORMAT}");
@@ -309,7 +351,7 @@ impl ClickHouseTransport for Http {
             }
         }
         let mut request = self.agent.post(url.as_str());
-        if let Some(header) = self.authorization() {
+        if let Some(header) = self.authorization(sign_in) {
             request = request.header("Authorization", header);
         }
         let response = request.send(&sent).map_err(|cause| HttpError::Transport { cause })?;
@@ -558,6 +600,26 @@ mod tests {
         (Deadline::opened_at(opened, budget), opened)
     }
 
+    /// A caller's sign-in replaces the deployment's credential: the Basic user is the verified name
+    /// and the password the exchanged token, and without one the deployment's own pair is sent.
+    #[test]
+    fn a_callers_sign_in_is_their_name_and_their_token_in_place_of_the_deployments() {
+        use base64::Engine as _;
+        let deployment = BasicAuth::new(
+            "sutura",
+            sutura_domain::identity::Secret::new(String::from("deployment-password")),
+        );
+        let http = Http::connect(Endpoint::plaintext("localhost", 8123), Some(deployment), 1 << 20);
+        let basic = |pair: &str| format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(pair));
+        let token = sutura_domain::identity::Secret::new(String::from("exchanged-token"));
+        let user = crate::execute_as::ClickHouseUser::parse("analyst-a").expect("a test user is a user");
+        assert_eq!(
+            http.authorization(Some(SignIn::new(&user, &token))),
+            Some(basic("analyst-a:exchanged-token"))
+        );
+        assert_eq!(http.authorization(None), Some(basic("sutura:deployment-password")));
+    }
+
     /// An `Http` transport with a roomy body cap, for tests that only classify errors. The cap's
     /// own assertions live in the body-reading cells; this helper just needs to get out of the way.
     fn test_http() -> Http {
@@ -573,7 +635,7 @@ mod tests {
                     200, "",
                 )]);
             let http = Http::connect(Endpoint::plaintext("127.0.0.1", server.addr().port()), None, 1 << 20);
-            drop(http.run("SELECT 1", &[], deadline_of(30).0));
+            drop(http.run("SELECT 1", &[], deadline_of(30).0, None));
             assert_eq!(server.finish().len(), 1, "the query reached the loopback endpoint directly");
         });
     }

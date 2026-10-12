@@ -11,6 +11,26 @@ use super::inbound::DIRECT_INBOUND;
 use super::{METRICS_TOKEN, TOKEN};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
+/// What an unguarded off-host single-user agent deployment is refused with, in order: `/v1`,
+/// `/metrics` and `/mcp` ask one off-host predicate, so all four arrive together.
+const UNGUARDED: [NotFitToServe; 4] = [
+    NotFitToServe::AccessTokenRequired {
+        because: TokenRequiredBy::OffHost,
+    },
+    NotFitToServe::MetricsTokenRequired {
+        because: TokenRequiredBy::OffHost,
+    },
+    NotFitToServe::AgentSurfaceWithoutInboundIdentity,
+    NotFitToServe::RateLimitingDisabled {
+        because: TokenRequiredBy::OffHost,
+    },
+];
+
+/// The deployment token and the metrics token, as `security:` lines.
+fn tokens() -> String {
+    format!("  access_token: \"{TOKEN}\"\n  metrics_token: \"{METRICS_TOKEN}\"\n")
+}
+
 const AGENT: &str = "server:\n  agent_surface:\n    enabled: true\n";
 const LIMITED: &str = "rate_limit:\n  enabled: true\n";
 const SINGLE_USER: &str = "  identity: \"single-user\"\n  single_user_because: \"one operator, their own files\"\n";
@@ -123,15 +143,11 @@ fn an_agent_surface_over_an_impersonating_source_with_no_inbound_identity_is_not
 fn a_loopback_agent_surface_behind_a_declared_proxy_counts_as_off_host() {
     let proxy = "  client_address: \"forwarded\"\n  trusted_proxies: [\"127.0.0.1\"]\n";
     let refusals = refused(&loopback("", "", &format!("rate_limit:\n{proxy}")));
-    assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity]);
-    let rendered = refusals.first().expect("one refusal").to_string();
+    assert_eq!(refusals, UNGUARDED);
+    let rendered = refusals.get(2).expect("the agent refusal").to_string();
     assert!(rendered.contains("rate_limit.trusted_proxies"), "{rendered}");
-    // Off-host is met as off-host is: the deployment token and the limiter.
-    serves(&loopback(
-        "",
-        &format!("  access_token: \"{TOKEN}\"\n"),
-        &format!("rate_limit:\n  enabled: true\n{proxy}"),
-    ));
+    // Off-host is met as off-host is: the deployment token, the metrics token and the limiter.
+    serves(&loopback("", &tokens(), &format!("rate_limit:\n  enabled: true\n{proxy}")));
 }
 
 #[test]
@@ -149,10 +165,10 @@ fn a_loopback_agent_surface_answering_a_host_name_counts_as_off_host() {
         let loaded = Settings::load(&Sources::defaults(Environment::Development).with_overlay(loopback(&named, "", "")));
         assert!(loaded.is_err(), "{hosts}");
         let refusals = refused(&loopback(&named, "", ""));
-        assert_eq!(refusals, vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity], "{hosts}");
-        let rendered = refusals.first().expect("one refusal").to_string();
+        assert_eq!(refusals, UNGUARDED, "{hosts}");
+        let rendered = refusals.get(2).expect("the agent refusal").to_string();
         assert!(rendered.contains("server.allowed_hosts"), "{rendered}");
-        serves(&loopback(&named, &format!("  access_token: \"{TOKEN}\"\n"), LIMITED));
+        serves(&loopback(&named, &tokens(), LIMITED));
     }
     // A loopback address names no caller from beyond this host.
     serves(&loopback("  allowed_hosts: [\"127.0.0.1\", \"::1\"]\n", "", ""));
@@ -163,14 +179,10 @@ fn a_loopback_agent_surface_behind_a_declared_tls_terminator_counts_as_off_host(
     for terminator in ["sidecar", "ingress"] {
         let declared = format!("  tls_termination: \"{terminator}\"\n");
         let refusals = refused(&loopback("", &declared, ""));
-        assert_eq!(
-            refusals,
-            vec![NotFitToServe::AgentSurfaceWithoutInboundIdentity],
-            "{terminator}"
-        );
-        let rendered = refusals.first().expect("one refusal").to_string();
+        assert_eq!(refusals, UNGUARDED, "{terminator}");
+        let rendered = refusals.get(2).expect("the agent refusal").to_string();
         assert!(rendered.contains("security.tls_termination"), "{rendered}");
-        serves(&loopback("", &format!("{declared}  access_token: \"{TOKEN}\"\n"), LIMITED));
+        serves(&loopback("", &format!("{declared}{}", tokens()), LIMITED));
     }
     // `none` names no terminator, so a loopback bind that says it is still this host only.
     serves(&loopback("", "  tls_termination: \"none\"\n", ""));

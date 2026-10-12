@@ -8,19 +8,54 @@
 # network and no docker socket; this server needs neither - one loopback HTTP listener on a port
 # the operating system allocates, published only once the server answers on it.
 #
-# `pkgs.clickhouse` is the same 26.7 series `compose.services.yaml` pins for the by-hand docker
-# service; nothing compares the two, so a bump of either is a bump of one venue.
+# The server is ClickHouse's own release build, pinned by hash per system rather than taken from
+# nixpkgs, whose series lags the release this tier is held to. `compose.services.yaml` pins the
+# by-hand docker service separately; nothing compares the two, so a bump of either is a bump of one
+# venue. The macOS assets are self-extracting: run once, the binary decompresses next to itself,
+# which a read-only store path cannot take - so the build runs it once in `$out`. The Linux assets'
+# ELF interpreter does not exist in the sandbox, so the build patches it for the store and runs it.
 { pkgs }:
 let
   endpoints = import ./tier-endpoints.nix { inherit pkgs; };
 in
 rec {
-  package = pkgs.clickhouse;
+  version = "26.9.15.5";
+  package =
+    let
+      release = "https://github.com/ClickHouse/ClickHouse/releases/download/v${version}-stable";
+      asset = {
+        x86_64-linux = { name = "clickhouse-common-static-${version}-amd64.tgz"; hash = "sha512-1KKARYzSdkXVw9oooNRBmrxUGGyPLxsh6la6jrd8yPe4QOXyfkZUBONWNm/pbcz6VxKt/n/AIuPYh8OuVX7RBA=="; };
+        aarch64-linux = { name = "clickhouse-common-static-${version}-arm64.tgz"; hash = "sha512-G5rk4H96z0rx0RuzlaX8p9s4nYGIqBtmlieXn7i3U+qMuMmrT0IXUHT4+HgkH2fFN0C1J3a2r7rzTYnEJv7Zkw=="; };
+        x86_64-darwin = { name = "clickhouse-macos"; hash = "sha256-CbLnBKuiv2YEUDJ+tUM++P55x65G6hgcvLflV2OKDYA="; executable = true; };
+        aarch64-darwin = { name = "clickhouse-macos-aarch64"; hash = "sha256-AG90FDOKnW+lfQuETKNPn2aa7P024kLDPUVH08ROlp4="; executable = true; };
+      }.${pkgs.stdenv.hostPlatform.system};
+      src = pkgs.fetchurl {
+        url = "${release}/${asset.name}";
+        inherit (asset) hash;
+        executable = asset.executable or false;
+      };
+    in
+    pkgs.runCommand "clickhouse-${version}"
+      {
+        nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.autoPatchelfHook ];
+        buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.stdenv.cc.cc.lib ];
+      }
+      (
+      if pkgs.stdenv.hostPlatform.isLinux then ''
+        tar -xzf ${src}
+        install -Dm755 clickhouse-common-static-${version}/usr/bin/clickhouse "$out/bin/clickhouse"
+        autoPatchelf "$out"
+        "$out/bin/clickhouse" --version
+      '' else ''
+        install -Dm755 ${src} "$out/bin/clickhouse"
+        (cd "$out/bin" && ./clickhouse --version)
+      ''
+    );
 
   tier = pkgs.writeShellApplication {
     name = "sutura-clickhouse-tier";
-    runtimeInputs = [ pkgs.clickhouse endpoints.script pkgs.coreutils pkgs.curl pkgs.flock pkgs.gnugrep pkgs.python3 ];
-    text = builtins.readFile ./clickhouse-tier-provision.sh;
+    runtimeInputs = [ package endpoints.script pkgs.coreutils pkgs.curl pkgs.flock pkgs.gnugrep pkgs.python3 ];
+    text = "export CLICKHOUSE_TIER_CHECKER=${./clickhouse-tier-checker.py}\n" + builtins.readFile ./clickhouse-tier-provision.sh;
   };
 
   # The tier's state machine, driven end to end - `checks.nextest` starts and stops this tier, which

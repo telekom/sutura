@@ -34,4 +34,5 @@ mod fetch;
 pub(crate) use bind::column_db_type;
 pub(crate) use bind::column_max_size;
 pub(crate) use bind::write_to_buf;
+pub use fetch::ArrowBatches;
 pub(crate) use fetch::query_single_batch;

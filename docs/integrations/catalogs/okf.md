@@ -20,6 +20,8 @@ the structure of the tables and their descriptions. It supplies no metrics and n
 This catalog reads the [settings that every catalog has](../../integrations.md#catalog-settings).
 It reads `name`, `version` and `dir`. It requires `data_dir`, but does not read it.
 
+`sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
+
 ## Example
 
 ```yaml

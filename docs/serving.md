@@ -38,7 +38,7 @@ variables, in that order. [Configuration](configuration.md) lists the layers and
 
 Each data system and each catalog has its own settings. See the [integrations](integrations/index.md).
 
-`catalogs[].refresh_seconds` sets how often `sutura serve` reads the catalog again. The default is 900 seconds, and `0` is
+`sutura serve` reads all catalog entries again at the shortest `catalogs[].refresh_seconds` among them. The default is 900, and `0` is
 refused. A refresh swaps the served catalog. A new question uses the new snapshot, and a question in flight ends on the
 snapshot that it started with. A bundle that fails the start-up checks is refused, and the served catalog stays in place.
 On a `files` source, a bundle that names a table that the engine did not attach at start-up is refused until a restart.
@@ -47,12 +47,16 @@ On a `files` source, a bundle that names a table that the engine did not attach 
 
 Every row below is a refusal to start, not a warning. sutura reports all refusals at once and names the setting.
 
+Off-host means that callers can arrive from other hosts: a non-loopback `server.host`, a `rate_limit.trusted_proxies`
+hop, a `security.tls_termination` of `sidecar` or `ingress`, or a `server.allowed_hosts` entry that is not a loopback
+address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` and `/mcp` use this one rule.
+
 | Configuration                                                                                                   | What to do                                                                                  |
 | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | A bind address that other hosts can reach, and no `security.tls_termination`                                    | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
-| No `security.access_token` and no `security.inbound`, in production or on a non-loopback bind                   | Set one of them                                                                             |
+| No `security.access_token` and no `security.inbound`, in production or off-host                                 | Set one of them                                                                             |
 | `security.access_token` together with `security.inbound.mode: direct`                                           | Remove one: both use `Authorization: Bearer`                                                |
-| `GET /metrics` reachable with no `security.metrics_token`, in production or on a non-loopback bind              | Set `security.metrics_token`                                                                |
+| `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                            | Set `security.metrics_token`                                                                |
 | `security.metrics_token` equal to `security.access_token`                                                       | Use two values                                                                              |
 | `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
 | `server.agent_surface.enabled` with no `security.inbound` and a source with `impersonation-at-source`           | Declare `security.inbound`                                                                  |
@@ -64,7 +68,7 @@ Every row below is a refusal to start, not a warning. sutura reports all refusal
 | `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`     | Use a value in range, or accept the long lifetime by name                                   |
 | `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                            | Keep the default `at+jwt`, or accept `any` by name                                          |
 | A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`          | Name the real proxy hops                                                                    |
-| `rate_limit.enabled: false` in production                                                                       | Remove it                                                                                   |
+| `rate_limit.enabled: false`, in production or off-host                                                          | Set `rate_limit.enabled: true`                                                              |
 | `server.port: 0` in production                                                                                  | Set a port                                                                                  |
 | An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                | Fix the name                                                                                |
 | A configured source and no `security.identity`                                                                  | Write `single-user` or `multi-user`                                                         |
@@ -84,7 +88,7 @@ The log has `INFO` lines about the check in two cases. When BigQuery is the only
 model of the catalog reads gets one line: every table is there. When there is more than one kind of data system, the
 check runs over every source, and each source that a model reads gets one line. BigQuery says that every table is
 there. Every other kind, `files` included, says that the adapter does not report which tables it holds. A deployment of
-one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle or DuckDB) logs no line about tables.
+one kind other than BigQuery (`files`, Postgres, ClickHouse, Oracle, DuckDB or Cube) logs no line about tables.
 
 ## Who is asking
 
@@ -125,11 +129,31 @@ the source decides whose access governs the rows.
 
 - With `security.inbound`, `tools/list` shows only the tools that the scope of the caller grants. The tools are
   `describe_catalog` and `ask_metric`, and `run_sql` when it is on.
-- Without `security.inbound`, `/mcp` serves only a `single-user` deployment that is reachable from this host only, or
-  that is behind both `security.access_token` and `rate_limit.enabled`. Then it answers every caller as the
-  deployment, with every tool. A declared `rate_limit.trusted_proxies` hop, a `security.tls_termination` of `sidecar`
-  or `ingress`, or a non-loopback entry in `server.allowed_hosts` counts as off-host.
-- `/mcp` has the same rate limit, body cap, deployment token and `Host` list as `/v1`.
+- Without `security.inbound`, `/mcp` serves only a `single-user` deployment that is not
+  [off-host](#start-up-refusals), or that is behind both `security.access_token` and `rate_limit.enabled`. Then it
+  answers every caller as the deployment, with every tool.
+- `/mcp` and `/v1` share the controls in [the two surfaces](#the-two-surfaces).
+
+#### The two surfaces
+
+| Control                       | `/v1`                                                                        | `/mcp`                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Deployment token              | `security.access_token`, else `401`                                          | The same                                                                                                           |
+| Caller identity               | `security.inbound`, else `401` with a challenge                              | The same                                                                                                           |
+| Scope                         | `403` with `code: insufficient_scope`                                        | `tools/list` shows only the granted tools. A call to another tool is a JSON-RPC error that names the scope         |
+| `Host` list                   | `403` with `code: host_not_allowed`                                          | The same. A request with no `Host` gets `400`                                                                      |
+| Rate limit                    | The API tier                                                                 | The same bucket: requests to `/v1` and `/mcp` spend one burst                                                      |
+| Body cap                      | `server.max_body_bytes`, `413` with `code: too_large`                        | The same cap. The `413` has the body of the MCP transport                                                          |
+| Request deadline              | `server.request_timeout_seconds`, `408`                                      | The same deadline. A question that outruns it gets a tool error, or the `408` when the request bound expires first |
+| Concurrency                   | `runtime.max_concurrent_queries`, `503` with `at_capacity`                   | The same bound. A full deployment answers with a tool error                                                        |
+| Row and byte caps of a result | `413` with `code: result_too_large`                                          | The same caps                                                                                                      |
+| A refused question            | The status and the `code` of [the table](#a-refusal-carries-a-status)        | `"outcome": "refusal"` and the same `code` in the tool result, with no `status`                                    |
+| Correlation id                | The `x-correlation-id` of the request, or a new id, on each of its log lines | The same                                                                                                           |
+| Log                           | The request line, and a `question received` line with the metric and grain   | The request line                                                                                                   |
+| Audit record                  | One for each outcome                                                         | The same                                                                                                           |
+| Metrics                       | `401` and `429` counts, question count and duration, admission wait, shed    | `401` and `429` counts                                                                                             |
+| TLS                           | The one listener                                                             | The same                                                                                                           |
+| Interface description         | `/openapi.json` and `/docs`                                                  | `initialize` and `tools/list`                                                                                      |
 
 `sutura mcp` serves the same two tools over standard input and output, for a locally launched agent. It has no
 caller identity and grants every capability. `runtime.max_concurrent_queries` and
@@ -155,6 +179,10 @@ writes an audit record. The page of the data system says what bounds a statement
 | `POST /mcp`                                                   | as `/v1`, when `server.agent_surface.enabled`             | The agent surface                                                                            |
 | `GET /metrics`                                                | `security.metrics_token` only                             | Counters in the Prometheus text format                                                       |
 | `GET /openapi.json`, `GET /docs`                              | `security.access_token` if set                            | The interface description and a browser interface. Off in production by default (`api.docs`) |
+
+`/openapi.json` and `/docs` do not check `security.inbound`, so with `security.inbound` and no `security.access_token`
+they answer every caller. This is by design: the document is the same for every deployment of a build, apart from
+`tools.run_sql.enabled`, and it holds no catalog, source or credential. Set `api.docs: false` to keep it off.
 
 `/health` and `/metrics` sit outside the `/v1` prefix, and `/metrics` is outside the concurrency bound. `/metrics` shares
 the listener with the API, so only a network control can keep it internal. Its labels are fixed, and no label holds a question, a

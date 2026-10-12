@@ -69,6 +69,28 @@ const EXEMPTIONS: &[Exemption] = &[
                   transport prices a statement",
     },
     Exemption {
+        system: "cube",
+        from: Exempt::Unavailable,
+        runs_in: Some("ci-cube-tier"),
+        because: "opt-in: it executes where `SUTURA_CUBE_TIER` names the compose `cube` profile, which \
+                  the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance` start, \
+                  and no other gate starts one",
+    },
+    Exemption {
+        system: "cube",
+        from: Exempt::KeyProbe,
+        runs_in: None,
+        because: "`CubeWarehouse` takes the port's default `declared_key`: a join is Cube's own model's, and \
+                  the cell asserts that default still answers, so this reddens the day a probe is implemented",
+    },
+    Exemption {
+        system: "cube",
+        from: Exempt::DryRun,
+        runs_in: None,
+        because: "`CubeWarehouse` takes the port's default `dry_run`, so it answers `NotAsked` and asks Cube \
+                  nothing; the cell asserts that answer, so this reddens the day it prices a query",
+    },
+    Exemption {
         system: "oracle",
         from: Exempt::Unavailable,
         runs_in: None,

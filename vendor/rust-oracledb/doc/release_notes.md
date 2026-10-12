@@ -28,6 +28,14 @@
 1.  The driver returns errors for malformed authentication responses, and
     added the error
     [ErrorKind::InvalidAuthResponse](crate::ErrorKind::InvalidAuthResponse).
+1.  Added method
+    [Connection::query_arrow_batches()](crate::Connection::query_arrow_batches),
+    which returns one Arrow RecordBatch for each round trip, and a `NUMBER`
+    with no fixed precision is fetched as its exact decimal text (`Utf8`)
+    instead of `Float64`.
+1.  A `TIMESTAMP WITH TIME ZONE` value is fetched in the Arrow format as a
+    `Struct` of the instant in UTC and the offset of the value in minutes,
+    instead of a `Timestamp` without its offset.
 1.  The driver validates server-sent lengths and iteration counts, and added
     the errors [ErrorKind::PacketTooShort](crate::ErrorKind::PacketTooShort)
     and

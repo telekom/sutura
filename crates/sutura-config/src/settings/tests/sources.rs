@@ -154,6 +154,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
                     | crate::sources::placement::SourcePlacement::Postgres { .. }
                     | crate::sources::placement::SourcePlacement::ClickHouse { .. }
                     | crate::sources::placement::SourcePlacement::Oracle { .. }
+                    | crate::sources::placement::SourcePlacement::Cube { .. }
                     | crate::sources::placement::SourcePlacement::Duckdb { .. } => {
                         panic!("the fixture tree declares files sources");
                     }
@@ -232,6 +233,25 @@ fn a_workload_identity_scope_is_refused_as_an_unknown_key() {
     );
 }
 
+#[test]
+fn a_workload_identity_impersonate_map_is_refused_as_an_unknown_key() {
+    // The subject -> service-account map is gone: the federated token is the caller's own pool
+    // principal, and the data system's grants on it decide what the caller reads. A config that
+    // still writes the map is refused at start-up, by name, and never read as a control in place.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/d\"\n    \
+         posture: \"impersonation-at-source\"\n    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
+         impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n",
+    );
+    let error = Settings::load(&sources).expect_err("a subject -> service-account map is not a setting");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("impersonate"),
+        "the refusal names the key: {rendered}"
+    );
+}
+
 /// A multi-user deployment whose SECOND shared source is unacknowledged does not start. No other
 /// cell here fails if the check stops after the first source it walks; a
 /// federated answer reads two or three sources (`telekom/sutura#780`), and the acknowledgement is
@@ -255,10 +275,11 @@ fn a_second_shared_source_without_an_acknowledgement_is_not_fit_to_serve_either(
     assert!(rendered.contains("sources.orders.acknowledged_because"), "{rendered}");
 }
 
-// The exchange a `direct` deployment runs for an impersonating source - nested under
-// `workload_identity:` at 6 spaces, with its four required keys at 8. `client_secret_file` is a
-// PATH: the secret itself is read by the composition root, never the settings tree.
-const DELEGATION: &str = "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"pool-client-id\"\n";
+// The one hop a `direct` deployment runs for an impersonating source - nested under
+// `workload_identity:` at 6 spaces, its `-` at 8 and its four required keys at 10.
+// `client_secret_file` is a PATH: the secret itself is read by the composition root, never the
+// settings tree.
+const DELEGATION: &str = "      delegation:\n        - token_endpoint: \"https://idp.example.com/token\"\n          client_id: \"sutura\"\n          client_secret_file: \"/run/secrets/idp-client\"\n          audience: \"pool-client-id\"\n";
 
 #[test]
 fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve() {
@@ -343,11 +364,12 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
         .expect("local is configured")
         .1;
     assert_eq!(
-        local
-            .workload_identity()
-            .and_then(crate::sources::workload_identity::WorkloadIdentityConfig::delegation)
-            .map(crate::sources::workload_identity::DelegationDeclared::audience),
-        Some("pool-client-id")
+        local.workload_identity().map(|wif| wif
+            .delegation()
+            .iter()
+            .map(crate::sources::workload_identity::DelegationDeclared::audience)
+            .collect::<Vec<_>>()),
+        Some(vec!["pool-client-id"])
     );
 
     // And a delegation block missing one of its REQUIRED keys is a parse refusal naming it, so a
@@ -356,7 +378,7 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
         source_overlay(
             "impersonation-at-source",
-            "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        audience: \"pool-client-id\"\n"
+            "      delegation:\n        - token_endpoint: \"https://idp.example.com/token\"\n          client_id: \"sutura\"\n          audience: \"pool-client-id\"\n"
         )
     ));
     let error = Settings::load(&missing).expect_err("a delegation block missing its client secret file is refused");
@@ -365,6 +387,108 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
         rendered.contains("client_secret_file"),
         "the refusal must name the missing key: {rendered}"
     );
+}
+
+#[test]
+fn a_delegation_written_as_one_mapping_is_refused_at_load() {
+    // `delegation` is a list of hops, and a single mapping is not read as a one-hop list.
+    let mapping = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        source_overlay(
+            "impersonation-at-source",
+            "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"pool-client-id\"\n"
+        )
+    ));
+    let error = Settings::load(&mapping).expect_err("a mapping is not a list of hops");
+    let rendered = format!("{error:?}");
+    assert!(rendered.contains("delegation") && rendered.contains("sequence"), "{rendered}");
+}
+
+#[test]
+fn a_workload_identity_delegation_with_no_value_is_refused_at_load() {
+    // A key written with no value declares no hop, as an empty list does, and is not an absent key.
+    for empty in ["      delegation:\n", "      delegation: null\n"] {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+            source_overlay("impersonation-at-source", empty)
+        ));
+        let error = Settings::load(&sources).expect_err("a delegation with no value is refused");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::WorkloadIdentity {
+                    cause: crate::sources::workload_identity::InvalidWorkloadIdentity::Empty {
+                        what: "`delegation` list"
+                    },
+                    ..
+                }
+            ),
+            "{empty}: {cause:?}"
+        );
+    }
+}
+
+#[test]
+fn an_oracle_delegation_with_no_value_is_refused_at_load() {
+    let oracle = |delegation: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  warehouse:\n    \
+             kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"orcl.example.com\"\n    \
+             user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    transport_mode: \"verified\"\n    \
+             transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    posture: \"shared-service-user\"\n{delegation}"
+        ))
+    };
+    for empty in ["    delegation:\n", "    delegation: null\n"] {
+        let error = Settings::load(&oracle(empty)).expect_err("a delegation with no value is refused");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::Delegation {
+                    cause: crate::sources::placement::InvalidDelegation::NotImpersonating,
+                    ..
+                }
+            ),
+            "{empty}: {cause:?}"
+        );
+    }
+    // The CONTROL: the same entry without the key loads.
+    Settings::load(&oracle("")).expect("a shared Oracle source with no delegation loads");
+}
+
+#[test]
+fn a_clickhouse_delegation_with_no_value_is_refused_at_load() {
+    let clickhouse = |delegation: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  warehouse:\n    \
+             kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+             password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+             posture: \"impersonation-at-source\"\n{delegation}"
+        ))
+    };
+    for empty in ["    delegation:\n", "    delegation: null\n"] {
+        let error = Settings::load(&clickhouse(empty)).expect_err("a delegation with no value is refused");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::Delegation {
+                    cause: crate::sources::placement::InvalidDelegation::Missing,
+                    ..
+                }
+            ),
+            "{empty}: {cause:?}"
+        );
+    }
+    // The CONTROL: the same entry without the key loads.
+    Settings::load(&clickhouse("")).expect("an impersonating ClickHouse source with no delegation loads");
 }
 
 #[test]
@@ -411,4 +535,42 @@ fn a_delegation_token_endpoint_with_userinfo_is_refused_at_load_without_being_qu
         assert!(rendered.contains("token_endpoint` carries an `@`"), "{rendered}");
         assert!(!rendered.contains("s3cret"), "{rendered}");
     }
+}
+
+/// A Cube source's `delegation` sends each caller's exchanged token, so it serves on a `direct`
+/// deployment and is not fit to serve on any other - the refusal an Oracle delegation earns.
+#[test]
+fn a_cube_source_impersonating_through_a_delegation_serves_only_a_direct_deployment() {
+    let cube = "sources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+                token_file: \"/etc/sutura/cube-token\"\n    posture: \"impersonation-at-source\"\n    delegation:\n      - \
+                token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+                client_secret_file: \"/etc/sutura/client-secret\"\n        audience: \"https://cube.example.com\"\n";
+    let security = "security:\n  identity: \"multi-user\"\n";
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("{security}{cube}")))
+        .expect_err("a Cube delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("metrics").expect("a legal identifier"),
+            key: "delegation",
+        }]
+    );
+    let settings =
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("{security}{DIRECT_INBOUND}{cube}")))
+            .expect("a direct deployment admits a Cube delegation");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+}
+
+#[test]
+fn a_cube_source_with_its_endpoint_and_token_file_loads() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+         token_file: \"/etc/sutura/cube-token\"\n    posture: \"shared-service-user\"\n    \
+         acknowledged_because: \"one deployment token for everybody who asks\"\n",
+    );
+    let settings = Settings::load(&sources).expect("a complete cube source loads");
+    assert!(!settings.sources().is_empty());
 }

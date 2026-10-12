@@ -20,6 +20,8 @@ use crate::causality::base::{names_no_tests, tail};
 use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::place::AddedTest;
 use crate::causality::weakens::Waived;
+use crate::causality::worktree::commit_logs;
+use crate::causality::{claim, live, relocation, weakens};
 
 /// A plan whose every provable file declares a test module that named no test.
 ///
@@ -281,6 +283,47 @@ pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
     eprintln!("these against. The only proof it can accept for a test pinning existing behaviour is");
     eprintln!("a mutation: declare `Claim-Cell: <test-fn-name>` on the commit that added it, and");
     eprintln!("commit the killing mutation at `devco/claim-mutations/<test-fn-name>.patch`.");
+    Verdict::Fail
+}
+
+/// Every `Claim-Cell:`, `Weakens-Test:`, `Live-Cell:` or `Cleanup-Split:` line a MERGE commit in
+/// `merges` carries, refused; [`Verdict::Pass`] when there is none.
+///
+/// The squash merge keeps only the NON-merge commits' messages, so a trailer on a merge commit is
+/// read by every local and pull-request run and dropped by the queue - a cell this gate measured
+/// that the merged range no longer declares. `merges` is `worktree::merges`' stream, framed as
+/// `worktree::messages` is, and a line matches as each reader's own first filter does: trimmed,
+/// then prefixed by that reader's `TRAILER`.
+///
+/// THE LIMIT. It reads parent counts, not the repository's merge settings: it assumes squash
+/// merges, and a merge-commit method would keep the message it refuses. It inherits the readers'
+/// loose prefix match, so a matching line a reader would then drop (no name or path) is refused too.
+pub(super) fn report_merged_trailers(merges: &str) -> Verdict {
+    let found: Vec<String> = commit_logs(merges)
+        .into_iter()
+        .flat_map(|(hash, body)| {
+            let subject = body.lines().next().unwrap_or_default();
+            let short = hash.get(..9).unwrap_or(hash);
+            body.lines()
+                .map(str::trim)
+                .filter(|line| {
+                    [claim::TRAILER, weakens::TRAILER, live::TRAILER, relocation::TRAILER]
+                        .iter()
+                        .any(|t| line.starts_with(t))
+                })
+                .map(move |line| format!("  {short} {subject}: {line}"))
+        })
+        .collect();
+    if found.is_empty() {
+        return Verdict::Pass;
+    }
+    eprintln!("xtask test-causality: FAILED - a cell trailer sits on a merge commit");
+    for line in &found {
+        eprintln!("{line}");
+    }
+    eprintln!();
+    eprintln!("The squash drops a merge commit's message; put the trailer on a non-merge commit of the range");
+    eprintln!("(`Claim-Cell:` and `Live-Cell:`: the one that adds or modifies the test) - re-cut the merge as a linear commit.");
     Verdict::Fail
 }
 

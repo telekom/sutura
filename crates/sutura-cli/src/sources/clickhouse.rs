@@ -176,7 +176,7 @@ mod tests {
     fn a_declared_clickhouse_source_configured_to_impersonate_refuses_at_composition() {
         let error = open_engine(
             &bundle_naming("warehouse"),
-            &declaring_clickhouse("impersonation-at-source", "    impersonate:\n      subject-a: analyst_a\n"),
+            &declaring_clickhouse("impersonation-at-source", ""),
             runtime(),
             timeout(),
             None,

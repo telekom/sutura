@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/routes/v1/query.rs b/crates/sutura-http/src/routes/v1/query.rs
+index ec8763b33..312f62eae 100644
+--- a/crates/sutura-http/src/routes/v1/query.rs
++++ b/crates/sutura-http/src/routes/v1/query.rs
+@@ -330,7 +330,7 @@ pub(crate) async fn ask(
+         //
+         // Inside the span as well, because the helper scopes the whole closure: a diagnostic
+         // emitted while releasing is still attributable to this request.
+-        drop(slot);
++        std::mem::forget(slot);
+         drop(slot_guard);
+         (answered, headroom)
+     })

@@ -25,7 +25,8 @@ use crate::server::BindAddress;
 pub enum TokenRequiredBy {
     /// The environment is production, regardless of the bind.
     Production,
-    /// The bind is reachable from other hosts, regardless of environment.
+    /// Callers can arrive from other hosts, regardless of environment: a non-loopback bind, a
+    /// declared proxy hop or TLS terminator, or a non-loopback `server.allowed_hosts` entry.
     OffHost,
 }
 
@@ -33,7 +34,11 @@ impl core::fmt::Display for TokenRequiredBy {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             Self::Production => "this is a production deployment",
-            Self::OffHost => "this service is bound where other hosts can reach it",
+            Self::OffHost => {
+                "callers can reach this service from other hosts (a non-loopback server.host, a \
+                 rate_limit.trusted_proxies hop, a security.tls_termination of sidecar or ingress, or a \
+                 server.allowed_hosts entry that is not a loopback address)"
+            }
         })
     }
 }

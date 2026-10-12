@@ -19,6 +19,7 @@ a page here. [Inbound identity](integrations/identity.md) describes how sutura v
 | [Data Contract](integrations/catalogs/datacontract.md) | `datacontract`          | Tables, types, descriptions, joins            |
 | [OpenMetadata](integrations/catalogs/openmetadata.md)  | `openmetadata`          | Tables, types, descriptions, joins            |
 | [RDBMS dictionary](integrations/catalogs/rdbms.md)     | `rdbms`                 | Tables, types, descriptions                   |
+| [Cube](integrations/data-systems/cube.md#catalog)      | `cube`                  | Models, types, descriptions                   |
 | [Wren](integrations/catalogs/wren.md)                  | none: an import command | A markdown catalog to review                  |
 
 A catalog that supplies part of the model declares the rest as absent. A catalog without metrics
@@ -29,30 +30,34 @@ kind make one catalog.
 
 The catalogs are a list under `catalogs:`. Every entry has these keys:
 
-| Key               | Type    | Default    | Meaning                                                                  |
-| ----------------- | ------- | ---------- | ------------------------------------------------------------------------ |
-| `name`            | string  | required   | The name of the entry                                                    |
-| `kind`            | string  | `markdown` | The catalog kind                                                         |
-| `dir`             | path    | required   | The directory that a file catalog reads. Optional for `rdbms`            |
-| `data_dir`        | path    | required   | Required, and not read by any catalog. Optional for `rdbms`              |
-| `version`         | string  | required   | The label of the snapshot, for example a commit ID. Up to 128 characters |
-| `refresh_seconds` | integer | 900        | `sutura serve` reads the catalog again at this interval. `0` is refused  |
+| Key               | Type    | Default    | Meaning                                                                         |
+| ----------------- | ------- | ---------- | ------------------------------------------------------------------------------- |
+| `name`            | string  | required   | The name of the entry                                                           |
+| `kind`            | string  | `markdown` | The catalog kind                                                                |
+| `dir`             | path    | required   | The directory that a file catalog reads. Optional for `rdbms`                   |
+| `data_dir`        | path    | required   | Required, and not read by any catalog. Optional for `rdbms`                     |
+| `version`         | string  | required   | The label of the snapshot, for example a commit ID. Up to 128 characters        |
+| `refresh_seconds` | integer | 900        | `sutura serve` reads all entries again at the shortest of these. `0` is refused |
 
 All entries must have the same `version`. A key that sutura does not know is an error.
 
 ## Data systems
 
-| Data system                                                   | `kind`       | Identity of the query                            |
-| ------------------------------------------------------------- | ------------ | ------------------------------------------------ |
-| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura              |
-| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura              |
-| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account |
-| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                |
-| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller |
-| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user, or the caller's own token     |
+| Data system                                                   | `kind`       | Identity of the query                               |
+| ------------------------------------------------------------- | ------------ | --------------------------------------------------- |
+| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura                 |
+| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura                 |
+| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account    |
+| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                   |
+| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller    |
+| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user, or the caller's own token        |
+| [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube receives one token, or each caller's own token |
+
+Cube runs its warehouse query with the database identity in its own driver settings
+(`CUBEJS_DB_USER` in the example), not with the caller's identity.
 
 A federated question reads two data systems. Each one runs its part, and DataFusion joins the
-parts. ClickHouse cannot run a part of a federated question.
+parts. ClickHouse and Cube cannot run a part of a federated question.
 
 ### Data system settings
 
@@ -61,7 +66,7 @@ Every entry has these keys:
 
 | Key                     | Type   | Default  | Meaning                                                                                                                                      |
 | ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse` or `oracle`                                                                          |
+| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse`, `oracle` or `cube`                                                                  |
 | `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery, ClickHouse and Oracle) |
 | `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`                     |
 | `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                                     |

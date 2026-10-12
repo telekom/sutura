@@ -25,12 +25,16 @@
 let
   # The driver advertises a go-1.27.1 floor that this nixpkgs' go_1_27 (1.27.0)
   # rejects, both in the module-vendoring FOD and the build. Relax it at the
-  # source so both see it; recorded in VENDOR.md.
+  # source so both see it. `bigquery-adbc-forbidden.patch` maps a REST 403 whose
+  # reason is `accessDenied`, `billingNotEnabled` or `blocked` to `Unauthorized`,
+  # the status the driver already gives those reasons in a job's status; a 403 for
+  # a rate or a quota stays `Internal`. Both recorded in VENDOR.md.
   patchedGoSrc = pkgs.runCommand "adbc-driver-bigquery-go-src-relaxed" { } ''
     cp -rL ${bigqueryAdbcGoSource} $out
     chmod -R u+w $out
     sed -i 's#^go 1\.[0-9.]*$#go 1.27#' $out/go.mod
     sed -i '/^toolchain /d' $out/go.mod
+    patch -p1 -d $out < ${./bigquery-adbc-forbidden.patch}
   '';
   driver = { triple, crossPkgs }:
     {

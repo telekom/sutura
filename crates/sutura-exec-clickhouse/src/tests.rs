@@ -10,6 +10,8 @@ use super::*;
 
 /// What the next [`ClickHouseTransport::run`] answers, for [`Scripted`].
 type ScriptedAnswer = Option<Result<Vec<u8>, ScriptedError>>;
+/// A caller's sign-in as `(user, token)`.
+type SignedIn = Option<(String, String)>;
 
 /// A scripted [`ClickHouseTransport`], so this crate's own port behaviour can be driven with no
 /// live endpoint. The conformance binding and golden matrix also run against the provisioned tier.
@@ -25,6 +27,8 @@ struct Scripted {
     next: Mutex<ScriptedAnswer>,
     /// The rendered statement the last `run` was handed, captured so a test can assert the dialect.
     statement: Mutex<Option<String>>,
+    /// The caller's sign-in the last `run` was handed.
+    signed_in: Mutex<SignedIn>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +44,7 @@ impl Scripted {
         Self {
             next: Mutex::new(Some(Ok(body.as_bytes().to_vec()))),
             statement: Mutex::new(None),
+            signed_in: Mutex::new(None),
         }
     }
 
@@ -52,9 +57,22 @@ impl Scripted {
 impl ClickHouseTransport for Scripted {
     type Error = ScriptedError;
 
-    fn run(&self, statement: &str, _params: &[ParamValue], deadline: Deadline) -> Result<Vec<u8>, Self::Error> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the fake records the token it was handed, which is what its cells assert"
+    )]
+    fn run(
+        &self,
+        statement: &str,
+        _params: &[ParamValue],
+        deadline: Deadline,
+        sign_in: Option<crate::transport::SignIn<'_>>,
+    ) -> Result<Vec<u8>, Self::Error> {
         crate::deadline::refuse_if_spent(deadline).map_err(|_spent| ScriptedError::DeadlineSpent)?;
         *self.statement.lock() = Some(String::from(statement));
+        *self.signed_in.lock() = sign_in
+            .map(crate::transport::SignIn::parts)
+            .map(|(user, token)| (String::from(user), String::from(token.expose_secret())));
         self.next.lock().take().unwrap_or(Err(ScriptedError::NothingQueued))
     }
 
@@ -240,7 +258,6 @@ fn a_subject_credential_is_refused_as_no_place_to_arrive() {
     let warehouse = warehouse(Scripted::answering("[]\n[]\n"));
     let presented = Presented::SubjectToken {
         material: Secret::new(String::from("unused")),
-        impersonate: None,
     };
     let error = warehouse
         .execute(
@@ -312,6 +329,34 @@ fn an_impersonating_source_sends_each_statement_as_the_presented_user() {
     assert_eq!(sent, format!("EXECUTE AS \"analyst_one\" {}", rendered.sql()));
 }
 
+/// A token beside a principal signs that caller in: the request carries their name and their
+/// exchanged token, and the statement is sent as rendered, with no `EXECUTE AS`.
+#[test]
+fn a_presented_token_signs_the_named_caller_in_with_that_token() {
+    let case = sutura_conformance::corpus::cases()
+        .into_iter()
+        .next()
+        .expect("the corpus has a case");
+    let warehouse = impersonating(Scripted::answering("[\"region\"]\n[\"String\"]\n[\"north\"]\n"));
+    let presented = Presented::SubjectSignIn {
+        name: PrincipalName::parse("analyst_one").expect("a test name is a name"),
+        material: Secret::new(String::from("exchanged-token")),
+    };
+    warehouse
+        .execute(
+            Executable::Query(case.plan()),
+            &presented,
+            sutura_conformance::corpus::deadline(),
+        )
+        .expect("a well-formed response decodes");
+    assert_eq!(
+        warehouse.transport.signed_in.lock().clone(),
+        Some((String::from("analyst_one"), String::from("exchanged-token")))
+    );
+    let rendered = sutura_sql::generate::generate(case.plan(), Dialect::ClickHouse).expect("the corpus plan renders");
+    assert_eq!(warehouse.transport.last_statement(), Some(String::from(rendered.sql())));
+}
+
 /// A presented principal that could close its quoted identifier is refused before anything is sent.
 #[test]
 fn a_principal_that_is_not_a_clickhouse_user_is_refused_before_sending() {
@@ -330,110 +375,6 @@ fn a_principal_that_is_not_a_clickhouse_user_is_refused_before_sending() {
         "{outcome:?}"
     );
     assert_eq!(warehouse.transport.last_statement(), None, "nothing was sent");
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("Code: 344. IMPERSONATE feature is disabled")]
-struct Refused;
-
-/// Answers every `run` with a refusal, the shape the server gives when the setting or grant is missing.
-struct Refusing;
-
-impl ClickHouseTransport for Refusing {
-    type Error = Refused;
-
-    fn run(&self, _statement: &str, _params: &[ParamValue], _deadline: Deadline) -> Result<Vec<u8>, Self::Error> {
-        Err(Refused)
-    }
-}
-
-fn probe_user() -> crate::execute_as::ClickHouseUser {
-    crate::execute_as::ClickHouseUser::parse("analyst_one").expect("a test user parses")
-}
-
-/// The boot pre-flight: refused by the server is a typed refusal naming the user.
-#[test]
-fn the_boot_probe_refuses_when_the_server_refuses_execute_as() {
-    let warehouse = ClickHouseWarehouse::of(
-        sutura_conformance::corpus::source(),
-        SourcePosture::ImpersonationAtSource,
-        Refusing,
-        budget(),
-    );
-    let outcome = warehouse.refuse_unless_executes_as(&probe_user());
-    assert!(
-        matches!(outcome, Err(ClickHouseError::ExecuteAsRefused { ref user, .. }) if *user == probe_user()),
-        "{outcome:?}"
-    );
-}
-
-/// The boot pre-flight sends the per-statement probe, and accepts only an answer naming the
-/// declared user as current and someone else as authenticated.
-#[test]
-fn the_boot_probe_accepts_only_the_declared_user_switched_from_the_service_user() {
-    let names = "[\"currentUser()\",\"authenticatedUser()\"]\n[\"String\",\"String\"]\n";
-    let honoured = impersonating(Scripted::answering(&format!("{names}[\"analyst_one\",\"sutura\"]\n")));
-    honoured
-        .refuse_unless_executes_as(&probe_user())
-        .expect("the declared user, switched from the service user, is honoured");
-    assert_eq!(
-        honoured.transport.last_statement().as_deref(),
-        Some("EXECUTE AS \"analyst_one\" SELECT currentUser(), authenticatedUser()")
-    );
-    for answered in ["[\"sutura\",\"sutura\"]", "[\"analyst_one\",\"analyst_one\"]"] {
-        let warehouse = impersonating(Scripted::answering(&format!("{names}{answered}\n")));
-        let outcome = warehouse.refuse_unless_executes_as(&probe_user());
-        assert!(
-            matches!(outcome, Err(ClickHouseError::ExecuteAsNotHonoured { .. })),
-            "{answered}: {outcome:?}"
-        );
-    }
-}
-
-/// Answers the boot probe as a server whose service user holds `IMPERSONATE` on one user alone:
-/// switched to that user, refused for any other.
-struct Granting(&'static str);
-
-impl ClickHouseTransport for Granting {
-    type Error = Refused;
-
-    fn run(&self, statement: &str, _params: &[ParamValue], _deadline: Deadline) -> Result<Vec<u8>, Self::Error> {
-        if !statement.starts_with(&format!("EXECUTE AS \"{}\" ", self.0)) {
-            return Err(Refused);
-        }
-        Ok(format!(
-            "[\"currentUser()\",\"authenticatedUser()\"]\n[\"String\",\"String\"]\n[\"{}\",\"sutura\"]\n",
-            self.0
-        )
-        .into_bytes())
-    }
-}
-
-/// **Every declared user is probed, not only the first**: of two declared users, the one the
-/// service user may not become stops the boot, named.
-#[test]
-fn the_boot_probe_runs_for_each_declared_user() {
-    let warehouse = ClickHouseWarehouse::of(
-        sutura_conformance::corpus::source(),
-        SourcePosture::ImpersonationAtSource,
-        Granting("analyst_one"),
-        budget(),
-    );
-    let declared = ["analyst_one", "analyst_two"]
-        .into_iter()
-        .enumerate()
-        .map(|(at, user)| {
-            (
-                sutura_domain::identity::SubjectKey::parse(format!("analyst-{at}@example.com")).expect("a test key"),
-                crate::execute_as::ClickHouseUser::parse(user).expect("a test user parses"),
-            )
-        })
-        .collect();
-    let outcome = warehouse.refuse_unless_each_executes_as(&declared);
-    assert!(
-        matches!(outcome, Err(ClickHouseError::ExecuteAsRefused { ref user, .. }) if user.as_str() == "analyst_two"),
-        "{outcome:?}"
-    );
 }
 
 /// `Warehouse::EXECUTES_LEGS` stays at its domain default, so a leg needs a combiner this adapter

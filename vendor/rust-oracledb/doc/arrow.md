@@ -146,7 +146,8 @@ second column displays the Arrow type.
 | ---------------------- | ---------- |
 | `DB_TYPE_CHAR`, `DB_TYPE_VARCHAR`, `DB_TYPE_NCHAR`, and `DB_TYPE_NVARCHAR` | `Utf8` |
 | `DB_TYPE_RAW`, `DB_TYPE_LONG_RAW`, and `DB_TYPE_BLOB` | `Binary` |
-| `DB_TYPE_DATE`, `DB_TYPE_TIMESTAMP`, `DB_TYPE_TIMESTAMP_TZ`, and `DB_TYPE_TIMESTAMP_LTZ` | `Timestamp(Microsecond, None)` |
+| `DB_TYPE_DATE`, `DB_TYPE_TIMESTAMP`, and `DB_TYPE_TIMESTAMP_LTZ` | `Timestamp(Microsecond, None)` |
+| `DB_TYPE_TIMESTAMP_TZ` | `Struct` of `timestamp`, a `Timestamp(Microsecond, "UTC")`, and `offset_minutes`, an `Int16` |
 | `DB_TYPE_BINARY_FLOAT` | `Float32` |
 | `DB_TYPE_BINARY_DOUBLE` | `Float64` |
 | `DB_TYPE_BOOLEAN` | `Boolean` |
@@ -155,11 +156,19 @@ second column displays the Arrow type.
 | `DB_TYPE_NUMBER`, precision 5 to 9, scale 0 | `Int32` |
 | `DB_TYPE_NUMBER`, precision 10 to 18, scale 0 | `Int64` |
 | `DB_TYPE_NUMBER` with nonzero scale, or precision greater than 18 | `Decimal128` |
-| `DB_TYPE_NUMBER` with precision 0, or scale whose absolute value is greater than precision | `Float64` |
+| `DB_TYPE_NUMBER` with precision 0, or scale whose absolute value is greater than precision | `Utf8` |
 
 For Arrow decimal values, Arrow requires a fixed precision and scale. If an
 Oracle `NUMBER` column does not have fixed precision, or if its scale cannot be
-represented as an Arrow decimal, rust-oracledb fetches the value as `Float64`.
+represented as an Arrow decimal, rust-oracledb fetches the value as its exact
+decimal text, for example `9007199254740993`. Such a column can store up to
+40 significant digits at a decimal exponent from -130 to 125, which no fixed
+Arrow decimal holds, and a `Float64` value rounds most of them.
+
+[Connection::query_arrow_batches()](crate::Connection::query_arrow_batches)
+returns the same data as an iterator with one RecordBatch for each round trip
+to the database. The next round trip is made only when the next batch is
+requested, so the application can stop reading between round trips.
 
 If a query column has an Oracle Database type that cannot be mapped to an
 Arrow type, `query_arrow()` returns an error.

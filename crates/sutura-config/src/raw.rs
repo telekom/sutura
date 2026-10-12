@@ -135,17 +135,17 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
-    /// A `clickhouse` source's subject -> `ClickHouse` user map: required when it is
-    /// `impersonation-at-source`, refused otherwise - see `crate::sources::clickhouse`.
+    /// The removed `clickhouse` subject map, read only so that a configuration still declaring it is
+    /// refused naming the key rather than as an unknown one.
     #[serde(default)]
-    pub(crate) impersonate: Option<std::collections::BTreeMap<String, String>>,
+    pub(crate) impersonate: Option<serde::de::IgnoredAny>,
     /// The removed `oracle` allow-list, read only so that a configuration still declaring it is
     /// refused naming the key rather than as an unknown one.
     #[serde(default)]
     pub(crate) subjects: Option<serde::de::IgnoredAny>,
     /// An `oracle` source's token exchange, as ordered hops: required when it is
     /// `impersonation-at-source`, refused otherwise - see `crate::sources::oracle`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub(crate) delegation: Option<Vec<RawDelegation>>,
     /// The host a `postgres` source dials over TCP. Mutual with `unix_socket`.
     #[serde(default)]
@@ -163,6 +163,12 @@ pub(crate) struct RawSource {
     /// `host:port/service_name` string. Not a SID, and not a `database`: the key names what it is.
     #[serde(default)]
     pub(crate) service_name: Option<String>,
+    /// The base URL of a `cube` source's REST API, `scheme://host[:port]`, with no credentials in it.
+    #[serde(default)]
+    pub(crate) endpoint: Option<String>,
+    /// The absolute path of the file a `cube` source's token is read from at boot.
+    #[serde(default)]
+    pub(crate) token_file: Option<String>,
     /// The database file a `duckdb` source opens, read-only. A path, so not `database`, which names
     /// a database on a server.
     #[serde(default)]
@@ -198,13 +204,6 @@ pub(crate) struct RawWorkloadIdentity {
     /// transport sends. A workload identity provider resource, such as
     /// `//iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/{pool}/providers/{provider}`.
     pub(crate) audience: String,
-    /// The declared subject -> service-account map. Its KEYS decide which subjects a source may be
-    /// asked as - a subject with no entry here is refused rather than granted a fallback identity -
-    /// and its VALUES name the account each of those subjects executes as, sent as the credential
-    /// document's `service_account_impersonation_url`. See
-    /// `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
-    #[serde(default)]
-    pub(crate) impersonate: std::collections::BTreeMap<String, String>,
     /// The issuer the pool trusts, if the operator wrote it - telekom/sutura#817's seam. Present is
     /// REFUSED at boot: the hop that compared it is deleted, so a declaration nothing reads would
     /// be a control that reads as being in place.
@@ -214,11 +213,23 @@ pub(crate) struct RawWorkloadIdentity {
     /// twin on the audience side.
     #[serde(default)]
     pub(crate) expected_audience: Option<String>,
-    /// The delegation exchange a `direct` deployment runs before this pool will accept its caller -
-    /// see `crate::sources::workload_identity::DelegationDeclared`.
-    #[serde(default)]
-    pub(crate) delegation: Option<RawDelegation>,
+    /// The delegation hops a `direct` deployment runs before this pool will accept its caller, in
+    /// order - see `crate::sources::workload_identity::DelegationDeclared`.
+    #[serde(default, deserialize_with = "null_as_empty")]
+    pub(crate) delegation: Option<Vec<RawDelegation>>,
 }
+
+/// A `delegation` key written with no value (`delegation:` or `delegation: null`) reads as an empty
+/// list rather than as an absent key, so it is refused as the empty list is.
+fn null_as_empty<'de, D>(deserializer: D) -> Result<Hops, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <Hops as serde::Deserialize>::deserialize(deserializer).map(|hops| Some(hops.unwrap_or_default()))
+}
+
+/// A `delegation` key, absent or as read.
+type Hops = Option<Vec<RawDelegation>>;
 
 /// One source's delegation exchange, as read. Every key is required, so a missing one is serde's
 /// refusal naming it. `client_secret_file` is a PATH: the secret is read by the composition root.

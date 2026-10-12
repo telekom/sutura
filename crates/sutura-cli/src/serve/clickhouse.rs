@@ -155,14 +155,13 @@ mod tests {
         assert!(error.contains("warehouse.password_file"), "{error}");
     }
 
-    /// An impersonating entry whose password file IS there, on a loopback port nothing listens on,
-    /// so the composition gets as far as the boot probe and no further.
+    /// An impersonating entry whose password file IS there, on a loopback port nothing listens on.
     #[cfg(feature = "clickhouse")]
     fn impersonating_entry(password_file: &std::path::Path) -> String {
         format!(
             "  warehouse:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 1\n    user: \"sutura\"\n    \
              password_file: \"{}\"\n    transport_mode: \"plaintext\"\n    \
-             posture: \"impersonation-at-source\"\n    impersonate:\n      analyst-a@example.com: analyst_a\n",
+             posture: \"impersonation-at-source\"\n",
             password_file.display()
         )
     }
@@ -174,37 +173,11 @@ mod tests {
         path
     }
 
-    /// **The boot pre-flight is run, and its refusal stops the process.** Nothing answers the
-    /// probe here, so the server half (setting, grant) is held by the tier cells in
-    /// `sutura-exec-clickhouse`'s `tests/execute_as.rs`; this cell holds that `build` asks.
+    /// The broker serves the impersonating source as each caller's own verified subject, and
+    /// refuses the one subject named like the service user rather than running it as the deployment.
     #[test]
     #[cfg(feature = "clickhouse")]
-    fn an_impersonating_clickhouse_source_is_probed_before_it_is_served() {
-        let file = password_file();
-        let error = refusal(
-            open_engine(
-                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(&impersonating_entry(&file)),
-                one_worker(),
-                default_timeout(),
-                None,
-            ),
-            "a declared user the server never ran a statement as must not be served",
-        );
-        let _ignored = std::fs::remove_file(&file);
-        assert!(error.contains("warehouse.impersonate"), "{error}");
-        assert!(error.contains("EXECUTE AS analyst_a"), "{error}");
-        assert!(
-            error.contains("allow_impersonate_user"),
-            "the refusal names the server setting: {error}"
-        );
-    }
-
-    /// The broker serves the impersonating source through the declared map: the declared subject is
-    /// presented its declared user, and anyone else is refused rather than run as the service user.
-    #[test]
-    #[cfg(feature = "clickhouse")]
-    fn the_broker_switches_a_declared_subject_and_refuses_an_undeclared_one() {
+    fn the_broker_switches_to_the_verified_subject_and_refuses_the_service_user() {
         use sutura_domain::identity::{
             CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject,
         };
@@ -212,7 +185,7 @@ mod tests {
         let file = password_file();
         let registry = registry(&impersonating_entry(&file));
         let _ignored = std::fs::remove_file(&file);
-        let broker = crate::serve::broker::build_broker(&registry, None).expect("the declared map builds a broker");
+        let broker = crate::serve::broker::build_broker(&registry, None).expect("the source builds a broker");
         let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
         let asked = SourceSet::of(at.clone());
         let ask = |subject: &str| {
@@ -224,7 +197,7 @@ mod tests {
                 .expect("a mint answers")
         };
         let Minted::Granted { credentials } = ask("analyst-a@example.com") else {
-            panic!("the declared subject is served");
+            panic!("a verified subject is served");
         };
         let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject");
         let sutura_domain::identity::Agreed::Granted { credentials } = Minted::Granted { credentials }
@@ -234,12 +207,48 @@ mod tests {
             panic!("expected a granted agreement");
         };
         assert!(
-            matches!(credentials.presented_for(&at), Ok(Presented::SubjectPrincipal { name }) if name.as_str() == "analyst_a"),
-            "the declared user is presented"
+            matches!(credentials.presented_for(&at), Ok(Presented::SubjectPrincipal { name }) if name.as_str() == "analyst-a@example.com"),
+            "the verified subject itself is presented"
         );
         assert!(
-            matches!(ask("someone-else@example.com"), Minted::Refused { ref source } if *source == at),
-            "an undeclared subject is refused"
+            matches!(ask("sutura"), Minted::Refused { ref source } if *source == at),
+            "the service user's own name is refused"
         );
+    }
+
+    /// A source that declares `delegation` signs each caller in, so a caller with no assertion has
+    /// nothing to exchange and is refused; the same source without it switches to that caller.
+    #[test]
+    #[cfg(feature = "clickhouse")]
+    fn a_declared_delegation_signs_callers_in_and_its_absence_switches_to_them() {
+        use sutura_domain::identity::{CredentialBroker as _, Minted, PrincipalChain, RequestContext, SourceSet, Subject};
+
+        let file = password_file();
+        let secret = std::env::temp_dir().join(format!("sutura-cli-ch-client-secret-{}", std::process::id()));
+        std::fs::write(&secret, "idp-client-secret\n").expect("a scratch client secret file writes");
+        let delegated = format!(
+            "{}    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+             client_id: \"sutura\"\n        client_secret_file: \"{}\"\n        audience: \"clickhouse\"\n",
+            impersonating_entry(&file),
+            secret.display()
+        );
+        let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let without_assertion = RequestContext::of(PrincipalChain::of(
+            Subject::verified("analyst-a@example.com").expect("a test subject"),
+        ));
+        let minted = |entry: &str| {
+            crate::serve::broker::build_broker(&registry(entry), None)
+                .expect("the source builds a broker")
+                .mint(&without_assertion, &SourceSet::of(at.clone()))
+                .expect("a mint answers")
+        };
+        let signing_in = minted(&delegated);
+        let switching = minted(&impersonating_entry(&file));
+        let _ignored = (std::fs::remove_file(&file), std::fs::remove_file(&secret));
+        assert!(
+            matches!(signing_in, Minted::Refused { ref source } if *source == at),
+            "{signing_in:?}"
+        );
+        assert!(matches!(switching, Minted::Granted { .. }), "{switching:?}");
     }
 }

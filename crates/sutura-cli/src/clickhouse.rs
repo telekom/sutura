@@ -22,8 +22,8 @@
 //! # Per-subject execution
 //!
 //! An `impersonation-at-source` source keeps ONE transport under the declared service user; each
-//! statement switches to the subject's declared user with `EXECUTE AS`. `build` probes every
-//! declared user at boot, and `declared_principals` hands the same map to `serve::broker`.
+//! statement switches with `EXECUTE AS` to the user named by the caller's verified subject.
+//! `deployment_user` hands `serve::broker` the service user, the one name no caller is run as.
 //!
 //! The WHOLE module is behind `#[cfg(feature = "clickhouse")]` at its declaration in `main.rs`,
 //! which is what lets everything here name an adapter type unconditionally - `serve::broker` and
@@ -32,7 +32,6 @@
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_exec_clickhouse::ClickHouseWarehouse;
-use sutura_exec_clickhouse::execute_as::ClickHouseUser;
 use sutura_exec_clickhouse::transport::{BasicAuth, Endpoint, Http};
 
 use crate::commands::render;
@@ -62,9 +61,7 @@ pub(crate) type ClickHouseSource = ClickHouseWarehouse<Http>;
 /// # Errors
 ///
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
-/// password file that cannot be read or is empty; declared TLS material that is not usable; and,
-/// for an `impersonation-at-source` source, a declared user this adapter cannot name or one the
-/// server will not run a statement as (`refuse_unless_each_executes_as`).
+/// password file that cannot be read or is empty; and declared TLS material that is not usable.
 pub(crate) fn build(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
@@ -79,7 +76,7 @@ pub(crate) fn build(
         ref user,
         ref password_file,
         ref transport,
-        ref impersonate,
+        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -95,60 +92,46 @@ pub(crate) fn build(
         .posture()
         .deliverable_by(ClickHouseSource::IMPERSONATION, source)
         .map_err(|cause| render(&cause))?;
-    let users = declared_users(source, impersonate)?;
     let password = crate::password_file::read(source, password_file)?;
     let auth = Some(BasicAuth::new(user.clone(), password));
     let transport = open_transport(source, host, port, auth, transport, working_set.bytes() as u64)?;
-    let warehouse = ClickHouseWarehouse::of(
+    Ok(ClickHouseWarehouse::of(
         source.clone(),
         identity.posture().clone(),
         transport,
         working_set.result_budget(),
-    );
-    warehouse
-        .refuse_unless_each_executes_as(&users)
-        .map_err(|cause| format!("`sources.{source}.impersonate`: {}", render(&cause)))?;
-    Ok(warehouse)
+    ))
 }
 
-/// The declared map, each user parsed by the adapter that names it in `EXECUTE AS`.
-type Users = std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>;
-
-/// The declared subject -> user map, each user parsed by the adapter that names it in `EXECUTE AS`.
-fn declared_users(source: &SourceName, impersonate: &sutura_config::sources::placement::DeclaredUsers) -> Result<Users, String> {
-    impersonate
-        .iter()
-        .map(|(subject, user)| {
-            ClickHouseUser::parse(user)
-                .map(|user| (subject.clone(), user))
-                .map_err(|cause| {
-                    format!("`sources.{source}.impersonate` names `{user}`, which is not a ClickHouse user: {cause}")
-                })
-        })
-        .collect()
+/// The hops a `clickhouse` source exchanges each caller's token through before that caller signs
+/// in; empty for a source that switches with `EXECUTE AS`, and for any other kind.
+pub(crate) fn declared_delegation(
+    configured: &sutura_config::ConfiguredSource,
+) -> &[sutura_config::sources::workload_identity::DelegationDeclared] {
+    let sutura_config::SourcePlacement::ClickHouse { ref delegation, .. } = *configured.placement() else {
+        return &[];
+    };
+    delegation
 }
 
-/// The broker's half of an `impersonation-at-source` source: its declared map, as the principals
-/// `DeclaredPrincipalBroker::switching` presents. `None` for a source that is not impersonating.
-pub(crate) fn declared_principals(
+/// The broker's half of an `impersonation-at-source` source: the service user its transport signs in
+/// as, which `DeclaredPrincipalBroker::switching` never runs a caller as. `None` for any other source.
+pub(crate) fn deployment_user(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
-) -> Result<Option<sutura_config::DeclaredPrincipals>, String> {
-    let sutura_config::SourcePlacement::ClickHouse { ref impersonate, .. } = *configured.placement() else {
+) -> Result<Option<sutura_domain::identity::PrincipalName>, String> {
+    let sutura_config::SourcePlacement::ClickHouse { ref user, .. } = *configured.placement() else {
         return Ok(None);
     };
-    if impersonate.is_empty() {
+    if !matches!(
+        configured.posture(),
+        Some(sutura_domain::source::SourcePosture::ImpersonationAtSource)
+    ) {
         return Ok(None);
     }
-    let mut principals = std::collections::BTreeMap::new();
-    for (subject, user) in declared_users(source, impersonate)? {
-        let name = sutura_domain::identity::PrincipalName::parse(user.as_str())
-            .map_err(|cause| format!("`sources.{source}.impersonate` names `{user}`, which is not a principal: {cause}"))?;
-        drop(principals.insert(subject, name));
-    }
-    sutura_config::DeclaredPrincipals::switched(principals)
+    sutura_domain::identity::PrincipalName::parse(user)
         .map(Some)
-        .map_err(|cause| format!("`sources.{source}.impersonate` is unusable: {cause}"))
+        .map_err(|cause| format!("`sources.{source}.user` is not a principal: {cause}"))
 }
 
 /// The transport for the channel this source declared: plaintext, or TLS over the declared store.

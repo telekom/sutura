@@ -26,12 +26,8 @@ use sutura_http_client::test_support::{FakeServer, Scripted};
 
 use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
 
-/// The two declared subjects, each beside its own account - two, so a source handed the wrong
-/// caller's account is visible from here.
-const CALLERS: [(&str, &str); 2] = [
-    ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com"),
-    ("analyst-b@example.com", "bq-b@acme-analytics.iam.gserviceaccount.com"),
-];
+/// The two verified callers - two, so a source handed the wrong caller's token is visible from here.
+const CALLERS: [&str; 2] = ["analyst-a@example.com", "analyst-b@example.com"];
 
 /// The audience the exchanged token is asked for and carries.
 const POOL: &str = "pool-client-id";
@@ -74,8 +70,8 @@ impl Drop for SecretFile {
 enum Seen {
     /// The deployment's own identity.
     Transport,
-    /// A subject's credential, and the account it is to execute as.
-    Subject { assertion: String, target: String },
+    /// A subject's own credential.
+    Subject { assertion: String },
 }
 
 /// Never reached by a caller: the transport records the job and declines it.
@@ -90,16 +86,13 @@ impl Recording {
     fn record(&self, request: &JobRequest<'_>) {
         let seen = match request.identity() {
             JobIdentity::Transport => Seen::Transport,
-            JobIdentity::AsSubject { assertion, target } => {
+            JobIdentity::AsSubject { assertion } => {
                 #[expect(
                     clippy::disallowed_methods,
                     reason = "the cell asserts which credential reached the transport"
                 )]
                 let assertion = String::from(assertion.expose_secret());
-                Seen::Subject {
-                    assertion,
-                    target: target.to_string(),
-                }
+                Seen::Subject { assertion }
             }
         };
         self.0.send(seen).expect("the cell holds the receiving end");
@@ -143,17 +136,18 @@ fn served(case: &str, idp: &FakeServer) -> Served {
         .expect("a mock issuer generates a key pair");
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
     let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
-    std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
-    let [(first, first_as), (second, second_as)] = CALLERS;
+    std::fs::write(&secret.0, format!("{CLIENT_SECRET}\n")).expect("the client secret file is writable");
     let overlay = format!(
-        "{}  identity: \"multi-user\"\nsources:\n{}      impersonate:\n        \"{first}\": \"{first_as}\"\n        \
-         \"{second}\": \"{second_as}\"\n      delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
-         client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
+        "{}  identity: \"multi-user\"\nsources:\n{}      delegation:\n        - token_endpoint: \"{}/token\"\n          client_id: \"sutura\"\n          \
+         client_secret_file: \"{}\"\n          audience: \"{POOL}\"\n",
         direct_overlay(&issuer, &published.path().to_string_lossy()),
         super::bigquery_entry("warehouse", "impersonation-at-source", super::wif()),
         idp.endpoint(),
         secret.0.display(),
     );
+    // `/mcp` beside `/v1` wherever the transport is linked, so a cell can ask over both.
+    #[cfg(feature = "agent")]
+    let overlay = format!("{overlay}server:\n  agent_surface:\n    enabled: true\n");
     let settings =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay)).expect("the overlay loads");
     // The composition root's own broker, built from the settings it would read.
@@ -180,7 +174,15 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("a direct deployment"))
         .expect("a published key set builds a gate");
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission).with_inbound_identity(Arc::new(gate));
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission);
+    #[cfg(feature = "agent")]
+    let state = {
+        let mount = super::super::agent_mount(&state)
+            .expect("the agent mount builds")
+            .expect("the overlay enabled the agent surface");
+        state.with_agent_surface(mount)
+    };
+    let state = state.with_inbound_identity(Arc::new(gate));
     Served {
         app: sutura_http::router(&state).expect("the test router assembles"),
         issuer,
@@ -215,14 +217,14 @@ async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String)
 
 #[tokio::test]
 async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back() {
-    let exchanges = CALLERS.map(|(subject, _)| exchanged(subject));
+    let exchanges = CALLERS.map(exchanged);
     let idp = FakeServer::start(exchanges.iter().map(|token| Scripted::ok(&issued(token))).collect());
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-exchanges", &idp);
 
     let mut tokens = Vec::new();
-    for ((subject, account), exchanged) in CALLERS.iter().zip(&exchanges) {
+    for (subject, exchanged) in CALLERS.iter().zip(&exchanges) {
         let token = issuer.mint(&accepted_by(subject)).expect("the issuer signs a token");
         let (status, body) = ask(app.clone(), &token).await;
         let seen: Vec<Seen> = transport.try_iter().collect();
@@ -234,12 +236,10 @@ async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_c
             assert_eq!(
                 job,
                 &Seen::Subject {
-                    assertion: exchanged.clone(),
-                    target: String::from(*account)
+                    assertion: exchanged.clone()
                 },
-                "every job for {subject} must carry the token exchanged for {subject} and the account \
-                 declared beside {subject} - never another caller's, the caller's own token or the \
-                 deployment's identity"
+                "every job for {subject} must carry the token exchanged for {subject} - never another \
+                 caller's, the caller's own token or the deployment's identity"
             );
         }
         tokens.push(token);
@@ -260,7 +260,7 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-refused", &idp);
-    let [(subject, _), _] = CALLERS;
+    let [subject, _] = CALLERS;
     let token = issuer.mint(&accepted_by(subject)).expect("the issuer signs a token");
 
     let (status, body) = ask(app, &token).await;
@@ -283,5 +283,202 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
     assert!(
         offer.contains(&format!("subject_token={token}")),
         "the identity provider must have been offered the caller's own verified token: {offer}"
+    );
+}
+
+/// What [`logged`] writes at `trace` from the blocking pool, to prove the capture sees that level there.
+const CAPTURE_PROBE: &str = "outbound-echo capture is live";
+
+/// The delegation client's secret, as [`served`] writes it to the secret file: distinct enough to
+/// find in any text, and long enough for [`RUN`].
+const CLIENT_SECRET: &str = "e83b5d0c71f9a26d4c0be915";
+
+/// The fewest characters of a secret in a row that count as finding it: the HTTP client's wire
+/// trace writes 16 bytes a line, so a secret of 23 or more characters leaves this many in one line
+/// wherever the rows cut it.
+const RUN: usize = 12;
+
+/// Every line this process logs from the first call on, at `trace`, from any thread, through
+/// `tracing` or through `log` over the service's own bridge.
+///
+/// Global, unlike `sutura-http`'s token-echo capture, because the exchange runs on the blocking pool
+/// and a subscriber scoped to the calling thread does not see that pool. Once per process: where
+/// cells share one, each reads every other's lines too, which only adds to what an absence is
+/// checked against. The subscriber reads `RUST_LOG` before `trace`, so the cell refuses to read a
+/// capture its probe did not reach.
+fn logged() -> &'static sutura_runtime::testing::Capture {
+    static CAPTURE: std::sync::OnceLock<sutura_runtime::testing::Capture> = std::sync::OnceLock::new();
+    CAPTURE.get_or_init(|| {
+        let sink = sutura_runtime::testing::Capture::new();
+        let telemetry = sutura_config::TelemetrySettings::new(
+            sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+            sutura_config::LogFilter::parse("trace").expect("a test directive is a directive"),
+            sutura_config::LogFormat::Bunyan,
+            true,
+        );
+        let subscriber =
+            sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+        tracing::subscriber::set_global_default(subscriber).expect("no other subscriber is installed in this process");
+        sutura_runtime::testing::bridge_log();
+        sink
+    })
+}
+
+/// One `/v1/query` for the bundle's metric, carrying `token`: the whole response.
+async fn respond(app: axum::Router, token: &str) -> axum::response::Response {
+    use axum::body::Body;
+    use tower::ServiceExt as _;
+
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/v1/query")
+        .header(axum::http::header::HOST, "localhost")
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::from(
+            r#"{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+        ))
+        .expect("a well-formed request builds");
+    app.oneshot(request).await.expect("a tower service's Error is Infallible")
+}
+
+/// The status line, every header as `name: value`, and the body of one `/v1/query`.
+async fn everything_returned(app: axum::Router, token: &str) -> String {
+    use core::fmt::Write as _;
+
+    let (parts, body) = respond(app, token).await.into_parts();
+    let mut received = format!("{}\n", parts.status);
+    for (name, value) in &parts.headers {
+        writeln!(received, "{name}: {}", String::from_utf8_lossy(value.as_bytes())).expect("writing to a String cannot fail");
+    }
+    let body = axum::body::to_bytes(body, usize::MAX).await.expect("the response body reads");
+    received.push_str(&String::from_utf8_lossy(&body));
+    received
+}
+
+/// The status line, every header and the body of an `initialize` and then the `/mcp` `ask_metric`
+/// call [`respond`] asks over `/v1`.
+#[cfg(feature = "agent")]
+async fn everything_returned_over_mcp(app: axum::Router, token: &str) -> String {
+    use core::fmt::Write as _;
+    use tower::ServiceExt as _;
+
+    let initialize = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                   "clientInfo": {"name": "sutura-delegation-served", "version": "0.0.0"}}
+    });
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "ask_metric", "arguments": {
+            "metrics": ["recurring_revenue"], "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}
+        }}
+    });
+    let mut received = String::new();
+    for message in [initialize, call] {
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header(axum::http::header::HOST, "localhost")
+            .header(axum::http::header::ACCEPT, "application/json, text/event-stream")
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(axum::body::Body::from(message.to_string()))
+            .expect("a well-formed request builds");
+        let (parts, body) = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("a tower service's Error is Infallible")
+            .into_parts();
+        writeln!(received, "{}", parts.status).expect("writing to a String cannot fail");
+        for (name, value) in &parts.headers {
+            writeln!(received, "{name}: {}", String::from_utf8_lossy(value.as_bytes())).expect("writing to a String cannot fail");
+        }
+        let body = axum::body::to_bytes(body, usize::MAX).await.expect("the response body reads");
+        received.push_str(&String::from_utf8_lossy(&body));
+    }
+    received
+}
+
+/// Whether `text` holds [`RUN`] characters of `secret` in a row.
+fn holds_a_run_of(text: &str, secret: &str) -> bool {
+    (0..=secret.len().saturating_sub(RUN)).any(|at| text.contains(secret.get(at..at + RUN).unwrap_or(secret)))
+}
+
+#[tokio::test]
+async fn no_outbound_credential_reaches_a_response_or_a_log_line() {
+    let log = logged();
+    sutura_runtime::spawn_carrying_span(|| tracing::trace!("{CAPTURE_PROBE}"))
+        .await
+        .expect("the probe ran");
+    assert!(
+        log.contents().contains(CAPTURE_PROBE),
+        "the capture did not see a `trace` line from the blocking pool, so it is not a record of everything logged: is RUST_LOG set?"
+    );
+    let [answered, refused] = CALLERS;
+    let exchanged = exchanged(answered);
+    // Each surface asks twice, and each second answer quotes what it was sent, as an identity
+    // provider's error text may.
+    let surfaces = if cfg!(feature = "agent") { 2 } else { 1 };
+    let idp = FakeServer::start(
+        (0..surfaces)
+            .flat_map(|_| {
+                [
+                    Scripted::ok(&issued(&exchanged)),
+                    Scripted::status(
+                        401,
+                        &format!(r#"{{"error":"invalid_client","error_description":"{CLIENT_SECRET} is not {exchanged}"}}"#),
+                    ),
+                ]
+            })
+            .collect(),
+    );
+    let Served {
+        app, issuer, transport, ..
+    } = served("delegation-served-no-echo", &idp);
+    let tokens = [answered, refused].map(|subject| issuer.mint(&accepted_by(subject)).expect("the issuer signs a token"));
+
+    let mut received = String::new();
+    for token in &tokens {
+        received.push_str(&everything_returned(app.clone(), token).await);
+    }
+    #[cfg(feature = "agent")]
+    for token in &tokens {
+        received.push_str(&everything_returned_over_mcp(app.clone(), token).await);
+    }
+
+    assert!(
+        transport
+            .try_iter()
+            .any(|seen| matches!(&seen, Seen::Subject { assertion } if *assertion == exchanged)),
+        "the exchanged token must have reached the source, or its absence below proves nothing: {received}"
+    );
+    let offered = offered(idp);
+    assert!(
+        offered.len() == tokens.len() * surfaces
+            && offered
+                .iter()
+                .all(|offer| offer.contains(&format!("client_secret={CLIENT_SECRET}"))),
+        "the client secret must have been sent, or its absence below proves nothing: {offered:?}"
+    );
+    let logged = log.contents();
+    assert!(
+        logged.contains(r#""log.target":"ureq::run""#),
+        "the capture holds no line the HTTP client logged through `log`, so a dependency's `log` records are outside it"
+    );
+    let secrets = [
+        ("the client secret", CLIENT_SECRET),
+        ("the exchanged token", exchanged.as_str()),
+    ]
+    .into_iter()
+    .chain(tokens.iter().map(|token| ("a caller's token", token.as_str())));
+    let leaked: Vec<&str> = secrets
+        .filter(|&(_, secret)| holds_a_run_of(&received, secret) || holds_a_run_of(&logged, secret))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "an outbound credential was sent back or logged: {leaked:?}"
     );
 }

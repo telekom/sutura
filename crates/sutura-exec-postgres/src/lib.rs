@@ -195,7 +195,7 @@ pub(crate) fn deliverable(
 ) -> Result<(), PostgresError> {
     match *presented {
         Presented::SharedServiceUser { .. } => {}
-        Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+        Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
             return Err(PostgresError::NoPlaceForASubject {
                 at: String::from(source.as_str()),
                 presented: presented.as_str(),

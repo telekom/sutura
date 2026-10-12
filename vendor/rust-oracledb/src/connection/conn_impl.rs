@@ -270,6 +270,17 @@ impl ConnImpl {
         self.statement(sql).build()?.query_arrow(params)
     }
 
+    #[cfg(feature = "arrow")]
+    /// Performs a query against the database and returns an iterator of
+    /// Arrow RecordBatch structures, one for each round trip.
+    pub fn query_arrow_batches<'a>(
+        &self,
+        sql: &str,
+        params: BindParameters<'a>,
+    ) -> Result<crate::arrow::ArrowBatches<'a>, Error> {
+        self.statement(sql).build()?.query_arrow_batches(params)
+    }
+
     /// Executes a query against the database using named parameters.
     pub fn query_named(
         &self,

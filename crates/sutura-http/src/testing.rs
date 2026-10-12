@@ -10,8 +10,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
@@ -371,6 +369,9 @@ pub(crate) struct WouldNotReturnAtOnce;
 /// `docs/adr/0029`'s own mapping fake, in its own file for this file's `max-lines` reason.
 mod deadline;
 pub(crate) use deadline::{Probed, RawDeadlineProbe, WarehouseThatOutranItsDeadline};
+mod held; // The hold switch, split out: this file is at the `max-lines` cap.
+pub(crate) use held::Held;
+use held::{HELD_AT_MOST, Switch};
 mod federation; // `telekom/sutura#112`'s fixture, split out: this file is at the `max-lines` cap.
 pub(crate) use federation::two_source_fake_warehouse;
 /// A data system that will not return the whole result at once.
@@ -494,7 +495,7 @@ pub(crate) struct FakeWarehouse {
     source: SourceName,
     posture: SourcePosture,
     result: RowSet,
-    held: Arc<AtomicBool>,
+    held: Arc<Switch>,
 }
 
 impl Warehouse for FakeWarehouse {
@@ -533,18 +534,7 @@ impl Warehouse for FakeWarehouse {
         _presented: &Presented,
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        // Held rather than slept, and that is about the test suite rather than about realism. A
-        // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
-        // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the
-        // request bound would be added to the wall time of the whole suite. A flag the test clears
-        // costs nothing once the assertion is made.
-        //
-        // The cap is a bug guard, not a timeout: it is what a forgotten `release` costs instead of
-        // hanging the suite.
-        let deadline = Instant::now() + HELD_AT_MOST;
-        while self.held.load(Ordering::Relaxed) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        self.held.hold();
         Ok(canned(&self.result))
     }
 
@@ -579,28 +569,6 @@ impl Warehouse for FakeWarehouse {
     /// `execute` never errs, so this is only ever asked about `execute_raw`'s own `"refuse me"`.
     fn source_refused(&self, _error: &Self::Error) -> bool {
         true
-    }
-}
-
-/// The longest a held statement is held, whatever the test does.
-const HELD_AT_MOST: Duration = Duration::from_secs(20);
-
-/// Whether the fake is currently refusing to return.
-///
-/// A separate handle because the warehouse itself is moved into the service at `start`, and what a
-/// test needs to hold is the switch rather than the adapter. It is armed only AFTER `start`, because
-/// `start` re-executes every anchor and a held statement there would hold startup.
-pub(crate) struct Held(Arc<AtomicBool>);
-
-impl Held {
-    /// From here on, a statement does not come back.
-    pub(crate) fn arm(&self) {
-        self.0.store(true, Ordering::Relaxed);
-    }
-
-    /// Let whatever is waiting finish, so the blocking pool drains with the test.
-    pub(crate) fn release(&self) {
-        self.0.store(false, Ordering::Relaxed);
     }
 }
 
@@ -702,7 +670,7 @@ pub(crate) fn warehouse_that_can_be_held() -> (sutura_app::Warehouses<FakeWareho
     // The SAME `Arc` on both sides, which is the whole point of the pair: the switch a test holds
     // and the flag the adapter reads have to be one cell. Building them separately compiles, and
     // then nothing is ever held - caught by the `408` test, which answered `200`.
-    let held = Arc::new(AtomicBool::new(false));
+    let held = Arc::new(Switch::default());
     (
         sutura_app::Warehouses::of(FakeWarehouse {
             source: source(),
@@ -725,7 +693,7 @@ fn answering(source: SourceName, result: RowSet) -> sutura_app::Warehouses<FakeW
         source,
         posture: shared_posture(),
         result,
-        held: Arc::new(AtomicBool::new(false)),
+        held: Arc::new(Switch::default()),
     })
 }
 

@@ -97,7 +97,7 @@ use tier::KillTier;
 pub(super) const MUTATIONS_DIR: &str = "devco/claim-mutations";
 
 /// The commit trailer that declares a claim cell.
-const TRAILER: &str = "Claim-Cell:";
+pub(super) const TRAILER: &str = "Claim-Cell:";
 
 /// A declaring commit object name paired with the cells its own message named.
 ///

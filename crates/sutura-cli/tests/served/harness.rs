@@ -77,7 +77,7 @@ pub(crate) use postgres::settings as postgres_settings;
 // directly and builds its own `sources:` entry through `source_entry` - the same two calls
 // `load_into_tier` above makes, rather than a second discovery.
 #[cfg(feature = "postgres")]
-pub(crate) use postgres::{DiscoveredTier, discover_tier, source_entry};
+pub(crate) use postgres::{DiscoveredTier, discover_tier, load_into_tier, source_entry};
 #[cfg(feature = "postgres")]
 pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // `derived_catalog` is its own line, `#[cfg(feature = "postgres")]`: `two_kind` above is its only
@@ -140,6 +140,25 @@ pub(crate) const RECORD_BUDGET: Duration = Duration::from_secs(30);
 /// Longer than the `shutdown_grace_seconds` the embedded defaults ship, because the bound is on
 /// the grace period and the process still has to unwind and exit after spending it.
 pub(crate) const STOP_BUDGET: Duration = Duration::from_secs(45);
+
+/// One environment value a hosted cell needs, or a panic naming the variable and never its value.
+///
+/// **Every read is also refused outside CI**: a hosted cell opens a real project, so a developer's shell
+/// never runs it. **The limit:** `GITHUB_ACTIONS` is an environment value, so a shell that exports
+/// `true` passes.
+#[cfg(unix)]
+#[cfg(feature = "bigquery")]
+#[cfg(feature = "datahub")]
+pub(crate) fn live_env(name: &str) -> String {
+    assert!(
+        std::env::var("GITHUB_ACTIONS").is_ok_and(|ci| ci == "true"),
+        "a live bigquery cell runs only in CI (GITHUB_ACTIONS=true); this host names a bigquery venue outside CI"
+    );
+    match std::env::var(name) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => panic!("{name} is unset or empty; this hosted cell cannot run without it"),
+    }
+}
 
 /// The example deployment, which is also what a reader is told to run.
 ///
@@ -260,16 +279,15 @@ pub(crate) fn files_source(name: &str, data: &Path) -> String {
     )
 }
 
-/// The one subject a delegating `bigquery` source declares, beside the account it executes as.
+/// The subject the delegating cells ask as.
 #[cfg(feature = "bigquery")]
-pub(crate) const DELEGATED: (&str, &str) = ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com");
+pub(crate) const DELEGATED: &str = "analyst-a@example.com";
 
 /// A `bigquery` source that declares the delegation exchange of a `direct` deployment: an
-/// `impersonation-at-source` posture with a `workload_identity:` block naming the pool, [`DELEGATED`]
-/// as its one subject, and the four-key `delegation:` block whose exchange only `direct` can run.
+/// `impersonation-at-source` posture with a `workload_identity:` block naming the pool, and the
+/// one-hop `delegation:` list whose exchange only `direct` can run.
 #[cfg(feature = "bigquery")]
 pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client_secret_file: &Path) -> String {
-    let (subject, account) = DELEGATED;
     format!(
         "  {name}:\n    \
            kind: \"bigquery\"\n    \
@@ -279,12 +297,10 @@ pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client
            posture: \"impersonation-at-source\"\n    \
            workload_identity:\n      \
            audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-           impersonate:\n        \
-           \"{subject}\": \"{account}\"\n      \
            delegation:\n        \
-           token_endpoint: \"{token_endpoint}\"\n        \
-           client_id: \"sutura\"\n        \
-           client_secret_file: \"{}\"\n        \
+           - token_endpoint: \"{token_endpoint}\"\n          \
+           client_id: \"sutura\"\n          \
+           client_secret_file: \"{}\"\n          \
            audience: \"pool-client-id\"\n",
         client_secret_file.display(),
     )
@@ -395,6 +411,9 @@ pub(crate) struct Reply {
     /// needs, and because what it must NOT contain is the interesting half: a challenge that said
     /// which check failed would tell a caller holding a forgery which half of it to fix.
     pub(crate) challenge: Option<String>,
+    /// The status line and every header, as sent.
+    #[cfg(all(unix, feature = "agent"))]
+    pub(crate) head: String,
 }
 
 impl Reply {

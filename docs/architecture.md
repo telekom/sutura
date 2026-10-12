@@ -46,6 +46,9 @@ DataHub and Cube are the single source of truth. DataHub holds the definitions. 
 metrics to BI tools, APIs and sutura. Without Cube, sutura reads the definitions from DataHub and
 runs each metric itself.
 
+The metrics serving layer, for example Cube, is optional. We suggest it when BI tools or REST clients
+also use the metrics. The serving layer can also cache results. sutura keeps no result cache.
+
 Each part can change: another catalog (OpenMetadata, RDBMS, files), another data system (DuckDB,
 Oracle, files), another OIDC issuer, with or without the MCP gateway, with or without Cube.
 
@@ -57,7 +60,10 @@ sutura separates two parts of identity:
   (`security.inbound`). [Inbound identity](integrations/identity.md) has the settings.
 - **Leg 2: the data system runs the query as the caller.** BigQuery, ClickHouse and Oracle do this
   (secure-impersonation). sutura refuses a caller that the source does not declare. Every other data system runs each
-  query as one identity that the operator declares for that source (`shared-service-user`).
+  query as one identity that the operator declares for that source (`shared-service-user`). Cube with
+  `impersonation-at-source` receives each caller's own token and applies its access policy from the claims of that token. Its
+  warehouse query runs with the database identity in Cube's own driver settings, not with the caller's
+  identity.
 
 Grants, row policies and masking stay in the data system. sutura keeps no result cache, because a cache keyed on the
 question would leak rows between callers.

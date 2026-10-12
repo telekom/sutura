@@ -257,10 +257,10 @@ impl SubjectKey {
     /// Contributes the FULL verified value to `hasher`, as its own fixed-width digest, without
     /// returning it.
     ///
-    /// **The only read of the unmasked value inside this module that is not a comparison, and it is
-    /// write-only by shape.** A hasher takes bytes and hands nothing back, so this cannot become the
+    /// **Write-only by shape.** A hasher takes bytes and hands nothing back, so this cannot become the
     /// path by which a raw subject reaches a formatter - which an `as_str` would be, in a type whose
-    /// whole purpose is that its `Display` is masked. `pub(super)` rather than `pub(crate)`: the one
+    /// whole purpose is that its `Display` is masked. [`Self::principal`] is the one other read, and
+    /// it hands the value to a source rather than to a formatter. `pub(super)` rather than `pub(crate)`: the one
     /// caller is [`ComputeContext`](super::ComputeContext), a sibling of this module.
     ///
     /// The field's contribution is fixed-width, which is what makes the digest injective over its
@@ -271,6 +271,18 @@ impl SubjectKey {
     /// measurement and the limit. See [`ComputeContext::of`](super::ComputeContext::of).
     pub(super) fn feed(&self, hasher: &mut sha2::Sha256) {
         super::compute_context::feed_field(hasher, self.0.as_bytes());
+    }
+
+    /// The FULL verified value as the principal a source runs this caller as - the one read that
+    /// leaves this type unmasked, because the value is SENT: a source that switches to, or signs in
+    /// as, the caller's verified name needs the name itself, and a masked one names nobody.
+    ///
+    /// # Errors
+    ///
+    /// None in practice: both types share one parser and this value already passed it. Stated rather
+    /// than unwrapped because `unwrap_used` is denied.
+    pub fn principal(&self) -> Result<super::PrincipalName, InvalidPrincipalId> {
+        super::PrincipalName::parse(&self.0)
     }
 
     /// The stable masked form, for rendering. The `Debug`/`Display` impls are the only callers and

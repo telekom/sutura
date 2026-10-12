@@ -1,0 +1,34 @@
+[package]
+name = "sutura-catalog-cube"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "A SemanticCatalog adapter over a Cube metrics serving layer's metadata API (`/cubejs-api/v1/meta`) - a declaring source."
+
+[features]
+# Off by default for `sutura-catalog-openmetadata`'s reason: what arrives with it is an outbound TLS
+# stack, and no published binary links one it did not ask for.
+http = ["dep:ureq", "dep:sutura-tls", "dep:sutura-http-client"]
+
+[dependencies]
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true, optional = true }
+sutura-tls = { workspace = true, optional = true }
+sutura-http-client = { workspace = true, optional = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# The loopback fake server `tests/http_reader.rs` answers the reader with.
+sutura-http-client = { workspace = true, features = ["test"] }
+# The provisioned cell (`tests/provisioned.rs`) finds the tier through the discovery file.
+sutura-dev = { workspace = true }
+# The provisioned cell signs the tier's HS256 deployment token with the fixture secret.
+jsonwebtoken = { workspace = true }

@@ -29,7 +29,6 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         audience: String::from(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
         ),
-        impersonate: std::collections::BTreeMap::new(),
         expected_issuer: None,
         expected_audience: None,
         delegation: None,
@@ -54,6 +53,8 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         port: None,
         database: None,
         service_name: None,
+        endpoint: None,
+        token_file: None,
         database_file: None,
         user: None,
         password_file: None,
@@ -61,7 +62,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         transport_anchors: None,
         client_certificate: None,
         client_key: None,
-        impersonate: None,
+        impersonate: false,
         subjects: false,
         delegation: None,
     }
@@ -423,6 +424,8 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         port: None,
         database: None,
         service_name: None,
+        endpoint: None,
+        token_file: None,
         database_file: None,
         user: None,
         password_file: None,
@@ -430,7 +433,7 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         transport_anchors: None,
         client_certificate: None,
         client_key: None,
-        impersonate: None,
+        impersonate: false,
         subjects: false,
         delegation: None,
     }
@@ -458,6 +461,7 @@ fn a_bigquery_source_declares_its_billing_project_and_dataset() {
         | super::placement::SourcePlacement::Postgres { .. }
         | super::placement::SourcePlacement::ClickHouse { .. }
         | super::placement::SourcePlacement::Oracle { .. }
+        | super::placement::SourcePlacement::Cube { .. }
         | super::placement::SourcePlacement::Duckdb { .. } => {
             panic!("the entry declared kind: bigquery");
         }
@@ -710,13 +714,13 @@ fn a_workload_identity_block_with_an_empty_audience_is_refused_naming_the_audien
 fn a_workload_identity_delegation_of_one_broker_token_hop_is_refused() {
     let entries = [RawSourceEntry {
         workload_identity: Some(crate::raw::RawWorkloadIdentity {
-            delegation: Some(crate::raw::RawDelegation {
+            delegation: Some(vec![crate::raw::RawDelegation {
                 token_endpoint: String::from("https://idp.example.com/realms/example/broker/entra/token"),
                 client_id: String::from("sutura"),
                 client_secret_file: String::from("/etc/sutura/client-secret"),
                 audience: String::from("11111111-1111-4111-8111-111111111111"),
                 grant: super::workload_identity::DelegationGrant::BrokerToken,
-            }),
+            }]),
             ..wif()
         }),
         ..impersonating("warehouse")
@@ -732,6 +736,98 @@ fn a_workload_identity_delegation_of_one_broker_token_hop_is_refused() {
         ),
         "{error:?}"
     );
+}
+
+fn hop(audience: &str, grant: super::workload_identity::DelegationGrant) -> crate::raw::RawDelegation {
+    crate::raw::RawDelegation {
+        token_endpoint: String::from("https://idp.example.com/token"),
+        client_id: String::from("sutura"),
+        client_secret_file: String::from("/etc/sutura/client-secret"),
+        audience: String::from(audience),
+        grant,
+    }
+}
+
+/// An impersonating entry whose `workload_identity` declares `delegation`.
+fn delegating(delegation: Vec<crate::raw::RawDelegation>) -> RawSourceEntry<'static> {
+    RawSourceEntry {
+        workload_identity: Some(crate::raw::RawWorkloadIdentity {
+            delegation: Some(delegation),
+            ..wif()
+        }),
+        ..impersonating("warehouse")
+    }
+}
+
+#[test]
+fn a_workload_identity_delegation_declares_its_hops_in_order() {
+    use super::workload_identity::DelegationGrant::{OnBehalfOf, TokenExchange};
+    let entries = [delegating(vec![
+        hop("sutura-app", TokenExchange),
+        hop("pool-client-id", OnBehalfOf),
+    ])];
+    let registry = SourceRegistry::parse(&entries, Some(&single_user())).expect("two hops parse");
+    let source = registry.get(&alias("warehouse")).expect("it was registered");
+    let hops: Vec<_> = source
+        .workload_identity()
+        .expect("the block was carried")
+        .delegation()
+        .iter()
+        .map(|hop| (hop.audience(), hop.grant()))
+        .collect();
+    assert_eq!(hops, vec![("sutura-app", TokenExchange), ("pool-client-id", OnBehalfOf)]);
+}
+
+#[test]
+fn an_empty_workload_identity_delegation_is_refused_naming_the_key() {
+    let error = SourceRegistry::parse(&[delegating(Vec::new())], Some(&single_user()))
+        .expect_err("an empty list declares no hop and is not an absent one");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::WorkloadIdentity {
+                cause: super::workload_identity::InvalidWorkloadIdentity::Empty {
+                    what: "`delegation` list"
+                },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    let rendered = format!("{error}: {}", std::error::Error::source(&error).expect("a cause"));
+    assert!(
+        rendered.contains("workload_identity") && rendered.contains("`delegation`"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn a_workload_identity_delegation_ending_in_a_broker_token_hop_is_refused() {
+    use super::workload_identity::DelegationGrant::{BrokerToken, TokenExchange};
+    let error = SourceRegistry::parse(
+        &[delegating(vec![hop("sutura-app", TokenExchange), hop("entra", BrokerToken)])],
+        Some(&single_user()),
+    )
+    .expect_err("its last hop is broker-token");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::DelegationEndsInBrokerToken {
+                key: "workload_identity.delegation",
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    // A `broker-token` hop that a later hop exchanges is the shape the grant exists for.
+    SourceRegistry::parse(
+        &[delegating(vec![
+            hop("entra", BrokerToken),
+            hop("pool-client-id", TokenExchange),
+        ])],
+        Some(&single_user()),
+    )
+    .expect("a first broker-token hop loads");
 }
 
 mod postgres;

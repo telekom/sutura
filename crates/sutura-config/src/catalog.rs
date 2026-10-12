@@ -76,6 +76,12 @@ pub enum CatalogKind {
     /// build without it refuses the kind by name naming the feature, the same stand
     /// [`Self::Openmetadata`] makes. The composition root decides which, never the settings parse.
     Rdbms,
+    /// A Cube metrics serving layer's metadata API, decided by `sutura-catalog-cube` over its
+    /// `MetaReader` port.
+    ///
+    /// **Openable behind `sutura-cli`'s default-off `cube` feature; a build without it refuses this
+    /// kind by name**, the stand [`Self::Openmetadata`] makes. It takes the same reader fields.
+    Cube,
 }
 /// The configured word did not name a kind of catalog this build has.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -86,7 +92,7 @@ pub struct UnknownCatalogKind {
 
 impl CatalogKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "datacontract", "openmetadata", "rdbms"];
+    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "datacontract", "openmetadata", "rdbms", "cube"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogKind> {
@@ -97,6 +103,7 @@ impl CatalogKind {
             "datacontract" => Ok(Self::DataContract),
             "openmetadata" => Ok(Self::Openmetadata),
             "rdbms" => Ok(Self::Rdbms),
+            "cube" => Ok(Self::Cube),
             other => Err(UnknownCatalogKind {
                 found: String::from(other),
             }),
@@ -114,6 +121,7 @@ impl CatalogKind {
             Self::DataContract => "datacontract",
             Self::Openmetadata => "openmetadata",
             Self::Rdbms => "rdbms",
+            Self::Cube => "cube",
         }
     }
 }
@@ -175,9 +183,9 @@ pub enum InvalidCatalogSettings {
     /// prints the resolved settings, and never quoted back.
     #[error("catalogs.{name}.endpoint carries an `@` - credentials in the URL are refused, declare token_file")]
     CredentialsInEndpoint { name: SourceName },
-    /// A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
-    #[error("catalog.{field} is required when catalog.kind is openmetadata, and is empty or absent")]
-    MissingForOpenmetadata { field: &'static str },
+    /// A `catalog.kind: openmetadata` or `cube` entry did not declare a field its reader needs.
+    #[error("catalog.{field} is required when catalog.kind is {kind}, and is empty or absent")]
+    MissingForReader { kind: &'static str, field: &'static str },
     /// `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every
     /// tick of whatever drives it, which is not a refresh interval; absent is the default
     /// interval, not "never".
@@ -339,34 +347,40 @@ impl CatalogSettings {
         self
     }
 
-    /// Adds the two `catalog.kind: openmetadata`-only fields to an already-parsed entry.
+    /// Adds the two reader fields of a `catalog.kind: openmetadata` or `cube` entry.
     ///
     /// A separate step rather than two more parameters on [`Self::parse`], for the same reason
     /// [`Self::with_datahub_reader`] is one: `parse_catalogs` calls it only when `kind` parsed as
-    /// [`CatalogKind::Openmetadata`], so every other kind is unaffected by fields only a reader over
+    /// [`CatalogKind::Openmetadata`] or [`CatalogKind::Cube`], so every other kind is unaffected by fields only a reader over
     /// a real deployment needs.
-    pub fn with_openmetadata_reader(mut self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings> {
+    pub fn with_http_reader(mut self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings> {
         if endpoint.trim().is_empty() {
-            return Err(InvalidCatalogSettings::MissingForOpenmetadata { field: "endpoint" });
+            return Err(InvalidCatalogSettings::MissingForReader {
+                kind: self.kind.as_str(),
+                field: "endpoint",
+            });
         }
         if endpoint.contains('@') {
             return Err(InvalidCatalogSettings::CredentialsInEndpoint { name: self.name });
         }
         if token_file.as_os_str().is_empty() {
-            return Err(InvalidCatalogSettings::MissingForOpenmetadata { field: "token_file" });
+            return Err(InvalidCatalogSettings::MissingForReader {
+                kind: self.kind.as_str(),
+                field: "token_file",
+            });
         }
         self.endpoint = Some(endpoint);
         self.token_file = Some(token_file);
         Ok(self)
     }
 
-    /// Adds the two `catalog.kind: openmetadata`-only bounds, when the deployment declared either.
+    /// Adds the two read bounds of a `catalog.kind: openmetadata` or `cube` entry, when the deployment declared either.
     ///
-    /// **Infallible, unlike [`Self::with_openmetadata_reader`], because `None` is a valid value
+    /// **Infallible, unlike [`Self::with_http_reader`], because `None` is a valid value
     /// here rather than a missing required one** - it selects the reader's own recommended default
     /// (`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
     #[must_use]
-    pub const fn with_openmetadata_bounds(mut self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self {
+    pub const fn with_read_bounds(mut self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self {
         self.deadline_seconds = deadline_seconds;
         self.max_response_bytes = max_response_bytes;
         self
@@ -691,9 +705,9 @@ mod tests {
 
         let complete = base
             .clone()
-            .with_openmetadata_reader(String::from("https://openmetadata.example"), PathBuf::from("/nowhere/token"))
+            .with_http_reader(String::from("https://openmetadata.example"), PathBuf::from("/nowhere/token"))
             .expect("all required fields are non-empty")
-            .with_openmetadata_bounds(Some(45), Some(1 << 20));
+            .with_read_bounds(Some(45), Some(1 << 20));
         assert_eq!(complete.endpoint(), Some("https://openmetadata.example"));
         assert_eq!(complete.token_file(), Some(Path::new("/nowhere/token")));
         assert_eq!(complete.deadline_seconds(), Some(45));
@@ -702,7 +716,7 @@ mod tests {
         // Declaring neither bound is not a refusal - `None` is what selects the reader's own
         // recommended default, resolved by the composition root rather than by this type.
         let defaulted = base
-            .with_openmetadata_reader(String::from("https://openmetadata.example"), PathBuf::from("/nowhere/token"))
+            .with_http_reader(String::from("https://openmetadata.example"), PathBuf::from("/nowhere/token"))
             .expect("all required fields are non-empty");
         assert_eq!(defaulted.deadline_seconds(), None);
         assert_eq!(defaulted.max_response_bytes(), None);
@@ -710,22 +724,35 @@ mod tests {
 
     #[test]
     fn an_openmetadata_entry_missing_either_required_field_is_refused_naming_it() {
-        let base = settings("metrics");
+        let base = CatalogSettings::parse(
+            name("metrics"),
+            CatalogKind::Openmetadata,
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version(),
+        )
+        .expect("a declared catalog is a catalog");
         let missing_endpoint = base
             .clone()
-            .with_openmetadata_reader(String::new(), PathBuf::from("/nowhere/token"))
+            .with_http_reader(String::new(), PathBuf::from("/nowhere/token"))
             .expect_err("an empty endpoint is refused");
         assert_eq!(
             missing_endpoint,
-            InvalidCatalogSettings::MissingForOpenmetadata { field: "endpoint" }
+            InvalidCatalogSettings::MissingForReader {
+                kind: "openmetadata",
+                field: "endpoint"
+            }
         );
 
         let missing_token_file = base
-            .with_openmetadata_reader(String::from("https://openmetadata.example"), PathBuf::new())
+            .with_http_reader(String::from("https://openmetadata.example"), PathBuf::new())
             .expect_err("an empty token_file is refused");
         assert_eq!(
             missing_token_file,
-            InvalidCatalogSettings::MissingForOpenmetadata { field: "token_file" }
+            InvalidCatalogSettings::MissingForReader {
+                kind: "openmetadata",
+                field: "token_file"
+            }
         );
     }
 

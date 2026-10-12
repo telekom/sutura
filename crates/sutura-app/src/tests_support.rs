@@ -239,10 +239,12 @@ impl FixedWarehouse {
     fn deliverable(&self, presented: &Presented) -> Result<(), AdapterFailure> {
         match *presented {
             Presented::SharedServiceUser { .. } => Ok(()),
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => Err(AdapterFailure::NoPlaceForASubject {
-                at: String::from(self.source.as_str()),
-                presented: presented.as_str(),
-            }),
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
+                Err(AdapterFailure::NoPlaceForASubject {
+                    at: String::from(self.source.as_str()),
+                    presented: presented.as_str(),
+                })
+            }
         }
     }
 }
@@ -758,7 +760,6 @@ fn now_in_unix_seconds() -> u64 {
 fn subject_leg() -> Presented {
     Presented::SubjectToken {
         material: Secret::new("an-exchanged-token"),
-        impersonate: None,
     }
 }
 

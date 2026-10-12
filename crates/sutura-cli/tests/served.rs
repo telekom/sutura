@@ -87,6 +87,15 @@ mod keycloak_test;
 #[path = "served/datahub.rs"]
 mod datahub;
 
+// `examples/metrics-layer` against the compose `cube` profile, `#[ignore]`d behind
+// `just cube-acceptance` - see `served/metrics_layer.rs`'s module header.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "cube")]
+#[cfg(feature = "datahub")]
+#[path = "served/metrics_layer.rs"]
+mod metrics_layer;
+
 // `catalog.kind: okf`, served: `#970`'s served-binary "boots and lists" cell - see
 // `served/okf.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests` reason
 // `datahub` above carries one.
@@ -97,8 +106,7 @@ mod okf;
 // `catalog.kind: openmetadata`, served: `#970`'s served-binary "boots and lists" cell for the
 // OpenMetadata adapter - see `served/openmetadata.rs`'s module header. `#[cfg(test)]` for the same
 // `allow-expect-in-tests` reason `datahub`/`okf` above carry one; `cfg(feature = "openmetadata")`
-// on the DECLARATION so a build without the feature does not parse a file naming a crate it did not
-// link.
+// on the DECLARATION for the reason `datahub` above gives.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "openmetadata")]
@@ -197,6 +205,19 @@ mod corpus;
 #[cfg(feature = "postgres")]
 #[path = "served/two_kind.rs"]
 mod two_kind;
+
+// A source password sent for real and held out of every reply and log line (#1293).
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "agent")]
+#[path = "served/source_password.rs"]
+mod source_password;
+
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "clickhouse")]
+#[path = "served/bound_value.rs"]
+mod bound_value;
 
 #[cfg(unix)]
 #[cfg(test)]

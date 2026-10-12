@@ -11,10 +11,7 @@
 //! argument that is **ours rather than the provider's format rules restated** - see
 //! [`BillingProject`].
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-
-use sutura_domain::identity::{InvalidPrincipalId, SubjectKey};
 
 use super::SourceKind;
 use super::transport::SourceTransport;
@@ -542,10 +539,10 @@ pub enum SourcePlacement {
         password_file: PathBuf,
         /// How the channel to this source is secured.
         transport: SourceTransport,
-        /// Which `ClickHouse` user each declared subject's statements run as, through `EXECUTE AS`.
-        /// Non-empty exactly when the source is `impersonation-at-source`. The values are parsed
-        /// again by `sutura_exec_clickhouse::execute_as::ClickHouseUser`, the crate that sends them.
-        impersonate: DeclaredUsers,
+        /// The hops each caller's verified token is exchanged through, in order, for the token
+        /// each caller signs in with as their own user. Empty on an impersonating source that
+        /// switches to each caller with `EXECUTE AS`, and on a shared one.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
     /// An Oracle Database, reached over its TCP listener.
     ///
@@ -581,6 +578,20 @@ pub enum SourcePlacement {
         /// is not there is refused there rather than created.
         database_file: PathBuf,
     },
+    /// A Cube metrics serving layer, reached over its REST API.
+    ///
+    /// No transport field: the request rides the outbound client, whose trust is
+    /// `security.outbound.transport_anchors`, and no per-source channel is declared.
+    Cube {
+        /// The API's base URL, `scheme://host[:port]`. Parsed where the HTTP client is built.
+        endpoint: String,
+        /// The file the deployment's one token is read from at boot, absolute.
+        token_file: PathBuf,
+        /// The hops each caller's token is exchanged through, in order, on an
+        /// `impersonation-at-source` entry; empty on any other. The last hop's token is the
+        /// request's bearer.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
+    },
 }
 
 impl SourcePlacement {
@@ -598,17 +609,15 @@ impl SourcePlacement {
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
             Self::Oracle { .. } => SourceKind::Oracle,
+            Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
         }
     }
 }
 
-/// A `clickhouse` source's declared subject -> `ClickHouse` user map.
-pub type DeclaredUsers = BTreeMap<SubjectKey, String>;
-
-/// Why an `oracle` source's `delegation` is not one it can be served under.
+/// Why an `oracle`, `clickhouse` or `cube` source's `delegation` is not one it can be served under.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidOracleDelegation {
+pub enum InvalidDelegation {
     /// An impersonating source with no exchange, so no caller's token could open a session.
     #[error(
         "the source is `impersonation-at-source` and declares no `delegation` - name the token \
@@ -626,38 +635,13 @@ pub enum InvalidOracleDelegation {
          `transport_mode: verified`"
     )]
     Plaintext,
-}
-
-/// Why a `clickhouse` source's `impersonate` map is not one it can be served under.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidImpersonate {
-    /// An impersonating source declared no subject, so no caller could ever be served there.
+    /// An impersonating `cube` source whose endpoint is not `https`: each request sends its
+    /// caller's token.
     #[error(
-        "the source is `impersonation-at-source` and declares no `impersonate` map - name each \
-         subject it may be asked as and the ClickHouse user that subject executes as"
+        "the source is `impersonation-at-source`, so each request sends its caller's token - declare \
+         an `https://` endpoint"
     )]
-    Missing,
-    /// A map on a source that is not impersonating, which nothing would read.
-    #[error(
-        "`impersonate` is declared on a source that is not `impersonation-at-source` - remove it, or write the posture you meant"
-    )]
-    NotImpersonating,
-    #[error("a declared subject is not usable")]
-    Subject {
-        #[source]
-        cause: InvalidPrincipalId,
-    },
-    /// Two keys that parse to one subject - the parse trims, so they differ only in whitespace.
-    #[error("two declared subjects are the same subject")]
-    DuplicateSubject,
-    #[error("a declared ClickHouse user is empty")]
-    EmptyUser,
-    /// A declared user that is the source's own `user`.
-    #[error(
-        "a declared ClickHouse user is the source's own `user` - map each subject to a different \
-         user, or declare the source `shared-service-user`"
-    )]
-    ServiceUser,
+    PlaintextEndpoint,
 }
 
 #[cfg(test)]

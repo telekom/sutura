@@ -4,15 +4,14 @@
 //!
 //! The whole file is behind the three impersonating adapters' features in `serve.rs`'s
 //! `mod broker;`, and the `workload_identity` half behind `bigquery` alone. `delegation` composes
-//! the one exchange client, `sutura_http_client::delegation`, for a `bigquery` or `oracle` source.
+//! the one exchange client, `sutura_http_client::delegation`, for a `bigquery`, `clickhouse` or `oracle` source.
 //!
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
 //! implementor a composition root can reach. `sutura_config::DeclaredPrincipalBroker` is what
 //! the ADBC transport can be served through: it presents the asking subject's OWN verified
-//! assertion, and the declared pool is what resolves that subject to a principal. What the declared
-//! map decides is only WHETHER this caller may be served here. Its own module header states what
-//! that costs relative to the exchange.
+//! assertion, the declared pool federates it to that subject's own principal, and the data
+//! system's grants on that principal decide what the caller reads.
 //!
 //! **A source declaring `workload_identity.delegation` presents the token its caller's own inbound
 //! token is exchanged for**, through the client `delegation` builds - `direct` mode's second
@@ -33,18 +32,9 @@ use sutura_domain::source::SourcePosture;
 ///
 /// # Errors
 ///
-/// Three startup refusals, and all three exist because the alternative is a deployment that boots
-/// clean and refuses every impersonated question - which is the defect this whole composition was
-/// rebuilt to remove:
+/// Startup refusals, and each exists because the alternative is a deployment that boots clean and
+/// refuses every impersonated question:
 ///
-/// - an impersonating source whose `impersonate` map names nobody, so no caller could ever be
-///   served there;
-/// - a declared target that is not a principal this adapter can name - **narrowed by
-///   `telekom/sutura#929` F3 and not relaxed by it.** `PrincipalName::parse` alone accepts `/`,
-///   `:` and `?`; since the account is now interpolated into one path segment of the credential
-///   document's `service_account_impersonation_url`, `DeclaredPrincipals::parse` refuses anything
-///   that is not a service-account address, which is what makes a bad declaration a startup
-///   failure rather than a per-question one;
 /// - a source declaring the pool expectations `telekom/sutura#817` added, which described a token
 ///   exchange no transport in this build performs;
 /// - a declared `delegation` whose endpoint, client ID, audience or client secret file this
@@ -52,10 +42,10 @@ use sutura_domain::source::SourcePosture;
 pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     #[cfg_attr(
-        not(any(feature = "bigquery", feature = "oracle")),
+        not(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle")),
         expect(
             unused_variables,
-            reason = "only a `bigquery` or `oracle` source composes a delegation over it"
+            reason = "only a `bigquery`, `clickhouse`, `cube` or `oracle` source composes a delegation over it"
         )
     )]
     outbound: Option<&sutura_tls::Declared>,
@@ -66,8 +56,15 @@ pub(crate) fn build_broker(
             broker = broker.shared(alias.clone(), declared.clone());
         }
         #[cfg(feature = "clickhouse")]
-        if let Some(declared) = crate::clickhouse::declared_principals(alias, source)? {
-            broker = broker.switching(alias.clone(), declared);
+        if let Some(deployment) = crate::clickhouse::deployment_user(alias, source)? {
+            broker = match crate::clickhouse::declared_delegation(source) {
+                [first, then @ ..] => broker.signing_in(
+                    alias.clone(),
+                    deployment,
+                    delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
+                ),
+                [] => broker.switching(alias.clone(), deployment),
+            };
         }
         #[cfg(feature = "oracle")]
         if let [first, then @ ..] = crate::oracle::declared_delegation(source) {
@@ -76,18 +73,25 @@ pub(crate) fn build_broker(
                 delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
             );
         }
+        #[cfg(feature = "cube")]
+        if let [first, then @ ..] = crate::cube::declared_delegation(source) {
+            broker = broker.authenticating(
+                alias.clone(),
+                delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
+            );
+        }
         #[cfg(feature = "bigquery")]
         {
-            broker = impersonating(broker, alias, source, outbound)?;
+            broker = federating(broker, alias, source, outbound)?;
         }
     }
     Ok(broker)
 }
 
-/// One `bigquery` source's `workload_identity` declaration, added to `broker`; a source without one
-/// is returned unchanged.
+/// One `bigquery` source's `workload_identity` declaration, added to `broker` as a federating
+/// source; a source without one is returned unchanged.
 #[cfg(feature = "bigquery")]
-fn impersonating(
+fn federating(
     broker: DeclaredPrincipalBroker,
     alias: &sutura_domain::model::SourceName,
     source: &sutura_config::ConfiguredSource,
@@ -111,34 +115,19 @@ fn impersonating(
              and remove both keys here"
         ));
     }
-    // The declared subject -> service-account map, re-expressed once here into the adapter's own
-    // parsed shape: an adapter may not depend on the settings tree, so every value on this path
-    // is parsed again by the crate that sends it. Both halves are read now - the KEYS decide
-    // which callers a source may be asked as, the VALUES the account each of them executes as -
-    // so `DeclaredPrincipals::parse` refusing here is what keeps a security-critical
-    // declaration from being accepted and then ignored.
-    let mut declared = std::collections::BTreeMap::new();
-    for (subject, target) in workload.impersonate() {
-        let name = sutura_domain::identity::PrincipalName::parse(target.as_str()).map_err(|cause| {
-            format!("`sources.{alias}.workload_identity.impersonate` names a target this adapter cannot execute as: {cause}")
-        })?;
-        drop(declared.insert(subject.clone(), name));
-    }
-    let declared = sutura_config::DeclaredPrincipals::parse(declared)
-        .map_err(|cause| format!("`sources.{alias}.workload_identity.impersonate` is unusable: {cause}"))?;
-    Ok(match workload.delegation() {
-        None => broker.impersonating(alias.clone(), declared),
-        Some(declaration) => broker.impersonating_delegated(
-            alias.clone(),
-            declared,
+    let delegation = workload
+        .delegation()
+        .split_first()
+        .map(|(first, then)| {
             delegation(
                 &format!("sources.{alias}.workload_identity.delegation"),
-                declaration,
-                &[],
+                first,
+                then,
                 outbound,
-            )?,
-        ),
-    })
+            )
+        })
+        .transpose()?;
+    Ok(broker.federating(alias.clone(), delegation))
 }
 
 /// What one source's declared delegation hops are composed into: one client per hop at its
@@ -150,7 +139,7 @@ fn impersonating(
 ///
 /// One agent per source rather than one per deployment: nothing here is shared that would need
 /// to be, and a second declared source pays one more TLS agent.
-#[cfg(any(feature = "bigquery", feature = "oracle"))]
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
 fn delegation(
     key: &str,
     first: &sutura_config::sources::workload_identity::DelegationDeclared,
@@ -192,11 +181,11 @@ fn delegation(
         })
 }
 
-#[cfg(any(feature = "bigquery", feature = "oracle"))]
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
 /// How long one exchange may take. Fixed rather than declared: it runs inside a question's own
 /// request timeout, so a key for it would be a second bound on the same wait.
 const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
 
-#[cfg(any(feature = "bigquery", feature = "oracle"))]
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
 /// A token response is a few kilobytes; this bounds a misbehaving endpoint, not a real answer.
 const EXCHANGE_MAX_ANSWER_BYTES: u64 = 64 * 1024;

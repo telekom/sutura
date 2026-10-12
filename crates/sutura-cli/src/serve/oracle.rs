@@ -336,10 +336,7 @@ mod tests {
             reason = "a cell asserting WHOSE token the leg carries needs its text"
         )]
         let presented = match credentials.presented_for(&at) {
-            Ok(Presented::SubjectToken {
-                material,
-                impersonate: None,
-            }) => String::from(material.expose_secret()),
+            Ok(Presented::SubjectToken { material }) => String::from(material.expose_secret()),
             other => panic!("expected the exchanged token and no principal, got {other:?}"),
         };
         assert_eq!(

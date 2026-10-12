@@ -234,6 +234,8 @@ pub(crate) fn parse(text: &str) -> Reply {
         status,
         body: String::from(body),
         challenge,
+        #[cfg(all(unix, feature = "agent"))]
+        head: String::from(head),
     }
 }
 

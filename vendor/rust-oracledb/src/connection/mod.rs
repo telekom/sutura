@@ -217,6 +217,18 @@ impl Connection {
         self.get_impl()?.query_arrow(sql, params.into())
     }
 
+    #[cfg(feature = "arrow")]
+    /// Executes a query against the database and returns an iterator of Arrow
+    /// RecordBatch structures, one for each round trip to the database. The
+    /// next round trip is made only when the next batch is requested.
+    pub fn query_arrow_batches<'a>(
+        &self,
+        sql: &str,
+        params: impl Into<BindParameters<'a>>,
+    ) -> Result<crate::arrow::ArrowBatches<'a>, Error> {
+        self.get_impl()?.query_arrow_batches(sql, params.into())
+    }
+
     /// Executes a query against the database using named parameters.
     pub fn query_named(
         &self,

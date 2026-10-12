@@ -34,8 +34,9 @@
 //!
 //! # Why it is `#[ignore]`d and why it FAILS rather than skips
 //!
-//! It needs a real project, a real driver `.so` and two real service accounts the running identity
-//! may impersonate. `just validate` has no network, so an unignored leg would red every run.
+//! It needs a real project, a real driver `.so` and two assertions the declared pool accepts.
+//! The hosted fixture mints them from service-account keys; neither account is impersonated.
+//! `just validate` has no network, so an unignored leg would red every run.
 //! `#[ignore]` is how the repository has always carried a hosted venue, and the second half is what
 //! stops that from becoming a venue that always passes: every environment value is REQUIRED, and an
 //! absent one panics with the variable's name. A leg that skipped on a misconfigured environment
@@ -49,18 +50,12 @@
 //! that assertion against the declared pool. A run here is what turns leg 2 from wired into proven.
 //!
 //! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
-//! two accounts' grants.
+//! two principals' grants.
 //!
-//! **What it asserts since `telekom/sutura#929`'s re-review: EXACT equality, not merely a
-//! difference.** The credential document names the account declared for the asking subject as its
-//! `service_account_impersonation_url` (F3), so `SESSION_USER()` is that exact address and nothing
-//! else. A round of this file asserted only *two subjects, two distinct principals* on the grounds
-//! that a stronger expectation nobody had run would read as a proven binding - and the re-review
-//! rejected that trade: `assert_ne!` passes over a deployment where the declared values are ignored
-//! and the pool happens to resolve two subjects to two principals of its own, which is exactly the
-//! *accepted and then ignored* defect F3 fixed. So the expectation is now the mechanism's own, and
-//! it is still an expectation: **nobody has dispatched this leg**, so what changed is what a green
-//! run would establish, never that one happened.
+//! **What it asserts: two subjects, two principals, neither the deployment's.** The credential
+//! document names no second hop, so `SESSION_USER()` is each subject's own federated principal.
+//! Its exact spelling is Google's, so the cell compares the two answers with each other and with
+//! the deployment's own, and names no expected string.
 
 #![cfg(feature = "adbc")]
 
@@ -69,26 +64,16 @@
 // exempt test code, and a helper at file scope is not test code as far as clippy is concerned.
 #[cfg(test)]
 mod declared_principal {
+    #[path = "support.rs"]
+    mod support;
 
+    use self::support::live_env;
     use sutura_domain::identity::{Presented, Secret};
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
     use sutura_exec_bigquery::adbc::{DriverLocation, Impersonation, WorkloadPool};
     use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
-
-    /// One required environment value, or a panic naming it.
-    ///
-    /// **A panic and not a skip**, for this file's own header reason: a hosted venue whose environment
-    /// is half-configured must be RED. The panic names the variable and never its value - a project id
-    /// and an account address are the two things a public workflow log should not learn from a failure
-    /// message it did not have to print.
-    fn required(name: &str) -> String {
-        match std::env::var(name) {
-            Ok(value) if !value.trim().is_empty() => value,
-            _ => panic!("{name} is unset or empty, and this leg proves nothing without it"),
-        }
-    }
 
     /// The one source alias this leg declares.
     fn source() -> SourceName {
@@ -102,7 +87,7 @@ mod declared_principal {
     /// binary is none of them. So this venue measures the driver and not the packaging -
     /// `nix/bigquery-driver-check.sh` is where the packaging is measured.
     fn driver() -> DriverLocation {
-        DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER")).expect("the declared driver path is absolute")
+        DriverLocation::parse(&live_env("SUTURA_BIGQUERY_ADBC_DRIVER")).expect("the declared driver path is absolute")
     }
 
     /// The money bound both legs here run under: a gibibyte, which is what `docs/adr/0017` says
@@ -113,9 +98,9 @@ mod declared_principal {
 
     /// The adapter, opened `impersonation-at-source` over the real driver at the real project.
     fn opened() -> BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
-        let project = ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
-        let dataset = DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
-        let pool = WorkloadPool::parse(&required("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
+        let project = ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
+        let dataset = DatasetId::parse(live_env("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
+        let pool = WorkloadPool::parse(&live_env("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
         BigQueryWarehouse::over_adbc(
             source(),
             SourcePosture::ImpersonationAtSource,
@@ -127,27 +112,17 @@ mod declared_principal {
         )
     }
 
-    /// The identity a question runs as when this source is asked with `assertion`, for a caller
-    /// the deployment declared should execute as `account`.
+    /// The identity a question runs as when this source is asked with `assertion`.
     ///
     /// **`SubjectToken` and not `SubjectPrincipal`**, which is not a spelling choice: this adapter
     /// refuses the principal shape (`BigQueryError::NoPrincipalSwitch`), so a cell that built one
     /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
     /// document, and the transport puts it behind a workload-identity credential document for the
-    /// driver to federate and then impersonate `account` with.
-    ///
-    /// **Both values are per caller here, which is what the pre-F3 shape could not express.** A
-    /// leg built with one account for both subjects would run both questions as one principal and
-    /// the cell below would go red for a reason that is not the mechanism failing - so the two
-    /// addresses come from two variables, and `each_subject_executes_as_its_own_principal_at_the_declared_pool`
-    /// refuses to run without either.
-    fn executed_as(assertion: &str, account: &str) -> String {
+    /// driver to federate.
+    fn executed_as(assertion: &str) -> String {
         let warehouse = opened();
         let presented = Presented::SubjectToken {
             material: Secret::new(assertion),
-            impersonate: Some(
-                sutura_domain::identity::PrincipalName::parse(account).expect("the declared account is a principal name"),
-            ),
         };
         String::from(
             warehouse
@@ -160,51 +135,18 @@ mod declared_principal {
     #[test]
     #[ignore = "needs a real BigQuery project, the driver .so, and two assertions the declared pool accepts"]
     fn each_subject_executes_as_its_own_principal_at_the_declared_pool() {
-        // **THE leg-2 bar, and it is the same one the withdrawn HTTP venue met**: two distinct
-        // subjects resolve to two distinct BigQuery principals, observed at the data system rather
-        // than at a seam.
-        //
-        // **The account-binding oracle, asserted as an EQUALITY since `telekom/sutura#929`'s
-        // re-review.** The credential document names the declared account as its
-        // `service_account_impersonation_url`, so the second hop's output is that account and
-        // `SESSION_USER()` is that exact address. The two `assert_ne!`s below are kept beside the
-        // equalities rather than replaced by them, and they are not redundant: they refuse a
-        // MISCONFIGURED venue (one assertion presented twice, one address declared twice) with a
-        // message naming the configuration, where two equalities against one address would both
-        // pass and the leg would report a proven binding over one subject.
-        //
-        // **Why `assert_ne!` alone was not enough, which is the re-review's point.** It passes over
-        // a deployment that ignores the declared values entirely and lets the pool resolve each
-        // subject to its own principal - two distinct answers, neither of them the account the
-        // operator declared. That is the *security-critical setting accepted and then ignored*
-        // shape F3 fixed, and only an equality can see it.
-        let first_assertion = required("SUTURA_BQ_ASSERTION_A");
-        let second_assertion = required("SUTURA_BQ_ASSERTION_B");
+        // **THE leg-2 bar**: two distinct subjects resolve to two distinct BigQuery principals,
+        // observed at the data system rather than at a seam. The first `assert_ne!` refuses a
+        // MISCONFIGURED venue (one assertion presented twice) with a message naming it.
+        let first_assertion = live_env("SUTURA_BQ_ASSERTION_A");
+        let second_assertion = live_env("SUTURA_BQ_ASSERTION_B");
         assert_ne!(
             first_assertion, second_assertion,
             "one assertion presented twice is one subject, and proves nothing about two"
         );
-        let first_account = required("SUTURA_BQ_ACCOUNT_A");
-        let second_account = required("SUTURA_BQ_ACCOUNT_B");
         assert_ne!(
-            first_account, second_account,
-            "one declared account for both subjects runs both questions as one principal, whatever the pool resolved"
-        );
-        let ran_as_first = executed_as(&first_assertion, &first_account);
-        let ran_as_second = executed_as(&second_assertion, &second_account);
-        assert_eq!(
-            ran_as_first.trim(),
-            first_account.trim(),
-            "the first subject's question did not run as the account declared for it, so the declared \
-             target principal is a setting this deployment accepted and then did not apply"
-        );
-        assert_eq!(
-            ran_as_second.trim(),
-            second_account.trim(),
-            "the second subject's question did not run as the account declared for it"
-        );
-        assert_ne!(
-            ran_as_first, ran_as_second,
+            executed_as(&first_assertion),
+            executed_as(&second_assertion),
             "both subjects resolved to one principal, which is the shared-identity outcome wearing leg 2's name"
         );
     }
@@ -215,9 +157,7 @@ mod declared_principal {
         // **THE CONTROL, and without it the cell above cannot tell federation from the deployment
         // answering as itself.** A shared leg carries no subject, so this read goes out as whatever
         // the driver's application default credentials authenticate as. Compared against the two
-        // subjects' OWN observed principals rather than against the declared accounts: the control
-        // has to hold whatever the declaration says, and comparing against a declared address would
-        // pass on a deployment where the second hop silently did not happen.
+        // subjects' OWN observed principals.
         let declared = SharedIdentityDeclared::of(
             AcknowledgementReason::parse("the control leg reads this venue's own identity, under no subject at all")
                 .expect("a reason is a reason"),
@@ -227,8 +167,8 @@ mod declared_principal {
             SourcePosture::SharedServiceUser {
                 declared: declared.clone(),
             },
-            ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
-            DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
+            ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
+            DatasetId::parse(live_env("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
             driver(),
             Impersonation::Disabled,
             ceiling(),
@@ -239,16 +179,42 @@ mod declared_principal {
                 .expect("the dataset answered the identity read")
                 .as_str(),
         );
-        for (assertion, account) in [
-            ("SUTURA_BQ_ASSERTION_A", "SUTURA_BQ_ACCOUNT_A"),
-            ("SUTURA_BQ_ASSERTION_B", "SUTURA_BQ_ACCOUNT_B"),
-        ] {
+        for assertion in ["SUTURA_BQ_ASSERTION_A", "SUTURA_BQ_ASSERTION_B"] {
             assert_ne!(
                 ours,
-                executed_as(&required(assertion), &required(account)),
+                executed_as(&live_env(assertion)),
                 "a subject's question ran as this deployment's own identity, so the leg beside this one \
                  cannot tell federation from the deployment answering as itself"
             );
         }
+    }
+
+    /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the first hosted cell
+    /// with every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with
+    /// the rule's message. **The limit:** the fakes name nothing, so without the guard the child runs on
+    /// to a failure of its own, and it is the rule's message that is then absent.
+    #[test]
+    fn a_declared_principal_cell_is_refused_outside_ci() {
+        let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
+            .args([
+                "--ignored",
+                "--exact",
+                "declared_principal::each_subject_executes_as_its_own_principal_at_the_declared_pool",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("SUTURA_BQ_PROJECT", "no-such-project")
+            .env("SUTURA_BQ_DATASET", "no_such_dataset")
+            .env("SUTURA_BQ_AUDIENCE", "no-such-audience")
+            .env("SUTURA_BQ_ASSERTION_A", "no-such-assertion-a")
+            .env("SUTURA_BQ_ASSERTION_B", "no-such-assertion-b")
+            .env("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")
+            .output()
+            .expect("a child of the test binary starts");
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success() && said.contains("a live bigquery cell runs only in CI (GITHUB_ACTIONS=true)"),
+            "the child must stop at the first read with the CI rule, and said:\n{said}"
+        );
     }
 }

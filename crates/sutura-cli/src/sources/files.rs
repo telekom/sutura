@@ -256,6 +256,8 @@ mod tests {
             Opened::Oracle(_) => None,
             #[cfg(feature = "duckdb")]
             Opened::Duckdb(_) => None,
+            #[cfg(feature = "cube")]
+            Opened::Cube(_) => None,
         }
         .expect("this fixture declares a files source")
     }

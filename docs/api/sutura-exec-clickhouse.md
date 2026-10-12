@@ -9,10 +9,12 @@ The public API of `sutura-exec-clickhouse`, rendered from rustdoc JSON.
 
 A `Warehouse` adapter over `ClickHouse`, over its HTTP interface.
 
-The deployment's declared service user authenticates every request. A `shared-service-user`
-source runs every statement as that user; an `impersonation-at-source` source runs each one as
-the `ClickHouse` user its declared map names for the asking subject, through `EXECUTE AS` - see
-`execute_as`. No OAuth: the subject never authenticates to `ClickHouse` itself.
+A `shared-service-user` source runs every statement as the deployment's declared user. An
+`impersonation-at-source` source runs each one as the `ClickHouse` user named by the asking
+caller's verified subject: through `EXECUTE AS` on the deployment's sign-in (see
+`execute_as`), or - when the source declares a `delegation` - signed in as that user over HTTP
+Basic with the token the caller's verified assertion was exchanged for
+(`transport::SignIn`). `ClickHouse` hands that token to the operator's checker.
 
 # Why `ureq` and not an async driver
 
@@ -103,10 +105,8 @@ lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to i
 - `Endpoint` - The endpoint (or the canned pack) did not answer.
 - `Render`
 - `LegWithoutCombiner` - A leg without a combiner - `Warehouse::EXECUTES_LEGS` stays at its default; see the crate header.
-- `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential, which it has nowhere to put: it authenticates as the deployment and switches to a declared user per statement.
+- `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential with no user beside it, so there is no `ClickHouse` user to sign in as.
 - `NotAClickHouseUser` - The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
-- `ExecuteAsRefused` - The boot probe's `EXECUTE AS` did not run - refused (no setting, no grant) or unreachable.
-- `ExecuteAsNotHonoured` - The boot probe ran, and not as the declared user, or as the service user itself.
 - `PresentedDisagreesWithPosture`
 - `UnsupportedType` - A column came back as a `ClickHouse` type this adapter does not map.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
@@ -170,36 +170,6 @@ pub const fn of(source: SourceName, posture: SourcePosture, transport: T, result
 Opens an adapter over an already-constructed transport - `T = transport::Http` for a real
 connection, and a fake for the conformance pack.
 
-```rust
-pub fn refuse_unless_each_executes_as(&self, declared: &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, ClickHouseUser>) -> core::result::Result<(), ClickHouseError<<T as >::Error>>
-```
-
-`Self::refuse_unless_executes_as` for every user the source declares, so no subject the
-broker serves is run as a user the boot probe skipped. The declared map itself rather than
-an iterator, so a caller cannot hand over a subset of it.
-
-# Errors
-
-The first refusal, naming its user, as `Self::refuse_unless_executes_as` gives it.
-
-```rust
-pub fn refuse_unless_executes_as(&self, user: &ClickHouseUser) -> core::result::Result<(), ClickHouseError<<T as >::Error>>
-```
-
-Refuses unless the server runs a statement as `user` for this source's service user.
-
-The boot pre-flight for an `impersonation-at-source` source, run once per declared user, so
-a missing server setting or grant stops the process rather than its first question. It also
-refuses a declared user that IS the service user, which would serve that subject as the
-deployment. The limit: it proves the grant at boot; a grant revoked later surfaces as a
-refused question (`Code: 497`), never as an answer as the service user.
-
-# Errors
-
-`ClickHouseError::ExecuteAsRefused` if the server refuses the statement, and
-`ClickHouseError::ExecuteAsNotHonoured` if it runs as anyone but `user`, or as the
-service user.
-
 ### Implements
 
 `Debug`, `Warehouse`
@@ -215,14 +185,16 @@ statement. Each request is also stateless - `transport::Http` sends no `session_
 switch can outlive the request that asked for it, and two callers on one pooled connection
 cannot inherit each other's user.
 
-**The user is never caller text.** It comes from the source's declared subject-to-user map, is
-parsed here to a closed character set, and is quoted with the dialect's identifier quote. The
-character set has no quote, backslash or whitespace, so the quoted span cannot be closed early.
+**The user is the caller's verified subject, never caller text.** Leg 1 verified the token that
+carries it, the broker presents it, and it is parsed here to a closed character set and quoted
+with the dialect's identifier quote. The character set has no quote, backslash or whitespace, so
+the quoted span cannot be closed early.
 
-The server half is two operator settings this adapter cannot set: the server setting
-`access_control_improvements.allow_impersonate_user = 1`, and `GRANT IMPERSONATE ON <user>` to
-the service user. `ClickHouseWarehouse::refuse_unless_executes_as` checks both at boot. Not
-available on `ClickHouse` Cloud.
+The server half is operator settings this adapter cannot set: the server setting
+`access_control_improvements.allow_impersonate_user = 1`, a `ClickHouse` user named by each
+caller's verified subject, and `GRANT IMPERSONATE ON <user>` to the service user. There is no
+list of callers to check at boot, so a missing user or grant refuses that caller's question at
+the server - never an answer as the service user. Not available on `ClickHouse` Cloud.
 
 ### `struct ClickHouseUser`
 
@@ -230,7 +202,7 @@ available on `ClickHouse` Cloud.
 pub struct ClickHouseUser
 ```
 
-A `ClickHouse` user a declared subject executes as.
+The `ClickHouse` user a verified subject executes as.
 
 #### Methods
 
@@ -248,7 +220,7 @@ pub fn execute_as(&self, statement: &str) -> String
 pub fn parse(raw: &str) -> Result<Self, NotAClickHouseUser>
 ```
 
-Parses a declared user name.
+Parses a user name.
 
 # Errors
 
@@ -265,7 +237,7 @@ digits and `_ . - @`.
 pub enum NotAClickHouseUser
 ```
 
-Why a declared value is not a `ClickHouse` user this adapter can name in `EXECUTE AS`.
+Why a presented name is not a `ClickHouse` user this adapter can name in `EXECUTE AS`.
 
 #### Variants
 
@@ -553,6 +525,27 @@ A user/password pair, as the deployment declared it.
 #### Implements
 
 `Clone`, `Debug`
+
+### `struct SignIn`
+
+```rust
+pub struct SignIn<'a>
+```
+
+A caller's own HTTP Basic sign-in for one request: their verified name as the user, and the token
+their verified assertion was exchanged for as the password.
+
+#### Methods
+
+```rust
+pub const fn new(user: &'a crate::execute_as::ClickHouseUser, token: &'a sutura_domain::identity::Secret) -> Self
+```
+
+The caller's verified name as the user, and the token they sign in with.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
 
 ### `enum HttpError`
 

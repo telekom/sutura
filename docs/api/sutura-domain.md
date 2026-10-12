@@ -3401,14 +3401,14 @@ spelled.
 
 What an adapter presents, for one leg.
 
-**Three shapes over two postures: impersonation at the source arrives by two mechanisms, and the
-shared shape is not the absence of the other two.** The engine that ships cannot impersonate
+**Four shapes over two postures: impersonation at the source arrives by three mechanisms, and the
+shared shape is not the absence of the other three.** The engine that ships cannot impersonate
 anybody - one process, one operating-system identity - so under a two-variant shape it would
 receive a value it ignores,
 and "the service-identity fallback was removed" would mean the fallback came back as a variant
-nobody looked at. Under three there is nothing to ignore: the shared leg's value holds no
+nobody looked at. Under four there is nothing to ignore: the shared leg's value holds no
 credential material, so an adapter cannot mistake it for one, and a reader of this enum can see
-that a third shape exists without reading an adapter.
+that the shared shape exists without reading an adapter.
 
 An adapter matches exhaustively on what it received and returns its own typed error for a shape
 it is not configured for. The architecture decision states both directions and says which is the
@@ -3427,10 +3427,10 @@ invite a client to retry a deployment bug until something works.
 
 A name a data system knows a principal by.
 
-Two roles: the one a session is switched to, and the one a source is asked to execute as after
-the asker's own credential authenticated (`Presented::SubjectToken`'s `impersonate`).
+The one a session is switched to (`Presented::SubjectPrincipal`), or signed in as
+(`Presented::SubjectSignIn`).
 
-**Not a `Secret`, and that is a statement rather than an omission.** A role or service-account
+**Not a `Secret`, and that is a statement rather than an omission.** A role or user
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that
 redacted it would hide the one value an operator has to be able to read back in a log.

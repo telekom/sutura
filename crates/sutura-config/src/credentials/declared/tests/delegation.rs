@@ -1,18 +1,16 @@
 //! The broker's delegation hook, against a fake identity provider.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use sutura_domain::identity::{
     Agreed, CredentialBroker as _, Minted, Presented, PrincipalChain, PrincipalName, RequestContext, Secret, SourceSet, Subject,
-    SubjectKey,
 };
 use sutura_domain::model::SourceName;
 
 use sutura_domain::identity::{Delegated, Delegation, DelegationExchange, DelegationFailed, RequestedAudience};
 
-use crate::{DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable};
+use crate::{DeclaredPrincipalBroker, DeclaredPrincipalsUnusable};
 
 /// 2096-10-02, before both expiries below, so every grant agrees.
 const NOW: u64 = 4_000_000_000;
@@ -79,26 +77,10 @@ fn asking(raw: &str) -> RequestContext {
     )
 }
 
-fn declaring(subjects: &[&str]) -> DeclaredPrincipals {
-    DeclaredPrincipals::parse(
-        subjects
-            .iter()
-            .map(|raw| {
-                (
-                    SubjectKey::parse(raw).expect("a test key is a key"),
-                    PrincipalName::parse("bq@sutura.example.com").expect("a test principal is a principal"),
-                )
-            })
-            .collect::<BTreeMap<_, _>>(),
-    )
-    .expect("a declaration naming somebody parses")
-}
-
 fn delegated_warehouse(idp: &Arc<FakeIdp>) -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().impersonating_delegated(
+    DeclaredPrincipalBroker::empty().federating(
         source("warehouse"),
-        declaring(&["analyst-a@example.com", "analyst-b@example.com"]),
-        Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience()),
+        Some(Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience())),
     )
 }
 
@@ -117,7 +99,7 @@ fn presented_to(broker: &DeclaredPrincipalBroker, raw: &str) -> String {
         panic!("expected a grant for {raw}");
     };
     match credentials.presented_for(&source("warehouse")).expect("asked for") {
-        Presented::SubjectToken { material, .. } => material.expose_secret().to_owned(),
+        Presented::SubjectToken { material } => material.expose_secret().to_owned(),
         other => panic!("expected a subject token, got {other:?}"),
     }
 }
@@ -176,20 +158,20 @@ fn the_presented_lifetime_is_the_earlier_of_the_inbound_and_the_exchanged_token(
 
 #[test]
 fn a_plan_refused_at_one_source_sends_nothing_to_the_idp() {
-    // `yard` sorts AFTER `warehouse`, so the admitted, delegated source clears its own checks first
-    // and only an exchange made before the whole refusal pass ends can reach the fake.
+    // `yard` sorts AFTER `warehouse`, so the delegated source clears its own checks first and only
+    // an exchange made before the whole refusal pass ends can reach the fake. `yard` switches, and
+    // its deployment user IS the asker, so it refuses them.
     let (idp, asked) = fake(false);
-    let broker = delegated_warehouse(&idp).impersonating_delegated(
+    let broker = delegated_warehouse(&idp).switching(
         source("yard"),
-        declaring(&["analyst-b@example.com"]),
-        Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
+        PrincipalName::parse("analyst-a@example.com").expect("a test principal is a principal"),
     );
     let minted = broker
         .mint(
             &asking("analyst-a@example.com"),
             &SourceSet::of(source("warehouse")).and(source("yard")),
         )
-        .expect("an undeclared caller is a refusal, not an error");
+        .expect("a source that refuses the asker is a refusal, not an error");
     assert!(
         matches!(minted, Minted::Refused { ref source } if source.as_str() == "yard"),
         "{minted:?}"
@@ -240,7 +222,7 @@ fn an_authenticating_source_presents_the_exchanged_token_and_no_principal() {
         super::presented_at(mint(), "anyone@example.com", &sources, &at),
         "delegated:inbound:anyone@example.com"
     );
-    assert_eq!(super::target_at(mint(), "anyone@example.com", &sources, &at), None);
+    drop(mint());
     let expected = (
         String::from("inbound:anyone@example.com"),
         String::from("https://workforce-pool.example.com"),
@@ -305,4 +287,68 @@ fn an_authenticating_sources_leg_lapses_with_the_earlier_of_the_assertion_and_th
             "a leg outlived the earlier of its two lifetimes, which ends at {lapses}"
         );
     }
+}
+
+/// A signing-in source presents the caller's verified name beside the token their assertion is
+/// exchanged for, never the inbound one, and refuses the deployment's own user before any exchange.
+#[test]
+fn a_signing_in_source_presents_the_verified_name_and_the_exchanged_token() {
+    let (idp, asked) = fake(false);
+    let broker = DeclaredPrincipalBroker::empty().signing_in(
+        source("warehouse"),
+        PrincipalName::parse("sutura").expect("a test principal is a principal"),
+        Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
+    );
+    let at = source("warehouse");
+    let sources = SourceSet::of(at.clone());
+    let mint = |raw: &str| broker.mint(&asking(raw), &sources).expect("the broker answers");
+    let analyst = "analyst-a@example.com";
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the cell compares the presented material, which is the claim"
+    )]
+    let signed_in = match super::granted(mint(analyst), analyst, &sources)
+        .presented_for(&at)
+        .expect("asked for")
+    {
+        Presented::SubjectSignIn { name, material } => (name.as_str().to_owned(), material.expose_secret().to_owned()),
+        other => panic!("expected a sign-in, got {other:?}"),
+    };
+    assert_eq!(
+        signed_in,
+        (analyst.to_owned(), String::from("delegated:inbound:analyst-a@example.com"))
+    );
+    assert_eq!(
+        asked.try_iter().count(),
+        1,
+        "the mint exchanges the caller's own inbound token"
+    );
+    assert!(
+        matches!(mint("sutura"), Minted::Refused { .. }),
+        "the deployment's own user is refused"
+    );
+    assert_eq!(asked.try_iter().count(), 0, "a refused caller reaches no identity provider");
+}
+
+/// A signing-in source refuses a verified caller with no assertion: there is no token to exchange,
+/// so the caller's name alone never signs in.
+#[test]
+fn a_signing_in_source_refuses_a_caller_with_no_assertion_and_asks_no_idp() {
+    let (idp, asked) = fake(false);
+    let broker = DeclaredPrincipalBroker::empty().signing_in(
+        source("warehouse"),
+        PrincipalName::parse("sutura").expect("a test principal is a principal"),
+        Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
+    );
+    let refused = broker
+        .mint(
+            &super::no_assertion("analyst-a@example.com"),
+            &SourceSet::of(source("warehouse")),
+        )
+        .expect("a refusal, not an error");
+    assert!(
+        matches!(refused, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+        "{refused:?}"
+    );
+    assert_eq!(asked.try_iter().count(), 0, "a refused caller reaches no identity provider");
 }

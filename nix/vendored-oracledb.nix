@@ -29,8 +29,8 @@
 let
   # The patched modules that carry tests. Patch (4)'s `messages/connect.rs` has none:
   # `crates/sutura-exec-oracle/tests/dial.rs` drives it through a fake listener instead.
-  modules = [ "config::base::" "transport::" "metadata::" "messages::execute::" "response::error_info::" "ora_type::timestamp::" "external_auth::" ];
-  floor = 15;
+  modules = [ "config::base::" "transport::" "metadata::" "messages::execute::" "response::error_info::" "ora_type::timestamp::" "external_auth::" "arrow::fetch::" ];
+  floor = 17;
 in
 craneLib.mkCargoDerivation (noArtifacts // {
   pname = "vendored-oracledb-tests";
@@ -45,7 +45,7 @@ craneLib.mkCargoDerivation (noArtifacts // {
     mv Cargo.toml.next Cargo.toml
   '';
   buildPhaseCargoCommand = ''
-    cargo test --offline --lib -- ${builtins.concatStringsSep " " modules} > test.log 2>&1 \
+    cargo test --offline --lib --features arrow -- ${builtins.concatStringsSep " " modules} > test.log 2>&1 \
       || { cat test.log; exit 1; }
     cat test.log
     passed=$(sed -n 's/^test result: ok\. \([0-9]*\) passed.*/\1/p' test.log)

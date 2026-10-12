@@ -89,6 +89,9 @@ Why this data system could not answer.
   `result_did_not_fit` reads: a
   result refused for crossing it is *the result did not fit*, never a data-system failure, so
   a caller is refused rather than told to retry.
+- `Unannounced` - The driver's batches did not match the schema it announced - a driver defect.
+- `Unreadable` - A column of the driver's batches did not read as its own schema's type - a driver defect.
+- `Batch` - A batch could not be rebuilt with its dates read as days - a defect in this adapter.
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 
   A defect in the rendering or in this adapter's value mapping, never anything about the data:

@@ -513,7 +513,7 @@ impl DuckDbWarehouse {
     fn deliverable(&self, presented: &Presented) -> Result<(), DuckDbError> {
         match *presented {
             Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
                 return Err(DuckDbError::NoPlaceForASubject {
                     at: String::from(self.source.as_str()),
                     presented: presented.as_str(),

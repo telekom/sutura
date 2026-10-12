@@ -597,6 +597,34 @@ async fn the_agent_route_spends_the_same_rate_limit_as_the_versioned_surface() {
     }
 }
 
+/// `/v1` and `/mcp` spend one bucket: a caller that spent the burst on either surface is a `429` on
+/// the other, so splitting requests across the two does not double the burst.
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn a_burst_spent_on_one_surface_leaves_none_for_the_other() {
+    let issuer = an_issuer();
+    let overlay = format!(
+        "{}rate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 2\n",
+        direct_overlay(&issuer, UNREAD)
+    );
+    let query = format!("{}{}", crate::constants::API_V1_PREFIX, crate::constants::base_paths::QUERY);
+    for (spent, other) in [
+        (query.as_str(), crate::constants::AGENT_MOUNT_PATH),
+        (crate::constants::AGENT_MOUNT_PATH, query.as_str()),
+    ] {
+        let app = with_agent_mount(&overlay, &issuer);
+        for _ in 0..2 {
+            let status = status_of(&app, ("POST", spent), None, None, None).await;
+            assert_ne!(status, StatusCode::TOO_MANY_REQUESTS, "{spent} inside a burst of two");
+        }
+        assert_eq!(
+            status_of(&app, ("POST", other), None, None, None).await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "{other} after the burst was spent on {spent}"
+        );
+    }
+}
+
 /// Behind a gateway with a deployment token, `/mcp` needs the token wherever `/v1` does: a verified
 /// assertion alone is a `401` on both, and the two together reach both.
 #[cfg(feature = "agent")]
@@ -865,8 +893,8 @@ async fn a_refused_host_costs_a_rate_limit_cell_on_every_route() {
         "{}rate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
         direct_overlay(&issuer, UNREAD)
     );
-    let app = with_agent_mount(&overlay, &issuer);
     for route in BOTH_SURFACES {
+        let app = with_agent_mount(&overlay, &issuer);
         assert_eq!(
             burst(&app, route, (None, None, Some("other.example.com")), 3).await,
             [
@@ -888,9 +916,9 @@ async fn a_wrong_deployment_token_costs_a_rate_limit_cell_on_every_route() {
         "{}  access_token: \"{DEPLOYMENT_TOKEN}\"\nrate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n",
         gateway_overlay(&issuer)
     );
-    let app = with_agent_mount(&overlay, &issuer);
     let assertion = assertion_from(&issuer, "someone@example.com");
     for route in BOTH_SURFACES {
+        let app = with_agent_mount(&overlay, &issuer);
         assert_eq!(
             burst(&app, route, (Some(WRONG_TOKEN), Some(&assertion), None), 3).await,
             [

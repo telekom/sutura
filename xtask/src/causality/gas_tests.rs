@@ -23,6 +23,9 @@ use crate::Verdict;
 /// One unique temp directory per real-git test, so paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(test)]
+mod merge_tests;
+
 #[test]
 fn an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test() {
     const CHILD: &str = "SUTURA_CAUSALITY_UNBUILDABLE_CHILD";
