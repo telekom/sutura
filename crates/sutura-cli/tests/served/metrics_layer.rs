@@ -118,7 +118,8 @@ mod tests {
                     .header("authorization", &authorization)
                     .call(),
             );
-            let (status, body) = if status == 200 && body.contains("\"name\":\"orders\"") {
+            let listed = status == 200 && body.contains("\"name\":\"orders\"");
+            let (status, body) = if listed {
                 read(
                     agent
                         .post(&format!("http://{cube}/cubejs-api/v1/load"))
@@ -129,12 +130,12 @@ mod tests {
             } else {
                 (status, body)
             };
-            if status == 200 && !body.contains("Continue wait") {
+            if listed && status == 200 && !body.contains("Continue wait") {
                 return;
             }
             assert!(
                 Instant::now() < give_up,
-                "cube-metrics was not ready in 60s; last answer {status}: {}",
+                "cube-metrics was not ready in 60s (orders listed: {listed}); last answer {status}: {}",
                 body.chars().take(300).collect::<String>()
             );
             std::thread::sleep(Duration::from_millis(500));
