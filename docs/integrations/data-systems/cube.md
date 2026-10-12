@@ -44,12 +44,14 @@ Cube cannot run a part of a federated question.
 
 ## Identity
 
-This data system supports `impersonation-at-source` and `shared-service-user`.
+This data system supports `impersonation-at-source` and `shared-service-user`. In both, Cube runs
+its warehouse query with the one database identity in its own driver settings. The two differ in
+the token that Cube receives: each caller's own token, or one token for every caller.
 
 ### impersonation-at-source
 
 Each caller must exist in the identity provider that Cube trusts, and the claims of the caller's
-own token decide what the caller may read. The query runs with the caller's own permissions.
+own token decide what the caller may read. Cube applies its access policy from those claims.
 
 sutura exchanges the token that it verified for the caller through the hops in `delegation`, in
 order. The first hop sends the caller's token, and each next hop sends the token from the hop
@@ -75,10 +77,14 @@ Cube then uses the claims of that token as the security context. An `access_poli
 model filters rows by those claims, for example by a claim that holds the caller's groups. A
 caller whose token does not carry the claim reads no rows.
 
+Cube's result cache and pre-aggregations must be keyed per caller (`context_to_orchestrator_id`,
+`pre_aggregations_schema`), or callers can see each other's rows. The example does not set them.
+See [#1373](https://github.com/telekom/sutura/issues/1373).
+
 ### shared-service-user
 
 One token for every caller. sutura sends the token in `token_file` on every request, so every
-caller's query runs with that token, and Cube applies the security context of that token.
+caller's query gets the security context of that token.
 
 ## Example
 

@@ -12,16 +12,16 @@ metric, and Cube decides which rows each caller reads.
 The example is in
 [`examples/metrics-layer`](https://github.com/telekom/sutura/tree/main/examples/metrics-layer):
 
-| Path                                | Contents                                                         |
-| ----------------------------------- | ---------------------------------------------------------------- |
-| `conf/impersonation-at-source.yaml` | The sutura settings: each caller's query runs as that caller     |
-| `conf/shared-service-user.yaml`     | The sutura settings: every caller's query runs as the deployment |
-| `keycloak/realm.json`               | The realm with the callers `alice` and `bob`, and four clients   |
-| `cube/model.yml`                    | The Cube data model, with an access policy on `orders`           |
-| `clickhouse/init.sql`               | The tables that Cube reads                                       |
-| `compose.yaml`                      | A live DataHub, and the loader that writes the catalog into it   |
-| `loader/load.py`                    | The catalog that the loader writes into DataHub                  |
-| `setup.sh`                          | Writes the secrets of the local DataHub to `.env`                |
+| Path                                | Contents                                                       |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `conf/impersonation-at-source.yaml` | The sutura settings: Cube receives each caller's own token     |
+| `conf/shared-service-user.yaml`     | The sutura settings: Cube receives the deployment's token      |
+| `keycloak/realm.json`               | The realm with the callers `alice` and `bob`, and four clients |
+| `cube/model.yml`                    | The Cube data model, with an access policy on `orders`         |
+| `clickhouse/init.sql`               | The tables that Cube reads                                     |
+| `compose.yaml`                      | A live DataHub, and the loader that writes the catalog into it |
+| `loader/load.py`                    | The catalog that the loader writes into DataHub                |
+| `setup.sh`                          | Writes the secrets of the local DataHub to `.env`              |
 
 All data is synthetic.
 

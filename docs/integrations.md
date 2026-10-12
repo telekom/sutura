@@ -51,7 +51,9 @@ All entries must have the same `version`. A key that sutura does not know is an 
 | [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                |
 | [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller |
 | [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user, or the caller's own token     |
-| [Cube](integrations/data-systems/cube.md)                     | `cube`       | One deployment token, or the caller's own token  |
+| [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube gets one token, or each caller's own token  |
+
+Cube runs its warehouse query as the one database identity in Cube's own settings, for every caller.
 
 A federated question reads two data systems. Each one runs its part, and DataFusion joins the
 parts. ClickHouse and Cube cannot run a part of a federated question.
