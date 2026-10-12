@@ -69,11 +69,20 @@ impl Warehouse for CountingLegs {
     }
 }
 
-/// The production combiner, except that `execute` runs the fact leg a second time: a leg the
-/// charged cut gave out once.
-struct RunsTheFactLegTwice(DataFusionCombiner);
+/// The production combiner, except for what `execute` does with the fact leg the cut gave out.
+struct Misuses(DataFusionCombiner, Runs);
 
-impl FederationCombiner for RunsTheFactLegTwice {
+/// How [`Misuses`] runs a leg the charged cut did not give out.
+#[derive(Clone, Copy)]
+enum Runs {
+    /// Runs the fact leg a second time: a leg the charged cut gave out once.
+    TheFactLegTwice,
+    /// Runs a clone of the fact leg once and never the leg itself: a leg the cut never held, equal
+    /// to one it did.
+    ACloneOfTheFactLeg,
+}
+
+impl FederationCombiner for Misuses {
     type Error = CombineError;
 
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
@@ -94,13 +103,19 @@ impl FederationCombiner for RunsTheFactLegTwice {
         R::Error: Send,
     {
         let fact = cut.legs().next().expect("a cut has a fact leg");
-        let _first = runner.run(fact).map_err(ExecuteError::Leg)?;
-        runner.run(fact).map_err(ExecuteError::Leg)
+        match self.1 {
+            Runs::TheFactLegTwice => {
+                let _first = runner.run(fact).map_err(ExecuteError::Leg)?;
+                runner.run(fact).map_err(ExecuteError::Leg)
+            }
+            Runs::ACloneOfTheFactLeg => runner.run(&fact.clone()).map_err(ExecuteError::Leg),
+        }
     }
 }
 
-#[test]
-fn a_leg_the_charged_cut_did_not_give_out_is_refused() {
+/// Answers the federated plan through a combiner that `runs` a leg without a token: it is refused
+/// as `LegNotGivenOut` at the fact source, after the fact warehouse executed `executes` times.
+fn refused_as_not_given_out(runs: Runs, executes: usize) {
     let fact_source = SourceName::parse("facts").expect("a test source");
     let warehouses = Warehouses::of(CountingLegs::answering(fact_source.clone(), federated_fact_rows()))
         .and(CountingLegs::answering(
@@ -115,7 +130,7 @@ fn a_leg_the_charged_cut_did_not_give_out_is_refused() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
-        &RunsTheFactLegTwice(DataFusionCombiner::new().expect("a combiner builds")),
+        &Misuses(DataFusionCombiner::new().expect("a combiner builds"), runs),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -123,12 +138,27 @@ fn a_leg_the_charged_cut_did_not_give_out_is_refused() {
     )
     .expect_err("a leg the charged cut did not give out is this workspace's own defect, not an answer");
     assert!(
-        matches!(failure, crate::ServiceError::Miswired { .. }),
-        "the uncharged leg is refused as a defect: {failure:?}"
+        matches!(
+            &failure,
+            crate::ServiceError::Miswired {
+                cause: crate::FederationMiswired::LegNotGivenOut { at }
+            } if *at == fact_source
+        ),
+        "the uncharged fact leg is refused as a defect: {failure:?}"
     );
     assert_eq!(
         warehouses.get(&fact_source).expect("the fact leg is registered").executes(),
-        1,
-        "the second run of the fact leg never reached its warehouse"
+        executes,
+        "the uncharged fact leg never reached its warehouse"
     );
+}
+
+#[test]
+fn a_leg_the_charged_cut_did_not_give_out_is_refused() {
+    refused_as_not_given_out(Runs::TheFactLegTwice, 1);
+}
+
+#[test]
+fn an_equal_leg_the_charged_cut_never_held_is_refused() {
+    refused_as_not_given_out(Runs::ACloneOfTheFactLeg, 0);
 }
