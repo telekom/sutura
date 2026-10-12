@@ -4008,7 +4008,7 @@ the source decides whose access governs the rows.</p>
   <code>describe_catalog</code> and <code>ask_metric</code>, and <code>run_sql</code> when it is on.</li>
 <li>Without <code>security.inbound</code>, <code>/mcp</code> serves only a <code>single-user</code> deployment that is not
   <a href="#start-up-refusals">off-host</a>, or that is behind both <code>security.access_token</code> and <code>rate_limit.enabled</code>. Then it
-  answers every caller as the deployment, with every tool.</li>
+  answers every caller as the deployment, with every tool the deployment turns on.</li>
 <li><code>/mcp</code> and <code>/v1</code> share the controls in <a href="#the-two-surfaces">the two surfaces</a>.</li>
 </ul>
 <h4 id="the-two-surfaces">The two surfaces<a class="headerlink" href="#the-two-surfaces" title="Permanent link">&para;</a></h4>
@@ -4104,11 +4104,13 @@ the source decides whose access governs the rows.</p>
 </tbody>
 </table>
 <p><code>sutura mcp</code> serves the same two tools over standard input and output, for a locally launched agent. It has no
-caller identity and grants every capability. <code>runtime.max_concurrent_queries</code> and
+caller identity and grants every tool the deployment turns on. <code>runtime.max_concurrent_queries</code> and
 <code>server.request_timeout_seconds</code> bound it.</p>
 <h3 id="the-raw-sql-tool">The raw SQL tool<a class="headerlink" href="#the-raw-sql-tool" title="Permanent link">&para;</a></h3>
-<p><code>tools.run_sql.enabled</code> is <code>false</code> by default. When it is off, <code>run_sql</code> is not in <code>tools/list</code> or in <code>/openapi.json</code>,
-and a call by name is refused as <code>tool_not_enabled</code>. When it is on, the caller needs <code>sutura:sql.run</code> as well. The
+<p><code>tools.run_sql.enabled</code> is <code>false</code> by default. When it is off, <code>run_sql</code> is not in <code>tools/list</code> or in <code>/openapi.json</code>.
+A call to <code>/v1/sql/run</code> gets <code>403</code> with <code>code: tool_not_enabled</code>. A <code>run_sql</code> call over <code>/mcp</code> or <code>sutura mcp</code> gets
+the JSON-RPC error <code>-32601</code> with the message <code>`run_sql` is not available to this caller. It requires the scope
+`sutura:sql.run`.</code>. When it is on, the caller needs <code>sutura:sql.run</code> as well. The
 tool answers only where the deployment has one source. The row cap of a certified answer applies, and every call
 writes an audit record. The page of the data system says what bounds a statement:
 <a href="../integrations/data-systems/postgres/">Postgres</a>, <a href="../integrations/data-systems/duckdb/">DuckDB</a>.</p>
