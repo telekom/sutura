@@ -19,17 +19,12 @@ mod tests {
 
     use super::datahub_tier::{DatahubTier, FixtureNames};
     use crate::harness::keycloak::KeycloakFixture;
-    use crate::harness::{LOOPBACK, VERSION, config_path, derived_beside, keycloak_settings, start_configured_with_driver, v1};
+    use crate::harness::{
+        LOOPBACK, VERSION, config_path, derived_beside, keycloak_settings, live_env, start_configured_with_driver, v1,
+    };
 
     const CASE: &str = "e2e-datahub-adbc-bigquery";
     const CATALOG: &str = "metrics";
-
-    fn required(name: &str) -> String {
-        match std::env::var(name) {
-            Ok(value) if !value.trim().is_empty() => value,
-            _ => panic!("{name} is unset or empty; this hosted cell cannot run without it"),
-        }
-    }
 
     struct BigQueryFixture {
         project: String,
@@ -40,7 +35,7 @@ mod tests {
 
     impl BigQueryFixture {
         fn required() -> Self {
-            let credential_file = PathBuf::from(required("GOOGLE_APPLICATION_CREDENTIALS"));
+            let credential_file = PathBuf::from(live_env("GOOGLE_APPLICATION_CREDENTIALS"));
             let key = std::fs::read(&credential_file).expect("the declared BigQuery credential is readable");
             let key: serde_json::Value = serde_json::from_slice(&key).expect("the declared BigQuery credential is JSON");
             let project = key["project_id"]
@@ -48,8 +43,8 @@ mod tests {
                 .filter(|value| !value.is_empty())
                 .expect("the BigQuery credential names a project_id")
                 .to_owned();
-            let dataset = required("SUTURA_BQ_DATASET");
-            let driver_location = required("SUTURA_BIGQUERY_ADBC_DRIVER");
+            let dataset = live_env("SUTURA_BQ_DATASET");
+            let driver_location = live_env("SUTURA_BIGQUERY_ADBC_DRIVER");
             let driver = DriverLocation::parse(&driver_location).expect("the BigQuery ADBC driver path is absolute");
             let posture = SourcePosture::SharedServiceUser {
                 declared: SharedIdentityDeclared::of(

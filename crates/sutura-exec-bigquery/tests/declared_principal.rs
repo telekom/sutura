@@ -64,26 +64,16 @@
 // exempt test code, and a helper at file scope is not test code as far as clippy is concerned.
 #[cfg(test)]
 mod declared_principal {
+    #[path = "support.rs"]
+    mod support;
 
+    use self::support::live_env;
     use sutura_domain::identity::{Presented, Secret};
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
     use sutura_exec_bigquery::adbc::{DriverLocation, Impersonation, WorkloadPool};
     use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
-
-    /// One required environment value, or a panic naming it.
-    ///
-    /// **A panic and not a skip**, for this file's own header reason: a hosted venue whose environment
-    /// is half-configured must be RED. The panic names the variable and never its value - a project id
-    /// and an account address are the two things a public workflow log should not learn from a failure
-    /// message it did not have to print.
-    fn required(name: &str) -> String {
-        match std::env::var(name) {
-            Ok(value) if !value.trim().is_empty() => value,
-            _ => panic!("{name} is unset or empty, and this leg proves nothing without it"),
-        }
-    }
 
     /// The one source alias this leg declares.
     fn source() -> SourceName {
@@ -97,7 +87,7 @@ mod declared_principal {
     /// binary is none of them. So this venue measures the driver and not the packaging -
     /// `nix/bigquery-driver-check.sh` is where the packaging is measured.
     fn driver() -> DriverLocation {
-        DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER")).expect("the declared driver path is absolute")
+        DriverLocation::parse(&live_env("SUTURA_BIGQUERY_ADBC_DRIVER")).expect("the declared driver path is absolute")
     }
 
     /// The money bound both legs here run under: a gibibyte, which is what `docs/adr/0017` says
@@ -108,9 +98,9 @@ mod declared_principal {
 
     /// The adapter, opened `impersonation-at-source` over the real driver at the real project.
     fn opened() -> BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
-        let project = ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
-        let dataset = DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
-        let pool = WorkloadPool::parse(&required("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
+        let project = ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
+        let dataset = DatasetId::parse(live_env("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
+        let pool = WorkloadPool::parse(&live_env("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
         BigQueryWarehouse::over_adbc(
             source(),
             SourcePosture::ImpersonationAtSource,
@@ -148,8 +138,8 @@ mod declared_principal {
         // **THE leg-2 bar**: two distinct subjects resolve to two distinct BigQuery principals,
         // observed at the data system rather than at a seam. The first `assert_ne!` refuses a
         // MISCONFIGURED venue (one assertion presented twice) with a message naming it.
-        let first_assertion = required("SUTURA_BQ_ASSERTION_A");
-        let second_assertion = required("SUTURA_BQ_ASSERTION_B");
+        let first_assertion = live_env("SUTURA_BQ_ASSERTION_A");
+        let second_assertion = live_env("SUTURA_BQ_ASSERTION_B");
         assert_ne!(
             first_assertion, second_assertion,
             "one assertion presented twice is one subject, and proves nothing about two"
@@ -177,8 +167,8 @@ mod declared_principal {
             SourcePosture::SharedServiceUser {
                 declared: declared.clone(),
             },
-            ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
-            DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
+            ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
+            DatasetId::parse(live_env("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
             driver(),
             Impersonation::Disabled,
             ceiling(),
@@ -192,7 +182,7 @@ mod declared_principal {
         for assertion in ["SUTURA_BQ_ASSERTION_A", "SUTURA_BQ_ASSERTION_B"] {
             assert_ne!(
                 ours,
-                executed_as(&required(assertion)),
+                executed_as(&live_env(assertion)),
                 "a subject's question ran as this deployment's own identity, so the leg beside this one \
                  cannot tell federation from the deployment answering as itself"
             );

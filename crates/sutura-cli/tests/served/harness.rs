@@ -141,6 +141,14 @@ pub(crate) const RECORD_BUDGET: Duration = Duration::from_secs(30);
 /// the grace period and the process still has to unwind and exit after spending it.
 pub(crate) const STOP_BUDGET: Duration = Duration::from_secs(45);
 
+/// One environment value a hosted cell needs, or a panic naming the variable and never its value.
+pub(crate) fn live_env(name: &str) -> String {
+    match std::env::var(name) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => panic!("{name} is unset or empty; this hosted cell cannot run without it"),
+    }
+}
+
 /// The example deployment, which is also what a reader is told to run.
 ///
 /// Canonicalised because `sutura_config` refuses a relative `data_dir` - a relative path
