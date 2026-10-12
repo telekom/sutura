@@ -2300,11 +2300,13 @@ jobs:
       - name: Cube acceptance cells
         run: nix run .#cube-acceptance
 
-      # The runner keeps no container log, so a red run would leave only the cells' own words.
+      # The runner keeps no container log, so a red run would leave only the cells' own words. A
+      # container that is missing is named, never skipped.
       - name: Cube tier container logs
         if: failure()
         run: |
-          for name in $(docker ps -a --format '{{.Names}}' | grep -E -- '-(cube-metrics|cube-keycloak|cube-clickhouse)-1$' || true); do
+          for service in cube cube-metrics cube-keycloak cube-clickhouse; do
+            name=$(docker ps -a --format '{{.Names}}' | grep -E -- "-${service}-1\$") || { echo "::warning::no container for ${service}"; continue; }
             echo "::group::docker logs $name"
             docker logs --tail 60 "$name" 2>&1 || true
             echo "::endgroup::"

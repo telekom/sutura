@@ -88,18 +88,19 @@ mod tests {
         )
     }
 
-    /// Cube's access policy reads `regions`, so a token without it fails here, naming only the claim
-    /// keys it does carry - never the token or a value.
+    /// Cube's access policy reads `regions` as a list, so a token without it, or with it as a single
+    /// value, fails here naming only the claim keys it carries. The decoder's own errors are not
+    /// printed, so no byte of the token reaches a message.
     fn assert_carries_regions(token: &str) {
         let payload = token.split('.').nth(1).expect("an access token is a compact JWT");
         let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(payload)
-            .expect("a token payload is base64url");
+            .unwrap_or_else(|_| panic!("a token payload is base64url"));
         let claims: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_slice(&bytes).expect("a token payload is a JSON object");
+            serde_json::from_slice(&bytes).unwrap_or_else(|_| panic!("a token payload is a JSON object"));
         assert!(
-            claims.contains_key("regions"),
-            "the deployment's token carries no `regions` claim; its claims: {:?}",
+            claims.get("regions").is_some_and(serde_json::Value::is_array),
+            "the deployment's token carries no `regions` list (absent or not a list); its claim keys: {:?}",
             claims.keys().collect::<Vec<_>>()
         );
     }
@@ -152,7 +153,7 @@ mod tests {
             }
             assert!(
                 Instant::now() < give_up,
-                "cube-metrics was not ready in 60s (orders listed: {listed}); last answer {status}: {}",
+                "cube-metrics was not ready after about a minute (orders listed: {listed}); last answer {status}: {}",
                 body.chars().take(300).collect::<String>()
             );
             std::thread::sleep(Duration::from_millis(500));
