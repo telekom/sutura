@@ -7,13 +7,17 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind};
+use sutura_domain::catalog::{Column, JoinKey, JoinKeys, Relationship};
 use sutura_domain::definitions::DefinitionDigest;
-use sutura_domain::identity::Presented;
+use sutura_domain::identity::{CredentialBroker, Minted, Presented, SourceSet};
 use sutura_domain::knowledge::KnowledgeCapabilities;
+use sutura_domain::model::{JoinType, RelationshipName};
 use sutura_domain::plan::{AnchorPlan, Executable, RefusingCombiner};
 use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, Warehouse};
+use sutura_domain::warehouse::schema::SchemaDigest;
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, ResultBudget, Warehouse};
+use sutura_exec_duckdb::DuckDbWarehouse;
 
 use crate::surface::{Adopted, AdoptionGate, ErasedCause, LocalService, NotAdopted, Surface};
 use crate::tests_support::{DiscardingAuditSink, FixedCatalog, canned};
@@ -36,6 +40,14 @@ fn bundle_of(metrics: &[&str], anchor: &str) -> PinnedDefinitions {
         BTreeSet::from([column("amount_cents"), column("order_date")]),
         Description::default(),
     );
+    bundled(vec![model], Vec::new(), metrics, anchor)
+}
+
+/// [`bundle_of`] over any models and the relationships joining them. The manifest declares the
+/// joins, and the column types they pin, only where there are joins.
+fn bundled(models: Vec<Model>, relationships: Vec<Relationship>, metrics: &[&str], anchor: &str) -> PinnedDefinitions {
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let joined = !relationships.is_empty();
     let metrics = metrics
         .iter()
         .map(|name| {
@@ -57,7 +69,7 @@ fn bundle_of(metrics: &[&str], anchor: &str) -> PinnedDefinitions {
             .expect("no dimensions to duplicate")
         })
         .collect();
-    let definitions = Definitions::assemble(vec![model], vec![], metrics).expect("the test bundle is consistent");
+    let definitions = Definitions::assemble(models, relationships, metrics).expect("the test bundle is consistent");
     // The real hasher, from the catalog adapter that owns the canonical form. `pin` applies it to
     // the definitions being pinned, so there is no digest here for the bundle not to describe.
     PinnedDefinitions::pin(
@@ -67,12 +79,21 @@ fn bundle_of(metrics: &[&str], anchor: &str) -> PinnedDefinitions {
         ContributionManifest::single(
             SourceName::parse("local").expect("a test source is a source"),
             Contribution::of(MetadataCapabilities::of(
-                DefinitionCapabilities::of([
-                    DefinitionKind::Structure,
-                    DefinitionKind::Metrics,
-                    DefinitionKind::Grains,
-                    DefinitionKind::Anchors,
-                ]),
+                DefinitionCapabilities::of(
+                    [
+                        DefinitionKind::Structure,
+                        DefinitionKind::Metrics,
+                        DefinitionKind::Grains,
+                        DefinitionKind::Anchors,
+                    ]
+                    .into_iter()
+                    .chain(
+                        joined
+                            .then_some([DefinitionKind::Relationships, DefinitionKind::ColumnTypes])
+                            .into_iter()
+                            .flatten(),
+                    ),
+                ),
                 KnowledgeCapabilities::none(),
             )),
         ),
@@ -309,4 +330,191 @@ fn an_unchanged_bundle_is_not_offered_to_the_gate() {
     assert_eq!(offered.load(Ordering::SeqCst), 0);
     assert!(matches!(service.adopt(with_bookings()), Ok(Adopted::Rotated { .. })));
     assert_eq!(offered.load(Ordering::SeqCst), 1);
+}
+
+/// `customers`, the table of the second source: a CSV the cell rewrites under the running service.
+/// The view reads the file at each statement, so the next read sees the new column types.
+const CUSTOMERS: &str = "id,region\n1,emea\n2,apac\n";
+
+/// [`CUSTOMERS`] with `id` read as a `DOUBLE`.
+const CUSTOMERS_IN_DOUBLES: &str = "id,region\n1.5,emea\n2.5,apac\n";
+
+const ORDERS: &str = "order_date,amount_cents,customer_id\n2026-06-03,100000,1\n2026-06-17,97122,2\n";
+
+fn duckdb_over(source: SourceName, table: &str, path: &std::path::Path) -> DuckDbWarehouse {
+    let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive"));
+    let warehouse = DuckDbWarehouse::in_memory(source, shared(), budget).expect("an in-memory database opens");
+    warehouse
+        .attach_csv(&TableName::parse(table).expect("a test table is a table"), path)
+        .expect("a written CSV attaches");
+    warehouse
+}
+
+fn csv_of(file: &str, csv: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("sutura-adopt-{}-{file}.csv", std::process::id()));
+    std::fs::write(&path, csv).expect("the temp dir is writable");
+    path
+}
+
+/// `orders` at the local source joined to `customers` at a second one, every column typed as the
+/// catalog spells it for `DuckDB`; `customer_id` is the type `customers.id` is declared with.
+fn federated(customer_id: &str) -> PinnedDefinitions {
+    let typed = |name: &str, declared: &str| {
+        Column::from_metadata(
+            ColumnName::parse(name).expect("a test column is a column"),
+            Some(declared),
+            None,
+            None,
+        )
+        .expect("a test column declares no description to refuse")
+    };
+    let orders = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        vec![
+            typed("order_date", "date"),
+            typed("amount_cents", "bigint"),
+            typed("customer_id", "bigint"),
+        ],
+        Description::default(),
+    );
+    let customers = Model::new(
+        ModelName::parse("customers").expect("a test model is a model"),
+        SourceName::parse("crm").expect("a test source is a source"),
+        TableName::parse("customers").expect("a test table is a table"),
+        vec![typed("id", customer_id), typed("region", "varchar")],
+        Description::default(),
+    );
+    let joined = Relationship::new(
+        RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        ModelName::parse("customers").expect("a test model is a model"),
+        JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: ColumnName::parse("customer_id").expect("a test column is a column"),
+            target: ColumnName::parse("id").expect("a test column is a column"),
+        }])
+        .expect("a test relationship declares one key"),
+    );
+    bundled(vec![orders, customers], vec![joined], &["revenue"], "197122")
+}
+
+/// A broker that holds the one question it is armed for after the service has taken its snapshot,
+/// as [`RendezvousWarehouse`] does at the data system: once `armed`, the next `mint` meets the test
+/// thread twice. Every other call grants the deployment's own identity at once.
+struct PausingBroker {
+    armed: Arc<AtomicBool>,
+    reached: Arc<Barrier>,
+    proceed: Arc<Barrier>,
+}
+
+impl CredentialBroker for PausingBroker {
+    type Error = <FixedBroker as CredentialBroker>::Error;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            self.reached.wait();
+            self.proceed.wait();
+        }
+        FixedBroker::GrantsShared.mint(context, sources)
+    }
+}
+
+/// Two `DuckDB` sources serving [`federated`] over its typed columns, and what the cell drives them by.
+struct Federation {
+    service: LocalService<DuckDbWarehouse, DiscardingAuditSink, PausingBroker, RefusingCombiner>,
+    customers: std::path::PathBuf,
+    armed: Arc<AtomicBool>,
+    reached: Arc<Barrier>,
+    proceed: Arc<Barrier>,
+}
+
+impl Federation {
+    fn serving(file: &str) -> Self {
+        let customers = csv_of(&format!("{file}-customers"), CUSTOMERS);
+        let local = duckdb_over(source(), "orders", &csv_of(&format!("{file}-orders"), ORDERS));
+        let crm = duckdb_over(
+            SourceName::parse("crm").expect("a test source is a source"),
+            "customers",
+            &customers,
+        );
+        let (armed, reached, proceed) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Barrier::new(2)),
+            Arc::new(Barrier::new(2)),
+        );
+        let broker = PausingBroker {
+            armed: Arc::clone(&armed),
+            reached: Arc::clone(&reached),
+            proceed: Arc::clone(&proceed),
+        };
+        let service = LocalService::start(
+            &FixedCatalog::of(federated("bigint")),
+            Warehouses::of(local).and(crm).expect("two sources, two warehouses"),
+            DiscardingAuditSink,
+            broker,
+            RefusingCombiner,
+            1 << 30,
+        )
+        .expect("the orders table reproduces the test bundle's anchor");
+        Self {
+            service,
+            customers,
+            armed,
+            reached,
+            proceed,
+        }
+    }
+
+    /// The customer ids become doubles at the source; the catalog says so in `federated("double")`.
+    fn retype_customer_ids_at_the_source(&self) {
+        std::fs::write(&self.customers, CUSTOMERS_IN_DOUBLES).expect("the temp dir is writable");
+    }
+}
+
+fn schema_digest_of(outcome: &ToolOutcome) -> &SchemaDigest {
+    let ToolOutcome::Answer { ref provenance, .. } = *outcome else {
+        panic!("expected an answer, not {outcome:?}");
+    };
+    provenance.schema_digest()
+}
+
+#[test]
+fn a_refresh_that_retypes_a_column_swaps_the_pinned_schema_set() {
+    // Catches an `adopt` that keeps the schema set it started with: the bundle names the same
+    // columns, one of them has another type, so the next answer must carry another schema digest.
+    let federation = Federation::serving("refresh");
+    let before = schema_digest_of(&ask(&federation.service, "revenue")).clone();
+
+    federation.retype_customer_ids_at_the_source();
+    let adopted = federation.service.adopt(federated("double"));
+
+    assert!(matches!(adopted, Ok(Adopted::Rotated { .. })), "not {adopted:?}");
+    assert_ne!(schema_digest_of(&ask(&federation.service, "revenue")), &before);
+}
+
+#[test]
+fn a_question_in_flight_keeps_the_schema_set_it_started_with() {
+    // Catches an `answer` that reads the served schema set again after its start: the column type
+    // changes and is adopted while this question waits for its credentials.
+    let federation = Federation::serving("in-flight");
+    let before = schema_digest_of(&ask(&federation.service, "revenue")).clone();
+    federation.armed.store(true, Ordering::SeqCst);
+
+    let (in_flight, adopted) = std::thread::scope(|scope| {
+        let question = scope.spawn(|| ask(&federation.service, "revenue"));
+        federation.reached.wait();
+        federation.retype_customer_ids_at_the_source();
+        let adopted = federation.service.adopt(federated("double"));
+        federation.proceed.wait();
+        (question.join().expect("the question thread does not panic"), adopted)
+    });
+
+    assert!(
+        matches!(adopted, Ok(Adopted::Rotated { .. })),
+        "the new set landed mid-question, not {adopted:?}"
+    );
+    assert_eq!(schema_digest_of(&in_flight), &before);
+    assert_ne!(schema_digest_of(&ask(&federation.service, "revenue")), &before);
 }

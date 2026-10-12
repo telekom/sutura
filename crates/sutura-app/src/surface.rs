@@ -603,8 +603,8 @@ where
         if bundle_changed && let Some(gate) = &self.adoption_gate {
             gate(&next, &self.warehouses).map_err(|cause| NotAdopted::Preflight { cause })?;
         }
-        // Read at every refresh, because the snapshot key is both digests: an unchanged bundle over
-        // a changed source keeps its `DefinitionDigest`.
+        // The snapshot key is both digests; the schema set derives from the bundle's own column
+        // types, so a bundle that changes only a type still rotates it.
         let schemas = pin_schemas(&next, &self.warehouses).map_err(|cause| NotAdopted::NotValidated { cause })?;
         if !bundle_changed && schemas.digest() == current.schemas().digest() {
             return Ok(Adopted::Unchanged);
