@@ -203,7 +203,7 @@ fn two_verified_callers_over_the_composed_binary_see_two_different_tool_lists() 
 
 /// A `multi-user` deployment that leaves `tools.run_sql.enabled` off neither offers nor answers
 /// `run_sql` over `/mcp`, for a verified caller that holds `sutura:sql.run` - the switch `/v1`
-/// already refuses that caller with as `tool_not_enabled`.
+/// already refuses for that caller as `tool_not_enabled`.
 #[cfg(feature = "agent")]
 #[test]
 fn a_multi_user_agent_route_does_not_offer_or_run_sql_the_deployment_left_off() {
