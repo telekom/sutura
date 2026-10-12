@@ -26,8 +26,6 @@ use std::time::{Duration, Instant};
 use adbc_core::options::{OptionConnection, OptionValue};
 use adbc_core::{Connection, Statement as _};
 use arrow_array::{RecordBatch, RecordBatchReader};
-use arrow_schema::SchemaRef;
-use sutura_domain::model::QualifiedTable;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget};
 
@@ -152,18 +150,6 @@ where
     let timeout = NonZeroU32::new(ceiling_ms);
     transaction(connection, &Setting::Certified(timeout), |connection| {
         stream(connection, sql, bound, None, timeout)
-    })
-}
-
-/// One table's schema from the server's catalog, under the ceiling alone and in a transaction of
-/// its own: a table the server does not have fails the read that asked, and with it the
-/// transaction around that read, so a shared one would fail every table after it.
-pub(super) fn schema<C>(connection: &mut C, table: &QualifiedTable, ceiling_ms: u32) -> Result<Option<SchemaRef>, AdbcError>
-where
-    C: Connection,
-{
-    transaction(connection, &Setting::Certified(NonZeroU32::new(ceiling_ms)), |connection| {
-        sutura_adbc::table_schema(connection, table).map_err(AdbcError::Adbc)
     })
 }
 
@@ -401,23 +387,6 @@ mod tests {
                     statement: 0,
                     sql: String::from("SELECT 1")
                 },
-                Sent::Rollback,
-            ]
-        );
-    }
-
-    #[test]
-    fn a_schema_read_runs_under_the_ceiling_in_a_transaction_of_its_own() {
-        let table = super::QualifiedTable::parse("public.orders").expect("a qualified table parses");
-        let mut connection = FakeConnection::answering(None);
-        let outcome = super::schema(&mut connection, &table, CEILING_MS);
-        assert!(outcome.is_err(), "{outcome:?}");
-        assert_eq!(
-            connection.sent(),
-            vec![
-                Sent::AutoCommit(String::from("false")),
-                Sent::Update(String::from("SET LOCAL statement_timeout = 15000")),
-                Sent::TableSchema(String::from("orders")),
                 Sent::Rollback,
             ]
         );

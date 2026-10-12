@@ -754,3 +754,16 @@ fn an_empty_via_chain_is_refused_naming_its_dimension() {
         "the refusal names the constraint: {cause}"
     );
 }
+
+#[test]
+fn a_dotted_dataset_name_is_the_fully_qualified_table() {
+    let snapshot = Snapshot::new(
+        vec![dataset("orders", "proj.sales.orders", &["amount_cents"], "orders")],
+        vec![],
+        vec![],
+    );
+    let pinned = over(snapshot).load().expect("a dotted dataset name is a table path");
+    let model = pinned.definitions().models().values().next().expect("the dataset is a model");
+    let expected = sutura_domain::model::QualifiedTable::parse("proj.sales.orders").expect("a test path is a path");
+    assert_eq!(model.table(), &expected);
+}

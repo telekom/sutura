@@ -95,6 +95,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
+use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, ResultBatches, RowSet, Value, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -332,6 +333,10 @@ where
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| ClickHouseError::Shape { cause })
+    }
+
+    fn type_dialect(&self) -> Option<TypeDialect> {
+        Some(TypeDialect::ClickHouse)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

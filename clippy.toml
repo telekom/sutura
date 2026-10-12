@@ -64,19 +64,16 @@ disallowed-methods = [
   # added without an entry. That was `declared_key`, and for as long as it had no row here an
   # unfiltered `COUNT(DISTINCT ..)` over a dimension table was callable from any request path, under
   # the adapter's configured identity, outside every governance decision. **Nothing gates this
-  # file's completeness**, so a fifth such method is caught by a reviewer counting the port's
+  # file's completeness**, so a fourth such method is caught by a reviewer counting the port's
   # credential-free methods against the rows here, and by nothing else.
-  { path = "sutura_domain::warehouse::Warehouse::verify_anchor", reason = "one of four port methods that execute with no credential; it belongs to the boot path alone, whose one call site holds an #[expect]" },
+  { path = "sutura_domain::warehouse::Warehouse::verify_anchor", reason = "one of three port methods that execute with no credential; it belongs to the boot path alone, whose one call site holds an #[expect]" },
   # The second, added with the cardinality boot check. The same argument, and one difference worth
   # its line: an anchor is a range-filtered aggregate a catalog author chose, while this is an
   # UNFILTERED `COUNT(DISTINCT ..)` over a whole dimension table - so an unbanned call site would be
   # not only an ungoverned read but the most expensive shape of one.
-  { path = "sutura_domain::warehouse::Warehouse::declared_key", reason = "one of four port methods that execute with no credential; the boot check and the registry cell that measures it are the only callers, each holding an #[expect]" },
-  # The third, added with the schema set a table provider is built from. It reads metadata rather
-  # than rows, and it runs at the load and at every refresh, so it also runs while the process serves.
-  { path = "sutura_domain::warehouse::Warehouse::table_schemas", reason = "one of four port methods that execute with no credential; the load and the refresh reach it through one call site, which holds an #[expect]" },
-  # The fourth, the boot pre-flight: the same row as the schema method, for the same reason.
-  { path = "sutura_domain::warehouse::Warehouse::preflight", reason = "one of four port methods that execute with no credential; every pre-flight reaches it through one call site, which holds an #[expect]" },
+  { path = "sutura_domain::warehouse::Warehouse::declared_key", reason = "one of three port methods that execute with no credential; the boot check and the registry cell that measures it are the only callers, each holding an #[expect]" },
+  # The third, the boot pre-flight: the same row as the cardinality method, for the same reason.
+  { path = "sutura_domain::warehouse::Warehouse::preflight", reason = "one of three port methods that execute with no credential; every pre-flight reaches it through one call site, which holds an #[expect]" },
   # The one call that lets credential material out of `Secret`, and until #145 the only thing
   # holding it was its NAME. `docs/adr/0020` made logging a credential a compile error - `Secret`
   # has no `Display`, so a `%` tracing field does not build - and that record's own documentation

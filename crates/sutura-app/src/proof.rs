@@ -7,12 +7,12 @@
 //! `Warehouse`, is what a reviewer has to notice - and it is a one-item diff in one place
 //! rather than a property of every call site.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
 use sutura_domain::warehouse::Warehouse;
-use sutura_domain::warehouse::schema::{PinnedSchemas, SchemaNotRead, TableSchemas};
+use sutura_domain::warehouse::schema::PinnedSchemas;
 
 use crate::warehouses::Warehouses;
 
@@ -194,45 +194,15 @@ where
     Ok(Validated(Arc::new(pinned), Arc::new(schemas)))
 }
 
-/// Reads each source's table schemas and pins them against the bundle: the load's and each
-/// refresh's one read.
+/// Pins the catalog's columns of the bundle's federated models, in the type spelling of each source's
+/// adapter: the load's and each refresh's one pass, with no data system asked.
 pub(crate) fn pin_schemas<W>(pinned: &PinnedDefinitions, warehouses: &Warehouses<W>) -> Result<PinnedSchemas, NotValidated>
 where
     W: Warehouse,
 {
-    let models = pinned.definitions().models();
-    let mut read = BTreeMap::new();
-    for (source, warehouse) in warehouses.each() {
-        let tables: BTreeSet<_> = models
-            .values()
-            .filter(|model| model.source() == source)
-            .map(|model| model.table().clone())
-            .collect();
-        if tables.is_empty() {
-            continue;
-        }
-        // THE credential-free call, and the one `#[expect]` that lets it compile: the load and every
-        // refresh reach it through this function, and a further call site is a diff a reviewer sees.
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the load and the refresh are the callers of the port method that reads table schemas with no \
-                      credential; the ban exists so that this is the only place it is called"
-        )]
-        let answered = warehouse.table_schemas(&tables);
-        match answered {
-            Ok(TableSchemas::Read(schemas)) => {
-                read.insert(source.clone(), schemas);
-            }
-            Ok(TableSchemas::NotAsked) => {}
-            Err(cause) => {
-                let (message, chain) = crate::flatten(&cause);
-                return Err(NotValidated::SchemaNotRead(Box::new(SchemaNotRead::of(
-                    source.clone(),
-                    message,
-                    chain,
-                ))));
-            }
-        }
-    }
-    PinnedSchemas::pin(pinned.definitions(), &read)
+    let dialects: BTreeMap<_, _> = warehouses
+        .each()
+        .filter_map(|(source, warehouse)| Some((source.clone(), warehouse.type_dialect()?)))
+        .collect();
+    PinnedSchemas::pin(pinned.definitions(), &dialects)
 }

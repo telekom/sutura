@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
-index a96e82f63..d64dfaaec 100644
 --- a/crates/sutura-catalog-datahub/src/lib.rs
 +++ b/crates/sutura-catalog-datahub/src/lib.rs
-@@ -315,7 +315,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
+@@ -334,7 +334,7 @@
                  model: dataset.name().to_owned(),
                  platform: dataset.platform().to_owned(),
              })?;
 -        let name = Self::identifier(dataset.name(), |raw| ModelName::parse(raw), "model", "a dataset")?;
 +        let name = Self::identifier(dataset.table(), |raw| ModelName::parse(raw), "model", "a dataset")?;
-         let table = Self::identifier(dataset.table(), |raw| TableName::parse(raw), "table", dataset.name())?;
-         let mut columns = Vec::with_capacity(dataset.columns().len());
-         for column in dataset.columns() {
+         let table = QualifiedTable::parse(dataset.table()).map_err(|cause| DataHubError::Table {
+             value: dataset.table().to_owned(),
+             on: dataset.name().to_owned(),

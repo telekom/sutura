@@ -51,7 +51,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::preflight::TablesPresent;
-use sutura_domain::warehouse::schema::TableSchemas;
+use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, ResultBatches, Warehouse};
 use sutura_exec_datafusion::DataFusionWarehouse;
 
@@ -288,14 +288,8 @@ impl Warehouse for AnyWarehouse {
         result
     }
 
-    fn table_schemas(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
-        // [`Self::verify_anchor`]'s own reason: delegates the load's and the refresh's one call.
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "delegates the load's and the refresh's one call to the concrete adapter this variant holds"
-        )]
-        let result = any_fallible!(self, table_schemas, tables);
-        result
+    fn type_dialect(&self) -> Option<TypeDialect> {
+        any!(self, type_dialect)
     }
 
     fn execute_raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> RawExecution<Self::Error> {

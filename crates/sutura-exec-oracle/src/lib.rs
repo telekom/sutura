@@ -62,6 +62,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -696,6 +697,10 @@ impl Warehouse for OracleWarehouse {
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
+    }
+
+    fn type_dialect(&self) -> Option<TypeDialect> {
+        Some(TypeDialect::Oracle)
     }
 
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

@@ -103,7 +103,7 @@ pub use rows::{AnchorRows, Budgeted, MalformedRowSet, RowBudgetExceeded, RowSet}
 use crate::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use crate::warehouse::deadline::Deadline;
 use crate::warehouse::preflight::TablesPresent;
-use crate::warehouse::schema::TableSchemas;
+use crate::warehouse::schema::TypeDialect;
 
 /// A value bound to a placeholder.
 ///
@@ -813,21 +813,13 @@ pub trait Warehouse {
         Ok(KeyUniqueness::NotAsked)
     }
 
-    /// The Arrow schema of each named table, as this data system returns it.
+    /// How this data system spells a column type, or `None` when the adapter declares none.
     ///
-    /// **Asked at the load and at each refresh**, and pinned beside the bundle of the same load. It
-    /// takes no credential, for [`verify_anchor`](Warehouse::verify_anchor)'s reason: there is no
-    /// caller at either. So it reads what the identity this adapter was configured with can see.
-    ///
-    /// **Defaulted to [`TableSchemas::NotAsked`], for [`preflight`](Warehouse::preflight)'s
-    /// reason**: an adapter that cannot read a table's schema must not be forced to answer. Its
-    /// source stays off the pinned set.
-    ///
-    /// # Errors
-    ///
-    /// A data system that could not be asked is an `Err`, never an empty answer.
-    fn table_schemas(&self, _tables: &BTreeSet<QualifiedTable>) -> Result<TableSchemas, Self::Error> {
-        Ok(TableSchemas::NotAsked)
+    /// The load reads a federated model's catalog columns in this spelling and pins them. No data
+    /// system is asked for a schema. A source whose adapter declares none keeps its models off the
+    /// pinned set.
+    fn type_dialect(&self) -> Option<TypeDialect> {
+        None
     }
 
     /// Whether this adapter accepts a raw statement - `false` by default; see [`crate::raw`], `docs/adr/0013`.

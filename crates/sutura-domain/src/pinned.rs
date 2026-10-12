@@ -38,13 +38,13 @@ use crate::capabilities::MetadataCapabilities;
 use crate::catalog::{Anchor, Definitions};
 use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
-use crate::model::{MetricName, SourceName};
+use crate::model::{MetricName, ModelName, SourceName};
 use crate::plan::NotAnAnchorsPlan;
 use crate::query::RefusalReason;
 use crate::source::ExecutedAs;
 use crate::text::first_invisible;
 use crate::warehouse::cardinality::{KeyNotCounted, KeyNotUnique};
-use crate::warehouse::schema::{ColumnNotAtSource, SchemaDigest, SchemaNotRead};
+use crate::warehouse::schema::SchemaDigest;
 
 pub use manifest::{Contribution, ContributionManifest, InvalidManifest, RequiredOrOptional};
 
@@ -779,11 +779,10 @@ pub enum NotValidated {
     /// source that carries one, the anchor pass already refused it.
     #[error("{0}")]
     DeclaredKeyNotCounted(Box<KeyNotCounted>),
-    /// A column the bundle names that its source does not return. Boxed for the reason above.
-    #[error("{0}")]
-    ColumnNotAtSource(Box<ColumnNotAtSource>),
-    #[error("{0}")]
-    SchemaNotRead(Box<SchemaNotRead>),
+    /// A federated model whose catalog declares no column type: a missing declaration, not a type to
+    /// fall back from. The federation planner takes each federated table's schema from the catalog.
+    #[error("federated model {model} declares no column type, and its schema comes from the catalog")]
+    FederatedModelUntyped { model: ModelName },
 }
 
 /// Which class of catalog adapter this is: held to the whole model, or supplying part of it.

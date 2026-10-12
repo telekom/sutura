@@ -78,13 +78,13 @@ const STARTUP: Subject = Subject {
 /// **The asymmetry `github.com/telekom/sutura#428` is about.** A `RefusalReason` refuses one
 /// question; this refuses the whole deployment, and until it was enrolled the only thing holding
 /// its variants was whether an author happened to look. Every variant is named by a test or excused
-/// in the allow file, so a new one cannot arrive unnamed. 9: `ColumnNotAtSource` and `SchemaNotRead`,
-/// the schema set's two refusals.
+/// in the allow file, so a new one cannot arrive unnamed. 8: `FederatedModelUntyped`, the schema
+/// set's one refusal.
 const VALIDATION: Subject = Subject {
     name: "NotValidated",
     declared_in: "crates/sutura-domain/src/pinned.rs",
     allow_file: "devco/validation-refusals-unprovoked-allow",
-    variants: variants(9),
+    variants: variants(8),
 };
 
 /// One refused raw statement: `docs/adr/0013`'s tool, off by default, with its own narrower

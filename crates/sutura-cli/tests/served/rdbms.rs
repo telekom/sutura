@@ -20,10 +20,9 @@
 //! The rdbms catalog's dictionary rows carry a required `schema_name`, so `convert_table_address`
 //! always builds a `QualifiedTable` (e.g. `public.orders`). The `files` engine refuses a qualified
 //! model at boot (`crates/sutura-cli/src/serve/files.rs`), so the `source_alias` must name a
-//! `postgres` source. The load reads each table's schema, so a table absent from the tier is a
-//! `ColumnNotAtSource` refusal at boot; the fixture therefore runs a `CREATE TABLE` for it
-//! (`crates/sutura-cli/tests/common/fixtures.rs`). The cell still needs no `FixtureLoadGuard` and
-//! no example CSV load.
+//! `postgres` source. The load pins each table's schema from the catalog and reads no source; the
+//! fixture still runs a `CREATE TABLE` for it (`crates/sutura-cli/tests/common/fixtures.rs`). The
+//! cell still needs no `FixtureLoadGuard` and no example CSV load.
 //!
 //! # The documentation-schema fixture
 //!

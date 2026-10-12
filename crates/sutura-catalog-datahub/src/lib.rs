@@ -112,7 +112,9 @@ use sutura_domain::catalog::{
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeInput};
-use sutura_domain::model::{ColumnName, DimensionName, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{
+    ColumnName, DimensionName, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
+};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
@@ -183,6 +185,14 @@ pub enum DataHubError {
         on: String,
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
+    },
+    /// A dataset's name is not a table path: a table, `dataset.table` or `project.dataset.table`.
+    #[error("table {value} on {on} is not a usable table path")]
+    Table {
+        value: String,
+        on: String,
+        #[source]
+        cause: sutura_domain::model::InvalidQualifiedTable,
     },
     /// The `sutura` structured property's scalar value is not the metric content it claims to be.
     #[error("the sutura content of metric {metric} is not a usable metric definition")]
@@ -325,7 +335,11 @@ impl<R: AspectReader> DataHubCatalog<R> {
                 platform: dataset.platform().to_owned(),
             })?;
         let name = Self::identifier(dataset.name(), |raw| ModelName::parse(raw), "model", "a dataset")?;
-        let table = Self::identifier(dataset.table(), |raw| TableName::parse(raw), "table", dataset.name())?;
+        let table = QualifiedTable::parse(dataset.table()).map_err(|cause| DataHubError::Table {
+            value: dataset.table().to_owned(),
+            on: dataset.name().to_owned(),
+            cause,
+        })?;
         let mut columns = Vec::with_capacity(dataset.columns().len());
         for column in dataset.columns() {
             let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;

@@ -113,6 +113,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
 use sutura_sql::generate::{generate, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -749,6 +750,10 @@ where
         // Nothing to convert: the ADBC driver's own typed Arrow arrays ARE the port's currency since
         // `docs/adr/0039` step 2, so this adapter is the one that stopped paying rather than started.
         Ok(answered)
+    }
+
+    fn type_dialect(&self) -> Option<TypeDialect> {
+        Some(TypeDialect::BigQuery)
     }
 
     /// Re-runs an anchor's plan, under the one identity this adapter was configured with.
