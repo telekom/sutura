@@ -164,6 +164,10 @@ fn a_value_a_clickhouse_statement_binds_reaches_no_log_line() {
         "no request line the HTTP client logged was captured, so the capture does not cover the request"
     );
     assert!(
+        !lines.iter().any(|line| line.contains(r#""log.target":"ureq_proto"#)),
+        "a record from the HTTP client's wire-level target crossed the bridge"
+    );
+    assert!(
         lines.iter().any(|line| line.contains(TRACE_LEVEL)),
         "no `trace` line was captured, so the capture is not a record of everything logged"
     );
