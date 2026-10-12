@@ -3770,7 +3770,8 @@ boundary gate bans <code>anyhow</code> for, arrived at by a different route.</p>
   so what reaches here is a leg result that does not carry a label the plan named, or a plan
   that would not build - this workspace's own wiring, which no caller caused and none can fix.
 - <code>Miswired</code> - The federated path's own wiring produced a shape it cannot answer for.</p>
-<p>Every arm is unreachable through the one production splitter - see <code>FederationMiswired</code>.
+<p>Every arm is unreachable through the production splitter and combiner - see
+  <code>FederationMiswired</code>.
 - <code>Broker</code> - The credential broker could not mint. Nothing about the question was wrong.</p>
 <p><strong>Its own variant rather than a refusal, and its own variant rather than sharing the one
   above.</strong> A refusal would let a client library retry a governance decision until something
@@ -3822,11 +3823,12 @@ boundary gate bans <code>anyhow</code> for, arrived at by a different route.</p>
 <h2 id="enum-federationmiswired"><code>enum FederationMiswired</code><a class="headerlink" href="#enum-federationmiswired" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FederationMiswired</span>
 </span></code></pre></div>
-<p>The federated path's own wiring, in the three shapes it cannot answer for.</p>
+<p>The federated path's own wiring, in the four shapes it cannot answer for.</p>
 <p><strong>Every arm is unreachable through <code>sutura_semantic::plan::federated_plan</code>, the one production
-splitter, and each is typed anyway rather than assumed away.</strong> A previous revision reached for
-a <code>DuplicateLabels</code> combine failure for the first of them - a failure about a leg RESULT, minted
-from a value that has nothing to do with one - which is the shape this enum replaces.</p>
+splitter, and the provided <code>FederationCombiner::execute</code>. Each is typed anyway rather than
+assumed away.</strong> A previous revision reached for a <code>DuplicateLabels</code> combine failure for the
+first of them - a failure about a leg RESULT, minted from a value that has nothing to do with
+one - which is the shape this enum replaces.</p>
 <h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>LegsCollide</code> - The two legs named one data system, so the provenance record could not hold both.</li>
@@ -3835,6 +3837,9 @@ from a value that has nothing to do with one - which is the shape this enum repl
 - <code>LegsAreNotOneOfEach</code> - The two leg results did not resolve to one of each side.</p>
 <p><code>FederatedPlan::legs</code> returns the fact leg and the lookup leg by construction, so a pair
   built from it is one of each.
+- <code>LegNotGivenOut</code> - A leg was run that is not among the cut's own legs: one that already ran, or one the cut never held.</p>
+<p>The cut's legs are <code>Cut::legs</code>, each yielded once, so a leg
+  outside that sequence is a wiring defect and names its source in <code>at</code>.
 - <code>RankedAnswer</code> - Ranking a combined answer produced a row set whose rows contradict its own columns.</p>
 <p><code>FederatedPlan::rank</code> re-orders and truncates rows it was handed, so it cannot change a
   width.</p>
