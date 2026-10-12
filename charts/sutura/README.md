@@ -1,6 +1,11 @@
 # sutura
 
-This chart deploys sutura, an identity-aware semantic data runtime.
+sutura is a secure, multi-user way to chat with your data. It serves queries over HTTP and MCP.
+By default, queries use certified metric definitions.
+Data sources and semantic layers connect through adapters.
+A query can combine data from several sources.
+
+This chart deploys sutura.
 It runs `sutura serve` over HTTP as one `Deployment`.
 The chart also creates a `Service` and a settings `ConfigMap`.
 

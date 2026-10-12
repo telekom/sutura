@@ -1,10 +1,9 @@
 apiVersion: v2
 name: sutura
-description: |
-  Identity-aware semantic data runtime, served over HTTP. One Deployment running the
-  published `sutura serve` image over a settings tree - the same directory-plus-env-vars
-  layering `sutura-config` reads everywhere else, so this chart configures nothing the
-  binary itself does not.
+description: >-
+  sutura is a secure, multi-user way to chat with your data. It serves queries over HTTP and
+  MCP. By default, queries use certified metric definitions. Data sources and semantic layers
+  connect through adapters. A query can combine data from several sources.
 type: application
 # The chart's own version, bumped on a template or values change. Independent of appVersion.
 version: 0.1.0

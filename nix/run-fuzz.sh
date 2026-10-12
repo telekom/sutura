@@ -69,18 +69,31 @@ for target in "${targets[@]}"; do
       ;;
     run)
       echo "run-fuzz: fuzzing $target for ${seconds}s"
-      dict=(-dict="fuzz/dictionaries/$target.dict")
+      # One array that only grows, so no empty array is ever expanded: under `set -u`, bash older
+      # than 4.4 (the macOS system bash) refuses `"${empty[@]}"` as an unbound variable.
+      args=(-max_total_time="$seconds" -max_len=8192 -print_final_stats=1)
       # A dictionary is an optimisation, not a requirement: libFuzzer refuses to start on a
       # `-dict=` naming no file, so a target without one runs without one rather than failing.
-      if [ ! -f "fuzz/dictionaries/$target.dict" ]; then
-        dict=()
+      if [ -f "fuzz/dictionaries/$target.dict" ]; then
+        args+=(-dict="fuzz/dictionaries/$target.dict")
+      fi
+      # `sql_expression` alone gets a 4096 MB RSS alarm. Under ASAN its RSS climbs with the
+      # execution count, while the same target without ASAN, and libFuzzer without ASAN, stay
+      # flat. Turning the ASAN quarantine off lowers the RSS by 0.5-1.2 GB, and the StackDepot
+      # keeps every distinct allocation stack for the life of the process. On the CI runner that
+      # crossed the 2048 MB default at ~2.56M executions of a 900 s run. libFuzzer purges the
+      # allocator only above half the RSS limit, so the purge now starts at 2048 MB, not 1024 MB.
+      # `-malloc_limit_mb` defaults to the RSS limit, so it keeps the 2048 MB alarm on one
+      # allocation.
+      if [ "$target" = sql_expression ]; then
+        args+=(-rss_limit_mb=4096 -malloc_limit_mb=2048)
       fi
       # Two corpus directories: the first is libFuzzer's WRITABLE working corpus, which is
       # gitignored because it grows by thousands of generated files, and the second is the tracked
       # seed set it reads and never writes. `fuzz/.gitignore` argues the split.
       mkdir -p "fuzz/corpus/$target"
       nix run .#fuzz -- run "$codegen_units" "$target" "fuzz/corpus/$target" "fuzz/seeds/$target" -- \
-        -max_total_time="$seconds" -max_len=8192 -print_final_stats=1 "${dict[@]}"
+        "${args[@]}"
       ;;
     *)
       echo "run-fuzz: unknown mode '$mode' (expected 'run' or 'smoke')" >&2

@@ -1,5 +1,5 @@
-# sutura's settings for this example with `shared-service-user`: every caller's query runs with the
-# token of the `sutura-deployment` client, so every caller gets the same answer.
+# sutura's settings for this example with `shared-service-user`: Cube receives the token of the
+# `sutura-deployment` client for every caller, so every caller gets the same answer.
 server:
   host: "127.0.0.1"
   port: 8080

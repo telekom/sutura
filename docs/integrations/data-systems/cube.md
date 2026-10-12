@@ -22,11 +22,11 @@ The `cube` catalog kind reads the same deployment's metadata API. The crate is `
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key          | Type          | Default  | Meaning                                                                                                      |
-| ------------ | ------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `endpoint`   | string        | required | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`. |
-| `token_file` | absolute path | required | A file that holds the Cube API token. sutura reads it at startup                                             |
-| `delegation` | list          | none     | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order                 |
+| Key          | Type          | Default  | Meaning                                                                                                                           |
+| ------------ | ------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`   | string        | required | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`.                      |
+| `token_file` | absolute path | required | A file that holds the Cube API token. sutura reads it at startup                                                                  |
+| `delegation` | list          | none     | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value |
 
 Each `delegation` hop has the keys of an [Oracle hop](oracle.md#settings).
 
@@ -44,12 +44,15 @@ Cube cannot run a part of a federated question.
 
 ## Identity
 
-This data system supports `impersonation-at-source` and `shared-service-user`.
+This data system supports `impersonation-at-source` and `shared-service-user`. In both, Cube runs
+its warehouse query with the database identity in its own driver settings (`CUBEJS_DB_USER` in the
+example), not with the caller's identity. The two differ in the token that Cube receives: each
+caller's own token, or one token for every caller.
 
 ### impersonation-at-source
 
 Each caller must exist in the identity provider that Cube trusts, and the claims of the caller's
-own token decide what the caller may read. The query runs with the caller's own permissions.
+own token decide what the caller may read. Cube applies its access policy from those claims.
 
 sutura exchanges the token that it verified for the caller through the hops in `delegation`, in
 order. The first hop sends the caller's token, and each next hop sends the token from the hop
@@ -75,10 +78,14 @@ Cube then uses the claims of that token as the security context. An `access_poli
 model filters rows by those claims, for example by a claim that holds the caller's groups. A
 caller whose token does not carry the claim reads no rows.
 
+Key Cube's result cache and pre-aggregations on each caller's security context:
+`context_to_app_id`, `context_to_orchestrator_id` and `pre_aggregations_schema` in `cube.py`
+(`contextToAppId`, `contextToOrchestratorId` and `preAggregationsSchema` in `cube.js`).
+
 ### shared-service-user
 
 One token for every caller. sutura sends the token in `token_file` on every request, so every
-caller's query runs with that token, and Cube applies the security context of that token.
+caller's query receives the security context of that token.
 
 ## Example
 

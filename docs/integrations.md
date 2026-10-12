@@ -43,15 +43,18 @@ All entries must have the same `version`. A key that sutura does not know is an 
 
 ## Data systems
 
-| Data system                                                   | `kind`       | Identity of the query                            |
-| ------------------------------------------------------------- | ------------ | ------------------------------------------------ |
-| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura              |
-| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura              |
-| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account |
-| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                |
-| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller |
-| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user, or the caller's own token     |
-| [Cube](integrations/data-systems/cube.md)                     | `cube`       | One deployment token, or the caller's own token  |
+| Data system                                                   | `kind`       | Identity of the query                               |
+| ------------------------------------------------------------- | ------------ | --------------------------------------------------- |
+| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura                 |
+| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura                 |
+| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account    |
+| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                   |
+| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller    |
+| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user, or the caller's own token        |
+| [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube receives one token, or each caller's own token |
+
+Cube runs its warehouse query with the database identity in its own driver settings
+(`CUBEJS_DB_USER` in the example), not with the caller's identity.
 
 A federated question reads two data systems. Each one runs its part, and DataFusion joins the
 parts. ClickHouse and Cube cannot run a part of a federated question.

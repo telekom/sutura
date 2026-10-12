@@ -106,8 +106,7 @@ mod okf;
 // `catalog.kind: openmetadata`, served: `#970`'s served-binary "boots and lists" cell for the
 // OpenMetadata adapter - see `served/openmetadata.rs`'s module header. `#[cfg(test)]` for the same
 // `allow-expect-in-tests` reason `datahub`/`okf` above carry one; `cfg(feature = "openmetadata")`
-// on the DECLARATION so a build without the feature does not parse a file naming a crate it did not
-// link.
+// on the DECLARATION for the reason `datahub` above gives.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "openmetadata")]
@@ -213,6 +212,12 @@ mod two_kind;
 #[cfg(feature = "agent")]
 #[path = "served/source_password.rs"]
 mod source_password;
+
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "clickhouse")]
+#[path = "served/bound_value.rs"]
+mod bound_value;
 
 #[cfg(unix)]
 #[cfg(test)]

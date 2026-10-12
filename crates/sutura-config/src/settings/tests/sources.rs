@@ -405,6 +405,93 @@ fn a_delegation_written_as_one_mapping_is_refused_at_load() {
 }
 
 #[test]
+fn a_workload_identity_delegation_with_no_value_is_refused_at_load() {
+    // A key written with no value declares no hop, as an empty list does, and is not an absent key.
+    for empty in ["      delegation:\n", "      delegation: null\n"] {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+            source_overlay("impersonation-at-source", empty)
+        ));
+        let error = Settings::load(&sources).expect_err("a delegation with no value is refused");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::WorkloadIdentity {
+                    cause: crate::sources::workload_identity::InvalidWorkloadIdentity::Empty {
+                        what: "`delegation` list"
+                    },
+                    ..
+                }
+            ),
+            "{empty}: {cause:?}"
+        );
+    }
+}
+
+#[test]
+fn an_oracle_delegation_with_no_value_is_refused_at_load() {
+    let oracle = |delegation: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  warehouse:\n    \
+             kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"orcl.example.com\"\n    \
+             user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    transport_mode: \"verified\"\n    \
+             transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    posture: \"shared-service-user\"\n{delegation}"
+        ))
+    };
+    for empty in ["    delegation:\n", "    delegation: null\n"] {
+        let error = Settings::load(&oracle(empty)).expect_err("a delegation with no value is refused");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::Delegation {
+                    cause: crate::sources::placement::InvalidDelegation::NotImpersonating,
+                    ..
+                }
+            ),
+            "{empty}: {cause:?}"
+        );
+    }
+    // The CONTROL: the same entry without the key loads.
+    Settings::load(&oracle("")).expect("a shared Oracle source with no delegation loads");
+}
+
+#[test]
+fn a_clickhouse_delegation_with_no_value_is_refused_at_load() {
+    let clickhouse = |delegation: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  warehouse:\n    \
+             kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+             password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+             posture: \"impersonation-at-source\"\n{delegation}"
+        ))
+    };
+    for empty in ["    delegation:\n", "    delegation: null\n"] {
+        let error = Settings::load(&clickhouse(empty)).expect_err("a delegation with no value is refused");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::Delegation {
+                    cause: crate::sources::placement::InvalidDelegation::Missing,
+                    ..
+                }
+            ),
+            "{empty}: {cause:?}"
+        );
+    }
+    // The CONTROL: the same entry without the key loads.
+    Settings::load(&clickhouse("")).expect("an impersonating ClickHouse source with no delegation loads");
+}
+
+#[test]
 fn a_relative_client_secret_file_is_refused_at_load() {
     // A relative path resolves against the working directory - a different file on every host - so
     // the delegation's client secret is held to the rule every other secret file on a source is.

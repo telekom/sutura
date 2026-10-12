@@ -1,5 +1,6 @@
 # sutura's settings for this example with `impersonation-at-source`: sutura exchanges each caller's
-# token at Keycloak for a token Cube accepts, so each query runs with the caller's own permissions.
+# token at Keycloak for a token Cube accepts, so Cube applies its access policy from the claims of
+# each caller's token.
 server:
   host: "127.0.0.1"
   port: 8080
