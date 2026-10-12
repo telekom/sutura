@@ -107,27 +107,35 @@ fn a_single_user_loopback_agent_surface_behind_a_declared_tls_terminator_stops_t
 }
 
 /// A `single-user` loopback deployment serves `/mcp` with no `security.inbound`, as the deployment:
-/// every tool it enables, `run_sql` included, and no token asked for because none is configured.
+/// every tool it enables, and no token asked for because none is configured. `run_sql` is one of
+/// them only once `tools.run_sql.enabled` turns it on.
 ///
 /// The posture `/v1` already has there. Red on a tree that refused every inbound-less mount.
 #[cfg(feature = "agent")]
 #[test]
 fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment() {
-    let settings = format!(
-        "{}tools:\n  run_sql:\n    enabled: true\n",
-        crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER)
-    );
-    let served = start_configured("agent-single-user", &settings);
-    drop(served.mcp(None, &initialize(1)));
-    let tools = tool_names(&served.mcp(None, &tools_list(2)));
+    let deployment = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
+    let listed = |case: &str, settings: &str| {
+        let served = start_configured(case, settings);
+        drop(served.mcp(None, &initialize(1)));
+        tool_names(&served.mcp(None, &tools_list(2)))
+    };
     assert_eq!(
-        tools,
+        listed(
+            "agent-single-user",
+            &format!("{deployment}tools:\n  run_sql:\n    enabled: true\n")
+        ),
         vec![
             String::from("describe_catalog"),
             String::from("ask_metric"),
             String::from("run_sql")
         ],
         "a deployment with no inbound identity answers with every tool it enables"
+    );
+    assert_eq!(
+        listed("agent-single-user-run-sql-off", &deployment),
+        vec![String::from("describe_catalog"), String::from("ask_metric")],
+        "a deployment with no inbound identity offers no run_sql while it is off"
     );
 }
 
