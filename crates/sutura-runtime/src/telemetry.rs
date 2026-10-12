@@ -20,6 +20,7 @@
 use sutura_config::{LogFormat, TelemetrySettings};
 use tracing::Subscriber;
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
+use tracing_log::log;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -112,10 +113,41 @@ pub fn install(telemetry: &TelemetrySettings) -> Result<(), TelemetryNotInstalle
 /// The `log` crate bridge, once per process; a second call is ignored.
 ///
 /// Several dependencies still emit through `log`; without this their diagnostics are dropped
-/// silently rather than appearing in the same stream as everything else. The HTTP client's
-/// wire-level trace target, `ureq_proto`, never crosses, whatever the filter says.
+/// silently rather than appearing in the same stream as everything else. Two kinds of record never
+/// cross, whatever the filter says: anything from the HTTP client's wire-level target,
+/// `ureq_proto`, and a `trace` record from the client itself, `ureq`. The client writes a request
+/// URL's path and query only where `trace` is enabled for it, and a source binds values in that
+/// query; refused here, its `debug` request line writes them as `/******`.
 pub(crate) fn bridge_log() {
-    drop(tracing_log::LogTracer::builder().ignore_crate("ureq_proto").init());
+    if log::set_boxed_logger(Box::new(Bridge(tracing_log::LogTracer::new()))).is_ok() {
+        log::set_max_level(log::LevelFilter::Trace);
+    }
+}
+
+/// [`tracing_log::LogTracer`] behind the refusal [`bridge_log`] describes.
+struct Bridge(tracing_log::LogTracer);
+
+impl log::Log for Bridge {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        crosses(metadata) && self.0.enabled(metadata)
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if crosses(record.metadata()) {
+            self.0.log(record);
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Whether a record may reach the subscriber at all, by the crate its target names.
+fn crosses(metadata: &log::Metadata<'_>) -> bool {
+    match metadata.target().split("::").next() {
+        Some("ureq_proto") => false,
+        Some("ureq") => metadata.level() < log::Level::Trace,
+        _ => true,
+    }
 }
 
 /// The filter: `RUST_LOG` if it is set and parses, otherwise the configured directive.
