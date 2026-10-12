@@ -78,7 +78,15 @@ mod declared_principal {
     /// is half-configured must be RED. The panic names the variable and never its value - a project id
     /// and an account address are the two things a public workflow log should not learn from a failure
     /// message it did not have to print.
+    ///
+    /// **Every read is also refused outside CI**: this leg opens a real project, so a developer's shell
+    /// never runs it. **The limit:** `GITHUB_ACTIONS` is an environment value, so a shell that exports
+    /// `true` passes.
     fn required(name: &str) -> String {
+        assert!(
+            std::env::var("GITHUB_ACTIONS").is_ok_and(|ci| ci == "true"),
+            "a live bigquery cell runs only in CI (GITHUB_ACTIONS=true); this host names a bigquery venue outside CI"
+        );
         match std::env::var(name) {
             Ok(value) if !value.trim().is_empty() => value,
             _ => panic!("{name} is unset or empty, and this leg proves nothing without it"),
@@ -197,5 +205,34 @@ mod declared_principal {
                  cannot tell federation from the deployment answering as itself"
             );
         }
+    }
+
+    /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the first hosted cell
+    /// with every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with
+    /// the rule's message. **The limit:** the fakes name nothing, so without the guard the child fails
+    /// later, at the missing driver, and it is the rule's message that is then absent.
+    #[test]
+    fn a_declared_principal_cell_is_refused_outside_ci() {
+        let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
+            .args([
+                "--ignored",
+                "--exact",
+                "declared_principal::each_subject_executes_as_its_own_principal_at_the_declared_pool",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("SUTURA_BQ_PROJECT", "no-such-project")
+            .env("SUTURA_BQ_DATASET", "no_such_dataset")
+            .env("SUTURA_BQ_AUDIENCE", "no-such-audience")
+            .env("SUTURA_BQ_ASSERTION_A", "no-such-assertion-a")
+            .env("SUTURA_BQ_ASSERTION_B", "no-such-assertion-b")
+            .env("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")
+            .output()
+            .expect("a child of the test binary starts");
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success() && said.contains("a live bigquery cell runs only in CI (GITHUB_ACTIONS=true)"),
+            "the child must stop at the first read with the CI rule, and said:\n{said}"
+        );
     }
 }

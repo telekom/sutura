@@ -24,7 +24,14 @@ mod tests {
     const CASE: &str = "e2e-datahub-adbc-bigquery";
     const CATALOG: &str = "metrics";
 
+    /// One required environment value, or a panic naming it. **Every read is also refused outside CI**:
+    /// this cell opens a real project, so a developer's shell never runs it. **The limit:**
+    /// `GITHUB_ACTIONS` is an environment value, so a shell that exports `true` passes.
     fn required(name: &str) -> String {
+        assert!(
+            std::env::var("GITHUB_ACTIONS").is_ok_and(|ci| ci == "true"),
+            "a live bigquery cell runs only in CI (GITHUB_ACTIONS=true); this host names a bigquery venue outside CI"
+        );
         match std::env::var(name) {
             Ok(value) if !value.trim().is_empty() => value,
             _ => panic!("{name} is unset or empty; this hosted cell cannot run without it"),
@@ -196,10 +203,10 @@ mod tests {
     #[test]
     #[ignore = "requires the hosted DataHub and Keycloak tiers, a BigQuery dataset, and the ADBC driver"]
     fn served_datahub_metric_executes_through_adbc_bigquery() {
+        let bq = BigQueryFixture::required();
         let names = FixtureNames::unique();
         let data = DataDir::prepared();
         let issuer = keycloak_settings(CASE);
-        let bq = BigQueryFixture::required();
         let _loaded = LoadedFixture::loaded(&bq.warehouse, &data, &names);
         let tier = DatahubTier::required();
         tier.provision(&data.token_file(), &names);
@@ -248,5 +255,32 @@ mod tests {
 
         let no_caller = served.post(&v1(sutura_http::constants::base_paths::QUERY), None, &question);
         assert_eq!(no_caller.status, 401, "{}", no_caller.body);
+    }
+
+    /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the hosted cell with
+    /// every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with the
+    /// rule's message, before it writes a file or starts a tier. **The limit:** the fakes name nothing, so
+    /// without the guard the child fails later, at the missing credential file, and it is the rule's
+    /// message that is then absent.
+    #[test]
+    fn a_hosted_adbc_cell_is_refused_outside_ci() {
+        let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
+            .args([
+                "--ignored",
+                "--exact",
+                "e2e_adbc::tests::served_datahub_metric_executes_through_adbc_bigquery",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("SUTURA_BQ_DATASET", "no_such_dataset")
+            .env("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/key.json")
+            .env("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")
+            .output()
+            .expect("a child of the test binary starts");
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success() && said.contains("a live bigquery cell runs only in CI (GITHUB_ACTIONS=true)"),
+            "the child must stop at the first read with the CI rule, and said:\n{said}"
+        );
     }
 }
