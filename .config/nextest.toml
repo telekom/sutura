@@ -96,7 +96,6 @@ success-output = "immediate"
 real-cargo = { max-threads = 2 }
 entry-cap = { max-threads = 1 }
 paired-gate = { max-threads = 1 }
-clickhouse-default = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::bin/xtask) & (test(/^causality::gas_tests::/) | test(/^causality::tests::/) | test(/^causality::rot::tests::the_kill_half_/))"
@@ -165,11 +164,3 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 filter = "(binary_id(sutura-bounded-read) & test(/^walk::walk_entry_cap_tests::(a_tree_with_more_entries_than_the_cap_is_refused|a_tree_at_exactly_the_cap_is_walked)$/)) | (binary_id(sutura-catalog-okf::refusals) & test(=tests::a_directory_with_more_than_max_entries_is_refused)) | (binary_id(sutura-catalog-datacontract::refusals) & test(=tests::a_directory_with_more_than_ten_thousand_entries_is_refused))"
 test-group = "entry-cap"
 slow-timeout = { period = "60s", terminate-after = 10 }
-
-# Both served ClickHouse cells load the example into the tier's `default` database, the one a served
-# source that names no database reads, and a load replaces each table before it fills it. One at a
-# time, or a cell's deployment reads a table the other has just emptied. Each cell is named exactly,
-# so a rename drops it from the group with no red anywhere.
-[[profile.default.overrides]]
-filter = "binary_id(sutura-cli::served) & (test(=source_password::a_clickhouse_source_password_reaches_no_reply_and_no_log_line) | test(=bound_value::a_value_a_clickhouse_statement_binds_reaches_no_log_line))"
-test-group = "clickhouse-default"
