@@ -72,13 +72,14 @@ whatever `ServiceState::with_agent_surface` attached, and no type ties that moun
 | `settings::tests::agent_surface::an_agent_surface_over_an_impersonating_source_with_no_inbound_identity_is_not_fit_to_serve` | refused per source, and only for the source that runs as the asker                                |
 | `router::tests::a_mounted_agent_surface_is_refused_where_the_deployment_may_not_serve_it_without_leg_one`                    | the assembly door refuses a mount whose switch was never set                                      |
 | `served::agent::a_multi_user_agent_surface_with_no_inbound_identity_stops_the_process`                                       | the composed binary exits before it binds                                                         |
-| `served::agent::a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment`                     | the composed binary serves every tool, with no token                                              |
+| `served::agent::a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment`                     | the composed binary serves every tool the deployment turns on, with no token                      |
 
 ## Limits
 
 - **`single-user` is declared, not measured.** It is a word and a reason the operator writes;
   nothing counts who calls. `RunSqlEnabledInMultiUserMode` carries the same limit.
-- Such a `/mcp` answers every caller as the deployment, with every capability. No scope narrows the
+- Such a `/mcp` answers every caller as the deployment, with every capability the deployment turns on
+  (`run_sql` only while `tools.run_sql.enabled` is on). No scope narrows the
   tool list, because there is no verified caller to read a scope from. That is `/v1`'s posture on
   the same deployment.
 - **`/v1` is unchanged.** A deployment with no `security.inbound` and an impersonating source still

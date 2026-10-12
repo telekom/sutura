@@ -1,20 +1,21 @@
 ---
 title: DataFusion federates the SQL tool and the metrics
-description: DataFusion plans a federated question over table providers built from each data system's own schema and pinned to the bundle the question resolved against. The metric path keeps every question value a bound parameter, and the SQL tool gets cross-source SQL under the raw tool's guards per leg. Every per-leg guard stays in the application and the adapter calls it through a port. Nothing here is built (telekom/sutura#828).
+description: DataFusion plans a federated question over table providers built from the metadata catalog's schema and pinned to the bundle the question resolved against. The metric path keeps every question value a bound parameter, and the SQL tool gets cross-source SQL under the raw tool's guards per leg. Every per-leg guard stays in the application and the adapter calls it through a port (telekom/sutura#828).
 ---
 
 # DataFusion federates the SQL tool and the metrics
 
-Status: **proposed** (issue #828). **Nothing in this record is built.** The owner reads it before
-any build starts. It replaces #828's M1 with the staged plan in decision 5. The owner decided its
-three open questions on 2026-10-10. Each one is recorded where it applies, as *Owner decision
-2026-10-10*.
+Status: **proposed** (issue #828). It replaces #828's M1 with the staged plan in decision 5. The
+owner decided its three open questions on 2026-10-10. Each one is recorded where it applies, as
+*Owner decision 2026-10-10*. The identity design and four more owner decisions of 2026-10-12 are in
+*Amendment, 2026-10-12* at the end. Each one is also marked where it applies.
 
 It amends three records where it names them.
 [ADR 0007](0007-federating-across-different-data-systems.md): how a leg reaches its source, and its
 sentence that DataFusion's unparser *stays declined for the statement that reaches a data system*.
 Decision 2 amends that sentence for the SQL tool, whatever Q3 decides.
-[ADR 0013](0013-a-raw-sql-tool-off-by-default.md): a federated SQL tool.
+[ADR 0013](0013-a-raw-sql-tool-off-by-default.md): a federated SQL tool, and `run_sql` over an
+acknowledged `shared-service-user` source in `multi-user` mode.
 [ADR 0039](0039-arrow-and-datafusion-override-the-hand-written-combiner.md) step 4: the caller of
 `datafusion-federation`. The amendments are proposed with this record. They are not yet written
 into those files.
@@ -43,13 +44,16 @@ Five more facts, measured for this record:
   optimizer again in `SessionState::create_physical_plan` (`datafusion 55.1.0`).
 - The `datafusion-sql 55.1.0` unparser has these dialects: default, PostgreSQL, DuckDB, MySQL,
   SQLite, BigQuery, Snowflake and custom. It has no Oracle and no ClickHouse dialect.
-- `sutura_domain::catalog::Column::data_type` is descriptive text and never a cast. So the catalog
-  alone cannot give an Arrow schema.
+- `sutura_domain::catalog::Column::data_type` is optional descriptive text and never a cast. So the
+  catalog gives an Arrow schema only through a mapping from that text to an Arrow type (decision 1).
 
 This record uses the posture names of the code: `shared-service-user` and
-`impersonation-at-source`. The published pages call the second one *secure-impersonation*.
+`impersonation-at-source`. The published pages call the second one *secure-impersonation*. A source
+with the second posture declares how the caller reaches it: a token exchange, an ordered chain of
+exchanges (hops), or, for ClickHouse with no `delegation`, `EXECUTE AS`. *Amendment, 2026-10-12*
+names the declaration of each source.
 
-## Decision 1: a table provider comes from the data system's own schema, pinned to the bundle
+## Decision 1: a table provider comes from the catalog's schema, pinned to the bundle
 
 **One provider for each source and each subject.** The provider's `name()` is the source alias.
 Its `compute_context()` is `ComputeContext::of(source, subject)`, the digest ADR 0039 step 5 built
@@ -58,34 +62,38 @@ session. So two subjects never share a session either.
 
 **Two kinds of metadata build a provider, and each has one job.**
 
-| Part of the provider           | Comes from                                                                                                                                             | Why                                                                                                           |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Which tables and columns exist | The pinned bundle: `Model { source, table, columns, audience }` in the `PinnedDefinitions` the question resolved against                               | The bundle is the one list of what a caller may address. A table that is not in the bundle is not a provider. |
-| The Arrow type of each column  | The data system, through its adapter: a new `Warehouse` method that returns the table's Arrow schema (ADBC `get_table_schema` where the driver has it) | The catalog's `data_type` is text for a person. The data system knows what it returns.                        |
+| Part of the provider           | Comes from                                                                                                                             | Why                                                                                                           |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Which tables and columns exist | The pinned bundle: `Model { source, table, columns, audience }` in the `PinnedDefinitions` the question resolved against               | The bundle is the one list of what a caller may address. A table that is not in the bundle is not a provider. |
+| The Arrow type of each column  | The metadata catalog, for example the DataHub catalog adapter: the table's column names and types, read under the catalog's read token | The planner needs no credential for the data source to learn a schema.                                        |
 
-- A column that the bundle names and the data system does not return refuses the load, in the
-  same family as the anchor check. A column that the data system returns and the bundle does not
-  name is not registered.
-- **Pinning.** The adapter reads the schemas when the catalog loads and at each refresh. It reads
-  them under the deployment's configured identity, because no caller exists at load or at a
-  refresh. The set carries its own digest. It is held in one snapshot with the `PinnedDefinitions`
-  of the same load. `DefinitionDigest` is a content hash, so an unchanged bundle over a changed
-  schema keeps its `DefinitionDigest`. So the snapshot key is both digests, and `Provenance` names
-  both. A question holds its snapshot from the start, so a question in flight keeps its set.
-- **The schema method reads with no caller credential.** So it gets a `disallowed-methods` row in
-  `clippy.toml`, as `verify_anchor` and `declared_key` have, and one `#[expect]` at each call site:
-  the load and the refresh. `verify_anchor` runs at boot only, so this method has one more call
-  site. **Limit.** `clippy.toml` says that nothing gates the completeness of that list, so review
-  holds that the row exists.
-- **Limit.** A type change at the source between two refreshes is not seen at planning. It is seen
-  at execution, where `Accumulating::push` refuses a batch whose schema does not agree.
-- **Limit.** The load reads what the deployment identity can see. Under `impersonation-at-source` a
-  subject can see less. The source still decides at execution, and a leg the subject may not read is
-  `SourceRefused`. The schema can name a column that this subject may not read. That name is already
-  in the bundle. The audience cut (`ScopedView::models`) is what limits the names a caller can
-  address.
-- **Limit.** Which ADBC drivers return a table schema is not measured. An adapter that cannot
-  return one cannot be a provider. Its source stays on today's path.
+- A column that the bundle names and the catalog does not return refuses the load, in the same
+  family as the anchor check. A column that the catalog returns and the bundle does not name is not
+  registered.
+- **Fully qualified names.** Every federated table is named fully qualified. For BigQuery that is
+  `project.dataset.table`, so a table in another project works.
+- **Pinning.** The catalog's load and each refresh give the schemas. They are read under the
+  catalog's read token, because no caller exists at load or at a refresh (*Owner decision
+  2026-10-12*, the schema source). No data source gives the planner a schema at load. A source needs
+  no deployment credential for that: for BigQuery there is no load-time `tables.get`. The read
+  carries names and types only, and no row. The set carries its own digest. It is held in one
+  snapshot with the `PinnedDefinitions` of the same load. `DefinitionDigest` is a content hash, so
+  an unchanged bundle over a changed schema keeps its `DefinitionDigest`. So the snapshot key is
+  both digests, and `Provenance` names both. A question holds its snapshot from the start, so a
+  question in flight keeps its set.
+- **Limit.** A type change at the source that the catalog has not yet read is not seen at planning.
+  It is seen at execution, where `Accumulating::push` refuses a batch whose schema does not agree.
+- **Limit.** The catalog shows what it holds, and not what a subject may read. Under
+  `impersonation-at-source` a subject can see less. The source still decides at execution, and a
+  leg the subject may not read is `SourceRefused`. The schema can name a column that this subject
+  may not read. That name is already in the bundle. The audience cut (`ScopedView::models`) is what
+  limits the names a caller can address. Every data leg runs as the caller, through the exchange or
+  the hop chain that its source declares, and a ClickHouse source with no `delegation` runs no
+  federated leg. A leg over a source that the operator acknowledged as `shared-service-user` is the
+  one exception (*Amendment, 2026-10-12*).
+- **Limit.** The catalog's `data_type` is optional descriptive text (see the facts above). The
+  planner needs a mapping from that text to an Arrow type. A table with a column that has no mapped
+  type cannot be a provider. Its source stays on today's path.
 
 ## Decision 2: the SQL tool federates across sources, under the raw tool's guards per leg
 
@@ -123,35 +131,43 @@ table in that session.
 **Identity, per leg.** The rule of ADR 0013 applies to each leg and not to the deployment as a
 whole:
 
-| Deployment    | A leg over a `shared-service-user` source   | A leg over an `impersonation-at-source` source |
-| ------------- | ------------------------------------------- | ---------------------------------------------- |
-| `single-user` | Allowed. The operator chose the credential. | Allowed. The source authorizes the subject.    |
-| `multi-user`  | **Startup refusal**, one for each source.   | Allowed. The source authorizes the subject.    |
+| Deployment    | A leg over a `shared-service-user` source                                                               | A leg over an `impersonation-at-source` source                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `single-user` | Allowed. The operator chose the credential. The written reason of the mode is the acknowledgement.      | Allowed. The source authorizes the subject. The leg runs as the caller, through the source's declared exchange. A source with no declared exchange runs no leg. |
+| `multi-user`  | Allowed only when the operator acknowledges that source. Else **startup refusal**, one for each source. | Allowed. The source authorizes the subject. The leg runs as the caller, through the source's declared exchange. A source with no declared exchange runs no leg. |
+
+The table holds for each federated plan on both paths. A leg over a `shared-service-user` source
+does not run as the caller. This record adds no other way for such a leg into a plan. **Limit.**
+sutura does not refuse a plan that mixes this leg with a leg that runs as the caller. The mix is the
+operator's decision, and the answer discloses each leg's identity (*Owner decision 2026-10-12*, the
+shared-account leg). In `multi-user` mode the acknowledgement is `acknowledged_because` on that
+source (*Owner decision 2026-10-12*, `run_sql` over a shared source).
 
 - The tool runs over the sources that `tools.run_sql` lists by alias. Nothing is inferred. A list
   with no source is a startup refusal. The list replaces `run_sql`'s *sole registered data system*.
   In a build without the `sql` feature, a list with more than one source is a startup refusal.
 - **Limit.** Today no linked adapter both accepts a raw statement and carries a per-subject
-  credential (the `RunSqlEnabledInMultiUserMode` doc says so). Postgres and DuckDB accept raw
-  statements and run as the deployment. BigQuery is built to run as the subject, and no run of that
-  is recorded. It does not accept raw statements. So in `multi-user` mode the tool has no source until an `impersonation-at-source`
-  adapter accepts raw statements. BigQuery is the first candidate.
+  credential. Postgres and DuckDB accept raw statements. They have no place for a subject, so each
+  runs under one declared account. BigQuery, Oracle, ClickHouse and Cube carry a per-subject
+  credential (*Amendment, 2026-10-12*). None of them accepts raw statements. So in `multi-user` mode
+  the tool runs only over an acknowledged `shared-service-user` source, until an adapter that runs
+  as the caller accepts raw statements. BigQuery is the first candidate.
 
 **The guards of ADR 0013 carry over per leg, because each leg goes through the raw port.** The
 `SQLExecutor` that sutura implements gets one statement for one source. It parses that text as a
 `RawStatement` and gives it to `Warehouse::execute_raw` through the leg runner of decision 4.
 
-| Guard of `run_sql`                                        | In `run_sql` with `federation_allowed` set to `true`                                                  |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Off by default                                            | `run_sql` stays off by default, and `federation_allowed` is `false` by default                        |
-| `RunSqlEnabledInMultiUserMode`                            | One startup refusal for each listed `shared-service-user` source in `multi-user` mode                 |
-| `RawStatement::parse`: at most 64 KiB, not empty, no NUL  | On the caller's statement, and again on each leg's statement                                          |
-| Mint once, grant fits, posture agrees                     | One mint for the listed sources that the plan names; posture agreement per leg                        |
-| Read-only transaction (Postgres), read-only open (DuckDB) | Per leg, unchanged, because the adapter's `execute_raw` applies them                                  |
-| `TooManyRows`, `ResultTooLarge`                           | Per leg, and on the joined answer                                                                     |
-| `StatementFailed` carries no driver text                  | It also carries no planner text. DataFusion's planning errors name fields, so they go to the log only |
-| `RawOutcome` has no `Provenance`                          | Unchanged. A federated SQL answer is never certified                                                  |
-| Deadline checked before the call and passed to the port   | One request `Deadline` for the whole statement, checked before each leg                               |
+| Guard of `run_sql`                                        | In `run_sql` with `federation_allowed` set to `true`                                                                                                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Off by default                                            | `run_sql` stays off by default, and `federation_allowed` is `false` by default                                                                                                                    |
+| `RunSqlEnabledInMultiUserMode`                            | One startup refusal for each listed `shared-service-user` source in `multi-user` mode that the operator has not acknowledged                                                                      |
+| `RawStatement::parse`: at most 64 KiB, not empty, no NUL  | On the caller's statement, and again on each leg's statement                                                                                                                                      |
+| Mint once, grant fits, posture agrees                     | One mint for the listed sources that the plan names, each by the exchange or hop chain that its source declares, and none for a ClickHouse source with no `delegation`; posture agreement per leg |
+| Read-only transaction (Postgres), read-only open (DuckDB) | Per leg, unchanged, because the adapter's `execute_raw` applies them                                                                                                                              |
+| `TooManyRows`, `ResultTooLarge`                           | Per leg, and on the joined answer                                                                                                                                                                 |
+| `StatementFailed` carries no driver text                  | It also carries no planner text. DataFusion's planning errors name fields, so they go to the log only                                                                                             |
+| `RawOutcome` has no `Provenance`                          | Unchanged. A federated SQL answer is never certified                                                                                                                                              |
+| Deadline checked before the call and passed to the port   | One request `Deadline` for the whole statement, checked before each leg                                                                                                                           |
 
 **Three guards are new.**
 
@@ -290,15 +306,15 @@ Each PR carries its own cells. A cell runs against a real adapter in a venue tha
 adapter. A new port arrives in one PR with today's behaviour, and the new behaviour follows in the
 next PR, so that `just causality` can build the base.
 
-| PR | Delivers                                                                                                                                                                                                        | Its cells show                                                                                                                                                                                                                                                                                                                           |
-| -- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1  | This record                                                                                                                                                                                                     | Nothing to run                                                                                                                                                                                                                                                                                                                           |
-| 2  | The schema method on `Warehouse` (DuckDB and Postgres first, BigQuery next), the set pinned by both digests, the method's `clippy.toml` row, and that file's count of credential-free port methods              | A column that the bundle names and the source lacks refuses the load. A refresh swaps the set. A question in flight keeps its set.                                                                                                                                                                                                       |
-| 3a | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs and `compute_context()` = `ComputeContext::of(source, subject)`                  | Every federated golden gives the same answer as before. The ledger charges before any leg runs.                                                                                                                                                                                                                                          |
-| 3b | The leg runner's refusal of a leg that the charged cut did not give out                                                                                                                                         | Two subjects' providers are not equal. An uncharged leg is refused.                                                                                                                                                                                                                                                                      |
-| 4  | DataFusion cuts the metric plan (decision 3), with `polyglot-sql` as the generator                                                                                                                              | A differential against PR 3's answers on DuckDB and Postgres. One placeholder for each value in each pushed statement. A cut that the map does not accept is refused by name.                                                                                                                                                            |
-| 5a | The new `RawRefusalReason` variant, which nothing produces yet, its enrolled variant count in `xtask check-refusal-coverage`, and a dated entry for it in `devco/raw-refusals-unprovoked-allow`                 | Nothing new to run                                                                                                                                                                                                                                                                                                                       |
-| 5b | `federation_allowed` on `run_sql` (decision 2), behind the `sql` cargo feature, and a gate that fails when `sqlparser` or `datafusion-sql` is in the default build's resolved tree. It removes 5a's allow entry | `false`: a statement over two sources is the typed refusal. `true`: the same statement over DuckDB and Postgres gives the answer that one DuckDB with both tables gives. Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller. The default build has neither crate. |
+| PR | Delivers                                                                                                                                                                                                                                                                                                                                                                                                              | Its cells show                                                                                                                                                                                                                                                                                                                           |
+| -- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1  | This record                                                                                                                                                                                                                                                                                                                                                                                                           | Nothing to run                                                                                                                                                                                                                                                                                                                           |
+| 2  | The catalog's table schemas as typed columns, and a fully qualified name for each federated table. It deletes `Warehouse::table_schemas` with its DuckDB and Postgres overrides and its wrappers, the call site in the load, the method's `clippy.toml` row and the Postgres conformance cell. The pinned set (`PinnedSchemas`, `SchemaDigest`) stays, pinned by both digests, and takes its columns from the catalog | A column that the bundle names and the catalog lacks refuses the load. A refresh swaps the set. A question in flight keeps its set.                                                                                                                                                                                                      |
+| 3a | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs and `compute_context()` = `ComputeContext::of(source, subject)`                                                                                                                                                                                                                        | Every federated golden gives the same answer as before. The ledger charges before any leg runs.                                                                                                                                                                                                                                          |
+| 3b | The leg runner's refusal of a leg that the charged cut did not give out                                                                                                                                                                                                                                                                                                                                               | Two subjects' providers are not equal. An uncharged leg is refused.                                                                                                                                                                                                                                                                      |
+| 4  | DataFusion cuts the metric plan (decision 3), with `polyglot-sql` as the generator                                                                                                                                                                                                                                                                                                                                    | A differential against PR 3's answers on DuckDB and Postgres. One placeholder for each value in each pushed statement. A cut that the map does not accept is refused by name.                                                                                                                                                            |
+| 5a | The new `RawRefusalReason` variant, which nothing produces yet, its enrolled variant count in `xtask check-refusal-coverage`, and a dated entry for it in `devco/raw-refusals-unprovoked-allow`                                                                                                                                                                                                                       | Nothing new to run                                                                                                                                                                                                                                                                                                                       |
+| 5b | `federation_allowed` on `run_sql` (decision 2), behind the `sql` cargo feature, and a gate that fails when `sqlparser` or `datafusion-sql` is in the default build's resolved tree. It removes 5a's allow entry                                                                                                                                                                                                       | `false`: a statement over two sources is the typed refusal. `true`: the same statement over DuckDB and Postgres gives the answer that one DuckDB with both tables gives. Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller. The default build has neither crate. |
 
 **How the cells of PR 3 and PR 5 pass `just causality`.** A `devco/causality-no-base-exemptions`
 entry does not cover a cell that cannot build on the base. The entry exempts a test that the base
@@ -330,8 +346,10 @@ What #828's milestones become:
 - **M3** (plan-time heuristic) reads PR 4's cut (the legs, one or more for each source, and the local rest) and not
   today's fixed two-leg split.
 - **M4** (elastic multi-node) plugs in where the `FederationPlanner` runs the local rest. A worker
-  must call the leg runner, so each guard of decision 4 still runs once per leg. How the subject's
-  credential reaches a worker stays open, as #828 states.
+  must call the leg runner, so each guard of decision 4 still runs once per leg. A worker gets the
+  caller's credential only through an RFC 8693 token exchange or the declared hop chain. The
+  credential is scoped to that worker and is short-lived. The caller's raw token never goes to a
+  worker, and no worker account is shared (*Owner decision 2026-10-12*, the worker credential).
 - **M5** (per-subject result cache) adds the pinned schema set's digest to its key, beside the
   catalog version.
 
@@ -346,3 +364,63 @@ What #828's milestones become:
 | Amend ADR 0007's invariant                                                                                                | Not needed. Decision 3 keeps it.                                                                                                                                                                        |
 | One provider for each source with no subject in its context                                                               | `compute_context() == None` on two providers makes them equal. The optimizer then fuses two subjects' scans into one node under one credential.                                                         |
 | Two SQL tools, a federated one beside `run_sql` (this record's first recommendation)                                      | Owner decision 2026-10-10. One tool keeps one capability, one advertisement and one audit path. The switch makes federation visible in a diff.                                                          |
+
+## Amendment, 2026-10-12: each federated leg runs as the caller
+
+**The identity design.** Each federated leg runs as the caller. Its credential reaches the source
+through the token exchange or the hop chain that the source declares. A ClickHouse source with no
+`delegation` does not run a federated leg (see the ClickHouse decision below). There is no service
+account for each caller, and sutura holds no list of the callers that may run. The source's own
+grants decide what a caller reads. A caller with no grant is refused by the source.
+
+**What each source declares.** The table names what the code does today.
+
+| Source                                | How the caller's credential reaches it                                                                                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| BigQuery                              | The caller's verified token goes through the hops under `workload_identity.delegation`, if the source declares any. The declared workload identity pool federates it. The query runs as the caller's own pool principal. |
+| Oracle                                | The caller's verified token goes through the hops under `delegation`. The exchanged token opens the session for each question. The database maps it to a user.                                                           |
+| ClickHouse                            | With `delegation`, each caller signs in with the token that the hops return. Without it, the deployment's user sends `EXECUTE AS` for the user that the caller's verified subject names.                                 |
+| Cube                                  | The caller's verified token goes through the hops under `delegation`. Each request sends the exchanged token.                                                                                                            |
+| Postgres, DuckDB and the files engine | No place for a subject. Each leg runs under one declared account.                                                                                                                                                        |
+
+ClickHouse and Cube cannot run a leg. A plan that names one is refused as
+`federation_not_executable` before any credential is minted.
+
+**Decision: ClickHouse with no `delegation`.** A ClickHouse source with no `delegation` does not run
+a federated leg, also when ClickHouse can run legs. Without `delegation`, the deployment's own user
+sends `EXECUTE AS`. That is the deployment's credential switching identity, and not the caller's
+credential. A ClickHouse source that declares `delegation` runs as the caller, through the hops it
+declares.
+
+**Owner decision 2026-10-12: the shared-account leg.** A leg over a source that runs under one shared
+account (Postgres, embedded DuckDB) is allowed in a federated plan only when the operator declares
+that source `shared-service-user` and acknowledges it. The same rule holds for a single-source
+query. **Limit.** Such a leg does not run as the caller. Cross-posture is the operator's decision,
+and sutura adds no rule for the mix beyond the per-leg disclosure of ADR 0040.
+
+**Owner decision 2026-10-12: `run_sql` over a shared source.** In `multi-user` mode, `run_sql` over
+a `shared-service-user` source is allowed only when the operator acknowledges that source. Without
+the acknowledgement, it is refused. The acknowledgement is the per-source setting
+`acknowledged_because`, written on that source's entry. It is never an implicit default. This
+changes the guard of ADR 0013, which refuses `run_sql` over a shared account in `multi-user` mode.
+**Limit.** Every caller can then read what the shared account can read.
+
+**Owner decision 2026-10-12: the schema source.** The federation planner takes the schema of each
+federated table (names and types) from the metadata catalog, for example the DataHub catalog
+adapter. It reads the schema under the catalog's read token. No data source gives the planner a
+schema at load, so a source needs no deployment credential for that. For BigQuery there is no
+load-time `tables.get`. Every federated table is named fully qualified: for BigQuery,
+`project.dataset.table`. So a table in another project works. At query time, every data leg runs
+as the caller. **Limit.** The catalog shows what it holds, and not what the caller may read.
+
+**Owner decision 2026-10-12: the worker credential.** A worker gets the caller's credential only
+through an RFC 8693 token exchange or the declared hop chain. The credential is scoped to that
+worker and is short-lived. The caller's raw token is never forwarded to a worker. No worker account
+is shared.
+
+**Rejected.** A service account for each caller, and a list in sutura of the callers that may run.
+Each one puts a second identity, or a second list, between the caller and the source. The source's
+grants already decide the same question (ADR 0032, fourth amendment). Also rejected: a load-time
+read of each data source's schema under the deployment identity. It needs a deployment credential
+at every source. The catalog read needs none at a source. PR 2 deletes the code of that read
+(decision 5).

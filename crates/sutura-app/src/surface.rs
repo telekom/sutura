@@ -662,7 +662,7 @@ where
             // deterministic refusals off it is this workspace's own wiring, which the question and
             // the caller were both fine for.
             ServiceError::Combine { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
-            // The federated path's own three unreachable shapes. `Miswired` rather than `Warehouse`
+            // The federated path's own unreachable shapes. `Miswired` rather than `Warehouse`
             // is not cosmetic: a data system being down invites a retry, and none of these is.
             ServiceError::Miswired { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
             // The Arrow port's decode, which used to arrive inside an adapter's own error and

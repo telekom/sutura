@@ -131,7 +131,7 @@ the source decides whose access governs the rows.
   `describe_catalog` and `ask_metric`, and `run_sql` when it is on.
 - Without `security.inbound`, `/mcp` serves only a `single-user` deployment that is not
   [off-host](#start-up-refusals), or that is behind both `security.access_token` and `rate_limit.enabled`. Then it
-  answers every caller as the deployment, with every tool.
+  answers every caller as the deployment, with every tool the deployment turns on.
 - `/mcp` and `/v1` share the controls in [the two surfaces](#the-two-surfaces).
 
 #### The two surfaces
@@ -156,13 +156,15 @@ the source decides whose access governs the rows.
 | Interface description         | `/openapi.json` and `/docs`                                                  | `initialize` and `tools/list`                                                                                      |
 
 `sutura mcp` serves the same two tools over standard input and output, for a locally launched agent. It has no
-caller identity and grants every capability. `runtime.max_concurrent_queries` and
+caller identity and grants every tool the deployment turns on. `runtime.max_concurrent_queries` and
 `server.request_timeout_seconds` bound it.
 
 ### The raw SQL tool
 
-`tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`,
-and a call by name is refused as `tool_not_enabled`. When it is on, the caller needs `sutura:sql.run` as well. The
+`tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`.
+A call to `/v1/sql/run` gets `403` with `code: tool_not_enabled`. A `run_sql` call over `/mcp` or `sutura mcp` gets
+the JSON-RPC error `-32601` with the message `` `run_sql` is not available to this caller. It requires the scope
+`sutura:sql.run`. ``. When it is on, the caller needs `sutura:sql.run` as well. The
 tool answers only where the deployment has one source. The row cap of a certified answer applies, and every call
 writes an audit record. The page of the data system says what bounds a statement:
 [Postgres](integrations/data-systems/postgres.md), [DuckDB](integrations/data-systems/duckdb.md).

@@ -11,7 +11,8 @@ use sutura_config::Environment;
 use sutura_dev::issuer::{PublishedKeySet, Token};
 
 use crate::harness::{
-    accepted_by, an_issuer, example_root, refused_to_start, settings_declaring_inbound, start_configured, written,
+    AGENT_LOOPBACK, LOCAL_SOURCE, accepted_by, an_issuer, example_root, files_source, refused_to_start,
+    settings_declaring_inbound, settings_over, start_configured, v1, written,
 };
 
 // --------------------------------------------------------------------------- agent surface ---
@@ -106,24 +107,35 @@ fn a_single_user_loopback_agent_surface_behind_a_declared_tls_terminator_stops_t
 }
 
 /// A `single-user` loopback deployment serves `/mcp` with no `security.inbound`, as the deployment:
-/// every tool, `run_sql` included, and no token asked for because none is configured.
+/// every tool it enables, and no token asked for because none is configured. `run_sql` is one of
+/// them only once `tools.run_sql.enabled` turns it on.
 ///
 /// The posture `/v1` already has there. Red on a tree that refused every inbound-less mount.
 #[cfg(feature = "agent")]
 #[test]
 fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment() {
-    let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
-    let served = start_configured("agent-single-user", &settings);
-    drop(served.mcp(None, &initialize(1)));
-    let tools = tool_names(&served.mcp(None, &tools_list(2)));
+    let deployment = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
+    let listed = |case: &str, settings: &str| {
+        let served = start_configured(case, settings);
+        drop(served.mcp(None, &initialize(1)));
+        tool_names(&served.mcp(None, &tools_list(2)))
+    };
     assert_eq!(
-        tools,
+        listed(
+            "agent-single-user",
+            &format!("{deployment}tools:\n  run_sql:\n    enabled: true\n")
+        ),
         vec![
             String::from("describe_catalog"),
             String::from("ask_metric"),
             String::from("run_sql")
         ],
         "a deployment with no inbound identity answers with every tool it enables"
+    );
+    assert_eq!(
+        listed("agent-single-user-run-sql-off", &deployment),
+        vec![String::from("describe_catalog"), String::from("ask_metric")],
+        "a deployment with no inbound identity offers no run_sql while it is off"
     );
 }
 
@@ -187,6 +199,62 @@ fn two_verified_callers_over_the_composed_binary_see_two_different_tool_lists() 
         broad_tools.len() > narrow_tools.len(),
         "the broad caller must see more than the narrow caller: {broad_tools:?}"
     );
+}
+
+/// A `multi-user` deployment that leaves `tools.run_sql.enabled` off neither offers nor answers
+/// `run_sql` over `/mcp`, for a verified caller that holds `sutura:sql.run` - the switch `/v1`
+/// already refuses for that caller as `tool_not_enabled`.
+#[cfg(feature = "agent")]
+#[test]
+fn a_multi_user_agent_route_does_not_offer_or_run_sql_the_deployment_left_off() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-run-sql-off").expect("the key set publishes");
+    let example = example_root();
+    let data = example.join("data");
+    let security = format!(
+        "  identity: \"multi-user\"\n  \
+         inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
+         authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n",
+        issuer.audience(),
+        issuer.issuer(),
+        published.path().display(),
+    );
+    let sources = format!(
+        "{}    acknowledged_because: \"every caller reads the example's fixture files as one identity\"\n",
+        files_source(LOCAL_SOURCE, &data)
+    );
+    let settings = format!(
+        "{}tools:\n  run_sql:\n    enabled: false\n",
+        settings_over(&example.join("catalog"), &data, AGENT_LOOPBACK, &security, &sources)
+    );
+    let served = start_configured("agent-run-sql-off", &settings);
+    let token = issuer
+        .mint(&accepted_by("asker@example.com"))
+        .expect("the issuer mints an every-scope token");
+    let statement = serde_json::json!({ "statement": "select 1" });
+
+    let versioned = served.post(
+        &v1(sutura_http::constants::base_paths::RUN_SQL),
+        Some(&token),
+        &statement.to_string(),
+    );
+    assert_eq!(versioned.status, 403, "{}", versioned.body);
+    assert_eq!(versioned.json()["code"], "tool_not_enabled", "{}", versioned.body);
+
+    drop(served.mcp(Some(&token), &initialize(1)));
+    let tools = tool_names(&served.mcp(Some(&token), &tools_list(2)));
+    assert!(
+        !tools.iter().any(|name| name == "run_sql"),
+        "a deployment that left run_sql off offered it over /mcp: {tools:?}"
+    );
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": "run_sql", "arguments": statement}
+    });
+    let called = served.mcp(Some(&token), &call.to_string());
+    let reply = called.json();
+    assert_eq!(reply["error"]["code"], serde_json::json!(-32601), "{}", called.body);
+    assert!(reply.get("result").is_none(), "{}", called.body);
 }
 
 #[cfg(feature = "agent")]
