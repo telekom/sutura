@@ -75,7 +75,7 @@ use crate::causality::{is_compiled_rust, place};
 mod probe;
 
 /// The commit trailer that declares a commit to be a test-file cleanup.
-const TRAILER: &str = "Cleanup-Split:";
+pub(super) const TRAILER: &str = "Cleanup-Split:";
 
 /// What the commit messages in the measured range DECLARED.
 #[derive(Debug, PartialEq, Eq)]

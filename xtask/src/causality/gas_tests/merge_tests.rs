@@ -52,6 +52,9 @@ fn a_cell_trailer_on_a_merge_commit_is_refused() {
         "Claim-Cell: pinned",
         "Weakens-Test: pinned - a reason",
         "Live-Cell: pinned bigquery live-bigquery",
+        // Bare, so `relocation` reads no claim and only the refusal can fail this row: any path
+        // is either untouched (`Unnamed`) or the fixture's `README.md` (`NotRust`), a Fail itself.
+        "Cleanup-Split:",
     ] {
         assert_eq!(
             verdict(trailer, true),

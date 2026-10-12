@@ -21,7 +21,7 @@ use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::place::AddedTest;
 use crate::causality::weakens::Waived;
 use crate::causality::worktree::commit_logs;
-use crate::causality::{claim, live, weakens};
+use crate::causality::{claim, live, relocation, weakens};
 
 /// A plan whose every provable file declares a test module that named no test.
 ///
@@ -286,8 +286,8 @@ pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
     Verdict::Fail
 }
 
-/// Every `Claim-Cell:`, `Weakens-Test:` or `Live-Cell:` line a MERGE commit in `merges` carries,
-/// refused; [`Verdict::Pass`] when there is none.
+/// Every `Claim-Cell:`, `Weakens-Test:`, `Live-Cell:` or `Cleanup-Split:` line a MERGE commit in
+/// `merges` carries, refused; [`Verdict::Pass`] when there is none.
 ///
 /// The squash merge keeps only the NON-merge commits' messages, so a trailer on a merge commit is
 /// read by every local and pull-request run and dropped by the queue - a cell this gate measured
@@ -297,7 +297,7 @@ pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
 ///
 /// THE LIMIT. It reads parent counts, not the repository's merge settings: it assumes squash
 /// merges, and a merge-commit method would keep the message it refuses. It inherits the readers'
-/// loose prefix match, so a matching line a reader would then drop (no valid name) is refused too.
+/// loose prefix match, so a matching line a reader would then drop (no name or path) is refused too.
 pub(super) fn report_merged_trailers(merges: &str) -> Verdict {
     let found: Vec<String> = commit_logs(merges)
         .into_iter()
@@ -307,7 +307,7 @@ pub(super) fn report_merged_trailers(merges: &str) -> Verdict {
             body.lines()
                 .map(str::trim)
                 .filter(|line| {
-                    [claim::TRAILER, weakens::TRAILER, live::TRAILER]
+                    [claim::TRAILER, weakens::TRAILER, live::TRAILER, relocation::TRAILER]
                         .iter()
                         .any(|t| line.starts_with(t))
                 })
