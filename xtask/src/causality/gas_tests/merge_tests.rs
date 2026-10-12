@@ -50,6 +50,8 @@ fn a_cell_trailer_on_a_merge_commit_is_refused() {
     assert!(std::env::var_os("NEXTEST").is_some(), "run through `just test`");
     for trailer in [
         "Claim-Cell: pinned",
+        // Git keeps an indented trailer line, and every reader trims both ends before its prefix.
+        "  Claim-Cell: pinned",
         "Weakens-Test: pinned - a reason",
         "Live-Cell: pinned bigquery live-bigquery",
         // Bare, so `relocation` reads no claim and only the refusal can fail this row: any path

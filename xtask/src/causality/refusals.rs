@@ -322,8 +322,8 @@ pub(super) fn report_merged_trailers(merges: &str) -> Verdict {
         eprintln!("{line}");
     }
     eprintln!();
-    eprintln!("The squash drops a merge commit's message; put the trailer on the non-merge commit that adds");
-    eprintln!("or modifies the test (re-cut the merge as a linear commit).");
+    eprintln!("The squash drops a merge commit's message; put the trailer on a non-merge commit of the range");
+    eprintln!("(`Claim-Cell:` and `Live-Cell:`: the one that adds or modifies the test) - re-cut the merge as a linear commit.");
     Verdict::Fail
 }
 
