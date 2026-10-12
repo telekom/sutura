@@ -2300,6 +2300,16 @@ jobs:
       - name: Cube acceptance cells
         run: nix run .#cube-acceptance
 
+      # The runner keeps no container log, so a red run would leave only the cells' own words.
+      - name: Cube tier container logs
+        if: failure()
+        run: |
+          for name in $(docker ps -a --format '{{.Names}}' | grep -E -- '-(cube-metrics|cube-keycloak|cube-clickhouse)-1$' || true); do
+            echo "::group::docker logs $name"
+            docker logs --tail 60 "$name" 2>&1 || true
+            echo "::endgroup::"
+          done
+
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
   # - stays where the decision is reviewed. Event-gated rather than category-gated: `examples/demo-chatinterface/**`

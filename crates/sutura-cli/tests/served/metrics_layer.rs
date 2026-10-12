@@ -18,7 +18,7 @@ mod tests {
     use std::net::{TcpListener, TcpStream};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use sutura_catalog_datahub::test_support::{DEPLOYMENT_PROPERTY, FakeServer, happy_path_answers};
     use sutura_http_client::tls_test_support::{issue, server_config};
@@ -85,6 +85,60 @@ mod tests {
                 ("password", name),
             ],
         )
+    }
+
+    /// The anchored question's shape, asked of `cube-metrics` directly.
+    const PROBE: &str = r#"{"query":{"measures":["orders.revenue"],"timeDimensions":[{"dimension":"orders.order_date","granularity":"month","dateRange":["2026-06-01","2026-06-30"]}]}}"#;
+
+    /// Waits until `cube-metrics` lists the `orders` model and answers one `/load` for `deployment`.
+    /// Docker's healthy is `/readyz` only, and this tier's first request is this case's own start, so
+    /// the deployment's start must not be what finds the model, the realm keys or the warehouse
+    /// unready. It asks Cube itself, past the TLS front and the deployment, and gives up loudly with
+    /// the last answer. The deployment's own requests are never retried: a refusal after this is the
+    /// case's to fail on.
+    fn await_cube(cube: &str, deployment: &str) {
+        let agent = sutura_http_client::agent(|config| {
+            config
+                .timeout_global(Some(Duration::from_secs(10)))
+                .http_status_as_error(false)
+        });
+        let authorization = format!("Bearer {deployment}");
+        let read = |sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>| match sent {
+            Ok(mut response) => (
+                response.status().as_u16(),
+                response.body_mut().read_to_string().unwrap_or_default(),
+            ),
+            Err(cause) => (0, cause.to_string()),
+        };
+        let give_up = Instant::now() + Duration::from_secs(60);
+        loop {
+            let (status, body) = read(
+                agent
+                    .get(&format!("http://{cube}/cubejs-api/v1/meta"))
+                    .header("authorization", &authorization)
+                    .call(),
+            );
+            let (status, body) = if status == 200 && body.contains("\"name\":\"orders\"") {
+                read(
+                    agent
+                        .post(&format!("http://{cube}/cubejs-api/v1/load"))
+                        .header("authorization", &authorization)
+                        .header("content-type", "application/json")
+                        .send(PROBE),
+                )
+            } else {
+                (status, body)
+            };
+            if status == 200 && !body.contains("Continue wait") {
+                return;
+            }
+            assert!(
+                Instant::now() < give_up,
+                "cube-metrics was not ready in 60s; last answer {status}: {}",
+                body.chars().take(300).collect::<String>()
+            );
+            std::thread::sleep(Duration::from_millis(500));
+        }
     }
 
     /// Accepts on loopback with a leaf this run issued and forwards each connection to `upstream`.
@@ -166,8 +220,10 @@ mod tests {
                 ("client_secret", DEPLOYMENT_SECRET),
             ],
         );
+        let cube = tier("cube-metrics");
+        await_cube(&cube, &deployment);
         let ca = files.0.join("cube-ca.pem");
-        let front = tls_front(tier("cube-metrics"), &ca);
+        let front = tls_front(cube, &ca);
         let replaced = [
             (PORT, String::from("port: 0")),
             (KEY_SET_FILE, file("jwks.json", &key_set)),
