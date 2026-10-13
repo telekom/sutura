@@ -7597,8 +7597,7 @@ would be "validated" by evidence about something else.</p>
 <p><strong>What it costs</strong>, stated with the claim: a data system briefly unreachable at boot now stops
   a deployment that would have served, for a source carrying no anchored metric. For every
   source that carries one, the anchor pass already refused it.
-- <code>ColumnNotAtSource</code> - A column the bundle names that its source does not return. Boxed for the reason above.
-- <code>SchemaNotRead</code></p>
+- <code>FederatedModelUntyped</code> - A federated model whose catalog declares no column type: a missing declaration, not a type to fall back from. The federation planner takes each federated table's schema from the catalog.</p>
 <h4 id="implements_80">Implements<a class="headerlink" href="#implements_80" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="enum-catalogkind"><code>enum CatalogKind</code><a class="headerlink" href="#enum-catalogkind" title="Permanent link">&para;</a></h3>
@@ -13464,83 +13463,51 @@ way <code>crate::identity::Secret::expose_secret</code> is.</p>
 <p><code>Clone</code>, <code>Debug</code>, <code>PartialEq</code></p>
 <h3 id="module-schema">Module <code>schema</code><a class="headerlink" href="#module-schema" title="Permanent link">&para;</a></h3>
 <p>The Arrow schema a data system returns for a bundle's tables, and the set pinned beside it.
-The Arrow schema a data system returns for the tables a bundle names, pinned beside the bundle.</p>
-<p>A catalog's column <code>data_type</code> is text for a person and never a cast, so the Arrow type of a
-column comes from the data system.
-<code>Warehouse::table_schemas</code> reads it at the load
-and at each refresh, under the deployment's configured identity, because no caller exists at
-either. <code>PinnedSchemas</code> holds what was read for the
-columns the bundle names, and nothing else: a column the source returns and the bundle does not
-name is not pinned.</p>
-<h4 id="enum-tableschemas"><code>enum TableSchemas</code><a class="headerlink" href="#enum-tableschemas" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-736-1"><a id="__codelineno-736-1" name="__codelineno-736-1" href="#__codelineno-736-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TableSchemas</span>
-</span></code></pre></div>
-<p>What one data system said about the schemas of the tables it was asked for.</p>
-<h5 id="variants_93">Variants<a class="headerlink" href="#variants_93" title="Permanent link">&para;</a></h5>
-<ul>
-<li><code>NotAsked</code> - This adapter has no way to read a table's schema. Its source stays off the pinned set.</li>
-<li><code>Read</code> - The schema of each table the data system returned. A table it does not have is absent.</li>
-</ul>
-<h5 id="implements_187">Implements<a class="headerlink" href="#implements_187" title="Permanent link">&para;</a></h5>
-<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+The Arrow schema of the tables a bundle federates, pinned beside the bundle.</p>
+<p>A catalog's column <code>data_type</code> is text, and <code>TypeDialect</code> reads it as an Arrow type in the
+spelling of the data system the model's source is. <code>PinnedSchemas</code> holds what the catalog
+declared for each federated model, and nothing else: no data source is read for it, at the load
+or at a refresh. A column whose type the dialect does not list, or that the catalog gives no
+type, is a <code>Utf8</code> column and is recorded as having fallen back.</p>
 <h4 id="struct-schemadigest"><code>struct SchemaDigest</code><a class="headerlink" href="#struct-schemadigest" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-737-1"><a id="__codelineno-737-1" name="__codelineno-737-1" href="#__codelineno-737-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SchemaDigest</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-736-1"><a id="__codelineno-736-1" name="__codelineno-736-1" href="#__codelineno-736-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SchemaDigest</span>
 </span></code></pre></div>
 <p>The digest of a <code>PinnedSchemas</code>: lower-case hex SHA-256 over each pinned model's name and,
 in order, each column's name, Arrow type and nullability.</p>
 <h5 id="methods_122">Methods<a class="headerlink" href="#methods_122" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-738-1"><a id="__codelineno-738-1" name="__codelineno-738-1" href="#__codelineno-738-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-737-1"><a id="__codelineno-737-1" name="__codelineno-737-1" href="#__codelineno-737-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
-<h5 id="implements_188">Implements<a class="headerlink" href="#implements_188" title="Permanent link">&para;</a></h5>
+<h5 id="implements_187">Implements<a class="headerlink" href="#implements_187" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h4 id="struct-pinnedschemas"><code>struct PinnedSchemas</code><a class="headerlink" href="#struct-pinnedschemas" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-739-1"><a id="__codelineno-739-1" name="__codelineno-739-1" href="#__codelineno-739-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PinnedSchemas</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-738-1"><a id="__codelineno-738-1" name="__codelineno-738-1" href="#__codelineno-738-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PinnedSchemas</span>
 </span></code></pre></div>
-<p>The Arrow schema of each model whose source returned one, cut to the columns the model names.</p>
+<p>The Arrow schema of each federated model, from the columns its catalog declared.</p>
 <p>Built from the bundle of the same load, and held in one snapshot with it. The key of that
-snapshot is the bundle's <code>DefinitionDigest</code> and this set's <code>SchemaDigest</code>, because a content
-hash of an unchanged bundle stays the same over a changed source.</p>
+snapshot is the bundle's <code>DefinitionDigest</code> and this set's <code>SchemaDigest</code>. The digest covers
+each column's fallback as well as its type, so a column that stops falling back moves it.</p>
 <h5 id="methods_123">Methods<a class="headerlink" href="#methods_123" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-740-1"><a id="__codelineno-740-1" name="__codelineno-740-1" href="#__codelineno-740-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SchemaDigest</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-739-1"><a id="__codelineno-739-1" name="__codelineno-739-1" href="#__codelineno-739-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SchemaDigest</span>
 </span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-740-1"><a id="__codelineno-740-1" name="__codelineno-740-1" href="#__codelineno-740-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">fell_back</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ModelName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The columns of one model that are <code>Utf8</code> because their type was missing or not listed.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-741-1"><a id="__codelineno-741-1" name="__codelineno-741-1" href="#__codelineno-741-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ModelName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">SchemaRef</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The pinned schema of one model, <code>None</code> where its source returned none.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-742-1"><a id="__codelineno-742-1" name="__codelineno-742-1" href="#__codelineno-742-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pin</span><span class="p">(</span><span class="n">definitions</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Definitions</span><span class="p">,</span><span class="w"> </span><span class="n">read</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">SchemasByTable</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotValidated</span><span class="o">&gt;</span>
+<p>The pinned schema of one model, <code>None</code> where it is not federated or its source has no dialect.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-742-1"><a id="__codelineno-742-1" name="__codelineno-742-1" href="#__codelineno-742-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pin</span><span class="p">(</span><span class="n">definitions</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Definitions</span><span class="p">,</span><span class="w"> </span><span class="n">dialects</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">TypeDialect</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotValidated</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Pins what each source returned against the models the bundle declares on it.</p>
-<p>A source absent from <code>read</code> answered <code>TableSchemas::NotAsked</code>, and its models are not
-pinned.</p>
+<p>Pins the catalog's columns of each federated model: one whose relationship joins it to a
+model on another source. A model whose source has no entry in <code>dialects</code> is not pinned.</p>
 <h1 id="errors_8">Errors<a class="headerlink" href="#errors_8" title="Permanent link">&para;</a></h1>
-<p><code>NotValidated::ColumnNotAtSource</code> for the first column a model names that its source did
-not return, a table the source does not have included.</p>
-<h5 id="implements_189">Implements<a class="headerlink" href="#implements_189" title="Permanent link">&para;</a></h5>
+<p><code>NotValidated::FederatedModelUntyped</code> for the first model of a pinned source that declares
+no column type at all. That is a missing declaration, and not a type to fall back from.</p>
+<h5 id="implements_188">Implements<a class="headerlink" href="#implements_188" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h4 id="struct-columnnotatsource"><code>struct ColumnNotAtSource</code><a class="headerlink" href="#struct-columnnotatsource" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-743-1"><a id="__codelineno-743-1" name="__codelineno-743-1" href="#__codelineno-743-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnNotAtSource</span>
-</span></code></pre></div>
-<p>A column the bundle names that its source did not return, which refuses the load.</p>
-<h5 id="methods_124">Methods<a class="headerlink" href="#methods_124" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-744-1"><a id="__codelineno-744-1" name="__codelineno-744-1" href="#__codelineno-744-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ColumnName</span>
-</span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-745-1"><a id="__codelineno-745-1" name="__codelineno-745-1" href="#__codelineno-745-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ModelName</span>
-</span></code></pre></div>
-<h5 id="implements_190">Implements<a class="headerlink" href="#implements_190" title="Permanent link">&para;</a></h5>
-<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h4 id="struct-schemanotread"><code>struct SchemaNotRead</code><a class="headerlink" href="#struct-schemanotread" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-746-1"><a id="__codelineno-746-1" name="__codelineno-746-1" href="#__codelineno-746-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SchemaNotRead</span>
-</span></code></pre></div>
-<p>A data system that could not be asked for its tables' schemas, which refuses the load.</p>
-<h5 id="methods_125">Methods<a class="headerlink" href="#methods_125" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-747-1"><a id="__codelineno-747-1" name="__codelineno-747-1" href="#__codelineno-747-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">chain</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
-</span></code></pre></div>
-<p>The adapter's own failure, walked to text because its type cannot cross into the domain.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-748-1"><a id="__codelineno-748-1" name="__codelineno-748-1" href="#__codelineno-748-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
-</span></code></pre></div>
-<h5 id="implements_191">Implements<a class="headerlink" href="#implements_191" title="Permanent link">&para;</a></h5>
-<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h4 id="type_alias-schemasbytable"><code>type_alias SchemasByTable</code><a class="headerlink" href="#type_alias-schemasbytable" title="Permanent link">&para;</a></h4>
-<p>One data system's schemas, by the table they describe.</p>
+<h4 id="use-typedialect"><code>use TypeDialect</code><a class="headerlink" href="#use-typedialect" title="Permanent link">&para;</a></h4>
+<p>The spelling of a column type: which data system the source is.</p>
+<p>The same word means different types across systems (<code>INTEGER</code> is 32 bits in Postgres and 64 in
+<code>BigQuery</code>, <code>DATE</code> carries a time in Oracle), so the mapping is per dialect.</p>
 <h3 id="module-arrow">Module <code>arrow</code><a class="headerlink" href="#module-arrow" title="Permanent link">&para;</a></h3>
 <p>An Arrow result at the interior.</p>
 <p>The schema guard a foreign driver needs, and the one place an Arrow array becomes a <code>Value</code>.
@@ -13577,7 +13544,7 @@ read</strong>. It does not check nullability - Arrow does, positionally - and it
 announced schema is the one the plan asked for; that is the caller's, and
 <code>sutura_domain::plan::QueryPlan::result_labels</code> is what it compares against.</p>
 <h4 id="struct-resultbatches"><code>struct ResultBatches</code><a class="headerlink" href="#struct-resultbatches" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-749-1"><a id="__codelineno-749-1" name="__codelineno-749-1" href="#__codelineno-749-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ResultBatches</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-743-1"><a id="__codelineno-743-1" name="__codelineno-743-1" href="#__codelineno-743-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ResultBatches</span>
 </span></code></pre></div>
 <p>A result, as Arrow: the schema every batch was checked against, and the batches.</p>
 <p><strong>A newtype whose invariant is the schema agreement</strong>, so a value of this type is one whose every
@@ -13585,23 +13552,23 @@ batch carried the announced fields by name and type. There is no public construc
 batches directly - <code>Accumulating</code> is the only way in - because a constructor that took a
 <code>Vec&lt;RecordBatch&gt;</code> and checked afterwards would let a caller hold an unchecked one for a line,
 and the check has to happen while the stream is read or a bound on it is not a bound.</p>
-<h5 id="methods_126">Methods<a class="headerlink" href="#methods_126" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-750-1"><a id="__codelineno-750-1" name="__codelineno-750-1" href="#__codelineno-750-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">batches</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">RecordBatch</span><span class="p">]</span>
+<h5 id="methods_124">Methods<a class="headerlink" href="#methods_124" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-744-1"><a id="__codelineno-744-1" name="__codelineno-744-1" href="#__codelineno-744-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">batches</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">RecordBatch</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The batches, in the order the stream delivered them.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-751-1"><a id="__codelineno-751-1" name="__codelineno-751-1" href="#__codelineno-751-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">none_under</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nc">SchemaRef</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-745-1"><a id="__codelineno-745-1" name="__codelineno-745-1" href="#__codelineno-745-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">none_under</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nc">SchemaRef</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A result with no rows, under a schema - what an adapter answers for an empty stream.</p>
 <p>The budget is the smallest one that exists and nothing is charged against it: no batch is
 pushed, so no byte is spent. A caller-supplied budget here would be a parameter with nothing
 to bound.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-752-1"><a id="__codelineno-752-1" name="__codelineno-752-1" href="#__codelineno-752-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-746-1"><a id="__codelineno-746-1" name="__codelineno-746-1" href="#__codelineno-746-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many rows the stream delivered.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-753-1"><a id="__codelineno-753-1" name="__codelineno-753-1" href="#__codelineno-753-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">schema</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SchemaRef</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-747-1"><a id="__codelineno-747-1" name="__codelineno-747-1" href="#__codelineno-747-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">schema</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SchemaRef</span>
 </span></code></pre></div>
 <p>The schema every batch was checked against.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-754-1"><a id="__codelineno-754-1" name="__codelineno-754-1" href="#__codelineno-754-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">to_rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">RowSet</span><span class="p">,</span><span class="w"> </span><span class="n">UnreadableCell</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-748-1"><a id="__codelineno-748-1" name="__codelineno-748-1" href="#__codelineno-748-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">to_rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">RowSet</span><span class="p">,</span><span class="w"> </span><span class="n">UnreadableCell</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The result as domain rows.</p>
 <p><strong>The one Arrow-to-<code>Value</code> decode in this workspace.</strong> It used to be three - the engine's
@@ -13611,15 +13578,15 @@ other. Agreement is a correctness property here, not tidiness, which is why the 
 single function with a single test table rather than a convention.</p>
 <h1 id="errors_9">Errors<a class="headerlink" href="#errors_9" title="Permanent link">&para;</a></h1>
 <p><code>UnreadableCell</code>, naming the column and the Arrow type.</p>
-<h5 id="implements_192">Implements<a class="headerlink" href="#implements_192" title="Permanent link">&para;</a></h5>
+<h5 id="implements_189">Implements<a class="headerlink" href="#implements_189" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code></p>
 <h4 id="enum-unannouncedbatch"><code>enum UnannouncedBatch</code><a class="headerlink" href="#enum-unannouncedbatch" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-755-1"><a id="__codelineno-755-1" name="__codelineno-755-1" href="#__codelineno-755-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnannouncedBatch</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-749-1"><a id="__codelineno-749-1" name="__codelineno-749-1" href="#__codelineno-749-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnannouncedBatch</span>
 </span></code></pre></div>
 <p>Why a result stream was refused, before any value in it was read.</p>
 <p>Each variant carries field DESCRIPTORS - a name and an Arrow type, which is a driver's own
 metadata - and never a cell, so a refusal an operator reads discloses no data.</p>
-<h5 id="variants_94">Variants<a class="headerlink" href="#variants_94" title="Permanent link">&para;</a></h5>
+<h5 id="variants_93">Variants<a class="headerlink" href="#variants_93" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Width</code> - A batch of a different width than the schema it arrived under.</li>
 <li><code>Mislabelled</code> - A batch of the right width whose field at one position is not the announced one, so its values would have been labelled with another column's name.</li>
@@ -13635,13 +13602,13 @@ metadata - and never a cell, so a refusal an operator reads discloses no data.</
 <p>Carries the BUDGET and never the demand, for <code>ResultBudget</code>'s stated reason: the budget is
   a number an operator configured and can act on, while what the question wanted is an
   observation about one caller's data.</p>
-<h5 id="implements_193">Implements<a class="headerlink" href="#implements_193" title="Permanent link">&para;</a></h5>
+<h5 id="implements_190">Implements<a class="headerlink" href="#implements_190" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="enum-unreadablecell"><code>enum UnreadableCell</code><a class="headerlink" href="#enum-unreadablecell" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-756-1"><a id="__codelineno-756-1" name="__codelineno-756-1" href="#__codelineno-756-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnreadableCell</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-750-1"><a id="__codelineno-750-1" name="__codelineno-750-1" href="#__codelineno-750-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnreadableCell</span>
 </span></code></pre></div>
 <p>Why an Arrow array could not become a domain value.</p>
-<h5 id="variants_95">Variants<a class="headerlink" href="#variants_95" title="Permanent link">&para;</a></h5>
+<h5 id="variants_94">Variants<a class="headerlink" href="#variants_94" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>UnsupportedType</code> - A column whose Arrow type this domain does not map.</li>
 </ul>
@@ -13654,10 +13621,10 @@ metadata - and never a cell, so a refusal an operator reads discloses no data.</
   the string <code>"inf"</code> in an answer under a metric's own certified name.
 - <code>NotADate</code> - A day count that is not a date this calendar can express.
 - <code>Ragged</code> - The decoded rows did not form a rectangle - unreachable by construction, propagated rather than swallowed so an edit that breaks the construction fails loudly.</p>
-<h5 id="implements_194">Implements<a class="headerlink" href="#implements_194" title="Permanent link">&para;</a></h5>
+<h5 id="implements_191">Implements<a class="headerlink" href="#implements_191" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="struct-resultbudget"><code>struct ResultBudget</code><a class="headerlink" href="#struct-resultbudget" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-757-1"><a id="__codelineno-757-1" name="__codelineno-757-1" href="#__codelineno-757-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ResultBudget</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-751-1"><a id="__codelineno-751-1" name="__codelineno-751-1" href="#__codelineno-751-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ResultBudget</span>
 </span></code></pre></div>
 <p>How many bytes one result may cost to hold and to convert, together.</p>
 <p><strong>A newtype for the unit, beside a <code>usize</code> row count that means something else entirely.</strong>
@@ -13670,49 +13637,49 @@ deployment runs with is <code>sutura_config::WorkingSetCeiling</code>, checked a
 the process can actually reach; this type is the unit that number travels in once an adapter has
 converted it. So there is no <em>unset</em> state to default: a call site that has no budget has no
 value of this type and does not compile.</p>
-<h5 id="methods_127">Methods<a class="headerlink" href="#methods_127" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-758-1"><a id="__codelineno-758-1" name="__codelineno-758-1" href="#__codelineno-758-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<h5 id="methods_125">Methods<a class="headerlink" href="#methods_125" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-752-1"><a id="__codelineno-752-1" name="__codelineno-752-1" href="#__codelineno-752-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>The budget as a plain count, for the arithmetic that spends it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-759-1"><a id="__codelineno-759-1" name="__codelineno-759-1" href="#__codelineno-759-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-753-1"><a id="__codelineno-753-1" name="__codelineno-753-1" href="#__codelineno-753-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The budget, in bytes.</p>
-<h5 id="implements_195">Implements<a class="headerlink" href="#implements_195" title="Permanent link">&para;</a></h5>
+<h5 id="implements_192">Implements<a class="headerlink" href="#implements_192" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h4 id="struct-accumulating"><code>struct Accumulating</code><a class="headerlink" href="#struct-accumulating" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-760-1"><a id="__codelineno-760-1" name="__codelineno-760-1" href="#__codelineno-760-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Accumulating</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-754-1"><a id="__codelineno-754-1" name="__codelineno-754-1" href="#__codelineno-754-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Accumulating</span>
 </span></code></pre></div>
 <p>One result stream, checked against its announced schema batch by batch.</p>
 <p><strong>The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
 stream is read.</strong> A driver's reader is driven straight into <code>Self::push</code>, so a stream that will
 be refused is refused at the batch that crosses the line - not after every batch has been
 collected, which is the point at which the memory a ceiling protects has already been spent.</p>
-<h5 id="methods_128">Methods<a class="headerlink" href="#methods_128" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-761-1"><a id="__codelineno-761-1" name="__codelineno-761-1" href="#__codelineno-761-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announcing</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nc">SchemaRef</span><span class="p">,</span><span class="w"> </span><span class="n">most</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">,</span><span class="w"> </span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="nc">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<h5 id="methods_126">Methods<a class="headerlink" href="#methods_126" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-755-1"><a id="__codelineno-755-1" name="__codelineno-755-1" href="#__codelineno-755-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announcing</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nc">SchemaRef</span><span class="p">,</span><span class="w"> </span><span class="n">most</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">,</span><span class="w"> </span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="nc">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Starts reading a stream announced under <code>schema</code>, refusing past <code>most</code> rows or <code>budget</code>
 bytes of materialisation.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-762-1"><a id="__codelineno-762-1" name="__codelineno-762-1" href="#__codelineno-762-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">delivered</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-756-1"><a id="__codelineno-756-1" name="__codelineno-756-1" href="#__codelineno-756-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">delivered</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many rows have been accepted so far, which a completeness check compares against.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-763-1"><a id="__codelineno-763-1" name="__codelineno-763-1" href="#__codelineno-763-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">finish</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ResultBatches</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-757-1"><a id="__codelineno-757-1" name="__codelineno-757-1" href="#__codelineno-757-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">finish</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ResultBatches</span>
 </span></code></pre></div>
 <p>The checked result.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-764-1"><a id="__codelineno-764-1" name="__codelineno-764-1" href="#__codelineno-764-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">push</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">batch</span><span class="p">:</span><span class="w"> </span><span class="nc">RecordBatch</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">UnannouncedBatch</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-758-1"><a id="__codelineno-758-1" name="__codelineno-758-1" href="#__codelineno-758-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">push</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">batch</span><span class="p">:</span><span class="w"> </span><span class="nc">RecordBatch</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">UnannouncedBatch</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Checks one batch against the announced schema and keeps it.</p>
 <h1 id="errors_10">Errors<a class="headerlink" href="#errors_10" title="Permanent link">&para;</a></h1>
 <p><code>UnannouncedBatch::Width</code> for a batch of the wrong width, <code>UnannouncedBatch::Mislabelled</code>
 for one whose field at a position is not the announced one, and
 <code>UnannouncedBatch::OverBound</code> where this batch would take the stream past the ceiling.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-765-1"><a id="__codelineno-765-1" name="__codelineno-765-1" href="#__codelineno-765-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spent_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-759-1"><a id="__codelineno-759-1" name="__codelineno-759-1" href="#__codelineno-759-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spent_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>What the accepted batches have already spent of the budget, which is what they cost to hold
 and will cost to convert.</p>
-<h5 id="implements_196">Implements<a class="headerlink" href="#implements_196" title="Permanent link">&para;</a></h5>
+<h5 id="implements_193">Implements<a class="headerlink" href="#implements_193" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code></p>
 <h4 id="fn-arrow_column"><code>fn arrow_column</code><a class="headerlink" href="#fn-arrow_column" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-766-1"><a id="__codelineno-766-1" name="__codelineno-766-1" href="#__codelineno-766-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">arrow_column</span><span class="p">(</span><span class="n">values</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">cell</span><span class="p">::</span><span class="n">Value</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">arrow_schema</span><span class="p">::</span><span class="n">DataType</span><span class="p">,</span><span class="w"> </span><span class="n">arrow_array</span><span class="p">::</span><span class="n">ArrayRef</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-760-1"><a id="__codelineno-760-1" name="__codelineno-760-1" href="#__codelineno-760-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">arrow_column</span><span class="p">(</span><span class="n">values</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">cell</span><span class="p">::</span><span class="n">Value</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">arrow_schema</span><span class="p">::</span><span class="n">DataType</span><span class="p">,</span><span class="w"> </span><span class="n">arrow_array</span><span class="p">::</span><span class="n">ArrayRef</span><span class="p">)</span>
 </span></code></pre></div>
 <p>One column's Arrow array, built from domain values.</p>
 <p><strong>No longer behind the <code>fixtures</code> feature, and the architecture decision's second half is why.</strong>
@@ -13743,7 +13710,7 @@ that is NOT an exact integer still renders to <code>Utf8</code>, so a number in 
 all-text column is never promoted, deliberately - a postal code column of <code>"01234"</code> would lose
 its leading zero, and text a source declared as text is not a number this may decide about.</p>
 <h4 id="fn-of_row_set"><code>fn of_row_set</code><a class="headerlink" href="#fn-of_row_set" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-767-1"><a id="__codelineno-767-1" name="__codelineno-767-1" href="#__codelineno-767-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_row_set</span><span class="p">(</span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">rows</span><span class="p">::</span><span class="n">RowSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ResultBatches</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">rows</span><span class="p">::</span><span class="n">MalformedRowSet</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-761-1"><a id="__codelineno-761-1" name="__codelineno-761-1" href="#__codelineno-761-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_row_set</span><span class="p">(</span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">rows</span><span class="p">::</span><span class="n">RowSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ResultBatches</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">rows</span><span class="p">::</span><span class="n">MalformedRowSet</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A <code>RowSet</code> as Arrow batches: what an adapter whose driver speaks rows returns from
 <code>Warehouse::execute</code>.</p>
@@ -13758,7 +13725,7 @@ and the property did not.</p>
 row before one exists. Propagated rather than defaulted, because a batch built anyway from a
 row set whose invariant had been broken would be an answer with cells in the wrong columns.</p>
 <h4 id="fn-of_rows"><code>fn of_rows</code><a class="headerlink" href="#fn-of_rows" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-768-1"><a id="__codelineno-768-1" name="__codelineno-768-1" href="#__codelineno-768-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_rows</span><span class="p">(</span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">],</span><span class="w"> </span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">cell</span><span class="p">::</span><span class="n">Value</span><span class="o">&gt;</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ResultBatches</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">rows</span><span class="p">::</span><span class="n">MalformedRowSet</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-762-1"><a id="__codelineno-762-1" name="__codelineno-762-1" href="#__codelineno-762-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_rows</span><span class="p">(</span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">],</span><span class="w"> </span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">cell</span><span class="p">::</span><span class="n">Value</span><span class="o">&gt;</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ResultBatches</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">rows</span><span class="p">::</span><span class="n">MalformedRowSet</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A result built from domain rows, for a fake and for an adapter whose source speaks rows.</p>
 <p>Un-gated for <code>arrow_column</code>'s reason, and it carries that function's inference limit.
@@ -13777,7 +13744,7 @@ Its input is rows the caller already holds, so a budget here would check after t
 <p><code>Warehouse::execute_raw</code>'s own types - split out of
 <code>warehouse.rs</code> because that file hit the thousand-line limit <code>cargo xtask max-lines</code> enforces.</p>
 <h4 id="struct-rawrows"><code>struct RawRows</code><a class="headerlink" href="#struct-rawrows" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-769-1"><a id="__codelineno-769-1" name="__codelineno-769-1" href="#__codelineno-769-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RawRows</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-763-1"><a id="__codelineno-763-1" name="__codelineno-763-1" href="#__codelineno-763-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RawRows</span>
 </span></code></pre></div>
 <p>What a raw statement's execution produced, before the application layer turns it into a
 <code>crate::raw::RawOutcome</code>.</p>
@@ -13787,21 +13754,21 @@ statement's own adapter is the only thing that has already checked its rows are 
 the driver's own row type carries one value per declared column by construction. Building a
 <code>RowSet</code> here would ask that type's constructor to re-verify a shape only the adapter could have
 gotten wrong.</p>
-<h5 id="methods_129">Methods<a class="headerlink" href="#methods_129" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-770-1"><a id="__codelineno-770-1" name="__codelineno-770-1" href="#__codelineno-770-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+<h5 id="methods_127">Methods<a class="headerlink" href="#methods_127" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-764-1"><a id="__codelineno-764-1" name="__codelineno-764-1" href="#__codelineno-764-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-771-1"><a id="__codelineno-771-1" name="__codelineno-771-1" href="#__codelineno-771-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RawColumnsAndRows</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-765-1"><a id="__codelineno-765-1" name="__codelineno-765-1" href="#__codelineno-765-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RawColumnsAndRows</span>
 </span></code></pre></div>
 <p>The rows, owned - for a caller that is about to render them and drop the rest.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-772-1"><a id="__codelineno-772-1" name="__codelineno-772-1" href="#__codelineno-772-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-766-1"><a id="__codelineno-766-1" name="__codelineno-766-1" href="#__codelineno-766-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The only constructor. Infallible: nothing here promises the two vectors agree in width, the
 way <code>RowSet::new</code> does for a certified answer - this is what
 <code>crate::raw::RawOutcome</code>'s builder reads that promise from before rendering; a raw statement's
 own adapter is what already produced a rectangular result.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-773-1"><a id="__codelineno-773-1" name="__codelineno-773-1" href="#__codelineno-773-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-767-1"><a id="__codelineno-767-1" name="__codelineno-767-1" href="#__codelineno-767-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;</span><span class="p">]</span>
 </span></code></pre></div>
-<h5 id="implements_197">Implements<a class="headerlink" href="#implements_197" title="Permanent link">&para;</a></h5>
+<h5 id="implements_194">Implements<a class="headerlink" href="#implements_194" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>PartialEq</code></p>
 <h4 id="type_alias-rawexecution"><code>type_alias RawExecution</code><a class="headerlink" href="#type_alias-rawexecution" title="Permanent link">&para;</a></h4>
 <p>What <code>Warehouse::execute_raw</code> answers: <code>None</code> where

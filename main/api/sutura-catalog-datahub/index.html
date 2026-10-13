@@ -3537,6 +3537,7 @@ reader back to all of them.</p>
   rather than defaulted in either direction - <code>ManyToOne</code> as a default assumes the fan-out away,
   and <code>OneToMany</code> refuses every dimension.
 - <code>Identifier</code> - A name on a snapshot did not parse as the identifier kind it claims to be.
+- <code>Table</code> - A dataset's name is not a table path: a table, <code>dataset.table</code> or <code>project.dataset.table</code>.
 - <code>Sutura</code> - The <code>sutura</code> structured property's scalar value is not the metric content it claims to be.
 - <code>EmptyViaChain</code> - A dimension's <code>via</code> chain is empty, which <code>DataHub</code> can carry but no <code>ViaChain</code> can hold.</p>
 <p><code>SuturaDimension</code> deserializes <code>via</code> as a <code>ViaDoc</code>, whose untagged <code>Chain</code> arm accepts an
