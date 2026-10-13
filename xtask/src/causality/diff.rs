@@ -56,12 +56,25 @@ pub(crate) struct RemovedLine {
     pub(crate) text: String,
 }
 
-/// Added lines per changed file, from `git diff`, each carrying its post-image line number.
+/// One diff, read as the files it leaves behind and the files it deletes whole.
+#[derive(Debug)]
+pub(crate) struct Changes {
+    /// The files that still exist after the diff, each with its added lines: what every consumer
+    /// that reverts, holds, measures or maps regions reads, because each needs a post-image.
+    pub(crate) files: Vec<ChangedFile>,
+    /// The files the diff DELETED, each carrying every line it held as a removal with its
+    /// pre-image number. Read by the removed-test check alone: a deleted file has no post-image to
+    /// revert, hold or measure, and a consumer handed one would act on a path that is not at HEAD.
+    pub(crate) gone: Vec<ChangedFile>,
+}
+
+/// Added lines per changed file, from `git diff`, each carrying its post-image line number, and
+/// the files it deleted whole beside them.
 ///
 /// A [`Commit`] and not a ref, for the reason `super::provenance` states: a ref that has moved
 /// puts commits this branch never made into the diff, and every consumer downstream then treats
 /// them as the change under test.
-pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> {
+pub(crate) fn changes(base: &Commit) -> Option<Changes> {
     let mut command = Command::new("git");
     crate::repo::strip_git_env(&mut command);
     let out = command
@@ -71,7 +84,13 @@ pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> 
     if !out.status.success() {
         return None;
     }
-    Some(parse_diff(&String::from_utf8_lossy(&out.stdout)))
+    Some(parse(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// [`changes`]' live files alone, for the cells that run a diff through the planner by hand.
+#[cfg(test)]
+pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> {
+    Some(changes(base)?.files)
 }
 
 /// Added lines per changed file in ONE COMMIT's own diff, `<commit>^..<commit>`.
@@ -79,7 +98,7 @@ pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> 
 /// The per-commit half of `github.com/telekom/sutura#954`: the claim arm's bijection must ask
 /// which tests a DECLARING COMMIT added, not which the whole range added. `super::claim::Claim`
 /// carries each declaration's commit, and this maps that commit to its own added-test lines the
-/// same way `changed_with_additions` maps the whole base. `dir` is the repository (or worktree)
+/// same way [`changes`] maps the whole base. `dir` is the repository (or worktree)
 /// the commit lives in - the worktree the claim arm created - and git commands run there via
 /// `-C`, so a real (test) repo beyond the process CWD resolves the commit identically. A merge
 /// commit's parent is its first parent; a commit with no parent (an orphan root) yields nothing,
@@ -108,10 +127,21 @@ pub(crate) fn commit_additions(dir: &Path, commit: &str) -> Option<Vec<ChangedFi
 ///
 /// A `diff --git` header closes the previous file, so a DELETED file - whose `+++` is
 /// `/dev/null` rather than `b/<path>` - cannot leave the previous file's entry open and collect
-/// stray lines into it.
+/// stray lines into it. It has no entry in THIS list: [`parse`] returns it apart.
 fn parse_diff(text: &str) -> Vec<ChangedFile> {
+    parse(text).files
+}
+
+/// [`parse_diff`]'s list, and beside it the files the diff deleted whole.
+///
+/// A deletion's `+++ /dev/null` names no path, so its entry is named for the `--- a/<path>` before
+/// it, and every hunk line under it is a removal numbered in the pre-image. It is returned apart
+/// rather than listed, because the first list is what a post-image reader may act on.
+fn parse(text: &str) -> Changes {
     let mut files: Vec<ChangedFile> = Vec::new();
+    let mut gone: Vec<ChangedFile> = Vec::new();
     let mut current: Option<ChangedFile> = None;
+    let mut deleted: Option<ChangedFile> = None;
     let mut next_line = 0_usize;
     // The OLD-side counter, advanced by context and by removals and not by additions - the mirror
     // of `next_line`, and what gives a removed line the only number it really has.
@@ -127,9 +157,8 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
 
     for line in text.lines() {
         if line.starts_with("diff --git ") {
-            if let Some(done) = current.take() {
-                files.push(done);
-            }
+            files.extend(current.take());
+            gone.extend(deleted.take());
             in_hunk = false;
             before = None;
             continue;
@@ -166,13 +195,22 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
             });
             continue;
         }
+        if !in_hunk && line == "+++ /dev/null" {
+            deleted = before.take().map(|path| ChangedFile {
+                path: path.clone(),
+                before: path,
+                added: Vec::new(),
+                removed: Vec::new(),
+            });
+            continue;
+        }
         if let Some((old_start, new_start)) = hunk_bounds(line) {
             old_line = old_start;
             next_line = new_start;
             in_hunk = true;
             continue;
         }
-        let Some(file) = current.as_mut() else {
+        let Some(file) = current.as_mut().or(deleted.as_mut()) else {
             continue;
         };
         // `---`/`+++` are headers only OUTSIDE a hunk; inside one they are ordinary content that
@@ -200,10 +238,9 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
         next_line += 1;
         old_line += 1;
     }
-    if let Some(done) = current.take() {
-        files.push(done);
-    }
-    files
+    files.extend(current.take());
+    gone.extend(deleted.take());
+    Changes { files, gone }
 }
 
 /// The old and new path of git's `Binary files <old> and b/<new> differ` line. `None` for a
