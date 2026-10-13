@@ -1,0 +1,7 @@
+# `minimal.yaml` without the access token and with no `security.inbound.mode`: the binary refuses
+# an off-host bind with no credential (`AccessTokenRequired`), so the render must refuse first.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress

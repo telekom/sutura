@@ -8,12 +8,10 @@
 //! fixture reaches. `set_current_dir` is process-global, so each fixture asserts `NEXTEST` and
 //! runs alone.
 //!
-//! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch,
-//! reached over a `Separable::revert`-empty diff rather than an inseparable one.
-//!
-//! `github.com/telekom/sutura#1025` added the fifth: `super::edited::touches` routing a file with
-//! NO added marker into `test_files` at all, over a diff whose only change is an added line
-//! inside a test that already existed.
+//! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch, reached
+//! over a `Separable::revert`-empty diff rather than an inseparable one. `#1025` added the fifth:
+//! `super::edited::touches` routing a file with NO added marker into `test_files` at all, over a
+//! diff whose only change is an added line inside a test that already existed.
 
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,6 +21,8 @@ use crate::Verdict;
 /// One unique temp directory per real-git test, so paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(test)]
+mod deleted_tests;
 #[cfg(test)]
 mod merge_tests;
 

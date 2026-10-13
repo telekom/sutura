@@ -1,0 +1,11 @@
+# `minimal.yaml` with an operator-pinned user. The chart pins none by default, so the render
+# carries this `runAsUser` and no `runAsGroup`.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+podSecurityContext:
+  runAsUser: 1000680000

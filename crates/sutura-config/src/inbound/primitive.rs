@@ -124,18 +124,6 @@ pub enum InvalidInboundValue {
         position: usize,
         accepted: &'static str,
     },
-    /// A header name that would collide with the deployment bearer token.
-    ///
-    /// **The one refusal in this list that is about a combination rather than a shape**, and it is
-    /// here rather than in `NotFitToServe` because the value itself is what is wrong: a proof read
-    /// out of `Authorization` is a proof read out of the header the deployment token already owns,
-    /// and there is no deployment in which that is what somebody meant.
-    #[error(
-        "{key} is `{found}`, which is the header the deployment bearer token already arrives in. A \
-         request cannot present two different credentials in one header - name a header of this \
-         component's own"
-    )]
-    ReservedHeader { key: &'static str, found: String },
     /// A transit-proof lifetime ceiling outside the range one can be.
     ///
     /// Its own variant rather than a reuse of [`Self::TooLong`], because that one is about a string's
@@ -709,9 +697,6 @@ impl ProofHeader {
     /// The key a proof header is written under.
     pub const KEY: &'static str = "security.inbound.transit_header";
 
-    /// The header the deployment bearer token arrives in, which this may not be.
-    const RESERVED: &'static str = "authorization";
-
     /// Reads the header name, folding case.
     ///
     /// **Sanitize, then validate, both inside the constructor.** The fold happens before the
@@ -740,12 +725,6 @@ impl ProofHeader {
                 });
             }
         }
-        if folded == Self::RESERVED {
-            return Err(InvalidInboundValue::ReservedHeader {
-                key: Self::KEY,
-                found: folded,
-            });
-        }
         Ok(Self(folded))
     }
 
@@ -753,6 +732,14 @@ impl ProofHeader {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Is this the `Authorization` header, where a component that replaced the caller's token puts
+    /// its assertion as `Bearer <assertion>`?
+    #[inline]
+    #[must_use]
+    pub const fn is_authorization(&self) -> bool {
+        matches!(self.0.as_bytes(), b"authorization")
     }
 }
 

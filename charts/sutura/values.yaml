@@ -10,7 +10,7 @@ image:
 # Secrets that hold image pull credentials.
 imagePullSecrets: []
 
-# Deployment environment: development, test, staging or production.
+# Deployment environment: development, test or production.
 environment: ""
 
 # Number of pod replicas.
@@ -93,9 +93,7 @@ podLabels: {}
 # Security context for the whole pod.
 podSecurityContext:
   runAsNonRoot: true
-  # User id the image sets for its process.
-  runAsUser: 65532
-  runAsGroup: 65532
+  # The image runs as user 65532. Set runAsUser and runAsGroup to pin a user.
   seccompProfile:
     type: RuntimeDefault
 

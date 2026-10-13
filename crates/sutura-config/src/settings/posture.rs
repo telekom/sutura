@@ -311,27 +311,28 @@ pub enum NotFitToServe {
     ///
     /// **A collision found by building leg 1 rather than by reading the record**, and it is worth
     /// stating because `docs/adr/0014` says the deployment token and leg 1 both survive and answer
-    /// different questions. They do - in the `behind-gateway` mode, where the proof arrives in a
-    /// header of the component's own and `Authorization` stays the deployment token's.
+    /// different questions. They do - in the `behind-gateway` mode with a `transit_header` of the
+    /// component's own, where `Authorization` stays the deployment token's.
     ///
     /// In the `direct` mode they cannot. RFC 6750 puts an access token in `Authorization: Bearer` and
     /// an OAuth 2.1 client has no option to put it elsewhere, so a deployment that is its own resource
-    /// server owns that header. Configuring both is configuring a request that has to carry two
-    /// values in one field, and every alternative to refusing it is worse: sniffing whether the value
-    /// looks like a JWT is a guess, and checking one and then the other makes the *weaker* credential
-    /// sufficient.
+    /// server owns that header. Nor can they in `behind-gateway` with a `transit_header` of
+    /// `authorization`, where a component replaced the caller's token with its assertion in that
+    /// header. Configuring both is configuring a request that has to carry two values in one field,
+    /// and every alternative to refusing it is worse: sniffing whether the value looks like a JWT is a
+    /// guess, and checking one and then the other makes the *weaker* credential sufficient.
     ///
-    /// So the direct mode replaces the deployment token rather than joining it - which is why
-    /// [`Self::AccessTokenRequired`] does not fire when an inbound identity is configured. That is
-    /// not a weakening: a validated, audience-bound, expiring token per caller is strictly more than
-    /// a shared secret every caller holds.
+    /// So a mode that reads `Authorization` replaces the deployment token rather than joining it -
+    /// which is why [`Self::AccessTokenRequired`] does not fire when an inbound identity is
+    /// configured. That is not a weakening: a validated, audience-bound, expiring token per caller is
+    /// strictly more than a shared secret every caller holds.
     #[error(
-        "security.access_token is set and security.inbound.mode is `direct`, and both are read from \
-         `authorization: Bearer`. A request cannot carry two credentials in one header. In the \
-         direct mode this deployment IS the resource server, so the caller's own token is what \
-         authenticates the request - remove security.access_token. To keep a deployment-wide \
-         perimeter as well, put the caller's identity behind a component and declare \
-         `behind-gateway`, whose proof arrives in a header of its own"
+        "security.access_token is set and security.inbound reads its token from `authorization: \
+         Bearer` as well - `direct` always does, and `behind-gateway` does when transit_header is \
+         `authorization`. A request cannot carry two credentials in one header. Remove \
+         security.access_token: the verified token then authenticates each request. To keep a \
+         deployment-wide token as well, declare `behind-gateway` with a transit_header of the \
+         component's own"
     )]
     DeploymentTokenSharesTheHeader,
 

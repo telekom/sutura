@@ -12,12 +12,15 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 data:
   base.yaml: |
+    security:
+      identity: multi-user
     sources:
       warehouse:
         acknowledged_because: a single analytics project this deployment owns
         billing_project: sutura-analytics
         dataset: metrics
         kind: bigquery
+        max_bytes_billed: 1073741824
         posture: shared-service-user
   production.yaml: |
     {}
@@ -70,9 +73,7 @@ spec:
         app.kubernetes.io/instance: test-release
     spec:
       securityContext:
-        runAsGroup: 65532
         runAsNonRoot: true
-        runAsUser: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:

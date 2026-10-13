@@ -1590,10 +1590,11 @@ deployment token gate, then this. Two reasons, and neither is style:
   attempt has to cost a rate-limit cell or it is an unlimited guessing loop. That argument applies
   to a forged signature exactly as it applies to a wrong shared secret.
 
-In the `direct` mode there is no deployment token to be after -
-`sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader` refuses that combination - so the
-order matters only in the `behind-gateway` mode, where both are configured and each reads its own
-header.
+Where the verified token arrives in `Authorization` - the `direct` mode, or a component that
+replaced the caller's token there - there is no deployment token to be after:
+`sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader` refuses that combination. So the
+order matters only in the `behind-gateway` mode with a header of the component's own, where both
+are configured and each reads its own header.
 
 # What a refused request is told, and what it is not
 
@@ -1602,8 +1603,8 @@ validating deployment is its own resource identifier. When an origin-form target
 reproduce that exact resource, its `resource_metadata` parameter is the absolute URL of the public
 RFC 9728 document built from the same token requirement as the validator. It is omitted for any
 other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
-gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode offers no
-Bearer challenge.
+gateway assertion is minted by the component, not by an authorization server a client can use, so
+that mode offers no Bearer challenge - wherever the assertion arrives.
 
 What the response does **not** say is which check failed. The log says - through the `#[source]`
 chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -1634,10 +1635,10 @@ The RFC 6750 challenge a refused request carries, where one is meaningful.
 
 **`None` in the `behind-gateway` mode, and that is a fix rather than an omission.** A `Bearer`
 challenge tells a client to present a bearer token to *this* resource; behind a component, the
-caller holds no token for us and the thing that was missing was a header the component sets.
+caller holds no token for us and the thing that was missing was an assertion the component sets.
 Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
-client that followed it would start putting credentials in a header this deployment refuses to
-read.
+client that followed it would present its own token, which is not an assertion this deployment
+accepts in any header.
 
 **No `error_description`** in the direct case, and that is the same decision the response body
 makes: a description would have to say which check failed to be worth anything, and that is the

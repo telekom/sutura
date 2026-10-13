@@ -149,14 +149,20 @@ impl core::fmt::Display for RequiredTokenType {
 
 /// Where the token being validated arrives.
 ///
-/// Two variants because the two modes put it in two places, and neither is a preference: an OAuth
-/// 2.1 client puts its access token in `Authorization: Bearer` and has no option to do otherwise,
-/// while a fronting component sets a header of its own and would collide with the deployment bearer
-/// token if it used that one. [`ProofHeader::parse`] refuses `authorization` for exactly that reason.
+/// An OAuth 2.1 client puts its access token in `Authorization: Bearer` and has no option to do
+/// otherwise. A fronting component either sets a header of its own or replaces the caller's token in
+/// `Authorization: Bearer` with its assertion. Both `Authorization` variants collide with the
+/// deployment bearer token, and `NotFitToServe::DeploymentTokenSharesTheHeader` refuses either one
+/// beside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenLocation<'header> {
-    /// `Authorization: Bearer <token>`. Where RFC 6750 puts an access token.
+    /// `Authorization: Bearer <token>`, read by the resource server itself. Where RFC 6750 puts an
+    /// access token, so this is the one location a `Bearer` challenge and RFC 9728 metadata describe.
     AuthorizationBearer,
+    /// `Authorization: Bearer <assertion>`, set by a fronting component that replaced the caller's
+    /// token. A separate variant from [`Self::AuthorizationBearer`] because the component's issuer is
+    /// not an authorization server a client can use: no challenge and no metadata point a client at it.
+    GatewayBearer,
     /// A named header whose whole value is the token. No scheme prefix: a component setting its own
     /// header has no reason to wrap the value, and a prefix nobody agreed on is a parse to get wrong.
     Header { name: &'header ProofHeader },
@@ -166,7 +172,7 @@ impl core::fmt::Display for TokenLocation<'_> {
     /// For the startup log, so an operator can see which header this deployment will read.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match *self {
-            Self::AuthorizationBearer => f.write_str("authorization: Bearer"),
+            Self::AuthorizationBearer | Self::GatewayBearer => f.write_str("authorization: Bearer"),
             Self::Header { name } => write!(f, "{name}"),
         }
     }
@@ -424,7 +430,11 @@ impl InboundIdentity {
                 max_lifetime: None,
             },
             Self::BehindGateway { ref transit } => TokenRequirement {
-                location: TokenLocation::Header { name: &transit.header },
+                location: if transit.header.is_authorization() {
+                    TokenLocation::GatewayBearer
+                } else {
+                    TokenLocation::Header { name: &transit.header }
+                },
                 issuer: &transit.issuer,
                 audience: &transit.audience,
                 key_set: &transit.key_set,
@@ -468,10 +478,13 @@ impl InboundIdentity {
     /// Does this deployment read the deployment bearer token's own header?
     ///
     /// The one question a refusal needs answered, and it is asked of the *requirement* rather than of
-    /// the variant, so a mode added later that also lands in `Authorization` cannot slip past it.
+    /// the variant. The `match` is exhaustive, so a location added later has to answer it.
     #[must_use]
     pub const fn reads_the_authorization_header(&self) -> bool {
-        matches!(self.requirement().location(), TokenLocation::AuthorizationBearer)
+        match self.requirement().location() {
+            TokenLocation::AuthorizationBearer | TokenLocation::GatewayBearer => true,
+            TokenLocation::Header { .. } => false,
+        }
     }
 }
 

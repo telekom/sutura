@@ -1,7 +1,7 @@
 diff --git a/xtask/src/causality/diff.rs b/xtask/src/causality/diff.rs
 --- a/xtask/src/causality/diff.rs
 +++ b/xtask/src/causality/diff.rs
-@@ -183,7 +183,7 @@
+@@ -235,7 +235,7 @@
              continue;
          }
          // Context, blank or not, occupies a line of BOTH images.
@@ -9,4 +9,4 @@ diff --git a/xtask/src/causality/diff.rs b/xtask/src/causality/diff.rs
 +        next_line += 2;
          old_line += 1;
      }
-     if let Some(done) = current.take() {
+     files.extend(current.take());

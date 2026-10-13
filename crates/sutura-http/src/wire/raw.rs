@@ -152,6 +152,9 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // 403: the data system refused it at the identity/authorization level - the same status a
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
+        // 409, the status `RefusalReason::PlanSpansTooManySources` gets: answerable in principle, and
+        // this deployment is arranged not to combine sources in one statement.
+        RawRefusalReason::PlanSpansMoreThanOneSource => StatusCode::CONFLICT,
     }
 }
 
@@ -181,10 +184,10 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Four of the five; `TooManyRows`'s own status is pinned through the real router in
-    /// `crate::harness::run_sql`, so this file tests four variants of
-    /// `RawRefusalReason` (`ResultTooLarge`, `StatementFailed`, `SourceRefused`, `DeadlineExceeded`) but
-    /// not all five. A file naming EVERY variant of an enum is a census and supplies no evidence for
+    /// Four of the six; `TooManyRows`'s own status is pinned through the real router in
+    /// `crate::harness::run_sql`, and one more has no producer yet, so this file tests four variants
+    /// of `RawRefusalReason` (`ResultTooLarge`, `StatementFailed`, `SourceRefused`, `DeadlineExceeded`)
+    /// but not all six. A file naming EVERY variant of an enum is a census and supplies no evidence for
     /// that enum, so a file naming fewer than all supplies evidence for those named.
     #[test]
     fn four_of_the_five_refusal_reasons_have_a_status() {

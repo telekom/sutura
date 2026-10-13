@@ -12,7 +12,13 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 data:
   base.yaml: |
-    {}
+    security:
+      inbound:
+        algorithms:
+        - RS256
+        authorization_server: https://issuer.example.com
+        mode: direct
+        resource: https://sutura.example.com
   production.yaml: |
     {}
 
@@ -64,9 +70,7 @@ spec:
         app.kubernetes.io/instance: test-release
     spec:
       securityContext:
-        runAsGroup: 65532
         runAsNonRoot: true
-        runAsUser: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -94,11 +98,6 @@ spec:
               value: "8080"
             - name: SUTURA__RATE_LIMIT__ENABLED
               value: "true"
-            - name: SUTURA__SECURITY__ACCESS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: sutura-access-token
-                  key: token
             - name: SUTURA__SECURITY__METRICS_TOKEN
               valueFrom:
                 secretKeyRef:

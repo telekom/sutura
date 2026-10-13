@@ -29,7 +29,7 @@
 //!
 //! WHICH FILE IS WHICH. [`diff`] reads the diff into added lines that carry their post-image
 //! line numbers; [`regions`] decides which of those lines are test code, by where they sit in
-//! the file rather than by what the added set happens to contain; [`plan::plan_with_base`] sorts the result into
+//! the file rather than by what the added set happens to contain; [`plan::plan_with_deleted`] sorts the result into
 //! what to revert, what to hold and what to measure. That middle module's own doc records the
 //! defect the earlier shape produced and the limits of what replaced it - a tests-only branch
 //! reported as "changes behaviour and adds tests in one file", which is a different message asking
@@ -133,11 +133,12 @@ mod worktree;
 
 use base::{BaseOutcome, classify_base, report_base_scoped, tail};
 use coverage::{Coverage, Scope};
+#[cfg(test)]
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
 use no_base::Exemptions;
 use place::AddedTest;
-use plan::{Plan, Separable, plan_with_base};
+use plan::{Plan, Separable, plan_with_deleted};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
     report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
@@ -580,7 +581,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let measured = Base::of(asked_for, &head, parent);
     let at = measured.at();
 
-    let Some(files) = changed_with_additions(at) else {
+    let Some(diff::Changes { files, gone }) = diff::changes(at) else {
         // Same rule as classify: an unusable base ref is not evidence of nothing to do.
         eprintln!("xtask test-causality: could not diff against `{base}`");
         return Verdict::Fail;
@@ -651,10 +652,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // `relocation` carries the four conditions, why the carrier is a commit trailer, and what a
     // pure-relocation verdict does NOT prove.
     //
-    // GIT'S OWN PATH LIST IS A SECOND INPUT, and not a convenience: `changed_with_additions` builds
-    // from the POST-image, so a file this branch DELETED has no entry in it at all. Without the
-    // list a `git rm` of a test file rides a claim that every changed line was accounted for, over
-    // lines nothing ever read.
+    // GIT'S OWN PATH LIST IS A SECOND INPUT, and not a convenience: `files` is the POST-image's, so
+    // a file this branch DELETED has no entry in it. Without the list a `git rm` of a test file
+    // rides a claim that every changed line was accounted for, over lines nothing ever read.
     match relocation::decide(
         Claim::of(&worktree::messages(&root, at).replace('\0', "\n")).as_ref(),
         &relocation::Changed {
@@ -676,7 +676,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // `github.com/telekom/sutura#1068`: a waiver excuses the deletion it names, not the range. A
     // fully waived set therefore falls through to the plan the deletion check preempted, so a test
     // the same range adds is still proven.
-    let plan = match plan_with_base(&files, &working_tree, &base_tree) {
+    let plan = match plan_with_deleted(&files, &gone, &working_tree, &base_tree) {
         Plan::DeletedTests(deleted) => {
             // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
             // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors

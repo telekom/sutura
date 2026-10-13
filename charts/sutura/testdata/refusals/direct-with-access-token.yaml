@@ -1,0 +1,24 @@
+# An access token beside `security.inbound.mode: direct`: both are read from `authorization: Bearer`,
+# so the binary refuses to start (`DeploymentTokenSharesTheHeader`). The environment file's mode
+# wins over `base.yaml`'s, as the binary layers them, so this is `direct`.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  base:
+    security:
+      inbound:
+        mode: behind-gateway
+  environment:
+    security:
+      inbound:
+        mode: direct
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        algorithms: [RS256]

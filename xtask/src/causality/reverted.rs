@@ -73,8 +73,8 @@
 //!   **Both halves of that were measured against a first attempt that was wrong in each
 //!   direction**: a scan claiming eighteen, whose lexer had no case for the char literal `'"'`
 //!   and swallowed whole files, and a report that every occurrence was outside a string.
-//! * **A DELETED FILE IS NOT IN THE SET THIS SPEAKS ABOUT.** `super::diff` opens no entry for one
-//!   (its `+++` is `/dev/null`), so it never reaches the revert set and is never restored - which
+//! * **A DELETED FILE IS NOT IN THE SET THIS SPEAKS ABOUT.** `super::diff` keeps one out of the
+//!   changed-file list (its `+++` is `/dev/null`), so it never reaches the revert set and is never restored - which
 //!   is correct, and means *every file this run put back at base* is a claim over a set that
 //!   silently omits deletions. Not a door: a file the reconstruction does not restore cannot
 //!   redden anything either. Written down because the sentence reads wider than the set.

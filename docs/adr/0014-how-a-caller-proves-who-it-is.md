@@ -586,3 +586,24 @@ build that declares a delegation on a `direct` deployment exchanges a token (`do
 fifth amendment). And it supersedes "rotating it means restarting whatever composed the exchange -
 and today nothing does": `sutura serve` composes it and reads the secret once at boot, so rotating
 the client secret means restarting `sutura serve`.
+
+## Sixth amendment, 2026-10-13: a gateway assertion may arrive in `Authorization: Bearer`
+
+**Status of the amendment: accepted.** Some components replace the caller's token with their own
+assertion in `Authorization: Bearer`. `security.inbound.transit_header` now accepts
+`authorization`: `ProofHeader::parse` no longer refuses it, and the requirement's location is then
+`TokenLocation::GatewayBearer`. The value is read after the `Bearer` scheme, as in `direct`, and
+verified by the same validator - signature, `iss`, a required `aud`, `typ`, the lifetime ceiling and
+`iat`. That location sends no `Bearer` challenge and publishes no RFC 9728 document, because the
+component's issuer is not an authorization server a client can use.
+
+This amends the first of the two findings the record did not anticipate ("they do, in the
+`behind-gateway` mode, whose proof arrives in a header of the component's own"): the deployment
+token and leg 1 both survive only with a `transit_header` of the component's own. With `authorization`,
+`NotFitToServe::DeploymentTokenSharesTheHeader` refuses `security.access_token` beside it, for the
+reason it refuses `direct`: one header, two credentials. The refusal is asked of the requirement's
+location, not of the mode.
+
+What leg 1 identifies there is unchanged: the subject is the assertion's `sub`. Behind a component
+that authenticates the calling application - with its OAuth 2.0 client credentials, for example -
+that subject is the application, and the audit record names it rather than a person.

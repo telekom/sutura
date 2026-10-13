@@ -1,0 +1,9 @@
+# `minimal.yaml` with `environment: Production`: the chart refuses an environment name the binary
+# does not know by that exact spelling.
+environment: Production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress

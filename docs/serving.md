@@ -56,6 +56,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | A bind address that other hosts can reach, and no `security.tls_termination`                                    | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
 | No `security.access_token` and no `security.inbound`, in production or off-host                                 | Set one of them                                                                             |
 | `security.access_token` together with `security.inbound.mode: direct`                                           | Remove one: both use `Authorization: Bearer`                                                |
+| `security.access_token` together with `behind-gateway` and `transit_header: authorization`                      | Remove one: both use `Authorization: Bearer`                                                |
 | `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                            | Set `security.metrics_token`                                                                |
 | `security.metrics_token` equal to `security.access_token`                                                       | Use two values                                                                              |
 | `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
@@ -99,10 +100,10 @@ With `security.inbound`, every request carries a token that sutura verifies: sig
 that equals the resource identifier of the deployment. The verified subject goes into every audit record. There is
 no default mode:
 
-| Mode             | Use it when                                                                       |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `direct`         | Callers send their own access token in `Authorization: Bearer`                    |
-| `behind-gateway` | A gateway authenticates the caller and sends a signed assertion in its own header |
+| Mode             | Use it when                                                                                                     |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| `direct`         | Callers send their own access token in `Authorization: Bearer`                                                  |
+| `behind-gateway` | A gateway authenticates the caller and sends a signed assertion in its own header or in `Authorization: Bearer` |
 
 [Inbound identity](integrations/identity.md) has the settings, the key set and its rotation. In `direct` mode, a
 refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed.

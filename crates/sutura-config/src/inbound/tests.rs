@@ -293,19 +293,16 @@ fn an_invisible_or_homoglyph_character_cannot_reach_an_identifier() {
 }
 
 #[test]
-fn a_transit_proof_cannot_be_configured_to_arrive_in_the_deployment_tokens_header() {
-    // A request cannot present two different credentials in one header, and a proof read out of
-    // `Authorization` would be read out of the header the deployment bearer token already owns.
-    let error = ProofHeader::parse("Authorization").expect_err("that header is taken");
+fn a_transit_header_is_folded_and_may_be_authorization() {
+    // A component that replaced the caller's token puts its assertion in `Authorization`. The header
+    // is a valid one; the collision with a deployment token is a combination, refused in `Settings`.
     assert_eq!(
-        error,
-        InvalidInboundValue::ReservedHeader {
-            key: ProofHeader::KEY,
-            found: String::from("authorization"),
-        }
+        ProofHeader::parse(" Authorization ")
+            .expect("a component may put its assertion in Authorization")
+            .as_str(),
+        "authorization"
     );
-    // Case is folded BEFORE the check, which is what makes the refusal reachable from the spelling an
-    // operator would actually write - and what makes a configured `X-Transit` match an arriving
+    // Case is folded at construction, which is what makes a configured `X-Transit` match an arriving
     // `x-transit` rather than missing an entry that is present.
     assert_eq!(
         ProofHeader::parse("  X-Transit-Proof  ")

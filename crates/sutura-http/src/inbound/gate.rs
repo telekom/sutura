@@ -11,10 +11,11 @@
 //!   attempt has to cost a rate-limit cell or it is an unlimited guessing loop. That argument applies
 //!   to a forged signature exactly as it applies to a wrong shared secret.
 //!
-//! In the `direct` mode there is no deployment token to be after -
-//! `sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader` refuses that combination - so the
-//! order matters only in the `behind-gateway` mode, where both are configured and each reads its own
-//! header.
+//! Where the verified token arrives in `Authorization` - the `direct` mode, or a component that
+//! replaced the caller's token there - there is no deployment token to be after:
+//! `sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader` refuses that combination. So the
+//! order matters only in the `behind-gateway` mode with a header of the component's own, where both
+//! are configured and each reads its own header.
 //!
 //! # What a refused request is told, and what it is not
 //!
@@ -23,8 +24,8 @@
 //! reproduce that exact resource, its `resource_metadata` parameter is the absolute URL of the public
 //! RFC 9728 document built from the same token requirement as the validator. It is omitted for any
 //! other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
-//! gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode offers no
-//! Bearer challenge.
+//! gateway assertion is minted by the component, not by an authorization server a client can use, so
+//! that mode offers no Bearer challenge - wherever the assertion arrives.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -69,12 +70,12 @@ pub struct InboundGate {
     /// An owned `String` rather than the borrowed `TokenLocation`, so the gate does not hold a
     /// lifetime into the settings tree and can live in an `Arc` for the life of the process.
     header: String,
-    /// Whether the value carries the `Bearer ` prefix. The `direct` mode does, per RFC 6750; a
-    /// component setting its own header does not.
-    ///
-    /// It also decides whether a refused request gets a `WWW-Authenticate: Bearer` challenge at all -
-    /// see [`InboundGate::challenge`].
+    /// Whether the value carries the `Bearer ` prefix. Every token in `Authorization` does, per
+    /// RFC 6750; a component setting its own header does not.
     bearer_prefixed: bool,
+    /// Whether a refused request gets a `WWW-Authenticate: Bearer` challenge at all. Only in the
+    /// `direct` mode - see [`InboundGate::challenge`].
+    challenges: bool,
     /// What the challenge names as its realm.
     realm: String,
     /// The public discovery document and the exact absolute URL the challenge points at.
@@ -119,9 +120,10 @@ impl InboundGate {
     pub(crate) fn over(inbound: &InboundIdentity, keys: KeySetCache) -> Self {
         let requirement = inbound.requirement();
         let protected_resource = crate::routes::protected_resource::ProtectedResource::for_requirement(requirement);
-        let (header, bearer_prefixed) = match requirement.location() {
-            TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true),
-            TokenLocation::Header { name } => (String::from(name.as_str()), false),
+        let (header, bearer_prefixed, challenges) = match requirement.location() {
+            TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true, true),
+            TokenLocation::GatewayBearer => (String::from(AUTHORIZATION), true, false),
+            TokenLocation::Header { name } => (String::from(name.as_str()), false, false),
         };
         Self {
             realm: String::from(requirement.audience().as_str()),
@@ -129,6 +131,7 @@ impl InboundGate {
             keys: Arc::new(keys),
             header,
             bearer_prefixed,
+            challenges,
             protected_resource,
         }
     }
@@ -163,10 +166,10 @@ impl InboundGate {
     ///
     /// **`None` in the `behind-gateway` mode, and that is a fix rather than an omission.** A `Bearer`
     /// challenge tells a client to present a bearer token to *this* resource; behind a component, the
-    /// caller holds no token for us and the thing that was missing was a header the component sets.
+    /// caller holds no token for us and the thing that was missing was an assertion the component sets.
     /// Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
-    /// client that followed it would start putting credentials in a header this deployment refuses to
-    /// read.
+    /// client that followed it would present its own token, which is not an assertion this deployment
+    /// accepts in any header.
     ///
     /// **No `error_description`** in the direct case, and that is the same decision the response body
     /// makes: a description would have to say which check failed to be worth anything, and that is the
@@ -178,7 +181,7 @@ impl InboundGate {
     /// rather than the configured identifier's exact bytes.
     #[must_use]
     pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
-        if !self.bearer_prefixed {
+        if !self.challenges {
             return None;
         }
         let mut challenge = format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm);
