@@ -25,8 +25,8 @@ const ORDERS_SCHEMA: &str = "sutura_fixture_orders";
 /// Installs the documentation-schema fixture: a per-run schema with a `columns` table whose
 /// rows describe `ORDERS_SCHEMA.orders` (model `orders`, one primary-key column and one `amount`
 /// column), bound to `ENVIRONMENT` and not soft-deleted - over the tier's published endpoint at
-/// `host` and `port`, as the fixture role. The table itself exists too, because the load reads the
-/// schema of every table a bundle names and refuses one the source lacks.
+/// `host` and `port`, as the fixture role. The table itself exists too; the load pins its columns
+/// from the catalog and reads no source.
 pub(crate) fn install_documentation_schema(host: &str, port: u16) -> String {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)

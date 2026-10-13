@@ -90,6 +90,20 @@ fn a_type_the_dialect_does_not_list_is_a_recorded_utf8_column_and_never_dropped(
 }
 
 #[test]
+fn two_pins_that_differ_only_in_a_fallback_have_different_digests() {
+    let pin = |declared| {
+        let orders = vec![column("customer_id", Some("bigint")), column("note", Some(declared))];
+        PinnedSchemas::pin(&bundle(orders, typed_customers(), "crm"), &dialects()).expect("a typed bundle pins")
+    };
+    let (listed, unlisted) = (pin("text"), pin("GEOGRAPHY"));
+    let orders = ModelName::parse("orders").expect("a test model is a model");
+    assert_eq!(listed.of(&orders), unlisted.of(&orders), "both pin as Utf8");
+    assert_eq!(listed.fell_back(&orders).count(), 0);
+    assert_eq!(unlisted.fell_back(&orders).count(), 1);
+    assert_ne!(listed.digest(), unlisted.digest());
+}
+
+#[test]
 fn a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_not() {
     let untyped = || vec![column("id", None)];
     let orders = || vec![column("customer_id", Some("bigint"))];
