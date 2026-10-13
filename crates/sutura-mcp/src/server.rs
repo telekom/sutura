@@ -513,7 +513,7 @@ where
                 // `sutura_app::Asked`'s own module documentation gives the same reason for why it is
                 // `Clone` at all.
                 let asked_as = asked.context().clone();
-                let turn = Turn::of(&self.admission, &context)?;
+                let turn = Turn::of(&self.admission, &context);
                 // Where `/v1` writes the line: after the arguments parse, before the slot wait.
                 question::received(&self.request, &query, &asked_as);
                 tokio::select! {
@@ -532,7 +532,7 @@ where
                 // an `ask_metric` call on the same connection would be the one place this transport
                 // disagreed with itself about who is asking.
                 let asked_as = asked.context().clone();
-                let turn = Turn::of(&self.admission, &context)?;
+                let turn = Turn::of(&self.admission, &context);
                 tokio::select! {
                     result = run_sql(&self.service, turn, self.reply, asked_as, statement) => result,
                     () = context.ct.cancelled() => {

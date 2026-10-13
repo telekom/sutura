@@ -4,7 +4,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::ErrorData;
 use rmcp::service::{RequestContext, RoleServer};
 use sutura_app::question::{AdmissionWait, QuestionEnd, QuestionMeter};
 use sutura_runtime::{Admission, AtCapacity, Slot};
@@ -16,11 +15,11 @@ pub(super) struct Turn<'a> {
     pub(super) meter: &'a dyn QuestionMeter,
 }
 
-/// Counts nothing: standard input and output has no request and no scrape endpoint.
+/// What a call that carries no meter counts into: nothing.
 #[derive(Debug)]
-struct NoScrapeEndpoint;
+struct Uncounted;
 
-impl QuestionMeter for NoScrapeEndpoint {
+impl QuestionMeter for Uncounted {
     fn waited(&self, _waited: Duration) {}
 
     fn shed(&self) {}
@@ -29,17 +28,16 @@ impl QuestionMeter for NoScrapeEndpoint {
 }
 
 impl<'a> Turn<'a> {
-    /// `admission`, counted into the series this call's HTTP request carried. An HTTP request that
-    /// carried none is refused rather than counted nowhere; a call with no request counts nothing.
-    pub(super) fn of(admission: &'a Admission, context: &'a RequestContext<RoleServer>) -> Result<Self, ErrorData> {
-        let meter: &dyn QuestionMeter = match context.extensions.get::<http::request::Parts>() {
-            None => &NoScrapeEndpoint,
-            Some(parts) => &**parts
-                .extensions
-                .get::<Arc<dyn QuestionMeter>>()
-                .ok_or_else(|| ErrorData::internal_error("this request carries no question meter", None))?,
-        };
-        Ok(Self { admission, meter })
+    /// `admission`, counted into the meter this call's HTTP request carried. A call carrying none -
+    /// standard input and output, or a request not built by `sutura_http`'s agent mount, which adds
+    /// the meter where it establishes the caller - counts nothing. Admission alone decides a shed.
+    pub(super) fn of(admission: &'a Admission, context: &'a RequestContext<RoleServer>) -> Self {
+        let meter = context
+            .extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<Arc<dyn QuestionMeter>>())
+            .map_or(&Uncounted as &dyn QuestionMeter, |meter| &**meter);
+        Self { admission, meter }
     }
 
     /// A slot, its wait observed however this future ends and a shed counted: the one place
@@ -55,7 +53,7 @@ impl<'a> From<&'a Admission> for Turn<'a> {
     fn from(admission: &'a Admission) -> Self {
         Self {
             admission,
-            meter: &NoScrapeEndpoint,
+            meter: &Uncounted,
         }
     }
 }
