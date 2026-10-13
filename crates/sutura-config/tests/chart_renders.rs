@@ -140,6 +140,16 @@ mod tests {
             .map(String::from)
     }
 
+    /// The parsed settings file `file` of the `ConfigMap` in the golden render named `name`.
+    fn rendered_config(name: &str, file: &str) -> Option<Value> {
+        let golden = goldens()
+            .into_iter()
+            .find(|path| path.file_stem().is_some_and(|stem| stem == name))?;
+        let docs = documents(&std::fs::read_to_string(golden).expect("a readable golden"));
+        let text = of_kind(&docs, "ConfigMap")["data"][file].as_str()?.to_owned();
+        Some(serde_norway::from_str(&text).expect("a settings file is YAML"))
+    }
+
     fn app_version() -> String {
         let chart = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../charts/sutura/Chart.yaml");
         let text = std::fs::read_to_string(&chart).unwrap_or_else(|error| panic!("{} is readable: {error}", chart.display()));
@@ -151,7 +161,7 @@ mod tests {
     fn the_performance_image_flag_adds_the_suffix_to_the_app_version() {
         assert_eq!(
             rendered_image("performance-image"),
-            Some(format!("ghcr.io/telekom/sutura:{}-performance", app_version()))
+            Some(format!("ghcr.io/telekom/sutura:{}-performance-musl", app_version()))
         );
     }
 
@@ -159,8 +169,45 @@ mod tests {
     fn the_performance_image_flag_off_keeps_the_app_version_tag() {
         assert_eq!(
             rendered_image("performance-image-off"),
+            Some(format!("ghcr.io/telekom/sutura:{}-musl", app_version()))
+        );
+    }
+
+    #[test]
+    fn the_default_image_is_the_musl_variant() {
+        assert_eq!(
+            rendered_image("minimal"),
+            Some(format!("ghcr.io/telekom/sutura:{}-musl", app_version()))
+        );
+    }
+
+    #[test]
+    fn the_glibc_variant_keeps_the_app_version_tag() {
+        assert_eq!(
+            rendered_image("image-glibc"),
             Some(format!("ghcr.io/telekom/sutura:{}", app_version()))
         );
+    }
+
+    #[test]
+    fn a_default_render_logs_bunyan_at_info() {
+        let telemetry = &rendered_config("minimal", "base.yaml").expect("a minimal render")["telemetry"];
+        assert_eq!(telemetry["format"].as_str(), Some("bunyan"));
+        assert_eq!(telemetry["filter"].as_str(), Some("info"));
+    }
+
+    #[test]
+    fn the_telemetry_values_are_rendered() {
+        let telemetry = &rendered_config("telemetry-values", "base.yaml").expect("a telemetry render")["telemetry"];
+        assert_eq!(telemetry["format"].as_str(), Some("pretty"));
+        assert_eq!(telemetry["filter"].as_str(), Some("sutura=debug"));
+    }
+
+    #[test]
+    fn a_telemetry_key_in_config_base_keeps_priority() {
+        let telemetry = &rendered_config("telemetry-config-base", "base.yaml").expect("a telemetry render")["telemetry"];
+        assert_eq!(telemetry["format"].as_str(), Some("pretty"));
+        assert_eq!(telemetry["filter"].as_str(), Some("info"));
     }
 
     #[test]
@@ -218,10 +265,14 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 8] = [
+    const REFUSALS: [(&str, Binary); 10] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
+        ),
+        (
+            "behind-gateway-authorization-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
         ),
         ("cpu-limit-unparseable", Binary::Derivation),
         (
@@ -240,6 +291,7 @@ mod tests {
             "environment-not-exact",
             Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
         ),
+        ("image-variant-unknown", Binary::Derivation),
         ("memory-limit-unparseable", Binary::Derivation),
         (
             "metrics-token-missing",

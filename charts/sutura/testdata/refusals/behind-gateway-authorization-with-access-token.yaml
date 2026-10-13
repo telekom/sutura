@@ -1,0 +1,22 @@
+# Mirrors the binary's `DeploymentTokenSharesTheHeader` refusal: the binary trims and case-folds
+# `transit_header`, so `' Authorization '` is the `Authorization` header, which `behind-gateway`
+# then signs the gateway's assertion into - the header the access token is read from.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  environment:
+    security:
+      inbound:
+        mode: behind-gateway
+        transit_header: " Authorization "
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]

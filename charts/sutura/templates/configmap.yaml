@@ -2,7 +2,8 @@
 The settings directory `SUTURA_CONFIG_DIR` points at: `base.yaml`, then
 `<environment>.yaml`, layered by `sutura-config` on top of the binary's embedded defaults -
 `crates/sutura-config/src/settings.rs`'s `Sources::with_directory`. Values are copied
-verbatim; this chart parses none of them.
+verbatim; this chart parses none of them. `telemetry` in `base.yaml` is the chart's own default, which a
+`telemetry` key in `config.base` overrides, and the environment file overrides in turn.
 */}}
 {{- include "sutura.requireOffHostPosture" . -}}
 apiVersion: v1
@@ -13,6 +14,6 @@ metadata:
     {{- include "sutura.labels" . | nindent 4 }}
 data:
   base.yaml: |
-    {{- toYaml .Values.config.base | nindent 4 }}
+    {{- toYaml (mustMergeOverwrite (dict "telemetry" (dict "format" .Values.telemetry.format "filter" .Values.telemetry.filter)) (.Values.config.base | default dict)) | nindent 4 }}
   {{ .Values.environment }}.yaml: |
     {{- toYaml .Values.config.environment | nindent 4 }}

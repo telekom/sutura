@@ -1,3 +1,3 @@
-Error: execution error at (sutura/templates/deployment.yaml:1:4): security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway`, whose proof arrives in a header of its own
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway` with a transit_header other than `authorization`
 
 Use --debug flag to render out invalid YAML

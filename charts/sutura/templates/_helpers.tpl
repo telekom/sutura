@@ -34,8 +34,9 @@ always asks for a credential, a declared TLS termination, and an enabled rate li
 this fails the render rather than shipping a Deployment that crash-loops on the first refusal.
 
 The credential is an access token or an inbound identity (`security.inbound.mode`), and `direct`
-refuses an access token beside it. Both are read the way the binary layers the two files: the
-environment file over `base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read.
+refuses an access token beside it, as does `behind-gateway` with a `transit_header` of
+`authorization`. Both are read the way the binary layers the two files: the environment file over
+`base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read.
 */}}
 {{- define "sutura.requireOffHostPosture" -}}
 {{- if not .Values.environment -}}
@@ -47,12 +48,16 @@ environment file over `base.yaml`, key by key. A `SUTURA__*` variable in `extraE
 {{- $base := .Values.config.base | default dict -}}
 {{- $env := .Values.config.environment | default dict -}}
 {{- $mode := dig "security" "inbound" "mode" (dig "security" "inbound" "mode" "" $base) $env | default "" | toString | trim -}}
+{{- $transit := dig "security" "inbound" "transit_header" (dig "security" "inbound" "transit_header" "" $base) $env | default "" | toString | trim | lower -}}
 {{- $token := or .Values.security.accessToken.secretName (dig "security" "access_token" (dig "security" "access_token" "" $base) $env | default "" | toString) -}}
 {{- if not (or $token $mode) -}}
 {{ fail "security.accessToken.secretName is required when config.base and config.environment set no security.inbound.mode: this chart's Service makes the pod reachable off-host, and sutura refuses to start there with neither security.access_token nor an inbound identity (Settings::refusals::AccessTokenRequired)" }}
 {{- end -}}
 {{- if and $token (eq $mode "direct") -}}
-{{ fail "security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway`, whose proof arrives in a header of its own" }}
+{{ fail "security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway` with a transit_header other than `authorization`" }}
+{{- end -}}
+{{- if and $token (eq $mode "behind-gateway") (eq $transit "authorization") -}}
+{{ fail "security.inbound.mode is `behind-gateway` with security.inbound.transit_header `authorization` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because the gateway's assertion and the access token are both read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or sign the gateway's assertion into a header of its own" }}
 {{- end -}}
 {{- if not .Values.security.metricsToken.secretName -}}
 {{ fail "security.metricsToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.metrics_token there (Settings::refusals::MetricsTokenRequired)" }}
@@ -64,6 +69,19 @@ environment file over `base.yaml`, key by key. A `SUTURA__*` variable in `extraE
 {{- if and .Values.tls.enabled (not .Values.tls.secretName) -}}
 {{ fail "tls.enabled requires tls.secretName (a kubernetes.io/tls Secret)" }}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The image tag: an explicit `image.tag` as it is, else the app version with `-performance` when
+`image.performance` is set and `-musl` when `image.variant` is `musl`. Any other variant is refused,
+so a misspelling cannot select the glibc image.
+*/}}
+{{- define "sutura.imageTag" -}}
+{{- $suffix := dict "musl" "-musl" "glibc" "" -}}
+{{- if not (hasKey $suffix (toString .Values.image.variant)) -}}
+{{ fail (printf "image.variant is %q: it must be exactly musl or glibc" (toString .Values.image.variant)) }}
+{{- end -}}
+{{- .Values.image.tag | default (printf "%s%s%s" .Chart.AppVersion (ternary "-performance" "" .Values.image.performance) (get $suffix .Values.image.variant)) -}}
 {{- end -}}
 
 {{/*

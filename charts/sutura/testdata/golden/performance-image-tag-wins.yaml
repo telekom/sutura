@@ -12,7 +12,9 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 data:
   base.yaml: |
-    {}
+    telemetry:
+      filter: info
+      format: bunyan
   production.yaml: |
     {}
 

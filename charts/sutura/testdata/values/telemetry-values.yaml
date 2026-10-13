@@ -1,0 +1,11 @@
+# `minimal.yaml` with the telemetry values set: both land in `base.yaml`.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+telemetry:
+  format: pretty
+  filter: sutura=debug

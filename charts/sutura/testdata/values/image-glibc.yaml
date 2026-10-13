@@ -1,0 +1,10 @@
+# `minimal.yaml` with the glibc image selected: the tag is the app version, with no libc suffix.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  variant: glibc
