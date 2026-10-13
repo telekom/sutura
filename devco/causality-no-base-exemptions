@@ -26,3 +26,6 @@ a_type_the_dialect_does_not_list_is_a_recorded_utf8_column_and_never_dropped # n
 a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_not # new in this branch's schema/tests.rs, so the base tree has no such test
 each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread # new in this branch's schema/tests.rs, so the base tree has no such test
 two_pins_that_differ_only_in_a_fallback_have_different_digests # new in this branch's schema/tests.rs, so the base tree has no such test
+a_served_agent_question_writes_the_question_line_the_query_route_writes # base binary does not compile: agent::mount takes a new QuestionMeter; measured red on base by hand, see the PR body
+a_served_agent_question_is_counted_in_the_question_series # base binary does not compile: agent::mount takes a new QuestionMeter; measured red on base by hand, see the PR body
+a_served_agent_question_shed_for_want_of_a_slot_is_counted # base binary does not compile: agent::mount takes a new QuestionMeter; measured red on base by hand, see the PR body
