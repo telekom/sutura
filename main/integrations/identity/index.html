@@ -430,6 +430,8 @@
       
         
       
+        
+      
     
     
     
@@ -583,6 +585,34 @@
     
   
     Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving-behind-a-gateway/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving behind a gateway
   
 
     
@@ -3775,8 +3805,9 @@ such a gateway, the subject is the application that the gateway's assertion name
 request, so keep its lifetime short.</p>
 <h2 id="the-key-set">The key set<a class="headerlink" href="#the-key-set" title="Permanent link">&para;</a></h2>
 <p>sutura reads <code>key_set_file</code> before it opens the listener, and it does not start if the file is not
-a usable JWK set. It reads the file again when it is older than 60 seconds, and when a token names
-an unknown <code>kid</code>. To rotate keys, replace the file.</p>
+a usable JWK set. It reads the file again 60 seconds after its last read, and when a token names an
+unknown <code>kid</code>, at most once every 30 seconds. To rotate keys, replace the file, and wait 60 seconds
+after the file holds the new key before the gateway signs with it.</p>
 <h2 id="related-settings">Related settings<a class="headerlink" href="#related-settings" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

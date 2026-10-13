@@ -16,7 +16,7 @@
         <link rel="prev" href="../architecture/">
       
       
-        <link rel="next" href="../agent-prompt/">
+        <link rel="next" href="../serving-behind-a-gateway/">
       
       
         
@@ -432,6 +432,8 @@
       
         
       
+        
+      
     
     
     
@@ -768,6 +770,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-published-container-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A published container port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-log" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -793,6 +806,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving-behind-a-gateway/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving behind a gateway
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3706,6 +3747,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-published-container-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A published container port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-log" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3975,7 +4027,8 @@ no default mode:</p>
 </tbody>
 </table>
 <p><a href="../integrations/identity/">Inbound identity</a> has the settings, the key set and its rotation. In <code>direct</code> mode, a
-refused request gets <code>401</code> with a <code>WWW-Authenticate: Bearer</code> challenge. sutura does not say which check failed.</p>
+refused request gets <code>401</code> with a <code>WWW-Authenticate: Bearer</code> challenge. sutura does not say which check failed.
+<a href="../serving-behind-a-gateway/">Serving behind a gateway</a> covers a gateway that signs into <code>Authorization</code>.</p>
 <p>The <code>scope</code> claim of the token decides which operations the caller can use:</p>
 <table>
 <thead>
@@ -4353,6 +4406,44 @@ bearer token in clear text:</p>
 An invalid pair is logged at <code>error</code> and ignored. Let a certificate manager renew the files. sutura has no ACME client.</p>
 <p><code>security.outbound.transport_anchors</code> (a PEM bundle path, or <code>system</code>) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.</p>
+<h2 id="a-published-container-port">A published container port<a class="headerlink" href="#a-published-container-port" title="Permanent link">&para;</a></h2>
+<p>A published port (<code>docker run -p</code>, or a <code>ports:</code> entry in a compose file) lets callers reach the container from outside it.
+Inside the container, loopback is the container, so the bind is <code>server.host: "0.0.0.0"</code>. sutura sees a bind that other
+hosts can reach. It does not see where the port is published, so it applies the <a href="#start-up-refusals">off-host</a> rules.
+There is no setting that names a published port.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server.host</code></td>
+<td><code>0.0.0.0</code></td>
+</tr>
+<tr>
+<td><code>security.access_token</code> or <code>security.inbound</code></td>
+<td>One of them (<a href="#who-is-asking">Who is asking</a>)</td>
+</tr>
+<tr>
+<td><code>security.metrics_token</code></td>
+<td>A value that differs from the access token</td>
+</tr>
+<tr>
+<td><code>rate_limit.enabled</code></td>
+<td><code>true</code>. It is the default in production</td>
+</tr>
+<tr>
+<td><code>security.tls_termination</code></td>
+<td>The value that is true for the deployment (<a href="#tls">TLS</a>). <code>none</code> is refused</td>
+</tr>
+</tbody>
+</table>
+<p>A port-forward to the loopback of a host has no value of its own: no value of <code>security.tls_termination</code> states it.
+For callers on the same machine and nothing else, publish no port. Use <code>--network host</code> and the loopback bind, as in
+<a href="#run-it">Run it</a>.</p>
 <h2 id="the-log">The log<a class="headerlink" href="#the-log" title="Permanent link">&para;</a></h2>
 <p><code>telemetry.format</code> is <code>bunyan</code> (one JSON object per line) or <code>pretty</code>. <code>json</code> and <code>human</code> are accepted spellings of the
 same two. The default is <code>bunyan</code> in production and <code>pretty</code> elsewhere. <code>telemetry.service_name</code> (default <code>sutura</code>) is
