@@ -5498,6 +5498,62 @@ priced adapter can be served with one; <code>DuckDB</code> and Postgres answer
 own default <code>PreFlight::NotAsked</code>. A dashboard reading <code>sum(rate(...))</code> of zero here
 therefore cannot distinguish "nothing was spent" from "no call was ever priced" - see
 the architecture decision's amendment for the same sentence.</p>
+<h2 id="module-question">Module <code>question</code><a class="headerlink" href="#module-question" title="Permanent link">&para;</a></h2>
+<p>What each transport says about a question it takes, the same way on every surface.</p>
+<p>Here and not in a transport because <code>sutura-http</code> and <code>sutura-mcp</code> cannot see each other: a line
+or a series spelled in one is one the other has to copy, and the two surfaces then drift on what an
+operator reads about the same question. <code>received</code> is the log line; <code>QuestionMeter</code> is the
+port the series are counted through, implemented by <code>sutura_http::Metrics</code>.</p>
+<p>The port reports what happened and never a value the caller wrote: a refusal arrives as its code,
+an answer as its row count.</p>
+<h3 id="enum-questionend"><code>enum QuestionEnd</code><a class="headerlink" href="#enum-questionend" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-96-1"><a id="__codelineno-96-1" name="__codelineno-96-1" href="#__codelineno-96-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">QuestionEnd</span>
+</span></code></pre></div>
+<p>How one question ended, as the series count it.</p>
+<h4 id="variants_14">Variants<a class="headerlink" href="#variants_14" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Answered</code> - Answered with this many rows.</li>
+<li><code>Refused</code> - Refused, under <code>RefusalReason::code</code>.</li>
+<li><code>AtCapacity</code> - No execution slot came free inside the admission window.</li>
+<li><code>TimedOut</code> - The caller's whole wait ran out first.</li>
+<li><code>DataSystemUnavailable</code> - The data system did not answer.</li>
+<li><code>IdentityUnavailable</code> - The credential broker did not answer.</li>
+<li><code>Internal</code> - This deployment's own fault.</li>
+</ul>
+<h4 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="trait-questionmeter"><code>trait QuestionMeter</code><a class="headerlink" href="#trait-questionmeter" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-97-1"><a id="__codelineno-97-1" name="__codelineno-97-1" href="#__codelineno-97-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">QuestionMeter</span>
+</span></code></pre></div>
+<p>Where a transport reports its questions. Counting is the implementor's business; it must not
+block, and it cannot fail a question.</p>
+<h3 id="struct-admissionwait"><code>struct AdmissionWait</code><a class="headerlink" href="#struct-admissionwait" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-98-1"><a id="__codelineno-98-1" name="__codelineno-98-1" href="#__codelineno-98-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AdmissionWait</span><span class="o">&lt;'</span><span class="na">a</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Observes one wait for an execution slot when dropped.</p>
+<p>Drop and not a call, so a grant, a shed and a caller that stops waiting each end the observation
+once.</p>
+<h4 id="methods_16">Methods<a class="headerlink" href="#methods_16" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-99-1"><a id="__codelineno-99-1" name="__codelineno-99-1" href="#__codelineno-99-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="n">meter</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">dyn</span><span class="w"> </span><span class="n">QuestionMeter</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Starts timing a wait for a slot.</p>
+<h4 id="implements_26">Implements<a class="headerlink" href="#implements_26" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Drop</code></p>
+<h3 id="fn-received"><code>fn received</code><a class="headerlink" href="#fn-received" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-100-1"><a id="__codelineno-100-1" name="__codelineno-100-1" href="#__codelineno-100-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">received</span><span class="p">(</span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">tracing</span><span class="p">::</span><span class="n">Span</span><span class="p">,</span><span class="w"> </span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">Query</span><span class="p">,</span><span class="w"> </span><span class="n">asker</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">RequestContext</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Says which question was asked, before it is answered or turned away.</p>
+<p><code>metric</code> and <code>grain</code> go on the request span, so every later line of the request carries them
+(they are what the request IS, and what an operator filters by); <code>asker</code> goes with them as the
+established label, never the subject. The counts stay on the event. Deliberately no filter value:
+a value reflected into a log outlives the request.</p>
+<p><code>request</code> is the span the transport declared <code>metric</code>, <code>grain</code> and <code>asker</code> on, and it is passed
+rather than read from <code>Span::current()</code> because the current span is not always that one: <code>tracing</code>
+cannot record a field a span was not opened with and drops the write silently, and the <code>/mcp</code>
+tool call runs inside a span of the MCP library, a child of the request's. The line is written
+inside <code>request</code> for the same reason: the log formatter copies a parent's fields into a child when
+the child opens, so a span opened before these records - that MCP span among them - never carries
+them, and neither does a line written inside it.</p>
 
 
 
