@@ -11318,7 +11318,7 @@ merely undone by a rule somebody remembers to apply.
 the architecture decision's amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's five variants are exactly that list.
+answer about the statement, and this module's six variants are exactly that list.
 
 # What this module does not decide
 
@@ -11437,6 +11437,10 @@ answer about the statement once it ran.
   enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
   effects - see that record for the limit stated with the claim.
 - `DeadlineExceeded` - The asker's own per-request deadline ran out. `execute_raw` carries the same bound `execute` does, and the same `Warehouse::deadline_exceeded` predicate classifies the stop - including one by an adapter's own ceiling that fired before the budget did. Carries the configured budget in seconds, for `crate::query::RefusalReason::DeadlineExceeded`'s own reason: a number an operator configured, safe in a log, not how long the statement ran.
+- `PlanSpansMoreThanOneSource` - The statement reads tables of more than one source, and this deployment does not combine sources in one statement.
+
+  Refused before any leg exists, so nothing reached a data system. Carries no source name: the
+  caller already holds its own tool's source list.
 
 #### Methods
 

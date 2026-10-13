@@ -564,6 +564,17 @@ lint-text:
 chart:
     bash nix/run-gate.sh chart
 
+# Fails when a hand-run `helm` is not the one `just chart` runs: `nix run .#helm` is `checks.helm-chart`'s binary.
+# Is the dev shell's helm the pinned one?
+check-helm-pin:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pinned="$(nix run .#helm -- version --short)"
+    shell="$(helm version --short)"
+    echo "pinned: $pinned"
+    echo "shell:  $shell"
+    test -n "$pinned" && test "$shell" = "$pinned"
+
 # The shell `just lint-workflows` cannot reach: the bodies inside `devenv.nix` are Nix strings, so
 # the `*.sh` glob, zizmor and the action reader filter them out - `hook_coverage.rs` carries that as
 # a surface with an EMPTY hook set. It asserts the EMISSION: `checkPhase = "true";` in that wrapper

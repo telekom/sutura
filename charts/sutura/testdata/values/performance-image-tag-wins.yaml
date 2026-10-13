@@ -1,0 +1,11 @@
+# `minimal.yaml` with the performance image on and an explicit tag: the tag is used as is, with no suffix.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  performance: true
+  tag: "pinned-tag"

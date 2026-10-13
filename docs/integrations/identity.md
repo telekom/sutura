@@ -62,8 +62,9 @@ request, so keep its lifetime short.
 ## The key set
 
 sutura reads `key_set_file` before it opens the listener, and it does not start if the file is not
-a usable JWK set. It reads the file again when it is older than 60 seconds, and when a token names
-an unknown `kid`. To rotate keys, replace the file.
+a usable JWK set. It reads the file again 60 seconds after its last read, and when a token names an
+unknown `kid`, at most once every 30 seconds. To rotate keys, replace the file, and wait 60 seconds
+after the file holds the new key before the gateway signs with it.
 
 ## Related settings
 

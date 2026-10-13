@@ -1,0 +1,24 @@
+diff --git a/charts/sutura/templates/deployment.yaml b/charts/sutura/templates/deployment.yaml
+--- a/charts/sutura/templates/deployment.yaml
++++ b/charts/sutura/templates/deployment.yaml
+@@ -30,7 +30,7 @@
+         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+       containers:
+         - name: sutura
+-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "%s%s" .Chart.AppVersion (ternary "-performance" "" .Values.image.performance)) }}"
++          image: "{{ .Values.image.repository }}:{{ ternary (.Values.image.tag | default (printf "%s%s" .Chart.AppVersion "-performance")) .Chart.AppVersion .Values.image.performance }}"
+           imagePullPolicy: {{ .Values.image.pullPolicy }}
+           # `sutura serve` - the HTTP surface folded into the one published binary
+           # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays
+diff --git a/charts/sutura/testdata/golden/explicit-tag.yaml b/charts/sutura/testdata/golden/explicit-tag.yaml
+--- a/charts/sutura/testdata/golden/explicit-tag.yaml
++++ b/charts/sutura/testdata/golden/explicit-tag.yaml
+@@ -69,7 +69,7 @@
+           type: RuntimeDefault
+       containers:
+         - name: sutura
+-          image: "ghcr.io/telekom/sutura:pinned-tag"
++          image: "ghcr.io/telekom/sutura:latest"
+           imagePullPolicy: IfNotPresent
+           # `sutura serve` - the HTTP surface folded into the one published binary
+           # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays

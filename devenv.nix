@@ -46,6 +46,10 @@ let
   # disagreement would look like flakiness rather than like two pins.
   crap = import ./nix/crap.nix { inherit pkgs; };
 
+  # The helm `checks.helm-chart` lints and `apps.helm` runs, resolved by the SAME file flake.nix
+  # imports. `src` is never forced here: only `.helm` is read.
+  chartHelm = (import ./nix/helm-chart.nix { pkgs = toolPkgs; src = ./.; }).helm;
+
   # The stacked-branches tool, pinned to one upstream release rather than taken from nixpkgs -
   # which carries 0.102.2 on both locks AND on master, so no input bump reaches a newer one. Its
   # own file for the same reason the three above have one: the pin, the reason for it and the
@@ -243,6 +247,9 @@ in
     # Task runner. `just` is the one name humans and agents both use, so documentation
     # cites a task rather than a command line that drifts from the one people run.
     just
+
+    # `just check-helm-pin` holds it to the helm `checks.helm-chart` and `apps.helm` run.
+    chartHelm
 
     # Pin the release until nixpkgs catches up.
     (gh-stack.overrideAttrs (final: old: {

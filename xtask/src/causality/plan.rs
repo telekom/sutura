@@ -108,13 +108,17 @@ pub(crate) struct Separable {
 /// **A FILE CARGO DOES NOT COMPILE IS STILL AN IMPLEMENTATION**: reading `.rs` only made a
 /// documentation-driven suite unprovable, a pass over a diff whose implementation was prose.
 /// [`Reach`] sorts a changed path into what the reconstruction may do with it.
-pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: &PostImage<'_>) -> Plan {
+///
+/// `gone` is the files the diff deleted whole: no post-image, so they take part in the deletion
+/// check below and nowhere else - never reverted, held or measured, which is why they are not in
+/// `files`.
+pub(crate) fn plan_with_deleted(files: &[ChangedFile], gone: &[ChangedFile], read: &PostImage<'_>, base: &PostImage<'_>) -> Plan {
     let mut deleted_tests: Vec<DeletedFrom> = Vec::new();
     let mut unreadable_base: Vec<String> = Vec::new();
 
     // Check deletion in every compiled file, including one that also adds or edits tests, less
     // what a PURE MOVE re-added unchanged elsewhere (`edited::moved`).
-    for (file, removed) in files.iter().zip(edited::moved::unmoved(files, base, read)) {
+    for (file, removed) in files.iter().chain(gone).zip(edited::moved::unmoved(files, gone, base, read)) {
         if !matches!(Reach::of(&file.path), Reach::Compiled) {
             continue;
         }
@@ -142,6 +146,12 @@ pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: 
     }
 
     edited::callsite::separate(files, read, base)
+}
+
+/// [`plan_with_deleted`] over a diff that deleted no file whole, which is what the cells build.
+#[cfg(test)]
+pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: &PostImage<'_>) -> Plan {
+    plan_with_deleted(files, &[], read, base)
 }
 
 /// Keep the existing test harness callable against the pre-change planner.

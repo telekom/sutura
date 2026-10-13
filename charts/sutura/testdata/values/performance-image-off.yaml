@@ -1,0 +1,10 @@
+# `minimal.yaml` with the performance image off explicitly: the render equals `minimal.yaml`'s image.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  performance: false

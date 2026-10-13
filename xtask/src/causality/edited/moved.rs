@@ -179,12 +179,19 @@ fn is_doc(tree: &TokenTree) -> bool {
 
 /// Each file's removed lines, less those inside an item the range moved unchanged to another file.
 ///
-/// Index-aligned with `files`. A file cargo does not compile keeps every removed line: nothing it
-/// held can be a test, and nothing it gained can be a test's new home.
-pub(crate) fn unmoved(files: &[ChangedFile], base: &PostImage<'_>, read: &PostImage<'_>) -> Vec<Vec<RemovedLine>> {
+/// Index-aligned with `files` followed by `gone`, the files the range deleted whole: one of those
+/// can be the place a test moved FROM, and has no post-image to be a place it moved to. A file cargo
+/// does not compile keeps every removed line: nothing it held can be a test, and nothing it gained
+/// can be a test's new home.
+pub(crate) fn unmoved(
+    files: &[ChangedFile],
+    gone: &[ChangedFile],
+    base: &PostImage<'_>,
+    read: &PostImage<'_>,
+) -> Vec<Vec<RemovedLine>> {
     let mut deleted: Vec<(usize, Item)> = Vec::new();
     let mut added: Vec<Item> = Vec::new();
-    for (at, file) in files.iter().enumerate() {
+    for (at, file) in files.iter().chain(gone).enumerate() {
         if !matches!(Reach::of(&file.path), Reach::Compiled) {
             continue;
         }
@@ -211,6 +218,7 @@ pub(crate) fn unmoved(files: &[ChangedFile], base: &PostImage<'_>, read: &PostIm
     }
     files
         .iter()
+        .chain(gone)
         .enumerate()
         .map(|(at, file)| {
             file.removed

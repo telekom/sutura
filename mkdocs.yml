@@ -208,6 +208,7 @@ nav:
       - Concepts: concepts.md
       - Architecture: architecture.md
       - Serving over HTTP: serving.md
+      - Serving behind a gateway: serving-behind-a-gateway.md
       - The agent prompt: agent-prompt.md
       - Questions and answers: qa.md
   - 🧩 Integrations:

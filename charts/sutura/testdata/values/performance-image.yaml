@@ -1,0 +1,10 @@
+# `minimal.yaml` with the performance image on: the tag is the app version plus `-performance`.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  performance: true

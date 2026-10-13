@@ -13,7 +13,7 @@
 //! `docs/adr/0013`'s amendment gives: [`crate::query::RefusalReason`] is keyed to a compiled plan -
 //! dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 //! refused for is a bound this deployment applies before or after execution, or the data system's own
-//! answer about the statement, and this module's five variants are exactly that list.
+//! answer about the statement, and this module's six variants are exactly that list.
 //!
 //! # What this module does not decide
 //!
@@ -156,6 +156,12 @@ pub enum RawRefusalReason {
     /// [`crate::query::RefusalReason::DeadlineExceeded`]'s own reason: a number an operator
     /// configured, safe in a log, not how long the statement ran.
     DeadlineExceeded { budget_seconds: u64 },
+    /// The statement reads tables of more than one source, and this deployment does not combine
+    /// sources in one statement.
+    ///
+    /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
+    /// caller already holds its own tool's source list.
+    PlanSpansMoreThanOneSource,
 }
 
 impl RawRefusalReason {
@@ -173,6 +179,7 @@ impl RawRefusalReason {
             Self::StatementFailed => "statement_failed",
             Self::SourceRefused => "source_refused",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
+            Self::PlanSpansMoreThanOneSource => "plan_spans_more_than_one_source",
         }
     }
 }
@@ -193,6 +200,10 @@ impl fmt::Display for RawRefusalReason {
             Self::DeadlineExceeded { budget_seconds } => write!(
                 f,
                 "this deployment stopped the statement due to a deadline (limit: {budget_seconds}s or less)"
+            ),
+            Self::PlanSpansMoreThanOneSource => write!(
+                f,
+                "the statement reads from more than one data system, and this deployment runs a statement against one"
             ),
         }
     }
@@ -340,6 +351,7 @@ mod tests {
             RawRefusalReason::StatementFailed,
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
+            RawRefusalReason::PlanSpansMoreThanOneSource,
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -351,6 +363,10 @@ mod tests {
         assert_eq!(
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 }.code(),
             "deadline_exceeded"
+        );
+        assert_eq!(
+            RawRefusalReason::PlanSpansMoreThanOneSource.code(),
+            "plan_spans_more_than_one_source"
         );
     }
 }
