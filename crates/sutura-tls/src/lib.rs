@@ -626,23 +626,35 @@ mod tests {
         let der = issued.signing_key.serialize_der();
         // Every byte before ECPrivateKey's `version 1, OCTET STRING (32)` is template every P-256
         // key shares; the private scalar is the 32 bytes after it.
-        let scalar = der
+        let at = der
             .windows(5)
             .position(|window| window == [0x02, 0x01, 0x01, 0x04, 0x20])
-            .and_then(|at| at.checked_add(5))
-            .and_then(|at| der.get(at..))
-            .and_then(|rest| rest.get(..32))
+            .map(|at| at + 5)
+            .expect("a P-256 PKCS#8 key holds ECPrivateKey's version and scalar length");
+        let scalar = der
+            .get(at..at + 32)
             .expect("a P-256 PKCS#8 key holds a 32-byte private scalar");
-        let forms = [
+        let body: Vec<&str> = key_pem.lines().filter(|line| !line.starts_with("-----")).collect();
+        let mut forms = vec![
             ("hex", hex(scalar)),
             ("upper-case hex", hex(scalar).to_uppercase()),
             ("decimal", scalar.iter().map(u8::to_string).collect::<Vec<_>>().join(",")),
             ("base64", base64::engine::general_purpose::STANDARD_NO_PAD.encode(scalar)),
-            (
-                "PEM",
-                key_pem.lines().filter(|line| !line.starts_with("-----")).collect::<String>(),
-            ),
+            ("PEM", body.concat()),
         ];
+        // The base64 characters that carry a bit of the scalar. A 16-character run of one body line
+        // over them shows however `Debug` prints the line break between two lines.
+        let scalar_chars = (at * 8).div_euclid(6)..((at + 32) * 8).div_ceil(6);
+        let mut line_start = 0;
+        for line in &body {
+            for (offset, run) in line.as_bytes().windows(16).enumerate() {
+                let start = line_start + offset;
+                if start < scalar_chars.end && start + 16 > scalar_chars.start {
+                    forms.push(("a PEM body line", String::from_utf8_lossy(run).into_owned()));
+                }
+            }
+            line_start += line.len();
+        }
         let chain_run = hex(loaded
             .chain()
             .first()
