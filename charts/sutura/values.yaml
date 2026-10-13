@@ -5,6 +5,10 @@ image:
   repository: ghcr.io/telekom/sutura
   # Image tag. Empty means the chart's app version.
   tag: ""
+  # When true, run the optimised image of the same version: the tag gets the suffix `-performance`.
+  # That image exists only for releases where it was published. An explicit `tag` wins and is
+  # used as is.
+  performance: false
   pullPolicy: IfNotPresent
 
 # Secrets that hold image pull credentials.

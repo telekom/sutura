@@ -120,6 +120,48 @@ mod tests {
         }
     }
 
+    /// The Deployment container's image in the golden render named `name`; `None` when no such golden exists.
+    fn rendered_image(name: &str) -> Option<String> {
+        let golden = goldens()
+            .into_iter()
+            .find(|path| path.file_stem().is_some_and(|stem| stem == name))?;
+        let docs = documents(&std::fs::read_to_string(golden).expect("a readable golden"));
+        of_kind(&docs, "Deployment")["spec"]["template"]["spec"]["containers"][0]["image"]
+            .as_str()
+            .map(String::from)
+    }
+
+    fn app_version() -> String {
+        let chart = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../charts/sutura/Chart.yaml");
+        let text = std::fs::read_to_string(&chart).unwrap_or_else(|error| panic!("{} is readable: {error}", chart.display()));
+        let chart: Value = serde_norway::from_str(&text).expect("Chart.yaml is YAML");
+        String::from(chart["appVersion"].as_str().expect("an appVersion"))
+    }
+
+    #[test]
+    fn the_performance_image_flag_adds_the_suffix_to_the_app_version() {
+        assert_eq!(
+            rendered_image("performance-image"),
+            Some(format!("ghcr.io/telekom/sutura:{}-performance", app_version()))
+        );
+    }
+
+    #[test]
+    fn the_performance_image_flag_off_keeps_the_app_version_tag() {
+        assert_eq!(
+            rendered_image("performance-image-off"),
+            Some(format!("ghcr.io/telekom/sutura:{}", app_version()))
+        );
+    }
+
+    #[test]
+    fn an_explicit_tag_is_used_as_is_with_the_performance_image_flag_on() {
+        assert_eq!(
+            rendered_image("performance-image-tag-wins"),
+            Some(String::from("ghcr.io/telekom/sutura:pinned-tag"))
+        );
+    }
+
     #[test]
     fn every_chart_render_is_a_configuration_the_binary_starts_with() {
         let goldens = goldens();
