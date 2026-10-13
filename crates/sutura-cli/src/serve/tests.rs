@@ -715,7 +715,8 @@ fn an_oracle_dictionary_in_a_build_without_the_feature_is_refused_naming_it() {
          catalogs:\n  - name: \"dictionary\"\n    kind: \"rdbms\"\n    version: \"dict-1\"\n    \
          environment: \"prod\"\n    source_alias: \"warehouse\"\n    connection:\n      dialect: \"oracle\"\n      \
          host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      user: \"reader\"\n      \
-         password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
+         password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"verified\"\n      \
+         transport_anchors: \"/etc/sutura/dictionary-ca.pem\"\n";
     let settings = sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
     )
