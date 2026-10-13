@@ -170,6 +170,11 @@ in
       golden="$testdata/golden/unguarded/$name.yaml"
       rendered="$work/unguarded-$name.yaml"
       if helm template test-release "$unguarded" -f "$refusalFile" > "$rendered" 2> "$work/unguarded-$name.log"; then
+        if [ ! -f "$golden" ]; then
+          echo "sutura-chart: $name renders without the posture guard and has no golden at $golden" >&2
+          failed=1
+          continue
+        fi
         if ! diff -u "$golden" "$rendered"; then
           echo "sutura-chart: $name's unguarded render drifted from $golden (diff above)." >&2
           failed=1

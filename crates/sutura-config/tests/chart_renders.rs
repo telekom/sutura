@@ -16,8 +16,9 @@
 //!
 //! * **A refusal outside the posture guard.** The unguarded copy drops only that guard. A refusal
 //!   raised while deriving a value from a limit still fails the render, so such a case is declared
-//!   `Binary::Derivation` by hand, and a case declared so that would mirror a binary refusal is
-//!   held by review alone.
+//!   `Binary::Derivation` by hand. A `Derivation` case must have no unguarded golden, so one the
+//!   guard-less chart renders is refused; a case that really fails derivation, and that the binary
+//!   would also refuse, is held by review alone.
 //! * **Secret and file contents.** A placeholder token is never empty, and `Settings::load` opens
 //!   no key-set or TLS file, so neither a Secret holding `""` nor a missing mount is seen.
 //! * **`extraEnv`**, beyond what a golden's values file happens to set.
@@ -250,10 +251,15 @@ mod tests {
         let unguarded = testdata().join("golden/unguarded");
         let mut wrong = Vec::new();
         for (name, binary) in &REFUSALS {
+            let render = unguarded.join(format!("{name}.yaml"));
             if matches!(binary, Binary::Derivation) {
+                if render.is_file() {
+                    wrong.push(format!(
+                        "{name}: declared a derivation failure, and testdata/golden/unguarded/{name}.yaml renders"
+                    ));
+                }
                 continue;
             }
-            let render = unguarded.join(format!("{name}.yaml"));
             if !render.is_file() {
                 wrong.push(format!("{name}: no testdata/golden/unguarded/{name}.yaml"));
                 continue;
