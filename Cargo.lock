@@ -4021,6 +4021,7 @@ dependencies = [
  "config",
  "rustls-pki-types",
  "serde",
+ "serde_norway",
  "sha2",
  "subtle",
  "sutura-domain",

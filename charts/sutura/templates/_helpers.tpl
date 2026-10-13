@@ -30,15 +30,29 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 The bind is always off-host: this chart's Service targets the pod, so `server.host` is
 always `0.0.0.0`, never the loopback-only embedded default. `Settings::refusals` therefore
-always asks for an access token, a declared TLS termination, and an enabled rate limiter -
+always asks for a credential, a declared TLS termination, and an enabled rate limiter -
 this fails the render rather than shipping a Deployment that crash-loops on the first refusal.
+
+The credential is an access token or an inbound identity (`security.inbound.mode`), and `direct`
+refuses an access token beside it. Both are read the way the binary layers the two files: the
+environment file over `base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read.
 */}}
 {{- define "sutura.requireOffHostPosture" -}}
 {{- if not .Values.environment -}}
 {{ fail "environment is required (SUTURA_ENVIRONMENT) - see values.yaml" }}
 {{- end -}}
-{{- if not .Values.security.accessToken.secretName -}}
-{{ fail "security.accessToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.access_token there (Settings::refusals::AccessTokenRequired)" }}
+{{- if not (has .Values.environment (list "development" "test" "production")) -}}
+{{ fail (printf "environment is %q: it must be exactly one of development, test, production, spelled as sutura names them (SUTURA_ENVIRONMENT and the config.environment file)" (toString .Values.environment)) }}
+{{- end -}}
+{{- $base := .Values.config.base | default dict -}}
+{{- $env := .Values.config.environment | default dict -}}
+{{- $mode := dig "security" "inbound" "mode" (dig "security" "inbound" "mode" "" $base) $env | default "" | toString | trim -}}
+{{- $token := or .Values.security.accessToken.secretName (dig "security" "access_token" (dig "security" "access_token" "" $base) $env | default "" | toString) -}}
+{{- if not (or $token $mode) -}}
+{{ fail "security.accessToken.secretName is required when config.base and config.environment set no security.inbound.mode: this chart's Service makes the pod reachable off-host, and sutura refuses to start there with neither security.access_token nor an inbound identity (Settings::refusals::AccessTokenRequired)" }}
+{{- end -}}
+{{- if and $token (eq $mode "direct") -}}
+{{ fail "security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway`, whose proof arrives in a header of its own" }}
 {{- end -}}
 {{- if not .Values.security.metricsToken.secretName -}}
 {{ fail "security.metricsToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.metrics_token there (Settings::refusals::MetricsTokenRequired)" }}

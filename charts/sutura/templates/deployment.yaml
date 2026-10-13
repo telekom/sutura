@@ -53,11 +53,13 @@ spec:
               value: {{ .Values.service.port | quote }}
             - name: SUTURA__RATE_LIMIT__ENABLED
               value: {{ .Values.rateLimit.enabled | quote }}
+            {{- if .Values.security.accessToken.secretName }}
             - name: SUTURA__SECURITY__ACCESS_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.security.accessToken.secretName }}
                   key: {{ .Values.security.accessToken.secretKey }}
+            {{- end }}
             {{- if .Values.security.metricsToken.secretName }}
             - name: SUTURA__SECURITY__METRICS_TOKEN
               valueFrom:

@@ -1,0 +1,20 @@
+# Mirrors the binary's `DeploymentTokenSharesTheHeader` refusal: `security.access_token` in the
+# config files is an access token too, so beside `direct` the binary refuses it.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  base:
+    security:
+      inbound:
+        mode: direct
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        algorithms: [RS256]
+  environment:
+    security:
+      access_token: placeholder-access-token

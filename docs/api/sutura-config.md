@@ -466,10 +466,11 @@ symmetric algorithm. There is no variant here that could.
 
 Where the token being validated arrives.
 
-Two variants because the two modes put it in two places, and neither is a preference: an OAuth
-2.1 client puts its access token in `Authorization: Bearer` and has no option to do otherwise,
-while a fronting component sets a header of its own and would collide with the deployment bearer
-token if it used that one. `ProofHeader::parse` refuses `authorization` for exactly that reason.
+An OAuth 2.1 client puts its access token in `Authorization: Bearer` and has no option to do
+otherwise. A fronting component either sets a header of its own or replaces the caller's token in
+`Authorization: Bearer` with its assertion. Both `Authorization` variants collide with the
+deployment bearer token, and `NotFitToServe::DeploymentTokenSharesTheHeader` refuses either one
+beside it.
 
 ## `use TokenRequirement`
 
@@ -2920,14 +2921,16 @@ pub enum TokenLocation<'header>
 
 Where the token being validated arrives.
 
-Two variants because the two modes put it in two places, and neither is a preference: an OAuth
-2.1 client puts its access token in `Authorization: Bearer` and has no option to do otherwise,
-while a fronting component sets a header of its own and would collide with the deployment bearer
-token if it used that one. `ProofHeader::parse` refuses `authorization` for exactly that reason.
+An OAuth 2.1 client puts its access token in `Authorization: Bearer` and has no option to do
+otherwise. A fronting component either sets a header of its own or replaces the caller's token in
+`Authorization: Bearer` with its assertion. Both `Authorization` variants collide with the
+deployment bearer token, and `NotFitToServe::DeploymentTokenSharesTheHeader` refuses either one
+beside it.
 
 #### Variants
 
-- `AuthorizationBearer` - `Authorization: Bearer <token>`. Where RFC 6750 puts an access token.
+- `AuthorizationBearer` - `Authorization: Bearer <token>`, read by the resource server itself. Where RFC 6750 puts an access token, so this is the one location a `Bearer` challenge and RFC 9728 metadata describe.
+- `GatewayBearer` - `Authorization: Bearer <assertion>`, set by a fronting component that replaced the caller's token. A separate variant from `Self::AuthorizationBearer` because the component's issuer is not an authorization server a client can use: no challenge and no metadata point a client at it.
 - `Header` - A named header whose whole value is the token. No scheme prefix: a component setting its own header has no reason to wrap the value, and a prefix nobody agreed on is a parse to get wrong.
 
 #### Implements
@@ -3021,7 +3024,7 @@ pub const fn reads_the_authorization_header(&self) -> bool
 Does this deployment read the deployment bearer token's own header?
 
 The one question a refusal needs answered, and it is asked of the *requirement* rather than of
-the variant, so a mode added later that also lands in `Authorization` cannot slip past it.
+the variant. The `match` is exhaustive, so a location added later has to answer it.
 
 ```rust
 pub const fn requirement(&self) -> TokenRequirement<'_>

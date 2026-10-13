@@ -585,7 +585,7 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 /// inseparable fixture) declares in.
 ///
 /// USES [`crate::causality::plan::partition`], NEVER the SHAPE A/`Plan::DeletedTests`-aware
-/// `plan::plan_with_base`: this only wants which files are test-worthy, and threading a base reader through
+/// `plan::plan_with_deleted`: this only wants which files are test-worthy, and threading a base reader through
 /// here for a question it does not ask risked exactly the class of bug review found once already
 /// (a wrong image resolving Shape A's removed-line numbers against the wrong commit) - keeping
 /// deletion detection OUT of this path removes the risk rather than getting the reader right a
