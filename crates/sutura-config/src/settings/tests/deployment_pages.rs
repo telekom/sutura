@@ -1,7 +1,7 @@
 //! The configurations that `docs/serving.md` and `docs/serving-behind-a-gateway.md` print, loaded.
 //!
-//! The published-port table is written out here and the gateway page is read, so a page that says
-//! more than the binary accepts fails in one of the two. Neither opens a key set or a TLS file.
+//! The gateway page's values fence is read from the page. The published-port table is a copy, so a
+//! change to the table in `serving.md` is not caught here. Neither opens a key set or a TLS file.
 
 use std::path::Path;
 
