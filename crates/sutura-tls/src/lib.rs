@@ -604,6 +604,61 @@ mod tests {
         assert_eq!(error.to_string(), expected);
     }
 
+    #[test]
+    fn a_loaded_identity_prints_its_chain_and_no_byte_of_its_key() {
+        use core::fmt::Write as _;
+
+        let scratch = Scratch::new("identity-debug");
+        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
+        let (certificate, key) = (scratch.directory.join("client.crt"), scratch.directory.join("client.key"));
+        let key_pem = issued.signing_key.serialize_pem();
+        std::fs::write(&certificate, issued.cert.pem()).expect("a certificate writes");
+        std::fs::write(&key, &key_pem).expect("a key writes");
+        let loaded = load_identity(&Identity::new(certificate, key)).expect("a pair loads");
+
+        let hex = |bytes: &[u8]| {
+            bytes.iter().fold(String::new(), |mut hex, byte| {
+                write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+                hex
+            })
+        };
+        let der = issued.signing_key.serialize_der();
+        let key_run = der.get(16..32).expect("a PKCS#8 key is longer than 32 bytes");
+        let forms = [
+            ("hex", hex(key_run)),
+            ("decimal", key_run.iter().map(u8::to_string).collect::<Vec<_>>().join(",")),
+            (
+                "PEM",
+                key_pem
+                    .lines()
+                    .filter(|line| !line.starts_with("-----"))
+                    .collect::<String>()
+                    .get(24..48)
+                    .expect("a PEM body is longer than 48 characters")
+                    .to_owned(),
+            ),
+        ];
+        let chain_run = hex(loaded
+            .chain()
+            .first()
+            .expect("the chain holds the certificate")
+            .as_ref()
+            .get(16..32)
+            .expect("a certificate is longer than 32 bytes"));
+
+        for rendering in [format!("{loaded:?}"), format!("{loaded:#?}")] {
+            let squeezed: String = rendering.chars().filter(|c| !c.is_whitespace()).collect();
+            // The chain is printed, so a form of the key found nowhere is absent from output that is read.
+            assert!(
+                squeezed.contains(&chain_run),
+                "the rendering holds no certificate bytes, so the absence below proves nothing: {rendering}"
+            );
+            for (form, run) in &forms {
+                assert!(!squeezed.contains(run), "a loaded identity printed its key as {form}");
+            }
+        }
+    }
+
     /// `pem` repeated whole, then `#` filler, to exactly `size` bytes; the filler is not PEM.
     fn padded(pem: &str, size: usize) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(size);
