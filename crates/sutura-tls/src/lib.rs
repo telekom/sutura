@@ -606,6 +606,7 @@ mod tests {
 
     #[test]
     fn a_loaded_identity_prints_its_chain_and_no_byte_of_its_key() {
+        use base64::Engine as _;
         use core::fmt::Write as _;
 
         let scratch = Scratch::new("identity-debug");
@@ -623,19 +624,23 @@ mod tests {
             })
         };
         let der = issued.signing_key.serialize_der();
-        let key_run = der.get(16..32).expect("a PKCS#8 key is longer than 32 bytes");
+        // Every byte before ECPrivateKey's `version 1, OCTET STRING (32)` is template every P-256
+        // key shares; the private scalar is the 32 bytes after it.
+        let scalar = der
+            .windows(5)
+            .position(|window| window == [0x02, 0x01, 0x01, 0x04, 0x20])
+            .and_then(|at| at.checked_add(5))
+            .and_then(|at| der.get(at..))
+            .and_then(|rest| rest.get(..32))
+            .expect("a P-256 PKCS#8 key holds a 32-byte private scalar");
         let forms = [
-            ("hex", hex(key_run)),
-            ("decimal", key_run.iter().map(u8::to_string).collect::<Vec<_>>().join(",")),
+            ("hex", hex(scalar)),
+            ("upper-case hex", hex(scalar).to_uppercase()),
+            ("decimal", scalar.iter().map(u8::to_string).collect::<Vec<_>>().join(",")),
+            ("base64", base64::engine::general_purpose::STANDARD_NO_PAD.encode(scalar)),
             (
                 "PEM",
-                key_pem
-                    .lines()
-                    .filter(|line| !line.starts_with("-----"))
-                    .collect::<String>()
-                    .get(24..48)
-                    .expect("a PEM body is longer than 48 characters")
-                    .to_owned(),
+                key_pem.lines().filter(|line| !line.starts_with("-----")).collect::<String>(),
             ),
         ];
         let chain_run = hex(loaded
