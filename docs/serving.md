@@ -76,7 +76,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | A source that the catalog reads and no `sources.<alias>` entry declares                                         | Declare the source                                                                          |
 | `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                 | Use a posture the adapter supports                                                          |
 | An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                  | Declare `verification_identity`, or remove the anchor                                       |
-| `tools.run_sql.enabled: true` with `security.identity: multi-user`                                              | Use `single-user`, or leave the tool off                                                    |
+| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and no acknowledged shared source               | Acknowledge a shared source, use `single-user`, or leave the tool off                       |
 | A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                | Remove them from `security.outbound`, or serve that source from a deployment without them   |
 | A feature that the build lacks (`tls`, `agent`, or a data system or catalog adapter)                            | The message names the feature. Use a build that has it                                      |
 

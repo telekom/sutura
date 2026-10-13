@@ -154,8 +154,8 @@ The two rows are that split and not a duplication.
     end to end - a real settings file, a real catalog, a real listener or a real pipe, and a real
     answer. **Most of what is in them establishes no identity claim.** The example they run declares one
     shared identity, so those questions are answered as the deployment; and a pipe has no header a token
-    could arrive in, so the agent surface grants every capability to whoever can launch the process and
-    says so at startup.
+    could arrive in, so the agent surface grants every capability the deployment turns on to whoever can
+    launch the process and says so at startup.
 
     The exception is named rather than left to be found: two tests inside `just serve-e2e` spawn the
     binary over a **mock issuer's** published key set, and those two are this page's mock-issuer venue on

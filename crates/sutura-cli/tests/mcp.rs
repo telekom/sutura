@@ -46,7 +46,7 @@
 //! # What this suite cannot claim
 //!
 //! Nothing about identity. A pipe has no header a token could arrive in, so this surface grants
-//! every capability to whoever can launch the process, and every question below is answered under
+//! every capability the deployment turns on to whoever can launch the process, and every question below is answered under
 //! the single shared identity `examples/single-player` declares.
 //! `docs/where-identity-is-proven.md` carries that exclusion in the place a reader of a green run
 //! will meet it, beside `just serve-e2e`'s, because a venue that cannot state its limit is how

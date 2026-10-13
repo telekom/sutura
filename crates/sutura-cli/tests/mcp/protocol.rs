@@ -33,9 +33,10 @@ fn the_binary_speaks_the_protocol_on_its_own_pipes() {
     );
 
     // And the limit is stated on the LOG channel. Two claims in one: the notice exists, so a
-    // person launching this process is told that whoever can reach it holds every capability -
-    // and it is on standard error, so it is not on the stream the protocol owns. The second
-    // half is what `Agent::reply` above has already proved by parsing the line before this one.
+    // person launching this process is told that whoever can reach it holds every capability the
+    // deployment turns on - and it is on standard error, so it is not on the stream the protocol
+    // owns. The second half is what `Agent::reply` above has already proved by parsing the line
+    // before this one.
     let notice = agent.expect_log("grants every capability");
     assert!(notice.starts_with("sutura:"), "the notice is not this binary's own: {notice}");
 

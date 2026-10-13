@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use sutura_domain::model::InvalidIdentifier;
 use sutura_domain::pinned::InvalidVersion;
 use sutura_domain::plan::{FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidRowCeiling, RowCeiling, RowCeilings};
-use sutura_domain::source::{ImpersonationCapability, host_is_loopback};
+use sutura_domain::source::{ImpersonationCapability, SourcePosture, host_is_loopback};
 
 use crate::api::ApiSettings;
 use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
@@ -636,19 +636,21 @@ impl Settings {
             .collect()
     }
 
-    /// Whether the raw SQL tool is enabled over a deployment it may not run over -
-    /// `docs/adr/0013`'s boot refusal, reusing the mode `identity_refusals` already reads.
+    /// Whether the raw SQL tool is enabled in `multi-user` mode with no source it may run over -
+    /// see [`NotFitToServe::RunSqlEnabledInMultiUserMode`].
     ///
-    /// **What this crate can check, and no more.** Whether the LINKED adapter can actually accept a
-    /// raw statement, or carries a per-subject credential, is a property of the composed binary -
-    /// `sutura_domain::warehouse::Warehouse::ACCEPTS_RAW_STATEMENTS` and `::IMPERSONATION` - which
-    /// this crate never links. So this refuses `multi-user` unconditionally rather than only where an
-    /// adapter's declared shape makes it unsafe: today no build links an adapter that is both raw-
-    /// capable and per-subject-credential-capable, so the two questions have the same answer. The day
-    /// one exists, this refusal needs a composition-root counterpart the way the shared-source
-    /// acknowledgement check already has one.
+    /// Reads only the parsed tree. Whether the linked adapter accepts a raw statement at all is a
+    /// property of the composed binary, so an `impersonation-at-source` source counts for nothing here
+    /// even where an adapter could one day run raw text as the caller.
     fn run_sql_refusals(&self) -> Vec<NotFitToServe> {
-        if self.tools.run_sql_enabled() && self.security.identity() == Some(&DeploymentIdentity::SubjectPerRequest) {
+        let acknowledged_shared = self
+            .sources
+            .each()
+            .any(|(_, source)| matches!(source.posture(), Some(SourcePosture::SharedServiceUser { .. })));
+        if self.tools.run_sql_enabled()
+            && self.security.identity() == Some(&DeploymentIdentity::SubjectPerRequest)
+            && !acknowledged_shared
+        {
             return vec![NotFitToServe::RunSqlEnabledInMultiUserMode];
         }
         Vec::new()

@@ -681,3 +681,22 @@ written. The protocol claims above (`tokio_postgres::Client::query`/`query_raw`,
 `batch_execute`; `connect_secured`; the Fourth amendment's `PostgresWarehouse::run_raw`) describe
 the deleted client; the ADBC path's are in
 `crates/sutura-exec-postgres/src/adbc/session.rs`'s header.
+
+## Sixth amendment, 2026-10-13: the raw tool runs in `multi-user` mode over an acknowledged shared source
+
+The boot refusal no longer refuses `multi-user` mode as a whole. `multi-user` with
+`tools.run_sql.enabled: true` now starts while at least one source is an acknowledged
+`shared-service-user` - its `sources.<alias>.acknowledged_because` is set, so the operator wrote why
+every caller may read what that one account reads. Every caller can then read what the shared account
+can read; that is the decision, and the acknowledgement is where it is written down.
+
+`NotFitToServe::RunSqlEnabledInMultiUserMode` keeps its name and narrows: it still refuses
+`multi-user` with the tool on when no source qualifies - only `impersonation-at-source` sources, or no
+source at all. An
+unacknowledged shared source is still refused by `NotFitToServe::SharedSourceNotAcknowledged`, before
+and beside it. This supersedes the "Nowhere else" of *Impersonation is required unless the deployment is
+single-user* above, the multi-user consequence, and the 2026-09-13 amendment's multi-user boot refusal.
+
+**Unchanged:** the tool is off by default, every bound applies, and it runs over exactly one open source.
+**Limit:** `multi-user` and the acknowledgement are declarations, not measurements, and the refusal reads
+only configuration - which adapters take a raw statement is still decided in the composed binary.

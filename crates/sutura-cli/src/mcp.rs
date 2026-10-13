@@ -180,10 +180,10 @@ where
     // deadline in particular did not exist until `telekom/sutura#339`, so a deployment reading this
     // line is reading the difference.
     eprintln!(
-        "sutura: serving the agent surface over stdin/stdout - it grants every capability to \
-         whoever can launch or reach this process, answers at most {} questions at once, and gives \
-         up on a question after {} seconds - waiting for a slot included, and the question itself \
-         keeps running",
+        "sutura: serving the agent surface over stdin/stdout - it grants every capability the \
+         deployment turns on to whoever can launch or reach this process, answers at most {} \
+         questions at once, and gives up on a question after {} seconds - waiting for a slot \
+         included, and the question itself keeps running",
         admission.bound(),
         reply.seconds()
     );

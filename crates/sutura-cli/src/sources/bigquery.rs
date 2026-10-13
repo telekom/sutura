@@ -214,8 +214,8 @@ pub(super) fn open(
 /// so `tracing` would drop every one of the three for the whole session, and a check whose outcome
 /// is invisible is a silent pass. Standard error rather than standard output because on this
 /// transport standard output is the protocol channel; unconditional rather than filtered because the
-/// capability notice beside it already is, and a surface granting every capability to whoever can
-/// reach it is not one to be quiet about. **And it is assertable now rather than review-held:**
+/// capability notice beside it already is, and a surface granting every capability the deployment turns
+/// on to whoever can reach it is not one to be quiet about. **And it is assertable now rather than review-held:**
 /// [`absent_tables_notices`] returns the lines instead of printing them, so this file's own suite
 /// pins that the soft outcome is emitted and what it says.
 ///

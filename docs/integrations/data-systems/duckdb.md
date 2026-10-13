@@ -26,11 +26,11 @@ and this key:
 
 Related settings:
 
-| Setting                         | Default      | Meaning                                                                 |
-| ------------------------------- | ------------ | ----------------------------------------------------------------------- |
-| `tools.run_sql.enabled`         | `false`      | Turns on the raw SQL tool. Refused with `security.identity: multi-user` |
-| `runtime.working_set_max_bytes` | `1073741824` | The memory budget for one result                                        |
-| `SUTURA_DUCKDB_ADBC_DRIVER`     | not set      | An absolute path to `libduckdb`, for a build that links no driver       |
+| Setting                         | Default      | Meaning                                                                                                                                                               |
+| ------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tools.run_sql.enabled`         | `false`      | Turns on the raw SQL tool. With `security.identity: multi-user`, only over an acknowledged shared source: every caller can then read what the shared account can read |
+| `runtime.working_set_max_bytes` | `1073741824` | The memory budget for one result                                                                                                                                      |
+| `SUTURA_DUCKDB_ADBC_DRIVER`     | not set      | An absolute path to `libduckdb`, for a build that links no driver                                                                                                     |
 
 The musl release binaries link the DuckDB driver. Other builds load the library that
 `SUTURA_DUCKDB_ADBC_DRIVER` names.

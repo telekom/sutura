@@ -34,13 +34,14 @@
 //!
 //! [`permitted_for`] takes the [`sutura_app::Asked`] [`establish_asked`] already derived - not the
 //! request - so there is no path left in this file where "no `Asked`" reads as "grant everything."
-//! What `Asked` itself carries is still two cases, from whatever leg 1 established:
+//! What `Asked` itself carries is still two cases, from whatever leg 1 established, and in either
+//! one `RunSql` is removed while `tools.run_sql.enabled` is off:
 //!
 //! * A [`crate::inbound::VerifiedCaller`] in the request extensions - which only
 //!   `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
-//!   token's scopes decide, and **only** they do.
+//!   token's scopes decide, and no other claim does.
 //! * No such extension means no caller identity was established, so there is no verified claim to
-//!   narrow by and every capability is permitted. That is the single-player deployment this service
+//!   narrow by and every capability the deployment turns on is permitted. That is the single-player deployment this service
 //!   ships as, and it is the correct answer rather than a fallback: a filter over an unverified claim
 //!   looks like a control and is not one.
 //!
