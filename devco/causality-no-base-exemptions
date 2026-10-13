@@ -25,3 +25,4 @@ a_local_time_zone_column_is_refused_by_name # names the streamed-batch read (bat
 a_type_the_dialect_does_not_list_is_a_recorded_utf8_column_and_never_dropped # new in this branch's schema/tests.rs, so the base tree has no such test
 a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_not # new in this branch's schema/tests.rs, so the base tree has no such test
 each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread # new in this branch's schema/tests.rs, so the base tree has no such test
+two_pins_that_differ_only_in_a_fallback_have_different_digests # new in this branch's schema/tests.rs, so the base tree has no such test
