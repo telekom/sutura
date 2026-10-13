@@ -33,7 +33,7 @@ mod tests {
 
     use serde::Deserialize as _;
     use serde_norway::Value;
-    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources};
+    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment};
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
     /// `SUTURA__*` variable.
@@ -218,19 +218,24 @@ mod tests {
         found
     }
 
-    /// The sources the binary would be handed by one unguarded render, and its scratch directory.
-    fn sources_of(name: &str, render: &Path) -> (Sources, Option<PathBuf>) {
+    /// What the binary would be handed by one unguarded render, or the environment it does not read,
+    /// and the render's scratch directory.
+    type Handed = (Result<Sources, UnknownEnvironment>, Option<PathBuf>);
+
+    fn sources_of(name: &str, render: &Path) -> Handed {
         let docs = documents(&std::fs::read_to_string(render).expect("a readable render"));
         let Inputs {
             environment,
             directory,
             variables,
         } = inputs(name, &docs);
-        let environment = Environment::parse(&environment).unwrap_or_else(|error| panic!("{name}: {error}"));
-        let mut sources = Sources::defaults(environment).with_variables(variables);
-        if let Some(dir) = &directory {
-            sources = sources.with_directory(dir.clone());
-        }
+        let sources = Environment::parse(&environment).map(|environment| {
+            let sources = Sources::defaults(environment).with_variables(variables);
+            match &directory {
+                Some(dir) => sources.with_directory(dir.clone()),
+                None => sources,
+            }
+        });
         (sources, directory)
     }
 
@@ -254,21 +259,24 @@ mod tests {
                 continue;
             }
             let (sources, directory) = sources_of(name, &render);
-            let loaded = Settings::load(&sources);
+            let loaded = sources.map(|sources| Settings::load(&sources));
             if let Some(dir) = directory {
                 std::fs::remove_dir_all(dir).expect("the scratch directory is removed");
             }
             match (binary, loaded) {
-                (Binary::Refuses(held), Err(error)) => match error.reason() {
+                (_, Err(error)) => wrong.push(format!("{name}: the binary does not read the render's environment: {error}")),
+                (Binary::Refuses(held), Ok(Err(error))) => match error.reason() {
                     SettingsError::NotFitToServe { refusals } if refusals.iter().any(held) => {}
                     other => wrong.push(format!("{name}: the binary refuses it another way: {other:?}")),
                 },
-                (Binary::Refuses(_), Ok(_)) => wrong.push(format!("{name}: the chart refuses it and the binary starts with it")),
-                (Binary::Accepts(why), Err(error)) => wrong.push(format!(
+                (Binary::Refuses(_), Ok(Ok(_))) => {
+                    wrong.push(format!("{name}: the chart refuses it and the binary starts with it"));
+                }
+                (Binary::Accepts(why), Ok(Err(error))) => wrong.push(format!(
                     "{name}: declared stricter than the binary ({why}), which refuses: {:?}",
                     error.reason()
                 )),
-                (Binary::Accepts(_) | Binary::Derivation, _) => {}
+                (Binary::Accepts(_) | Binary::Derivation, Ok(_)) => {}
             }
         }
         assert!(
