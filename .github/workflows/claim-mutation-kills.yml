@@ -5,26 +5,31 @@
 # does. `cargo xtask check-claim-mutations` is the cheap apply-only half and runs in every `ci`;
 # this is the half that rebuilds and runs each cell under its mutation.
 #
-# CI runs a gate through a flake app: `nix run .#claim-mutation-kills` is the twin of
-# `just check-claim-mutation-kills` that carries the pinned toolchain, the cargo environment and
-# the warm start.
+# CI runs a gate through a flake app: `nix run .#claim-mutation-kills` is `just
+# check-claim-mutation-kills` with the pinned toolchain, the cargo environment, the warm start and
+# the same tier bring-up (`nix/with-tier.sh`, `sutura_tier_up`).
 #
-# THE CACHE IS READ-ONLY here: `nix-store-cache` saves only from a push to `main`, and this job
-# holds no secret that could write a cache.
+# THE CACHE IS READ-ONLY here, by two different holds. Cachix: the job has no auth token, so it
+# cannot push to a binary cache. The GitHub Actions cache: `nix-store-cache` saves only on a push to
+# `main`, and a run is not one. That second hold is the save condition AND this trigger list, and
+# no gate reads the trigger list - review holds it. Likewise `contents: read` on the job.
 #
-# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate: the run time per patch is not measured, so one
-# run may not finish inside it. Sharding is the follow-up if it does not.
+# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. At about 1 minute per patch, 514 patches take
+# about 6 hours, so one run may not finish inside it, and a run stops at the first patch that no
+# longer kills its cell. A timeout is not a verdict. A shard input is the follow-up if the first
+# run times out.
 name: claim-mutation-kills
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   claim-mutation-kills:
     runs-on: rust-mcp-16core
+    permissions:
+      contents: read
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

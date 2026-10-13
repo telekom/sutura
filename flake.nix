@@ -1313,19 +1313,28 @@
           '');
         };
 
-        # `nix run .#claim-mutation-kills` - `just check-claim-mutation-kills`' twin for CI: does every
+        # `nix run .#claim-mutation-kills` - `just check-claim-mutation-kills` for CI: does every
         # committed `devco/claim-mutations/` patch still kill its cell? `apps.causality`'s
-        # environment, for its reason, over the kill half's own `xtask` task; run on demand by
+        # environment, for its reason, over the kill half's own `xtask` task, and the task's own tier
+        # bring-up: `nix/with-tier.sh` is the file `just` sources, so the Postgres and ClickHouse
+        # tiers, the requirement and the credentials come from one place. Run on demand by
         # `.github/workflows/claim-mutation-kills.yml`. Keep its environment aligned with that app.
+        #
+        # `cargo` runs in a subshell and NOT `exec`'d: an `exec` would replace this shell and skip the
+        # EXIT trap `sutura_tier_up` armed, leaving a tier it started running.
         apps.claim-mutation-kills = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-claim-mutation-kills" ''
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:${clickhouseTier.tier}/bin:$PATH"
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            exec cargo run -q --profile ci -p xtask -- check-claim-mutation-kills "$@"
+            . ${./nix/with-tier.sh}
+            sutura_tier_up || exit 1
+            (
+              exec cargo run -q --profile ci -p xtask -- check-claim-mutation-kills "$@"
+            )
           '');
         };
 
