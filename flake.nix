@@ -1313,6 +1313,22 @@
           '');
         };
 
+        # `nix run .#claim-mutation-kills` - `just check-claim-mutation-kills`' twin for CI: does every
+        # committed `devco/claim-mutations/` patch still kill its cell? `apps.causality`'s
+        # environment, for its reason, over the kill half's own `xtask` task; run on demand by
+        # `.github/workflows/claim-mutation-kills.yml`. Keep its environment aligned with that app.
+        apps.claim-mutation-kills = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-claim-mutation-kills" ''
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
+            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo run -q --profile ci -p xtask -- check-claim-mutation-kills "$@"
+          '');
+        };
+
         apps.default-features = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''

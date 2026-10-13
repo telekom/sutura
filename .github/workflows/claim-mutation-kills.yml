@@ -1,0 +1,53 @@
+# DOES EVERY COMMITTED `devco/claim-mutations/` PATCH STILL KILL THE CELL IT NAMES?
+#
+# `workflow_dispatch` ONLY. The task recompiles this workspace once per committed patch, so a person
+# starts it when the set needs re-verifying; no push, pull request, merge-queue entry or schedule
+# does. `cargo xtask check-claim-mutations` is the cheap apply-only half and runs in every `ci`;
+# this is the half that rebuilds and runs each cell under its mutation.
+#
+# CI runs a gate through a flake app: `nix run .#claim-mutation-kills` is the twin of
+# `just check-claim-mutation-kills` that carries the pinned toolchain, the cargo environment and
+# the warm start.
+#
+# THE CACHE IS READ-ONLY here: `nix-store-cache` saves only from a push to `main`, and this job
+# holds no secret that could write a cache.
+#
+# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate: the run time per patch is not measured, so one
+# run may not finish inside it. Sharding is the follow-up if it does not.
+name: claim-mutation-kills
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  claim-mutation-kills:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Check every committed claim mutation still kills its cell
+        run: nix run .#claim-mutation-kills
+
+      - uses: $/.github/actions/nix-store-cache-report
+        if: always()
