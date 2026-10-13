@@ -88,8 +88,9 @@
 #
 # ## Tags
 #
-# ClickHouse and Keycloak are pinned to a minor series, checked against the registries on
-# 2026-08-29 rather than assumed. The `DataHub` stack is pinned to the exact patch release the
+# ClickHouse is pinned to a minor series, checked against the registries on 2026-08-29 rather than
+# assumed. Keycloak is pinned to a patch release by the digest of its multi-arch index, the same
+# on Docker Hub and on Keycloak's own registry. The `DataHub` stack is pinned to the exact patch release the
 # adapter was measured against - the tag `docs/adr/0016` names - with its three stores at the
 # versions upstream's own quickstart names for that release, read off
 # `docker/quickstart/docker-compose.quickstart-profile.yml` at that tag on 2026-09-02 rather than
@@ -266,7 +267,7 @@ services:
     #   A third venue - `just keycloak-docker-tier start` - provisions the SAME issuer a test can
     #   reach against a docker daemon instead of a store derivation, for a machine outside the
     #   sandbox (`nix/keycloak-docker-tier.sh`); this demo block remains the browser venue.
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
     profiles:
       - identity
     command: ["start-dev", "--health-enabled=true"]
@@ -777,7 +778,7 @@ services:
     # Because: `cube-metrics` runs in docker and fetches this issuer's keys, and a container on a
     #   Linux runner cannot reach the nix Keycloak tier on the host's loopback.
     # Converges: with the `cube` block; the nix Keycloak tier then serves this realm.
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
     profiles:
       - cube
     hostname: cube-keycloak
