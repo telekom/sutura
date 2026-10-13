@@ -13,7 +13,7 @@ metadata:
 data:
   base.yaml: |
     {}
-  staging.yaml: |
+  test.yaml: |
     {}
 
 ---
@@ -81,7 +81,7 @@ spec:
               protocol: TCP
           env:
             - name: SUTURA_ENVIRONMENT
-              value: "staging"
+              value: "test"
             - name: SUTURA_CONFIG_DIR
               value: /etc/sutura/config
             # Always off-host from this process's own point of view: the Service targets

@@ -41,6 +41,9 @@ environment file over `base.yaml`, key by key. A `SUTURA__*` variable in `extraE
 {{- if not .Values.environment -}}
 {{ fail "environment is required (SUTURA_ENVIRONMENT) - see values.yaml" }}
 {{- end -}}
+{{- if not (has .Values.environment (list "development" "test" "production")) -}}
+{{ fail (printf "environment is %q: it must be exactly one of development, test, production, spelled as sutura names them (SUTURA_ENVIRONMENT and the config.environment file)" (toString .Values.environment)) }}
+{{- end -}}
 {{- $base := .Values.config.base | default dict -}}
 {{- $env := .Values.config.environment | default dict -}}
 {{- $mode := dig "security" "inbound" "mode" (dig "security" "inbound" "mode" "" $base) $env | default "" | toString | trim -}}

@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): environment is "Production": it must be exactly one of development, test, production, spelled as sutura names them (SUTURA_ENVIRONMENT and the config.environment file)
+
+Use --debug flag to render out invalid YAML

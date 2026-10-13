@@ -5,7 +5,7 @@
 # `security.tlsTermination` (left empty here on purpose - `deployment.yaml`'s `if
 # .Values.tls.enabled ... else if .Values.security.tlsTermination` picks the first branch only
 # when the second is also unset).
-environment: staging
+environment: test
 security:
   accessToken:
     secretName: sutura-access-token

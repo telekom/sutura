@@ -10,7 +10,7 @@ image:
 # Secrets that hold image pull credentials.
 imagePullSecrets: []
 
-# Deployment environment: development, test, staging or production.
+# Deployment environment: development, test or production.
 environment: ""
 
 # Number of pod replicas.

@@ -4,10 +4,8 @@
 # (see the chart README); `extraVolumeMounts` is where a source's Secret would land in a real
 # deployment, omitted here to keep this golden about the source declaration.
 #
-# `kind: bigquery` is declarable today and refused at startup, not by this chart -
-# `sutura-exec-bigquery` exists but no composition root links it yet
-# (`crates/sutura-config/src/sources.rs`). This golden is about the ConfigMap the chart
-# produces, not a claim that this deployment boots.
+# `crates/sutura-config/tests/chart_renders.rs` loads this render as settings, so the source
+# declares every key `kind: bigquery` requires.
 environment: production
 security:
   accessToken:
@@ -17,10 +15,13 @@ security:
   tlsTermination: ingress
 config:
   base:
+    security:
+      identity: multi-user
     sources:
       warehouse:
         kind: bigquery
         billing_project: sutura-analytics
         dataset: metrics
+        max_bytes_billed: 1073741824
         posture: shared-service-user
         acknowledged_because: "a single analytics project this deployment owns"

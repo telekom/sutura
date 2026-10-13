@@ -45,5 +45,9 @@ rustls-pki-types = { workspace = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
 
+[dev-dependencies]
+# `tests/chart_renders.rs` reads the chart's multi-document golden renders.
+serde_norway = { workspace = true }
+
 [lints]
 workspace = true
