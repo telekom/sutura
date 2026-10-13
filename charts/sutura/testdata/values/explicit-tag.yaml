@@ -8,3 +8,8 @@ security:
   tlsTermination: ingress
 image:
   tag: "pinned-tag"
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

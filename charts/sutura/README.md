@@ -21,6 +21,9 @@ The values file must set `environment` and `security.metricsToken.secretName`.
 It must set `security.accessToken.secretName` unless `config.base` or `config.environment` sets
 `security.inbound.mode`.
 With `security.inbound.mode: direct`, it must not set an access token.
+Without `security.inbound.mode`, it must set `security.identity: single-user` and a reason in
+`security.single_user_because`, and no source may be `impersonation-at-source`.
+To serve more than one user, declare `security.inbound` instead.
 It must also declare TLS: set `security.tlsTermination`, or set `tls.enabled: true` with `tls.secretName`.
 Each secret name refers to a Kubernetes Secret.
 

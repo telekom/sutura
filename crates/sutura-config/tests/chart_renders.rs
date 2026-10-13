@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Every golden render of `charts/sutura` is a configuration this binary starts with.
+//! Every golden render of `charts/sutura` is a configuration this binary starts with under `sutura serve`.
 //!
 //! The chart's own gate proves a render is what the template produces; this proves the binary
 //! accepts it. Read from the RENDERED output, so no second copy of the template's env mapping
@@ -14,6 +14,10 @@
 //!
 //! # What this does NOT reach
 //!
+//! * **A serve rule stricter than the agent rule.** `sutura serve`'s `/v1` rule
+//!   (`Settings::query_surface_refusals`) is asked here through `Settings::agent_surface_refusals`,
+//!   which refuses at least what it does with no inbound block. So a change that makes the serve
+//!   rule refuse more is not seen here; the serve cells hold that rule itself.
 //! * **A refusal outside the posture guard.** The unguarded copy drops only that guard. A refusal
 //!   raised while deriving a value from a limit still fails the render, so such a case is declared
 //!   `Binary::Derivation` by hand. A `Derivation` case must have no unguarded golden, so one the
@@ -112,7 +116,8 @@ mod tests {
         }
     }
 
-    /// Why the binary refuses these inputs, or `None` when it starts.
+    /// Why the binary refuses these inputs, or `None` when `sutura serve` starts with them: its `/v1`
+    /// rule is asked through the agent rule (module docs).
     fn refusal(environment: &str, directory: Option<&Path>, variables: BTreeMap<String, String>) -> Option<String> {
         let environment = match Environment::parse(environment) {
             Ok(environment) => environment,
@@ -125,6 +130,9 @@ mod tests {
         match Settings::load(&sources) {
             Err(error) => Some(format!("{:?}", error.reason())),
             Ok(settings) if !settings.refusals().is_empty() => Some(format!("{:?}", settings.refusals())),
+            Ok(settings) if !settings.agent_surface_refusals().is_empty() => {
+                Some(format!("{:?}", settings.agent_surface_refusals()))
+            }
             Ok(_) => None,
         }
     }
@@ -218,7 +226,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 8] = [
+    const REFUSALS: [(&str, Binary); 11] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -240,10 +248,25 @@ mod tests {
             "environment-not-exact",
             Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
         ),
+        // `sutura serve` refuses it as `QuerySurfaceWithoutInboundIdentity`, asked through the agent rule.
+        (
+            "identity-undeclared-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
+        ),
+        // `sutura serve` refuses it as `QuerySurfaceOverAnImpersonatingSource`, asked through the agent rule.
+        (
+            "impersonating-source-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceOverAnImpersonatingSource { .. })),
+        ),
         ("memory-limit-unparseable", Binary::Derivation),
         (
             "metrics-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::MetricsTokenRequired { .. })),
+        ),
+        // `sutura serve` refuses it as `QuerySurfaceWithoutInboundIdentity`, asked through the agent rule.
+        (
+            "multi-user-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
         ),
     ];
 
@@ -325,6 +348,7 @@ mod tests {
                     SettingsError::NotFitToServe { refusals } if refusals.iter().any(held) => {}
                     other => wrong.push(format!("{name}: the binary refuses it another way: {other:?}")),
                 },
+                (Binary::Refuses(held), Ok(Ok(settings))) if settings.agent_surface_refusals().iter().any(held) => {}
                 (Binary::Refuses(_), Ok(Ok(_))) => {
                     wrong.push(format!("{name}: the chart refuses it and the binary starts with it"));
                 }

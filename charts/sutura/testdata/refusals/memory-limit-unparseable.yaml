@@ -10,3 +10,8 @@ security:
 resources:
   limits:
     memory: "1Pi"
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
