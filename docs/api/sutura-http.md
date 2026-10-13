@@ -2354,6 +2354,9 @@ and an error is not a place for credential material.
   client sending `Basic` or `Negotiate` here is a client configured for a different service, and a
   log saying nothing was presented sends whoever reads it looking for a missing header. The scheme
   itself is not rendered: it is caller text.
+- `Repeated` - The header this deployment reads was sent more than once.
+
+  Reading either line is choosing which caller to believe, so none is read.
 - `TooLong`
 - `UnreadableHeader` - The header is not a JWT header, or names no key.
 - `NoKeyId` - No `kid`.
