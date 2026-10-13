@@ -1,0 +1,19 @@
+# Mirrors the binary's `DeploymentTokenSharesTheHeader` refusal: the binary trims the mode, so
+# `' direct '` is `direct`, and an access token beside it is refused.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  base:
+    security:
+      inbound:
+        mode: " direct "
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        algorithms: [RS256]
