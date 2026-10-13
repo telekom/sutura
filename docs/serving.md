@@ -61,6 +61,8 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | `security.metrics_token` equal to `security.access_token`                                                       | Use two values                                                                              |
 | `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
 | `server.agent_surface.enabled` with no `security.inbound` and a source with `impersonation-at-source`           | Declare `security.inbound`                                                                  |
+| No `security.inbound` and `security.identity` is not `single-user`                                              | Declare `security.inbound`, or `single-user` with its reason                                |
+| No `security.inbound` and a source with `impersonation-at-source`                                               | Declare `security.inbound`                                                                  |
 | A `security.inbound` block with no `mode`                                                                       | Write `direct` or `behind-gateway`                                                          |
 | `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families           | Name algorithms of one asymmetric key family                                                |
 | A `security.inbound.key_set_file` that is unreadable or not a JWK set                                           | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
