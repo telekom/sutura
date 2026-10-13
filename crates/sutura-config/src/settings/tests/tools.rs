@@ -71,6 +71,20 @@ fn the_raw_tool_in_multi_user_mode_over_an_acknowledged_shared_source_is_fit_to_
 }
 
 #[test]
+fn the_raw_tool_enabled_in_multi_user_mode_is_not_fit_to_serve() {
+    let sources = Sources::defaults(Environment::Development)
+        .with_overlay("security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n");
+    let error = Settings::load(&sources).expect_err("the raw tool over a shared identity does not serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(*refusals, vec![NotFitToServe::RunSqlEnabledInMultiUserMode]);
+    let rendered = refusals.first().expect("one refusal").to_string();
+    assert!(rendered.contains("tools.run_sql.enabled"), "{rendered}");
+    assert!(rendered.contains("multi-user"), "{rendered}");
+}
+
+#[test]
 fn the_raw_tool_enabled_in_single_user_mode_is_fit_to_serve() {
     // The other half of the same predicate, so the refusal cannot be satisfied by refusing every
     // deployment that turns the tool on - only the mode it names.
