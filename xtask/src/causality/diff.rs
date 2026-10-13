@@ -464,4 +464,33 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files.first().map(|file| file.added.len()), Some(1));
     }
+
+    #[test]
+    fn a_commit_under_a_diff_attribute_still_lists_its_added_lines() {
+        let dir = std::env::temp_dir().join(format!("sutura-causality-diff-text-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(dir.join("tests")).unwrap();
+        let git = |args: &[&str]| {
+            let mut command = std::process::Command::new("git");
+            crate::repo::strip_git_env(&mut command);
+            let identity = ["-c", "user.email=user@example.com", "-c", "user.name=test"];
+            let out = command.current_dir(&dir).args(identity).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join(".gitattributes"), "*.rs -diff\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        std::fs::write(dir.join("tests/t.rs"), "#[test]\nfn t() {}\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "head"]);
+        let added = super::commit_additions(&dir, "HEAD").map(|files| {
+            files
+                .iter()
+                .map(|file| (file.path.clone(), file.added.len()))
+                .collect::<Vec<_>>()
+        });
+        drop(std::fs::remove_dir_all(&dir));
+        assert_eq!(added, Some(vec![(String::from("tests/t.rs"), 2)]));
+    }
 }
