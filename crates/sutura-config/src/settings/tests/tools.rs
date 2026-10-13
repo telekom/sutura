@@ -6,11 +6,14 @@
 
 use sutura_domain::model::SourceName;
 
-use super::sources::source_overlay;
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
 const MULTI_USER_RUN_SQL: &str = "security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n";
+const LOCAL: &str = "sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n";
+const SHARED: &str = "    posture: \"shared-service-user\"\n";
 const ACKNOWLEDGED: &str = "    acknowledged_because: \"a read-only reporting replica every caller may see\"\n";
+const IMPERSONATING: &str = "    posture: \"impersonation-at-source\"\n    workload_identity:\n      audience: \
+     \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n";
 
 /// What boot refuses, or nothing when it serves - so a cell's own assertion is what fails either way.
 fn refusals_of(overlay: String) -> Vec<NotFitToServe> {
@@ -38,10 +41,7 @@ fn the_raw_tool_in_multi_user_mode_with_no_source_is_not_fit_to_serve() {
 
 #[test]
 fn the_raw_tool_in_multi_user_mode_over_only_an_impersonating_source_is_not_fit_to_serve() {
-    let refusals = refusals_of(format!(
-        "{MULTI_USER_RUN_SQL}{}",
-        source_overlay("impersonation-at-source", "")
-    ));
+    let refusals = refusals_of(format!("{MULTI_USER_RUN_SQL}{LOCAL}{IMPERSONATING}"));
     assert_eq!(refusals, vec![NotFitToServe::RunSqlEnabledInMultiUserMode]);
 }
 
@@ -49,7 +49,7 @@ fn the_raw_tool_in_multi_user_mode_over_only_an_impersonating_source_is_not_fit_
 fn the_raw_tool_in_multi_user_mode_over_an_unacknowledged_shared_source_is_not_fit_to_serve() {
     // The missing acknowledgement fires first, and the raw tool's own refusal follows it: an
     // unacknowledged source is no acknowledged one.
-    let refusals = refusals_of(format!("{MULTI_USER_RUN_SQL}{}", source_overlay("shared-service-user", "")));
+    let refusals = refusals_of(format!("{MULTI_USER_RUN_SQL}{LOCAL}{SHARED}"));
     assert_eq!(
         refusals,
         vec![
@@ -63,10 +63,7 @@ fn the_raw_tool_in_multi_user_mode_over_an_unacknowledged_shared_source_is_not_f
 
 #[test]
 fn the_raw_tool_in_multi_user_mode_over_an_acknowledged_shared_source_is_fit_to_serve() {
-    let refusals = refusals_of(format!(
-        "{MULTI_USER_RUN_SQL}{}",
-        source_overlay("shared-service-user", ACKNOWLEDGED)
-    ));
+    let refusals = refusals_of(format!("{MULTI_USER_RUN_SQL}{LOCAL}{SHARED}{ACKNOWLEDGED}"));
     assert!(refusals.is_empty(), "{refusals:?}");
 }
 

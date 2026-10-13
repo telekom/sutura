@@ -15,7 +15,7 @@ use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sourc
 ///
 /// The path is absolute because a relative one is refused at parse - that refusal has its own test in
 /// [`crate::sources`] - and this helper exists to reach the *deployment-level* refusals underneath it.
-pub(super) fn source_overlay(posture: &str, extra: &str) -> String {
+fn source_overlay(posture: &str, extra: &str) -> String {
     let workload = if posture == "impersonation-at-source" {
         "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n"
     } else {
