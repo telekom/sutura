@@ -1,6 +1,7 @@
 //! `causality::run` over a diff that deletes a test file whole. The deleted file has no post-image,
 //! so the diff lists nothing for it, and the rule for a test removed from a file that stays
-//! (a `Weakens-Test:` trailer naming it) has to hold for the lines it held all the same.
+//! (a `Weakens-Test:` trailer naming it) has to hold for the lines it held all the same. Both
+//! rules hold under a diff attribute too, because the gate reads the diff as text.
 
 use super::committed_tree;
 use crate::Verdict;
@@ -48,4 +49,37 @@ fn a_test_file_deleted_ahead_of_another_changed_path_is_held_the_same() {
         trailer_ladder("tests/a.rs", &[("tests/zz.rs", "pub fn aux() {}\n")]),
         (Verdict::Fail, Verdict::Fail, Verdict::Pass)
     );
+}
+
+/// Marks every Rust file `-diff`, so a plain `git diff` prints no hunk for any of them.
+const NO_DIFF: (&str, &str) = (".gitattributes", "*.rs -diff\n");
+
+/// The verdicts with no trailer and with one per name in `waived`, over a head that turns the
+/// base's `tests/pins.rs` (holding [`PINS`]) into `head` - `None` deletes it - under [`NO_DIFF`].
+fn under_no_diff(head: Option<&str>, waived: &[&str]) -> (Verdict, Verdict) {
+    let base = [NO_DIFF, ("src/lib.rs", LIB), ("tests/pins.rs", PINS)];
+    let kept = head.map(|content| ("tests/pins.rs", content));
+    let after: Vec<(&str, &str)> = [NO_DIFF, ("src/lib.rs", LIB)].into_iter().chain(kept).collect();
+    let trailers: String = waived
+        .iter()
+        .map(|name| ["Weakens-Test: ", name, " - superseded\n"].concat())
+        .collect();
+    (
+        committed_tree("test: drop a pin\n", &base, &after),
+        committed_tree(&format!("test: drop a pin\n\n{trailers}"), &base, &after),
+    )
+}
+
+#[test]
+fn a_test_file_deleted_whole_under_a_diff_attribute_is_still_held() {
+    assert_eq!(
+        under_no_diff(None, &["pins_f", "pins_f_again"]),
+        (Verdict::Fail, Verdict::Pass)
+    );
+}
+
+#[test]
+fn a_test_removed_from_a_kept_file_under_a_diff_attribute_is_still_held() {
+    let kept = "#[test]\nfn pins_f() {\n    assert_eq!(wired::f(), 1);\n}\n";
+    assert_eq!(under_no_diff(Some(kept), &["pins_f_again"]), (Verdict::Fail, Verdict::Pass));
 }

@@ -78,7 +78,7 @@ pub(crate) fn changes(base: &Commit) -> Option<Changes> {
     let mut command = Command::new("git");
     crate::repo::strip_git_env(&mut command);
     let out = command
-        .args(["diff", "--unified=0", "--no-color", base.as_str(), "--"])
+        .args(["diff", "--text", "--unified=0", "--no-color", base.as_str(), "--"])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -109,7 +109,15 @@ pub(crate) fn commit_additions(dir: &Path, commit: &str) -> Option<Vec<ChangedFi
     crate::repo::strip_git_env(&mut command);
     let out = command
         .args(["-C", dir.as_os_str().to_str()?])
-        .args(["diff", "--unified=0", "--no-color", &format!("{commit}^"), commit, "--"])
+        .args([
+            "diff",
+            "--text",
+            "--unified=0",
+            "--no-color",
+            &format!("{commit}^"),
+            commit,
+            "--",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -167,8 +175,8 @@ fn parse(text: &str) -> Changes {
             before = Some(String::from(rest));
             continue;
         }
-        // A `-diff` file - `Cargo.lock`, by `.gitattributes` - gets this line and no `+++` header,
-        // so it used to vanish from the diff, and from every build-input decision with it.
+        // Only a diff without `--text` prints this line, and no `+++` header: a `-diff` file such as
+        // `Cargo.lock` would otherwise vanish, and every build-input decision with it.
         if let Some((old, new)) = (!in_hunk).then(|| binary_paths(line)).flatten() {
             if let Some(done) = current.take() {
                 files.push(done);
