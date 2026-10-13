@@ -263,7 +263,7 @@ pub(crate) async fn ask(
 
     // The fields are declared on the span in `crate::router::request_span`, as `Empty`, and filled in
     // here because this is the first line at which the body has parsed and the values exist.
-    sutura_app::question::received(&query, asked.context());
+    sutura_app::question::received(&tracing::Span::current(), &query, asked.context());
 
     // Before the task is spawned, and not inside it: a slot acquired inside the blocking task would
     // be a thread already taken while waiting for permission to take one.

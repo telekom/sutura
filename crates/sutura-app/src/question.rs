@@ -18,23 +18,29 @@ use crate::surface::SurfaceFailure;
 
 /// Says which question was asked, before it is answered or turned away.
 ///
-/// `metric` and `grain` go on the current span, so every later line of the request carries them
+/// `metric` and `grain` go on the request span, so every later line of the request carries them
 /// (they are what the request IS, and what an operator filters by); `asker` goes with them as the
 /// established label, never the subject. The counts stay on the event. Deliberately no filter value:
 /// a value reflected into a log outlives the request.
 ///
-/// A transport must have declared `metric`, `grain` and `asker` on the span it calls this inside:
-/// `tracing` cannot record a field a span was not opened with, and drops the write silently.
-pub fn received(query: &Query, asker: &RequestContext) {
-    let span = tracing::Span::current();
-    span.record("metric", tracing::field::display(query.metric()));
-    span.record("grain", tracing::field::display(query.grain()));
-    span.record("asker", asker.chain().subject().established());
-    tracing::info!(
-        dimensions = query.dimensions().len(),
-        filters = query.filters().len(),
-        "question received"
-    );
+/// `request` is the span the transport declared `metric`, `grain` and `asker` on, and it is passed
+/// rather than read from `Span::current()` because the current span is not always that one: `tracing`
+/// cannot record a field a span was not opened with and drops the write silently, and the `/mcp`
+/// tool call runs inside a span of the MCP library, a child of the request's. The line is written
+/// inside `request` for the same reason: the log formatter copies a parent's fields into a child when
+/// the child opens, so a span opened before these records - that MCP span among them - never carries
+/// them, and neither does a line written inside it.
+pub fn received(request: &tracing::Span, query: &Query, asker: &RequestContext) {
+    request.record("metric", tracing::field::display(query.metric()));
+    request.record("grain", tracing::field::display(query.grain()));
+    request.record("asker", asker.chain().subject().established());
+    request.in_scope(|| {
+        tracing::info!(
+            dimensions = query.dimensions().len(),
+            filters = query.filters().len(),
+            "question received"
+        );
+    });
 }
 
 /// How one question ended, as the series count it.

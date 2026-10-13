@@ -229,11 +229,12 @@ pub struct AgentSurface<S> {
     /// cheap to hold and every clone shares one permit set - see the module documentation for why
     /// that matters more than where the semaphore was built.
     admission: Admission,
-    /// Where each question's wait, shed and end are counted.
-    ///
-    /// Required for the reason `admission` is: a surface that forgot to say is not a state that
-    /// exists. Standard input and output has no scrape endpoint and says [`question::Unmetered`].
+    /// Where each question's wait, shed and end are counted. Required for the reason `admission` is;
+    /// standard input and output has no scrape endpoint and says [`question::Unmetered`].
     meter: Arc<dyn QuestionMeter>,
+    /// The span the transport declared `metric`, `grain` and `asker` on - not `Span::current()`, the
+    /// MCP library's own span, which did not. [`tracing::Span::none`] on standard input and output.
+    request: tracing::Span,
     /// How long a peer waits for a reply before this surface answers instead of waiting.
     ///
     /// `telekom/sutura#339`. Not an `Option` for the third time in this struct: an unbounded wait
@@ -315,10 +316,18 @@ impl<S> AgentSurface<S> {
             row_ceilings: sutura_domain::plan::RowCeilings::DEFAULT,
             admission,
             meter,
+            request: tracing::Span::none(),
             reply,
             tools,
             operator_instructions,
         }
+    }
+
+    /// The request span this surface answers inside, so a question's fields land on it.
+    #[must_use]
+    pub fn within_request(mut self, request: tracing::Span) -> Self {
+        self.request = request;
+        self
     }
 
     #[must_use]
@@ -507,9 +516,8 @@ where
                 // `sutura_app::Asked`'s own module documentation gives the same reason for why it is
                 // `Clone` at all.
                 let asked_as = asked.context().clone();
-                // The line `/v1` writes at the same point: after the arguments parse, before the
-                // question waits for a slot.
-                question::received(&query, &asked_as);
+                // Where `/v1` writes the line: after the arguments parse, before the slot wait.
+                question::received(&self.request, &query, &asked_as);
                 tokio::select! {
                     result = answer(&self.service, &self.admission, &*self.meter, self.reply, asked_as, query) => result,
                     () = context.ct.cancelled() => {
@@ -856,12 +864,8 @@ where
     // `reply` itself wraps the admission window: `docs/adr/0029`.
     let started = Instant::now();
     let deadline = Deadline::opened_at(started, reply.budget());
-    let (result, end) = match tokio::time::timeout(
-        reply.duration(),
-        admitted(service, admission, meter, asked_as, query, deadline),
-    )
-    .await
-    {
+    let answering = admitted(service, admission, meter, asked_as, query, deadline);
+    let (result, end) = match tokio::time::timeout(reply.duration(), answering).await {
         Ok(done) => done,
         Err(_elapsed) => (outcome::outran_its_deadline(reply), QuestionEnd::TimedOut),
     };
@@ -869,9 +873,8 @@ where
     result
 }
 
-/// A slot, with its wait observed however this future ends and a shed counted.
-///
-/// The one place both questions and raw statements wait for a turn, so neither can wait unseen.
+/// A slot, its wait observed however this future ends and a shed counted: the one place questions
+/// and raw statements wait for a turn, so neither waits unseen.
 async fn admit(admission: &Admission, meter: &dyn QuestionMeter) -> Result<Slot, AtCapacity> {
     let _wait = AdmissionWait::start(meter);
     admission.admit().await.inspect_err(|_shed| meter.shed())
