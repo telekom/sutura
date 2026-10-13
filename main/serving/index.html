@@ -4109,11 +4109,12 @@ caller identity and grants every tool the deployment turns on. <code>runtime.max
 <h3 id="the-raw-sql-tool">The raw SQL tool<a class="headerlink" href="#the-raw-sql-tool" title="Permanent link">&para;</a></h3>
 <p><code>tools.run_sql.enabled</code> is <code>false</code> by default. When it is off, <code>run_sql</code> is not in <code>tools/list</code> or in <code>/openapi.json</code>.
 A call to <code>/v1/sql/run</code> gets <code>403</code> with <code>code: tool_not_enabled</code>. A <code>run_sql</code> call over <code>/mcp</code> or <code>sutura mcp</code> gets
-the JSON-RPC error <code>-32601</code> with the message <code>`run_sql` is not available to this caller. It requires the scope
-`sutura:sql.run`.</code>. When it is on, the caller needs <code>sutura:sql.run</code> as well. The
-tool answers only where the deployment has one source. The row cap of a certified answer applies, and every call
-writes an audit record. The page of the data system says what bounds a statement:
-<a href="../integrations/data-systems/postgres/">Postgres</a>, <a href="../integrations/data-systems/duckdb/">DuckDB</a>.</p>
+the JSON-RPC error <code>-32601</code> with the message <code>`run_sql` is not enabled on this deployment. The operator turns it on
+with `tools.run_sql.enabled`.</code>. This holds for every caller, with or without the scope. When it is on, the caller
+needs <code>sutura:sql.run</code> as well: without it, <code>/v1/sql/run</code> gets <code>403</code> with <code>code: insufficient_scope</code>, and <code>/mcp</code> gets
+<code>-32601</code> with a message that names the scope. The tool answers only where the deployment has one source. The row
+cap of a certified answer applies, and every call writes an audit record. The page of the data system says what
+bounds a statement: <a href="../integrations/data-systems/postgres/">Postgres</a>, <a href="../integrations/data-systems/duckdb/">DuckDB</a>.</p>
 <h2 id="endpoints">Endpoints<a class="headerlink" href="#endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
