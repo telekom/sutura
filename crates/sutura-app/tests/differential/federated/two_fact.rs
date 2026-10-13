@@ -26,8 +26,8 @@ use sutura_domain::warehouse::{Real, RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
 use super::corpus::{TWO_FACT_QUESTION, derived, lookup_source};
-use super::harness::{Side, answered, bundle, opened_on, two_engines};
-use crate::adapters::{DataSystemUnderTest, source};
+use super::harness::{OpensFederated, Side, answered, bundle, opened_on, two_engines};
+use crate::adapters::source;
 
 const NAME: &str = "two-fact-tickets-per-subscription";
 
@@ -163,7 +163,7 @@ pub(crate) enum TwoFact {
 /// `Cube`.
 pub(crate) fn compared<W>() -> TwoFact
 where
-    W: DataSystemUnderTest + Sync,
+    W: OpensFederated + Sync,
     W::Error: Send,
 {
     if !W::available() {

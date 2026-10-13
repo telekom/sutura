@@ -161,6 +161,12 @@ departure), the table is recreated, then the file is sent as the body of an
 `INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
 
 ```rust
+pub fn load_federated_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
+```
+
+`Self::load_csv`, except a column holding an empty cell is `Nullable`, so the cell is NULL.
+
+```rust
 pub const fn of(source: SourceName, posture: SourcePosture, transport: T, result_budget: sutura_domain::warehouse::ResultBudget) -> Self
 ```
 
@@ -274,7 +280,11 @@ real and differ from all three for a reason that is the importer's, not the serv
 measured to matter only over a non-`Nullable` schema, so a nullable importer would make the
 executed goldens blind to that setting. And a non-`Nullable` column reads an empty CSV cell as
 the type's default - `0`, `''` - where every other adapter reads `NULL`: a silently different
-fixture. No committed fixture has one; a future one is refused rather than rewritten.
+fixture. No golden-matrix fixture has one; a future one is refused rather than rewritten.
+
+The federated corpus holds one absent key on purpose, so `ClickHouseWarehouse::load_federated_csv`
+declares `Nullable` exactly the columns holding an empty cell, at the matrix's type, and every
+other column as the matrix does.
 
 ### `enum FixtureVariable`
 

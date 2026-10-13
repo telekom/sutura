@@ -412,15 +412,14 @@ fn a_leg_signs_the_caller_in_with_the_exchanged_token() {
 fn a_leg_under_execute_as_is_refused_before_sending() {
     let leg_case = sutura_conformance::corpus::leg_case();
     let warehouse = impersonating(Scripted::answering("[]\n[]\n"));
-    let outcome = warehouse.execute(
-        Executable::Leg(leg_case.leg()),
-        &as_principal("analyst_one"),
-        sutura_conformance::corpus::deadline(),
-    );
-    assert!(
-        matches!(outcome, Err(ClickHouseError::LegUnderExecuteAs { .. })),
-        "{outcome:?}"
-    );
+    let error = warehouse
+        .execute(
+            Executable::Leg(leg_case.leg()),
+            &as_principal("analyst_one"),
+            sutura_conformance::corpus::deadline(),
+        )
+        .expect_err("a leg under `EXECUTE AS` is refused");
+    assert!(error.to_string().contains("switched by `EXECUTE AS`"), "{error}");
     assert_eq!(warehouse.transport.last_statement(), None, "nothing was sent");
 }
 
