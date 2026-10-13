@@ -194,25 +194,7 @@ impl ClickHouseWarehouse<Http> {
         {
             return Err(FixtureError::EmptyCell { path: shown(), line });
         }
-        let nullable = if load == Columns::Federated {
-            columns_with_an_empty_cell(&text)
-        } else {
-            BTreeSet::new()
-        };
-        let columns = csv::infer(&text).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
-        let declared: Vec<String> = columns
-            .iter()
-            .enumerate()
-            .map(|(index, column)| {
-                let kind = match (load, column.kind()) {
-                    (Columns::Conformance, FixtureType::Decimal { scale }) => format!("Nullable(Decimal(38,{scale}))"),
-                    (Columns::Conformance, other) => format!("Nullable({})", clickhouse_type(other)),
-                    (_, other) if nullable.contains(&index) => format!("Nullable({})", clickhouse_type(other)),
-                    (_, other) => String::from(clickhouse_type(other)),
-                };
-                format!("\"{}\" {kind}", column.name().as_str())
-            })
-            .collect();
+        let declared = declared_columns(&text, load).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
         let server = |cause| FixtureError::Server {
             subject: format!("table {table}"),
             cause,
@@ -237,6 +219,28 @@ enum Columns {
     Federated,
     /// Exact decimals, every column `Nullable`.
     Conformance,
+}
+
+/// Each column of a fixture CSV as `CREATE TABLE` declares it under `load`.
+fn declared_columns(text: &str, load: Columns) -> Result<Vec<String>, InferenceError> {
+    let nullable = if load == Columns::Federated {
+        columns_with_an_empty_cell(text)
+    } else {
+        BTreeSet::new()
+    };
+    Ok(csv::infer(text)?
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            let kind = match (load, column.kind()) {
+                (Columns::Conformance, FixtureType::Decimal { scale }) => format!("Nullable(Decimal(38,{scale}))"),
+                (Columns::Conformance, other) => format!("Nullable({})", clickhouse_type(other)),
+                (_, other) if nullable.contains(&index) => format!("Nullable({})", clickhouse_type(other)),
+                (_, other) => String::from(clickhouse_type(other)),
+            };
+            format!("\"{}\" {kind}", column.name().as_str())
+        })
+        .collect())
 }
 
 /// The column type attached for one shared fixture classification.
@@ -278,7 +282,7 @@ fn columns_with_an_empty_cell(text: &str) -> BTreeSet<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FixtureVariable, UnconfiguredFixture, columns_with_an_empty_cell, first_empty_cell, parse};
+    use super::{Columns, FixtureVariable, UnconfiguredFixture, declared_columns, first_empty_cell, parse};
 
     #[test]
     fn an_absent_or_blank_variable_is_refused_and_named() {
@@ -298,13 +302,13 @@ mod tests {
     }
 
     #[test]
-    fn only_a_column_holding_an_empty_cell_is_nullable() {
+    fn a_federated_load_declares_nullable_only_the_columns_holding_an_empty_cell() {
+        let text = "a,b,c\n1,,x\n\n4,5,\n";
+        let declared = |load| declared_columns(text, load).expect("the columns classify");
         assert_eq!(
-            columns_with_an_empty_cell("a,b,c\n1,,3\n\n4,5,\n")
-                .into_iter()
-                .collect::<Vec<_>>(),
-            [1, 2]
+            declared(Columns::Federated),
+            ["\"a\" Int64", "\"b\" Nullable(Int64)", "\"c\" Nullable(String)"]
         );
-        assert!(columns_with_an_empty_cell("a,b\n1,2\n").is_empty());
+        assert_eq!(declared(Columns::Matrix), ["\"a\" Int64", "\"b\" Int64", "\"c\" String"]);
     }
 }
