@@ -118,7 +118,7 @@ impl TokenAudience {
         Ok(Self(String::from(trimmed)))
     }
 
-    /// The value of every [`ResourceIdentifier`] nobody wrote an audience for.
+    /// The value of every [`ResourceIdentifier`](crate::inbound::ResourceIdentifier) nobody wrote an audience for.
     pub(super) const fn verbatim(identifier: String) -> Self {
         Self(identifier)
     }

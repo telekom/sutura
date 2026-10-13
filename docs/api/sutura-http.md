@@ -1338,6 +1338,7 @@ Why a scope string is not one.
   The position and never the value, like every other refusal in this crate: a scope is caller
   text, and the character classes that matter most here - a control character, an invisible one -
   are exactly the ones that would print as nothing.
+- `NotAScopeClaim` - An extra scope claim that is neither a string nor an array of strings.
 
 ##### Implements
 
@@ -2468,7 +2469,7 @@ differently, and every field on it is a control.
 ##### Methods
 
 ```rust
-pub const fn audience(&self) -> &ResourceIdentifier
+pub const fn audience(&self) -> &TokenAudience
 ```
 
 The audience this validator requires, for a challenge and for a log line.
