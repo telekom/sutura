@@ -107,6 +107,7 @@ no default mode:
 
 [Inbound identity](integrations/identity.md) has the settings, the key set and its rotation. In `direct` mode, a
 refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed.
+[Serving behind a gateway](serving-behind-a-gateway.md) covers a gateway that signs into `Authorization`.
 
 The `scope` claim of the token decides which operations the caller can use:
 
@@ -291,6 +292,25 @@ An invalid pair is logged at `error` and ignored. Let a certificate manager rene
 
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.
+
+## A published container port
+
+A published port (`docker run -p`, or a `ports:` entry in a compose file) lets callers reach the container from outside it.
+Inside the container, loopback is the container, so the bind is `server.host: "0.0.0.0"`. sutura sees a bind that other
+hosts can reach. It does not see where the port is published, so it applies the [off-host](#start-up-refusals) rules.
+There is no setting that names a published port.
+
+| Setting                                       | Value                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| `server.host`                                 | `0.0.0.0`                                                                  |
+| `security.access_token` or `security.inbound` | One of them ([Who is asking](#who-is-asking))                              |
+| `security.metrics_token`                      | A value that differs from the access token                                 |
+| `rate_limit.enabled`                          | `true`. It is the default in production                                    |
+| `security.tls_termination`                    | The value that is true for the deployment ([TLS](#tls)). `none` is refused |
+
+A port-forward to the loopback of a host has no value of its own: no value of `security.tls_termination` states it.
+For callers on the same machine and nothing else, publish no port. Use `--network host` and the loopback bind, as in
+[Run it](#run-it).
 
 ## The log
 
