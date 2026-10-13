@@ -64,6 +64,7 @@ use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqu
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
+use sutura_oracle_connect::DialError;
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -196,9 +197,9 @@ pub enum OracleError {
         #[source]
         cause: DriverError,
     },
-    /// The driver's packet trace is switched on - see [`sutura_runtime::oracle_trace::refuse`].
+    /// The driver's packet trace is switched on - see [`sutura_oracle_connect::oracle_trace::refuse`].
     #[error(transparent)]
-    PacketTraceOn(#[from] sutura_runtime::oracle_trace::PacketTraceOn),
+    PacketTraceOn(#[from] sutura_oracle_connect::oracle_trace::PacketTraceOn),
 }
 
 /// An Oracle connection, behind the [`Warehouse`] port.
@@ -244,51 +245,9 @@ impl core::fmt::Debug for OracleWarehouse {
     }
 }
 
-/// How long the TCP connect to the listener may take before the dial is refused.
-///
-/// The bound covers the connect only: a listener that accepts and then never answers is not bounded
-/// by it, because the driver reads its handshake with no timeout.
-pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// How the connection to the listener is secured.
-#[derive(Debug, Clone, Copy)]
-pub enum Channel<'pem> {
-    /// No transport security. A composition root reaches this only for a loopback host.
-    Plaintext,
-    /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
-    /// public certificate authorities rather than adding to them.
-    Verified { anchors_pem: &'pem str },
-}
-
-/// Where one connection goes and how it is secured: an EZCONNECT `host:port/service_name`.
-#[derive(Debug, Clone, Copy)]
-pub struct Dial<'dial> {
-    host: &'dial str,
-    port: u16,
-    service_name: &'dial str,
-    channel: Channel<'dial>,
-    deadline: std::time::Duration,
-}
-
-impl<'dial> Dial<'dial> {
-    /// A dial bounded by [`DIAL_DEADLINE`].
-    #[must_use]
-    pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel: Channel<'dial>) -> Self {
-        Self {
-            host,
-            port,
-            service_name,
-            channel,
-            deadline: DIAL_DEADLINE,
-        }
-    }
-
-    /// The same dial with its TCP connect bounded by `deadline` instead.
-    #[must_use]
-    pub const fn within(self, deadline: std::time::Duration) -> Self {
-        Self { deadline, ..self }
-    }
-}
+#[cfg(test)]
+use sutura_oracle_connect::ezconnect;
+pub use sutura_oracle_connect::{Channel, DIAL_DEADLINE, Dial, oracle_trace};
 
 /// The declared dial with no user or password: where each question's own session is opened, with
 /// the asker's own token, at an `impersonation-at-source` source.
@@ -313,23 +272,11 @@ impl TokenSessions {
     /// [`OracleError::TrustAnchors`] for anchors that are not usable certificates, and
     /// [`OracleError::Connect`] for an address the driver cannot parse.
     pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
-        sutura_runtime::oracle_trace::refuse()?;
-        let address = ezconnect(dial.host, dial.port, dial.service_name);
-        let connect_string = match dial.channel {
-            Channel::Plaintext => address,
-            Channel::Verified { .. } => format!("tcps://{address}"),
-        };
-        let mut config = oracledb::Config::default()
-            .set_connect_string(&connect_string)
-            .map_err(connect_err)?
-            .set_follow_redirects(false)
-            .set_transport_connect_timeout(Some(dial.deadline));
-        if let Channel::Verified { anchors_pem } = dial.channel {
-            config = config
-                .set_trust_anchors_pem(anchors_pem)
-                .map_err(|cause| OracleError::TrustAnchors { cause: cause.into() })?;
-        }
-        Ok(Self(config))
+        dial.config().map(Self).map_err(|refused| match refused {
+            DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
+            DialError::TrustAnchors(cause) => OracleError::TrustAnchors { cause: cause.into() },
+            DialError::Address(cause) => connect_err(cause),
+        })
     }
 
     /// Opens one session that authenticates with `token`. Dropping it closes the session.
@@ -517,21 +464,6 @@ impl OracleWarehouse {
             most_rows: None,
         };
         batches::query(&self.connection, query.sql(), &refs, stop, || Ok(()))
-    }
-}
-
-/// An EZCONNECT `host:port/service_name`, with an IPv6 literal in brackets.
-///
-/// The driver's EZCONNECT parser reads a host as a bracketed literal or a run of name characters,
-/// so an unbracketed `::1:1521/FREEPDB1` is not an EZCONNECT string to it at all: it falls through
-/// to a `tnsnames.ora` alias lookup and fails - or, where a configuration directory is set in the
-/// environment, resolves whatever that file names. Bracketing is decided on a parsed address, not
-/// on the presence of a `:`, so a name is never wrapped.
-fn ezconnect(host: &str, port: u16, service_name: &str) -> String {
-    if host.parse::<std::net::Ipv6Addr>().is_ok() {
-        format!("[{host}]:{port}/{service_name}")
-    } else {
-        format!("{host}:{port}/{service_name}")
     }
 }
 
@@ -836,7 +768,7 @@ mod tests {
     #[test]
     fn a_dial_is_bounded_by_ten_seconds() {
         let dial = Dial::new("127.0.0.1", 1521, "FREEPDB1", Channel::Plaintext);
-        assert_eq!(dial.deadline, Duration::from_secs(10));
+        assert_eq!(dial.deadline(), Duration::from_secs(10));
     }
 
     /// **An asker's token selects a session of its own, and nothing else does.** Only a source that

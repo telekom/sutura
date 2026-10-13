@@ -193,7 +193,10 @@ fn a_rdbms_catalog_declaring_the_system_trust_store_is_refused_naming_it() {
 #[cfg(feature = "oracle")]
 fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
     let scratch = ScratchDir::prepared();
-    let oracle = oracle_connection(&readable_password_file(&scratch).display().to_string());
+    let oracle = oracle_connection(
+        &readable_password_file(&scratch).display().to_string(),
+        &anchors(&scratch, &sutura_http_client::tls_test_support::issue()),
+    );
     let opened = crate::catalog::open_catalog(&catalogs(&oracle), None).expect("the Oracle reader opens at boot");
     assert!(
         matches!(&opened, crate::catalog::OpenedCatalogs::Rdbms(catalogs) if catalogs.len() == 1),
@@ -218,7 +221,8 @@ fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
 #[test]
 #[cfg(feature = "oracle")]
 fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
-    let err = crate::catalog::open_catalog(&catalogs(&oracle_connection("/definitely/not/a/real/secret")), None)
+    let connection = oracle_connection("/definitely/not/a/real/secret", "/definitely/not/a/real/anchors.pem");
+    let err = crate::catalog::open_catalog(&catalogs(&connection), None)
         .expect_err("an unreadable password file is a composition refusal");
     assert!(
         err.contains("`catalogs.dictionary.connection.password_file` could not be read"),
@@ -237,9 +241,14 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
     use crate::serve::refresh::{Outcome, Refresher};
 
     let scratch = ScratchDir::prepared();
-    let port = sutura_dev::tns_listener::authenticating(&[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
-    let connection = oracle_connection(&readable_password_file(&scratch).display().to_string())
-        .replace("port: 1521", &format!("port: {port}"));
+    let issued = sutura_http_client::tls_test_support::issue();
+    let (port, _sent) =
+        sutura_dev::tns_listener::authenticating_over(tls(&issued), &[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
+    let connection = oracle_connection(
+        &readable_password_file(&scratch).display().to_string(),
+        &anchors(&scratch, &issued),
+    )
+    .replace("port: 1521", &format!("port: {port}"));
     let opened = crate::catalog::open_catalog(&catalogs(&connection), None).expect("the Oracle reader opens at boot");
     let crate::catalog::OpenedCatalogs::Rdbms(opened) = opened else {
         panic!("an rdbms declaration opens an rdbms catalog")
@@ -276,10 +285,66 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
     );
 }
 
+/// **A `verified` Oracle catalog logs in inside TLS, under the anchor it declares.** The fake
+/// presents a leaf no public authority issued, so the reader's first authentication message reaches
+/// it only if the handshake verified against the declared bundle and the login went inside it. The
+/// fake completes no login, so this is a handshake and a login message, never a read.
+#[test]
 #[cfg(feature = "oracle")]
-fn oracle_connection(password_file: &str) -> String {
+fn a_verified_oracle_catalog_logs_in_inside_tls_under_its_declared_anchor() {
+    let scratch = ScratchDir::prepared();
+    let issued = sutura_http_client::tls_test_support::issue();
+    let (port, sent) =
+        sutura_dev::tns_listener::authenticating_over(tls(&issued), &[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
+    let connection = oracle_connection(
+        &readable_password_file(&scratch).display().to_string(),
+        &anchors(&scratch, &issued),
+    )
+    .replace("port: 1521", &format!("port: {port}"));
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay(&connection)))
+        .expect("a verified Oracle catalog is declarable");
+    let opened = crate::catalog::open_catalog(settings.catalogs(), None).expect("the Oracle reader opens at boot");
+    crate::catalog::load(&opened).expect_err("the fake completes no login");
+    let first = sent
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the reader's first authentication message reached the listener inside TLS");
+    assert!(
+        first.windows(b"reader".len()).any(|window| window == b"reader"),
+        "the login names the declared user: {first:?}"
+    );
+}
+
+#[cfg(feature = "oracle")]
+fn oracle_connection(password_file: &str, anchors: &str) -> String {
     format!(
         "      dialect: \"oracle\"\n      host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      \
-         user: \"reader\"\n      password_file: \"{password_file}\"\n      transport_mode: \"plaintext\"\n"
+         user: \"reader\"\n      password_file: \"{password_file}\"\n      transport_mode: \"verified\"\n      \
+         transport_anchors: \"{anchors}\"\n"
     )
+}
+
+/// `issued`'s leaf as a PEM bundle in `scratch`: the only anchor a `verified` connection declares.
+#[cfg(feature = "oracle")]
+fn anchors(scratch: &ScratchDir, issued: &sutura_http_client::tls_test_support::Issued) -> String {
+    let path = scratch.0.join("anchors.pem");
+    std::fs::write(&path, issued.certificate().pem()).expect("the anchors file is writable");
+    path.display().to_string()
+}
+
+#[cfg(feature = "oracle")]
+type TlsStream = rustls::StreamOwned<rustls::ServerConnection, std::net::TcpStream>;
+
+/// Opens TLS presenting `issued`'s leaf on a connection the fake accepted, so it speaks TNS inside.
+#[cfg(feature = "oracle")]
+fn tls(
+    issued: &sutura_http_client::tls_test_support::Issued,
+) -> impl FnOnce(std::net::TcpStream) -> Option<TlsStream> + Send + 'static {
+    let config = sutura_http_client::tls_test_support::server_config(issued);
+    move |mut stream| {
+        let mut server = rustls::ServerConnection::new(config).ok()?;
+        while server.is_handshaking() {
+            let _io = server.complete_io(&mut stream).ok()?;
+        }
+        Some(rustls::StreamOwned::new(server, stream))
+    }
 }

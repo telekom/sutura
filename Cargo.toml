@@ -61,6 +61,8 @@ members = [
   # sutura#127` PR 2). THE DATA SOURCE, not an engine. Shipped: `nix/shipped.nix` lists the
   # `oracle` feature of `sutura-cli`.
   "crates/sutura-exec-oracle",
+  # The Oracle connector, held off `sutura-sql` so the catalog's Oracle reader can share it.
+  "crates/sutura-oracle-connect",
   # A Warehouse over a Cube metrics serving layer's REST API: Cube computes each metric.
   "crates/sutura-exec-cube",
   "crates/sutura-adbc",
@@ -159,6 +161,7 @@ sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 sutura-exec-cube = { path = "crates/sutura-exec-cube" }
 sutura-adbc = { path = "crates/sutura-adbc" }
 sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
+sutura-oracle-connect = { path = "crates/sutura-oracle-connect" }
 sutura-tls = { path = "crates/sutura-tls" }
 sutura-http-client = { path = "crates/sutura-http-client" }
 sutura-bounded-read = { path = "crates/sutura-bounded-read" }

@@ -926,38 +926,6 @@ than a broken example:
 assert_eq!(sutura_runtime::metrics::label("metric_unknown").as_str(), "metric_unknown");
 ```
 
-## Module `oracle_trace`
-
-The vendored Oracle driver's packet trace, which no Oracle dial in this workspace runs under.
-
-The variable is read from the process environment, so the refusal lives with the other process
-globals: `sutura-exec-oracle` and `sutura-catalog-rdbms`'s Oracle reader both ask `refuse`
-before they dial, and the composition root asks it before any command.
-
-### `struct PacketTraceOn`
-
-```rust
-pub struct PacketTraceOn
-```
-
-The driver's packet trace is switched on.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
-### `fn refuse`
-
-```rust
-pub fn refuse() -> Result<(), PacketTraceOn>
-```
-
-Refuses while the Oracle driver's packet trace is switched on.
-
-# Errors
-
-`PacketTraceOn` while the variable is set, at any value.
-
 ## Module `panics`
 
 A panic that reaches the log rather than only the terminal.

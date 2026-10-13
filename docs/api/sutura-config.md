@@ -134,9 +134,8 @@ selected.
 
 **Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
 before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
-dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
-plaintext EZCONNECT, loopback-confined. The composition root matches on the
-variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
+dials a documentation schema over a `PostgresDial`, and an Oracle connection over verified TLS
+only. The composition root matches on the variant to build the reader.
 
 ## `use CatalogEnvironment`
 
@@ -231,14 +230,17 @@ the value is arbitrary text, and **a reader must bind it as a parameter, never i
 
 ## `use OracleCatalogConnection`
 
-An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+An Oracle dictionary connection over TLS verified against a declared PEM bundle.
 
-**The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
-driver builds its own TLS configuration and takes no caller-built one, so `verified` and
-`mutual` transport modes are refused (not wired) and the declared `host` is confined to a
-loopback literal through `crate::sources::transport::refuse_remote_plaintext`. The driver
-names the database by `service_name` rather than `database`, so there is no `database` field.
-**No password is held here:** `password_file` is a path the composition root reads at boot.
+**No plaintext channel is representable**: the type holds the anchors path and the server name
+and nothing else, so `plaintext` is refused at parse - to a loopback host as
+`InvalidConnection::OraclePlaintext`, to any other through
+`crate::sources::transport::refuse_remote_plaintext`. The transport is read through the one
+match the `oracle` source kind reads it through, so the pinned driver's limit holds here too:
+it builds its own TLS configuration, so `transport_anchors: system` and `mutual` are refused.
+The driver names the database by `service_name` rather than `database`, so there is no
+`database` field. **No secret is held here:** `password_file` and `transport_anchors` are paths
+the composition root reads at boot.
 
 The connection stays on that host: the reader refuses a listener's redirect before
 authentication, held by `sutura-catalog-rdbms`'s
@@ -1824,9 +1826,8 @@ selected.
 
 **Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
 before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
-dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
-plaintext EZCONNECT, loopback-confined. The composition root matches on the
-variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
+dials a documentation schema over a `PostgresDial`, and an Oracle connection over verified TLS
+only. The composition root matches on the variant to build the reader.
 
 ### `use CatalogEnvironment`
 
@@ -1883,14 +1884,17 @@ the value is arbitrary text, and **a reader must bind it as a parameter, never i
 
 ### `use OracleCatalogConnection`
 
-An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+An Oracle dictionary connection over TLS verified against a declared PEM bundle.
 
-**The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
-driver builds its own TLS configuration and takes no caller-built one, so `verified` and
-`mutual` transport modes are refused (not wired) and the declared `host` is confined to a
-loopback literal through `crate::sources::transport::refuse_remote_plaintext`. The driver
-names the database by `service_name` rather than `database`, so there is no `database` field.
-**No password is held here:** `password_file` is a path the composition root reads at boot.
+**No plaintext channel is representable**: the type holds the anchors path and the server name
+and nothing else, so `plaintext` is refused at parse - to a loopback host as
+`InvalidConnection::OraclePlaintext`, to any other through
+`crate::sources::transport::refuse_remote_plaintext`. The transport is read through the one
+match the `oracle` source kind reads it through, so the pinned driver's limit holds here too:
+it builds its own TLS configuration, so `transport_anchors: system` and `mutual` are refused.
+The driver names the database by `service_name` rather than `database`, so there is no
+`database` field. **No secret is held here:** `password_file` and `transport_anchors` are paths
+the composition root reads at boot.
 
 The connection stays on that host: the reader refuses a listener's redirect before
 authentication, held by `sutura-catalog-rdbms`'s
@@ -1933,10 +1937,9 @@ these values into a reader over a Postgres documentation schema, and a build wit
 `kind: rdbms` by name. Every value below is a checked declaration either way.
 
 The `connection:` block selects its dialect through a `dialect` key (default `postgres`):
-`postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection held to
-plaintext, loopback-confined EZCONNECT - the constraint the `oracle` source kind holds - and
-nothing reads it: the composition root refuses it as not supported by this build, so the
-declaration is checked but never opened.
+`postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection over
+verified TLS only, to any host: `plaintext` is refused even on loopback, and a build without
+`sutura-cli`'s `oracle` feature refuses the declaration by name.
 
 #### `struct RdbmsSettings`
 
@@ -2150,14 +2153,13 @@ selected.
 
 **Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
 before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
-dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
-plaintext EZCONNECT, loopback-confined. The composition root matches on the
-variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
+dials a documentation schema over a `PostgresDial`, and an Oracle connection over verified TLS
+only. The composition root matches on the variant to build the reader.
 
 ##### Variants
 
 - `Postgres` - A Postgres documentation-schema connection, the default dialect.
-- `Oracle` - An Oracle dictionary connection: plaintext, loopback-confined EZCONNECT.
+- `Oracle` - An Oracle dictionary connection over verified TLS.
 
 ##### Implements
 
@@ -2178,7 +2180,7 @@ connection it always did.
 ##### Variants
 
 - `Postgres` - The Postgres documentation-schema reader - the default and the precedent.
-- `Oracle` - An Oracle connection, plaintext EZCONNECT over loopback. Parsed; no reader exists.
+- `Oracle` - An Oracle connection over verified TLS.
 
 ##### Methods
 
@@ -2235,14 +2237,17 @@ pub fn user(&self) -> &str
 pub struct OracleCatalogConnection
 ```
 
-An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+An Oracle dictionary connection over TLS verified against a declared PEM bundle.
 
-**The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
-driver builds its own TLS configuration and takes no caller-built one, so `verified` and
-`mutual` transport modes are refused (not wired) and the declared `host` is confined to a
-loopback literal through `crate::sources::transport::refuse_remote_plaintext`. The driver
-names the database by `service_name` rather than `database`, so there is no `database` field.
-**No password is held here:** `password_file` is a path the composition root reads at boot.
+**No plaintext channel is representable**: the type holds the anchors path and the server name
+and nothing else, so `plaintext` is refused at parse - to a loopback host as
+`InvalidConnection::OraclePlaintext`, to any other through
+`crate::sources::transport::refuse_remote_plaintext`. The transport is read through the one
+match the `oracle` source kind reads it through, so the pinned driver's limit holds here too:
+it builds its own TLS configuration, so `transport_anchors: system` and `mutual` are refused.
+The driver names the database by `service_name` rather than `database`, so there is no
+`database` field. **No secret is held here:** `password_file` and `transport_anchors` are paths
+the composition root reads at boot.
 
 The connection stays on that host: the reader refuses a listener's redirect before
 authentication, held by `sutura-catalog-rdbms`'s
@@ -2263,8 +2268,20 @@ pub const fn port(&self) -> u16
 ```
 
 ```rust
+pub const fn server_name(&self) -> &TlsServerName
+```
+
+The `host`, as the name the TLS handshake verifies.
+
+```rust
 pub const fn service_name(&self) -> &OracleServiceName
 ```
+
+```rust
+pub fn transport_anchors(&self) -> &Path
+```
+
+The PEM bundle the server is verified against, and no other certificate.
 
 ```rust
 pub fn user(&self) -> &str
@@ -2325,6 +2342,8 @@ its message names the key under `sources.<catalog name>` rather than under this 
 - `OracleServiceName`
 - `ForeignKey`
 - `TlsNotDeliverable`
+- `OraclePlaintext`
+- `TlsServerName`
 
 ##### Implements
 

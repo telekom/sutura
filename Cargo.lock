@@ -3952,7 +3952,7 @@ dependencies = [
  "sutura-adbc-postgres",
  "sutura-dev",
  "sutura-domain",
- "sutura-runtime",
+ "sutura-oracle-connect",
  "sutura-semantic",
  "thiserror 2.0.21",
 ]
@@ -4168,7 +4168,7 @@ dependencies = [
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
- "sutura-runtime",
+ "sutura-oracle-connect",
  "sutura-sql",
  "thiserror 2.0.21",
 ]
@@ -4256,6 +4256,14 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+]
+
+[[package]]
+name = "sutura-oracle-connect"
+version = "0.8.0"
+dependencies = [
+ "oracledb",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -37,21 +37,26 @@
 //!   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
 //!   driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
 //!   source, not observed against a server - so up to one batch is in memory before a cap refuses.
-//! - **The connection is plaintext and stays on its declared loopback host.** `sutura-config`'s
-//!   `OracleCatalogConnection` refuses TLS and a non-loopback host, and a listener's redirect is
-//!   refused before authentication as [`RdbmsError::RedirectRefused`].
+//! - **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
+//!   `OracleCatalogConnection` holds no plaintext channel, and [`OracleLogin::verified`]'s PEM
+//!   anchors replace the driver's public authorities; no client certificate is presented, and the
+//!   handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
+//!   bytes still cross the network, encrypted. A listener's redirect is refused before
+//!   authentication as [`RdbmsError::RedirectRefused`].
 //! - **`SharedServiceUser`, not leg 2.** A catalog read has no caller to run as; it is one login
 //!   under the user the deployment declared.
 
 use std::num::NonZeroU64;
 
 use sutura_domain::identity::Secret;
+use sutura_oracle_connect::{Channel, Dial, DialError};
 
 use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow, checked_bounds};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
-/// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial.
+/// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial, plaintext
+/// until [`OracleLogin::verified`].
 #[derive(Debug, Clone)]
 pub struct OracleLogin {
     host: String,
@@ -59,16 +64,14 @@ pub struct OracleLogin {
     service_name: String,
     user: String,
     password: Secret,
+    anchors_pem: Option<String>,
 }
 
 impl OracleLogin {
-    /// The EZCONNECT `host:port/service_name`, with an IPv6 literal bracketed.
+    /// The EZCONNECT `host:port/service_name` the dial formats.
+    #[cfg(test)]
     fn address(&self) -> String {
-        if self.host.parse::<std::net::Ipv6Addr>().is_ok() {
-            format!("[{}]:{}/{}", self.host, self.port, self.service_name)
-        } else {
-            format!("{}:{}/{}", self.host, self.port, self.service_name)
-        }
+        sutura_oracle_connect::ezconnect(&self.host, self.port, &self.service_name)
     }
 
     #[must_use]
@@ -79,6 +82,17 @@ impl OracleLogin {
             service_name,
             user,
             password,
+            anchors_pem: None,
+        }
+    }
+
+    /// The same login over TLS, verified against `anchors_pem` and no other certificate, with
+    /// `host` as the name the handshake verifies.
+    #[must_use]
+    pub fn verified(self, anchors_pem: String) -> Self {
+        Self {
+            anchors_pem: Some(anchors_pem),
+            ..self
         }
     }
 }
@@ -134,24 +148,28 @@ impl OracleReader {
 
     /// Opens the read's session, refused before it dials while the driver's packet trace is on.
     fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
-        sutura_runtime::oracle_trace::refuse().map_err(|on| RdbmsError::Read(Box::new(on)))?;
         let login = &self.login;
+        let channel = login
+            .anchors_pem
+            .as_deref()
+            .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
+        let config = Dial::new(&login.host, login.port, &login.service_name, channel)
+            .config()
+            .map_err(|refused| match refused {
+                DialError::PacketTraceOn(on) => RdbmsError::Read(Box::new(on)),
+                DialError::TrustAnchors(cause) | DialError::Address(cause) => read_err(cause),
+            })?;
         #[expect(
             clippy::disallowed_methods,
             reason = "the password's destination is the connection handshake, which is the one place the \
                       value itself is the payload"
         )]
         let password = login.password.expose_secret();
-        let config = oracledb::Config::default()
-            .set_connect_string(&login.address())
-            .map_err(read_err)?
-            .set_credentials(&login.user, password)
-            .set_follow_redirects(false);
         #[expect(
             clippy::disallowed_methods,
-            reason = "this function's first line asked `sutura_runtime::oracle_trace::refuse`"
+            reason = "`Dial::config` asked `sutura_oracle_connect::oracle_trace::refuse` first"
         )]
-        let connection = oracledb::connect(config);
+        let connection = oracledb::connect(config.set_credentials(&login.user, password));
         connection.map_err(read_err)
     }
 }
