@@ -14,10 +14,10 @@
 # `main`, and a run is not one. That second hold is the save condition AND this trigger list, and
 # no gate reads the trigger list - review holds it. Likewise `contents: read` on the job.
 #
-# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. At about 1 minute per patch, 514 patches take
-# about 6 hours, so one run may not finish inside it, and a run stops at the first patch that no
-# longer kills its cell. A timeout is not a verdict. A shard input is the follow-up if the first
-# run times out.
+# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. If a patch takes about 1 minute, 514 patches
+# take about 8.6 hours, which is past the 6 hour limit, so one run may not finish inside it. The
+# time for each patch is not measured. A run stops at the first patch that no longer kills its
+# cell. A timeout is not a verdict. A shard input is the follow-up if the first run times out.
 name: claim-mutation-kills
 
 on:
