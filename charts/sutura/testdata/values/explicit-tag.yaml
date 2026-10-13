@@ -1,0 +1,10 @@
+# `minimal.yaml` with an explicit `image.tag` and the performance flag left at its default: the tag is used as is.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  tag: "pinned-tag"

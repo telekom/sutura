@@ -163,6 +163,14 @@ mod tests {
     }
 
     #[test]
+    fn an_explicit_tag_is_used_as_is_with_the_performance_image_flag_off() {
+        assert_eq!(
+            rendered_image("explicit-tag"),
+            Some(String::from("ghcr.io/telekom/sutura:pinned-tag"))
+        );
+    }
+
+    #[test]
     fn every_chart_render_is_a_configuration_the_binary_starts_with() {
         let goldens = goldens();
         assert!(!goldens.is_empty(), "no golden render found");
