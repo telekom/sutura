@@ -179,9 +179,10 @@ impl QuestionOutcome {
         }
     }
 
-    /// `code` is [`crate::wire::RefusalBody::code`] - the domain's own `RefusalReason::code`,
-    /// read back off the rendered wire body rather than re-derived from the reason, so this
-    /// series cannot name a code the wire body disagrees with.
+    /// `code` is the domain's own `RefusalReason::code`. On `/v1` it is
+    /// [`crate::wire::RefusalBody::code`], read back off the rendered wire body rather than
+    /// re-derived from the reason, so this series cannot name a code that body disagrees with; on
+    /// `/mcp` it is the reason's own `code()`.
     ///
     /// Every code but `budget_exhausted` counts under the generic `refused` bucket of
     /// `sutura_questions_total`, and spend is the one refusal a deployment needs to watch approach
@@ -291,7 +292,8 @@ impl Metrics {
         self.slots_in_use.adjust(1);
         SlotGuard(self.slots_in_use.clone())
     }
-    /// Records one completed matched `POST /v1/query` response.
+    /// Records one question's end: a completed matched `POST /v1/query` response, or one reported
+    /// by a transport through [`QuestionMeter::completed`].
     ///
     /// Code and duration move together here, so no terminal path can update one without the other.
     /// The histogram deliberately carries no outcome label.

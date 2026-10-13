@@ -499,12 +499,15 @@ where
                 )
             }
             Capability::AskMetric => {
+                let turn = Turn::of(&self.admission, &context);
+                // Times a refusal made while the arguments are read; `answer` times the rest.
+                let arrived = Instant::now();
                 let query = match question(request)? {
                     QuestionAdmission::Query(query) => query,
                     QuestionAdmission::Refused(reason) => {
-                        return Ok(CallToolResponse::Complete(outcome::produced(
-                            &sutura_domain::query::ToolOutcome::Refusal { reason },
-                        )));
+                        let refusal = sutura_domain::query::ToolOutcome::Refusal { reason };
+                        turn.meter.completed(QuestionEnd::from(&refusal), arrived.elapsed());
+                        return Ok(CallToolResponse::Complete(outcome::produced(&refusal)));
                     }
                 };
                 // Cloned here and not read through `asked` inside the closure below: the port call
@@ -513,7 +516,6 @@ where
                 // `sutura_app::Asked`'s own module documentation gives the same reason for why it is
                 // `Clone` at all.
                 let asked_as = asked.context().clone();
-                let turn = Turn::of(&self.admission, &context);
                 // Where `/v1` writes the line: after the arguments parse, before the slot wait.
                 question::received(&self.request, &query, &asked_as);
                 tokio::select! {

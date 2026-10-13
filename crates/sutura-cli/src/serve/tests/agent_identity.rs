@@ -649,24 +649,30 @@ async fn a_served_agent_question_is_counted_in_the_question_series() {
     }
 }
 
-/// [`priced_agent_surface`] served under one execution slot and a one-second wait, and the process's
-/// permit set both surfaces share: a cell that holds its slot makes the next `/mcp` question wait.
-fn one_slot_agent_surface(key_set_id: &str) -> (PricedAgentSurface, sutura_runtime::Admission) {
+/// One execution slot, a one-second wait for it, and `run_sql` enabled.
+const ONE_SLOT: &str =
+    "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\ntools:\n  run_sql:\n    enabled: true\n";
+
+/// One execution slot, a five-second wait for it, and a two-second reply deadline: the deadline
+/// fires first, so a question that cannot get the slot outruns it rather than being shed.
+const TIMES_OUT: &str =
+    "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 5\nserver:\n  request_timeout_seconds: 2\n";
+
+/// [`priced_agent_surface`] with its mount and its permit set built from `under`, an overlay of
+/// runtime, server and tool keys, and the permit set both surfaces share: a cell that holds its slot
+/// makes the next `/mcp` question wait.
+///
+/// The router keeps the priced state's own settings, so a bound `under` shortens is the mount's
+/// alone. That is what lets the call's own deadline fire before the router's request timeout, which
+/// answers `408` for the same key and starts first.
+fn agent_surface_under(key_set_id: &str, under: &str) -> (PricedAgentSurface, sutura_runtime::Admission) {
     let PricedState { state, gate, issuer } = priced_state(key_set_id);
-    let one_slot = Settings::load(
-        &Sources::defaults(Environment::Development)
-            .with_overlay("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n"),
-    )
-    .expect("the one-slot overlay loads");
-    let admission = sutura_runtime::Admission::from_settings(one_slot.runtime());
+    let under = Settings::load(&Sources::defaults(Environment::Development).with_overlay(under)).expect("the overlay loads");
+    let admission = sutura_runtime::Admission::from_settings(under.runtime());
     let state = sutura_http::ServiceState::new(state.surface(), Arc::new(state.settings().clone()), admission.clone());
-    let gauge = sutura_http::SpendHeadroomPush::of(&state)
-        .gauge()
-        .expect("the priced surface reports headroom at boot")
-        .clone();
-    let mount = super::super::agent_mount(&state)
-        .expect("the agent mount builds")
-        .expect("the priced overlay enabled the agent surface");
+    let push = sutura_http::SpendHeadroomPush::of(&state);
+    let gauge = push.gauge().expect("the priced surface reports headroom at boot").clone();
+    let mount = super::super::agent::mount(state.surface(), &under, admission.clone(), push).expect("the agent mount builds");
     let registry = Arc::clone(&state.registry());
     let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
     let app = sutura_http::router(&state).expect("the test router assembles");
@@ -686,7 +692,7 @@ async fn a_served_agent_question_shed_for_want_of_a_slot_is_counted() {
             app, registry, issuer, ..
         },
         admission,
-    ) = one_slot_agent_surface("agent-question-shed");
+    ) = agent_surface_under("agent-question-shed", ONE_SLOT);
     let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
     drop(post(app.clone(), &token, initialize(1)).await);
 
@@ -710,6 +716,112 @@ async fn a_served_agent_question_shed_for_want_of_a_slot_is_counted() {
             sample(&exposition, series),
             1,
             "{series} after one shed /mcp question: {exposition}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_served_agent_question_refused_while_its_arguments_are_read_is_counted_as_that_refusal() {
+    let PricedAgentSurface {
+        app, registry, issuer, ..
+    } = priced_agent_surface("agent-question-refused");
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    // One metric more than a question may name: refused before a slot is waited for or the port asked.
+    let mut call = ask_metric_call();
+    call["params"]["arguments"]["metrics"] = serde_json::json!(vec!["revenue"; sutura_domain::query::MAX_METRICS + 1]);
+    let refused = post(app, &token, call).await;
+    assert!(
+        refused.get("error").is_none() && refused.to_string().contains("too_many_metrics"),
+        "the question was refused as a tool result naming its reason: {refused}"
+    );
+
+    // Counted as `/v1` counts the same refusal: under the generic code and under its own reason, with
+    // its duration, and not as an answer.
+    let exposition = registry.render();
+    for series in [
+        r#"sutura_questions_total{code="refused"}"#,
+        r#"sutura_refusals_total{reason="too_many_metrics"}"#,
+        "sutura_question_duration_seconds_count",
+    ] {
+        assert_eq!(
+            sample(&exposition, series),
+            1,
+            "{series} after one refused /mcp question: {exposition}"
+        );
+    }
+    assert_eq!(
+        sample(&exposition, r#"sutura_questions_total{code="answer"}"#),
+        0,
+        "a refusal is not an answer: {exposition}"
+    );
+}
+
+#[tokio::test]
+async fn a_served_agent_question_that_outruns_its_deadline_is_counted_as_a_timeout() {
+    let (
+        PricedAgentSurface {
+            app, registry, issuer, ..
+        },
+        admission,
+    ) = agent_surface_under("agent-question-timeout", TIMES_OUT);
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    // The one slot is taken by something else, and the wait for it is longer than the deadline.
+    let held = admission.admit().await.expect("the only slot is free");
+    let outran = post(app, &token, ask_metric_call()).await;
+    drop(held);
+    assert_eq!(
+        outran["result"]["isError"], true,
+        "the question outran its deadline as a tool error: {outran}"
+    );
+
+    let exposition = registry.render();
+    for series in [
+        r#"sutura_questions_total{code="timeout"}"#,
+        "sutura_question_duration_seconds_count",
+        "sutura_admission_wait_seconds_count",
+    ] {
+        assert_eq!(
+            sample(&exposition, series),
+            1,
+            "{series} after one /mcp question that outran its deadline: {exposition}"
+        );
+    }
+    assert_eq!(
+        sample(&exposition, "sutura_admission_shed_total"),
+        0,
+        "the deadline fired inside the admission window, so nothing was shed: {exposition}"
+    );
+}
+
+#[tokio::test]
+async fn a_served_agent_raw_statement_shed_for_want_of_a_slot_is_counted() {
+    let (
+        PricedAgentSurface {
+            app, registry, issuer, ..
+        },
+        admission,
+    ) = agent_surface_under("agent-raw-shed", ONE_SLOT);
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    let held = admission.admit().await.expect("the only slot is free");
+    let shed = post(app, &token, run_sql_call("select 1", 2)).await;
+    drop(held);
+    assert_eq!(
+        shed["result"]["isError"], true,
+        "the raw statement was shed as a tool error: {shed}"
+    );
+
+    let exposition = registry.render();
+    for series in ["sutura_admission_shed_total", "sutura_admission_wait_seconds_count"] {
+        assert_eq!(
+            sample(&exposition, series),
+            1,
+            "{series} after one shed /mcp raw statement: {exposition}"
         );
     }
 }
