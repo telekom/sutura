@@ -17,4 +17,4 @@ config:
         algorithms: [RS256]
   environment:
     security:
-      access_token: placeholder-access-token
+      access_token: placeholder-access-token-long-enough
