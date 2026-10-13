@@ -6,10 +6,18 @@
 //! exists to drift: the `ConfigMap`'s files become the settings directory and the Deployment
 //! container's `env` becomes the variables, a `secretKeyRef` standing in as a distinct value.
 //!
+//! The other direction, a chart refusal the binary would not make, is
+//! `a_chart_refusal_is_the_binarys_or_a_stated_gap`. A refused case has no render, so the chart gate
+//! renders each one through a copy of the chart without its posture guard
+//! (`charts/sutura/testdata/golden/unguarded/`): the env mapping is the template's own, and a render that
+//! drifts from the template is a diff in `just chart`.
+//!
 //! # What this does NOT reach
 //!
-//! * **The refusal direction.** A chart refusal has no render, so nothing here asserts that the
-//!   binary would also have refused it.
+//! * **A refusal outside the posture guard.** The unguarded copy drops only that guard. A refusal
+//!   raised while deriving a value from a limit still fails the render, so such a case is declared
+//!   `Binary::Derivation` by hand, and a case declared so that would mirror a binary refusal is
+//!   held by review alone.
 //! * **Secret and file contents.** A placeholder token is never empty, and `Settings::load` opens
 //!   no key-set or TLS file, so neither a Secret holding `""` nor a missing mount is seen.
 //! * **`extraEnv`**, beyond what a golden's values file happens to set.
@@ -25,7 +33,7 @@ mod tests {
 
     use serde::Deserialize as _;
     use serde_norway::Value;
-    use sutura_config::{Environment, Settings, Sources};
+    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
     /// `SUTURA__*` variable.
@@ -145,6 +153,128 @@ mod tests {
             refused.is_empty(),
             "the binary refuses these chart renders:\n{}",
             refused.join("\n")
+        );
+    }
+
+    /// How the binary stands to one chart refusal case.
+    enum Binary {
+        /// The binary refuses the same configuration, by a refusal this accepts.
+        Refuses(fn(&NotFitToServe) -> bool),
+        /// The chart refuses a configuration the binary starts with, on purpose: the reason.
+        Accepts(&'static str),
+        /// The chart fails deriving a value from a limit, so no configuration reaches the binary.
+        Derivation,
+    }
+
+    /// Every `testdata/refusals/` case, by name.
+    const REFUSALS: [(&str, Binary); 8] = [
+        (
+            "access-token-missing",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
+        ),
+        ("cpu-limit-unparseable", Binary::Derivation),
+        (
+            "direct-padded-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "direct-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "direct-with-config-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "environment-not-exact",
+            Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
+        ),
+        ("memory-limit-unparseable", Binary::Derivation),
+        (
+            "metrics-token-missing",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::MetricsTokenRequired { .. })),
+        ),
+    ];
+
+    fn testdata() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../charts/sutura/testdata")
+    }
+
+    /// The refusal cases the chart gate holds, by file stem.
+    fn refusal_cases() -> Vec<String> {
+        let dir = testdata().join("refusals");
+        let mut found: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|error| panic!("{} is readable: {error}", dir.display()))
+            .filter_map(|entry| {
+                let path = entry.expect("a directory entry").path();
+                let is_case = path.extension().is_some_and(|ext| ext == "yaml");
+                path.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .filter(|_| is_case)
+                    .map(String::from)
+            })
+            .collect();
+        found.sort();
+        found
+    }
+
+    /// The sources the binary would be handed by one unguarded render, and its scratch directory.
+    fn sources_of(name: &str, render: &Path) -> (Sources, Option<PathBuf>) {
+        let docs = documents(&std::fs::read_to_string(render).expect("a readable render"));
+        let Inputs {
+            environment,
+            directory,
+            variables,
+        } = inputs(name, &docs);
+        let environment = Environment::parse(&environment).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut sources = Sources::defaults(environment).with_variables(variables);
+        if let Some(dir) = &directory {
+            sources = sources.with_directory(dir.clone());
+        }
+        (sources, directory)
+    }
+
+    #[test]
+    fn a_chart_refusal_is_the_binarys_or_a_stated_gap() {
+        let declared: Vec<&str> = REFUSALS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            refusal_cases(),
+            declared,
+            "every testdata/refusals case declares how the binary stands to it, and no declaration is orphaned"
+        );
+        let unguarded = testdata().join("golden/unguarded");
+        let mut wrong = Vec::new();
+        for (name, binary) in &REFUSALS {
+            if matches!(binary, Binary::Derivation) {
+                continue;
+            }
+            let render = unguarded.join(format!("{name}.yaml"));
+            if !render.is_file() {
+                wrong.push(format!("{name}: no testdata/golden/unguarded/{name}.yaml"));
+                continue;
+            }
+            let (sources, directory) = sources_of(name, &render);
+            let loaded = Settings::load(&sources);
+            if let Some(dir) = directory {
+                std::fs::remove_dir_all(dir).expect("the scratch directory is removed");
+            }
+            match (binary, loaded) {
+                (Binary::Refuses(held), Err(error)) => match error.reason() {
+                    SettingsError::NotFitToServe { refusals } if refusals.iter().any(held) => {}
+                    other => wrong.push(format!("{name}: the binary refuses it another way: {other:?}")),
+                },
+                (Binary::Refuses(_), Ok(_)) => wrong.push(format!("{name}: the chart refuses it and the binary starts with it")),
+                (Binary::Accepts(why), Err(error)) => wrong.push(format!(
+                    "{name}: declared stricter than the binary ({why}), which refuses: {:?}",
+                    error.reason()
+                )),
+                (Binary::Accepts(_) | Binary::Derivation, _) => {}
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "a chart refusal the binary does not make:\n{}",
+            wrong.join("\n")
         );
     }
 }
