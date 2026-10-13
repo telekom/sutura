@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.accessToken.secretName is required when config.base and config.environment set no security.inbound.mode: this chart's Service makes the pod reachable off-host, and sutura refuses to start there with neither security.access_token nor an inbound identity (Settings::refusals::AccessTokenRequired)
+
+Use --debug flag to render out invalid YAML

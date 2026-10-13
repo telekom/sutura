@@ -1,0 +1,20 @@
+# `security.inbound.mode: behind-gateway` and no access token: the binary starts off-host with the
+# component's signed proof as the credential. The mode is in the environment file only, so the
+# render has to read `config.environment`, not only `config.base`.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  environment:
+    security:
+      inbound:
+        mode: behind-gateway
+        transit_header: x-transit-proof
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]
