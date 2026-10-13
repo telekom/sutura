@@ -77,10 +77,7 @@ answer, and nothing executed holds the third.
 `kind: clickhouse` source behind its default-off `clickhouse` feature, which `nix/shipped.nix`
 now enables, once the `github.com/telekom/sutura#955` join-nulls fix landed.
 
-**No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
-and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
-`Executable::Leg` answers `ClickHouseError::LegWithoutCombiner` exactly as
-`sutura_exec_bigquery` does).
+**No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default).
 
 **No `dry_run` override.** `ClickHouse`'s HTTP interface has no cheap "prepare, do not run"
 step this adapter could ask for without paying most of the cost of running the statement, so
@@ -104,9 +101,9 @@ lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to i
 
 - `Endpoint` - The endpoint (or the canned pack) did not answer.
 - `Render`
-- `LegWithoutCombiner` - A leg without a combiner - `Warehouse::EXECUTES_LEGS` stays at its default; see the crate header.
 - `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential with no user beside it, so there is no `ClickHouse` user to sign in as.
 - `NotAClickHouseUser` - The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
+- `LegUnderExecuteAs` - A federated leg would run as the deployment's user switched by `EXECUTE AS`, which is the deployment's credential and not the caller's - the source declares no `delegation`.
 - `PresentedDisagreesWithPosture`
 - `UnsupportedType` - A column came back as a `ClickHouse` type this adapter does not map.
 - `NotFinite` - A floating-point column came back as a value that is not a number.

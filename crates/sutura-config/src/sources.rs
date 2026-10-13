@@ -129,10 +129,9 @@ pub enum SourceKind {
     /// vocabulary of adapters this repository has, and which one a given BUILD linked is a property
     /// of its features.
     ///
-    /// The static-credential half, and the only half that exists: `sutura_exec_clickhouse`'s
-    /// `Warehouse::IMPERSONATION` is `NoPlaceForASubject`, so an `impersonation-at-source` entry on
-    /// this kind is refused at the composition root's own posture cross-check. Per-subject
-    /// `ClickHouse` identity is wanted and not built.
+    /// `sutura_exec_clickhouse`'s `Warehouse::IMPERSONATION` is `PerSubjectCredential`: an
+    /// `impersonation-at-source` entry runs each statement as the caller's `ClickHouse` user, through
+    /// `EXECUTE AS` or signed in with the token its `delegation` returns.
     ClickHouse,
     /// An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
     ///

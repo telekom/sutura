@@ -421,7 +421,7 @@ mod tests {
     /// own, and must answer what two engines answer - or, declaring no leg execution, be refused by
     /// name before anything runs. The engine's own entry is compared against itself, a determinism
     /// check; an entry with no venue here (`BigQuery`, Oracle, or a tier that is not up) is skipped
-    /// under its named exemption through `adapters::runs_here`, so `ClickHouse`'s refusal is asserted
+    /// under its named exemption through `adapters::runs_here`, so `Cube`'s refusal is asserted
     /// only where its tier is up. An entry `runs_here` admits and the walk did not ask is a finding,
     /// and the entries compared are printed, so the `bigquery-conformance` job's log names `bigquery`.
     /// One cell over the registry rather than one per entry, and one assertion in it:

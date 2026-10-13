@@ -160,7 +160,7 @@ pub(crate) enum TwoFact {
 ///
 /// A finding rather than a panic, so `tests/differential.rs`'s one cell makes the assertion. A data
 /// system that declares no leg execution must be refused by name before anything runs -
-/// `ClickHouse`.
+/// `Cube`.
 pub(crate) fn compared<W>() -> TwoFact
 where
     W: DataSystemUnderTest + Sync,

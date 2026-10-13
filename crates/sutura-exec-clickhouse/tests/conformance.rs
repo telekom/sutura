@@ -46,6 +46,6 @@ mod conformance {
         adapter: clickhouse,
         warehouse: sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>,
         open: crate::conformance::open,
-        refuses_legs,
+        executes_legs,
     }
 }
