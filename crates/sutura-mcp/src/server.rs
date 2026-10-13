@@ -332,7 +332,7 @@ impl<S> AgentSurface<S> {
     /// caller missing both reads the same reason on `/mcp`, stdio and `/v1`.
     fn refused(&self, capability: Capability) -> ErrorData {
         if capability == Capability::RunSql && !self.tools.contains(&Tool::RunSql) {
-            not_enabled(capability)
+            not_enabled()
         } else {
             not_granted(capability)
         }
@@ -578,20 +578,17 @@ fn not_granted(capability: Capability) -> ErrorData {
     )
 }
 
-/// A tool this DEPLOYMENT left off, as a JSON-RPC error naming the switch - distinct from
+/// `run_sql` when this DEPLOYMENT left it off, as a JSON-RPC error naming the switch - distinct from
 /// [`not_granted`], whose scope would not help a caller here. The same code, for the reason
-/// [`not_granted`] gives.
-fn not_enabled(capability: Capability) -> ErrorData {
+/// [`not_granted`] gives. A second switchable tool writes its own sentence.
+fn not_enabled() -> ErrorData {
     tracing::warn!(
-        tool = capability.id(),
+        tool = "run_sql",
         "a tool call was refused: this deployment has not enabled this tool"
     );
     ErrorData::new(
         ErrorCode::METHOD_NOT_FOUND,
-        format!(
-            "`{}` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`.",
-            capability.id()
-        ),
+        "`run_sql` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`.",
         None,
     )
 }

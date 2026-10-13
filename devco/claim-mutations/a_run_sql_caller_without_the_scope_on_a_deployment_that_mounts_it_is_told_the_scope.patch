@@ -7,6 +7,6 @@ diff --git a/crates/sutura-mcp/src/server.rs b/crates/sutura-mcp/src/server.rs
      fn refused(&self, capability: Capability) -> ErrorData {
 -        if capability == Capability::RunSql && !self.tools.contains(&Tool::RunSql) {
 +        if capability == Capability::RunSql {
-             not_enabled(capability)
+             not_enabled()
          } else {
              not_granted(capability)
