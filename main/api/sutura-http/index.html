@@ -4558,18 +4558,19 @@ deployment token gate, then this. Two reasons, and neither is style:</p>
   attempt has to cost a rate-limit cell or it is an unlimited guessing loop. That argument applies
   to a forged signature exactly as it applies to a wrong shared secret.</li>
 </ul>
-<p>In the <code>direct</code> mode there is no deployment token to be after -
-<code>sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader</code> refuses that combination - so the
-order matters only in the <code>behind-gateway</code> mode, where both are configured and each reads its own
-header.</p>
+<p>Where the verified token arrives in <code>Authorization</code> - the <code>direct</code> mode, or a component that
+replaced the caller's token there - there is no deployment token to be after:
+<code>sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader</code> refuses that combination. So the
+order matters only in the <code>behind-gateway</code> mode with a header of the component's own, where both
+are configured and each reads its own header.</p>
 <h1 id="what-a-refused-request-is-told-and-what-it-is-not">What a refused request is told, and what it is not<a class="headerlink" href="#what-a-refused-request-is-told-and-what-it-is-not" title="Permanent link">&para;</a></h1>
 <p>A <code>401</code> with an RFC 6750 <code>WWW-Authenticate</code> challenge naming the realm, which for a directly
 validating deployment is its own resource identifier. When an origin-form target and raw <code>Host</code>
 reproduce that exact resource, its <code>resource_metadata</code> parameter is the absolute URL of the public
 RFC 9728 document built from the same token requirement as the validator. It is omitted for any
 other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
-gateway assertion arrives somewhere other than <code>Authorization: Bearer</code>, so that mode offers no
-Bearer challenge.</p>
+gateway assertion is minted by the component, not by an authorization server a client can use, so
+that mode offers no Bearer challenge - wherever the assertion arrives.</p>
 <p>What the response does <strong>not</strong> say is which check failed. The log says - through the <code>#[source]</code>
 chain on <code>TokenRejected</code> - and the caller does not, because "the signature verified and the
 audience did not" tells somebody which half of a forgery to fix.</p>
@@ -4589,10 +4590,10 @@ attach one a startup failure rather than an open door.</p>
 <p>The RFC 6750 challenge a refused request carries, where one is meaningful.</p>
 <p><strong><code>None</code> in the <code>behind-gateway</code> mode, and that is a fix rather than an omission.</strong> A <code>Bearer</code>
 challenge tells a client to present a bearer token to <em>this</em> resource; behind a component, the
-caller holds no token for us and the thing that was missing was a header the component sets.
+caller holds no token for us and the thing that was missing was an assertion the component sets.
 Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
-client that followed it would start putting credentials in a header this deployment refuses to
-read.</p>
+client that followed it would present its own token, which is not an assertion this deployment
+accepts in any header.</p>
 <p><strong>No <code>error_description</code></strong> in the direct case, and that is the same decision the response body
 makes: a description would have to say which check failed to be worth anything, and that is the
 one thing a caller must not learn.</p>

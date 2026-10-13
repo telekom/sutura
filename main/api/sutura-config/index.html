@@ -3737,10 +3737,11 @@ using the issuer's <em>public</em> key as the HMAC secret verifies, if the valid
 symmetric algorithm. There is no variant here that could.</p>
 <h2 id="use-tokenlocation"><code>use TokenLocation</code><a class="headerlink" href="#use-tokenlocation" title="Permanent link">&para;</a></h2>
 <p>Where the token being validated arrives.</p>
-<p>Two variants because the two modes put it in two places, and neither is a preference: an OAuth
-2.1 client puts its access token in <code>Authorization: Bearer</code> and has no option to do otherwise,
-while a fronting component sets a header of its own and would collide with the deployment bearer
-token if it used that one. <code>ProofHeader::parse</code> refuses <code>authorization</code> for exactly that reason.</p>
+<p>An OAuth 2.1 client puts its access token in <code>Authorization: Bearer</code> and has no option to do
+otherwise. A fronting component either sets a header of its own or replaces the caller's token in
+<code>Authorization: Bearer</code> with its assertion. Both <code>Authorization</code> variants collide with the
+deployment bearer token, and <code>NotFitToServe::DeploymentTokenSharesTheHeader</code> refuses either one
+beside it.</p>
 <h2 id="use-tokenrequirement"><code>use TokenRequirement</code><a class="headerlink" href="#use-tokenrequirement" title="Permanent link">&para;</a></h2>
 <p>The whole validation this deployment performs, borrowed out of whichever mode is configured.</p>
 <p><strong>A view and not a second configuration surface.</strong> There is no constructor: the only way to one
@@ -5391,13 +5392,15 @@ happen by accident.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-109-1"><a id="__codelineno-109-1" name="__codelineno-109-1" href="#__codelineno-109-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TokenLocation</span><span class="o">&lt;'</span><span class="na">header</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Where the token being validated arrives.</p>
-<p>Two variants because the two modes put it in two places, and neither is a preference: an OAuth
-2.1 client puts its access token in <code>Authorization: Bearer</code> and has no option to do otherwise,
-while a fronting component sets a header of its own and would collide with the deployment bearer
-token if it used that one. <code>ProofHeader::parse</code> refuses <code>authorization</code> for exactly that reason.</p>
+<p>An OAuth 2.1 client puts its access token in <code>Authorization: Bearer</code> and has no option to do
+otherwise. A fronting component either sets a header of its own or replaces the caller's token in
+<code>Authorization: Bearer</code> with its assertion. Both <code>Authorization</code> variants collide with the
+deployment bearer token, and <code>NotFitToServe::DeploymentTokenSharesTheHeader</code> refuses either one
+beside it.</p>
 <h4 id="variants_14">Variants<a class="headerlink" href="#variants_14" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>AuthorizationBearer</code> - <code>Authorization: Bearer &lt;token&gt;</code>. Where RFC 6750 puts an access token.</li>
+<li><code>AuthorizationBearer</code> - <code>Authorization: Bearer &lt;token&gt;</code>, read by the resource server itself. Where RFC 6750 puts an access token, so this is the one location a <code>Bearer</code> challenge and RFC 9728 metadata describe.</li>
+<li><code>GatewayBearer</code> - <code>Authorization: Bearer &lt;assertion&gt;</code>, set by a fronting component that replaced the caller's token. A separate variant from <code>Self::AuthorizationBearer</code> because the component's issuer is not an authorization server a client can use: no challenge and no metadata point a client at it.</li>
 <li><code>Header</code> - A named header whose whole value is the token. No scheme prefix: a component setting its own header has no reason to wrap the value, and a prefix nobody agreed on is a parse to get wrong.</li>
 </ul>
 <h4 id="implements_31">Implements<a class="headerlink" href="#implements_31" title="Permanent link">&para;</a></h4>
@@ -5456,7 +5459,7 @@ because it has to be a value a query over logs can group by.</p>
 </span></code></pre></div>
 <p>Does this deployment read the deployment bearer token's own header?</p>
 <p>The one question a refusal needs answered, and it is asked of the <em>requirement</em> rather than of
-the variant, so a mode added later that also lands in <code>Authorization</code> cannot slip past it.</p>
+the variant. The <code>match</code> is exhaustive, so a location added later has to answer it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-117-1"><a id="__codelineno-117-1" name="__codelineno-117-1" href="#__codelineno-117-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">requirement</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TokenRequirement</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The one validation this deployment performs, whichever mode it is in.</p>

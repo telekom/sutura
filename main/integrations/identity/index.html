@@ -3720,7 +3720,7 @@ authenticates the deployment, and every question runs with the access of the dep
 <td><code>transit_header</code></td>
 <td>string</td>
 <td>required</td>
-<td>The header that holds the assertion. Not <code>authorization</code></td>
+<td>The header that holds the assertion</td>
 </tr>
 <tr>
 <td><code>transit_issuer</code></td>
@@ -3766,6 +3766,11 @@ authenticates the deployment, and every question runs with the access of the dep
 </tr>
 </tbody>
 </table>
+<p>Some gateways authenticate the calling application, for example with its OAuth 2.0 client
+credentials, and replace its token with their own assertion in <code>Authorization: Bearer</code>. For such a
+gateway, set <code>transit_header: authorization</code>. sutura then reads the assertion after the <code>Bearer</code>
+scheme, and <code>security.access_token</code> cannot be set, because both use <code>Authorization: Bearer</code>. Behind
+such a gateway, the subject is the application that the gateway's assertion names.</p>
 <p>The gateway and sutura must be on a trusted network path. An assertion is not bound to one
 request, so keep its lifetime short.</p>
 <h2 id="the-key-set">The key set<a class="headerlink" href="#the-key-set" title="Permanent link">&para;</a></h2>

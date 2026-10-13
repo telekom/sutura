@@ -3844,6 +3844,10 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Remove one: both use <code>Authorization: Bearer</code></td>
 </tr>
 <tr>
+<td><code>security.access_token</code> together with <code>behind-gateway</code> and <code>transit_header: authorization</code></td>
+<td>Remove one: both use <code>Authorization: Bearer</code></td>
+</tr>
+<tr>
 <td><code>GET /metrics</code> reachable with no <code>security.metrics_token</code>, in production or off-host</td>
 <td>Set <code>security.metrics_token</code></td>
 </tr>
@@ -3966,7 +3970,7 @@ no default mode:</p>
 </tr>
 <tr>
 <td><code>behind-gateway</code></td>
-<td>A gateway authenticates the caller and sends a signed assertion in its own header</td>
+<td>A gateway authenticates the caller and sends a signed assertion in its own header or in <code>Authorization: Bearer</code></td>
 </tr>
 </tbody>
 </table>
