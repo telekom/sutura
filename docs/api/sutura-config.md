@@ -4806,8 +4806,9 @@ configuration or a subject arrives per request.
 
   **A declaration of intent, independent of the `security.inbound` block that makes a subject
   arrive.** This mode alone establishes no subject: leg 1 is built, but it is configured under
-  `inbound`, and a `multi-user` deployment without that block still authenticates only the
-  deployment's bearer token. What this mode decides mechanically is that every shared source
+  `inbound`, and `sutura serve` refuses to start a `multi-user` deployment without that block
+  (`NotFitToServe::QuerySurfaceWithoutInboundIdentity`).
+  What this mode decides mechanically is that every shared source
   has to be acknowledged on its own entry, and that the raw SQL tool runs only over an acknowledged
   shared source.
 
