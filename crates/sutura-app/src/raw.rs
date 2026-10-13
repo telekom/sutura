@@ -160,7 +160,9 @@ where
         // for this path today - `sutura_exec_postgres::adbc::AdbcPostgres` runs under one shared credential every
         // subject shares - and there is deliberately no `RawRefusalReason` variant for it yet: the
         // vocabulary is closed over what this PR's one adapter can provoke, and a future
-        // per-subject-credential raw adapter is what would earn a dedicated one.
+        // per-subject-credential raw adapter is what would earn a dedicated one. Until `run_sql`
+        // gets `federation_allowed`, one variant has no producer: no adapter provokes
+        // `PlanSpansMoreThanOneSource` yet.
         Agreed::Refused { .. } => {
             return Ok(AnsweredRaw::declined_before_minting(RawOutcome::Refusal {
                 reason: RawRefusalReason::SourceRefused,

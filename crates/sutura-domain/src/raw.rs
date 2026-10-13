@@ -351,6 +351,7 @@ mod tests {
             RawRefusalReason::StatementFailed,
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
+            RawRefusalReason::PlanSpansMoreThanOneSource,
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -362,6 +363,10 @@ mod tests {
         assert_eq!(
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 }.code(),
             "deadline_exceeded"
+        );
+        assert_eq!(
+            RawRefusalReason::PlanSpansMoreThanOneSource.code(),
+            "plan_spans_more_than_one_source"
         );
     }
 }
