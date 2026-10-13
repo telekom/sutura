@@ -68,6 +68,15 @@ fn the_raw_tool_in_multi_user_mode_over_an_acknowledged_shared_source_is_fit_to_
 }
 
 #[test]
+fn the_raw_tool_in_multi_user_mode_over_a_shared_and_an_impersonating_source_is_fit_to_serve() {
+    // One acknowledged shared source is enough: an `impersonation-at-source` source beside it does
+    // not bring the refusal back.
+    let other = format!("  other:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/other\"\n{IMPERSONATING}");
+    let refusals = refusals_of(format!("{MULTI_USER_RUN_SQL}{LOCAL}{SHARED}{ACKNOWLEDGED}{other}"));
+    assert!(refusals.is_empty(), "{refusals:?}");
+}
+
+#[test]
 fn the_raw_tool_enabled_in_multi_user_mode_is_not_fit_to_serve() {
     let sources = Sources::defaults(Environment::Development)
         .with_overlay("security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n");

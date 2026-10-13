@@ -1747,7 +1747,7 @@ deterministic.
 - `AskMetric` - Answer one governed question about one certified metric.
 
   `crate::surface::Surface::answer`.
-- `RunSql` - Run one literal SQL statement against the configured source, off by default and refused where the deployment cannot execute it as the asking subject or is not declared single-user.
+- `RunSql` - Run one literal SQL statement against the configured source, off by default. A `multi-user` deployment starts with it on only while some source is an acknowledged `shared-service-user`.
 
   `crate::surface::Surface::run_sql`. The architecture decision is the record: its result carries no
   `sutura_domain::pinned::Provenance` and no field a definition digest could occupy, so a raw

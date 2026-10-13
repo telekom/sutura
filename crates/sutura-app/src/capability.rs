@@ -76,8 +76,8 @@ pub enum Capability {
     ///
     /// [`crate::surface::Surface::answer`].
     AskMetric,
-    /// Run one literal SQL statement against the configured source, off by default and refused
-    /// where the deployment cannot execute it as the asking subject or is not declared single-user.
+    /// Run one literal SQL statement against the configured source, off by default. A `multi-user`
+    /// deployment starts with it on only while some source is an acknowledged `shared-service-user`.
     ///
     /// [`crate::surface::Surface::run_sql`]. `docs/adr/0013` is the record: its result carries no
     /// [`sutura_domain::pinned::Provenance`] and no field a definition digest could occupy, so a raw

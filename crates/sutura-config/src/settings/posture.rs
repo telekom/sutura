@@ -217,11 +217,11 @@ pub enum NotFitToServe {
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
     /// `shared-service-user`.
     ///
-    /// An acknowledged shared source is the one place a `multi-user` deployment may run raw SQL: the
-    /// operator wrote why every caller may read what that one account reads. With only
-    /// `impersonation-at-source` sources, or none, there is nowhere for the tool to run, so the switch
-    /// is refused at boot rather than left to fail on every call. **Limit:** `multi-user` and the
-    /// acknowledgement are words an operator writes, not facts measured about the callers.
+    /// Reads configuration only: whether some source is an acknowledged `shared-service-user`
+    /// source, whose `acknowledged_because` says why every caller may read what that one account
+    /// reads. Whether a raw statement runs is decided per call in the composed binary: it runs only
+    /// when exactly one data system is open and that system accepts raw statements, and otherwise
+    /// the call is refused.
     #[error(
         "tools.run_sql.enabled is true, {key} is `multi-user`, and no source is an acknowledged \
          `shared-service-user`. The raw SQL tool runs only over a shared source whose \

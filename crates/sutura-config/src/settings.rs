@@ -636,8 +636,8 @@ impl Settings {
             .collect()
     }
 
-    /// Whether the raw SQL tool is enabled in `multi-user` mode with no source it may run over -
-    /// see [`NotFitToServe::RunSqlEnabledInMultiUserMode`].
+    /// Whether the raw SQL tool is enabled in `multi-user` mode with no acknowledged
+    /// `shared-service-user` source - see [`NotFitToServe::RunSqlEnabledInMultiUserMode`].
     ///
     /// Reads only the parsed tree. Whether the linked adapter accepts a raw statement at all is a
     /// property of the composed binary, so an `impersonation-at-source` source counts for nothing here

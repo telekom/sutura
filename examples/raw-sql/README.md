@@ -26,12 +26,11 @@ promote to a certified metric next - `examples/single-player/catalog/metrics/` i
 promotion looks like once it happens - and this directory stops before that step, on purpose: the
 promotion is authoring work for a human, not a mechanism this example runs.
 
-**Does not demonstrate:** impersonation. This deployment is `single-user`, the same mode
-[ADR 0013](../../docs/adr/0013-a-raw-sql-tool-off-by-default.md) requires unless a source can execute
-as the asking subject - and the Postgres adapter cannot, today, so `run_sql` is available here only
-because nobody but the one operator is meant to be asking. A `multi-user` deployment declaring the
-same source refuses to start with `run_sql` turned on; `crates/sutura-config/src/settings/tests/tools.rs`
-holds that refusal, not this directory.
+**Does not demonstrate:** impersonation. This deployment is `single-user`, and the Postgres adapter
+runs every statement under the one role this source declares, never as the asking subject. A
+`multi-user` deployment declaring the same source starts with `run_sql` turned on only when the entry
+sets `acknowledged_because`, as the one below does; every caller can then read what that role can
+read.
 
 **Also does not demonstrate:** the read-only role itself. The development Postgres tier publishes
 exactly one credential, and it is the database's own owner - see *The role, and the limit next to
