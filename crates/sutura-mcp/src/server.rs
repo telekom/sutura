@@ -187,13 +187,14 @@ use rmcp::model::{
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler};
 use sutura_app::prompt::{PromptInputs, Tool};
+use sutura_app::question::{self, AdmissionWait, QuestionEnd, QuestionMeter};
 use sutura_app::surface::{Surface, cause_chain};
 use sutura_app::{Asked, Capability};
 use sutura_config::RequestTimeout;
 use sutura_domain::query::Query;
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_runtime::Admission;
+use sutura_runtime::{Admission, AtCapacity, Slot};
 
 use crate::Asking;
 use crate::tool;
@@ -228,6 +229,11 @@ pub struct AgentSurface<S> {
     /// cheap to hold and every clone shares one permit set - see the module documentation for why
     /// that matters more than where the semaphore was built.
     admission: Admission,
+    /// Where each question's wait, shed and end are counted.
+    ///
+    /// Required for the reason `admission` is: a surface that forgot to say is not a state that
+    /// exists. Standard input and output has no scrape endpoint and says [`question::Unmetered`].
+    meter: Arc<dyn QuestionMeter>,
     /// How long a peer waits for a reply before this surface answers instead of waiting.
     ///
     /// `telekom/sutura#339`. Not an `Option` for the third time in this struct: an unbounded wait
@@ -296,6 +302,7 @@ impl<S> AgentSurface<S> {
         asking: Asking,
         prose: sutura_app::prompt::CatalogProse,
         admission: Admission,
+        meter: Arc<dyn QuestionMeter>,
         reply: RequestTimeout,
         tools: Arc<[Tool]>,
         operator_instructions: Option<Arc<str>>,
@@ -307,6 +314,7 @@ impl<S> AgentSurface<S> {
             list_physical_schema: false,
             row_ceilings: sutura_domain::plan::RowCeilings::DEFAULT,
             admission,
+            meter,
             reply,
             tools,
             operator_instructions,
@@ -499,8 +507,11 @@ where
                 // `sutura_app::Asked`'s own module documentation gives the same reason for why it is
                 // `Clone` at all.
                 let asked_as = asked.context().clone();
+                // The line `/v1` writes at the same point: after the arguments parse, before the
+                // question waits for a slot.
+                question::received(&query, &asked_as);
                 tokio::select! {
-                    result = answer(&self.service, &self.admission, self.reply, asked_as, query) => result,
+                    result = answer(&self.service, &self.admission, &*self.meter, self.reply, asked_as, query) => result,
                     () = context.ct.cancelled() => {
                         tracing::warn!("stopped waiting for a tool call because its peer cancelled");
                         return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
@@ -516,7 +527,7 @@ where
                 // disagreed with itself about who is asking.
                 let asked_as = asked.context().clone();
                 tokio::select! {
-                    result = run_sql(&self.service, &self.admission, self.reply, asked_as, statement) => result,
+                    result = run_sql(&self.service, &self.admission, &*self.meter, self.reply, asked_as, statement) => result,
                     () = context.ct.cancelled() => {
                         tracing::warn!("stopped waiting for a tool call because its peer cancelled");
                         return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
@@ -832,6 +843,7 @@ where
 async fn answer<S>(
     service: &Arc<S>,
     admission: &Admission,
+    meter: &dyn QuestionMeter,
     reply: RequestTimeout,
     asked_as: sutura_domain::identity::RequestContext,
     query: Query,
@@ -842,11 +854,27 @@ where
     // Opened here, before `admitted` - the same instant this function's own reply deadline starts
     // counting from, so the port's budget is inside the caller's whole wait for the same reason
     // `reply` itself wraps the admission window: `docs/adr/0029`.
-    let deadline = Deadline::opened_at(Instant::now(), reply.budget());
-    match tokio::time::timeout(reply.duration(), admitted(service, admission, asked_as, query, deadline)).await {
-        Ok(result) => result,
-        Err(_elapsed) => outcome::outran_its_deadline(reply),
-    }
+    let started = Instant::now();
+    let deadline = Deadline::opened_at(started, reply.budget());
+    let (result, end) = match tokio::time::timeout(
+        reply.duration(),
+        admitted(service, admission, meter, asked_as, query, deadline),
+    )
+    .await
+    {
+        Ok(done) => done,
+        Err(_elapsed) => (outcome::outran_its_deadline(reply), QuestionEnd::TimedOut),
+    };
+    meter.completed(end, started.elapsed());
+    result
+}
+
+/// A slot, with its wait observed however this future ends and a shed counted.
+///
+/// The one place both questions and raw statements wait for a turn, so neither can wait unseen.
+async fn admit(admission: &Admission, meter: &dyn QuestionMeter) -> Result<Slot, AtCapacity> {
+    let _wait = AdmissionWait::start(meter);
+    admission.admit().await.inspect_err(|_shed| meter.shed())
 }
 
 /// A slot, then the port on the blocking pool, then the outcome.
@@ -864,18 +892,19 @@ where
 async fn admitted<S>(
     service: &Arc<S>,
     admission: &Admission,
+    meter: &dyn QuestionMeter,
     asked_as: sutura_domain::identity::RequestContext,
     query: Query,
     deadline: Deadline,
-) -> CallToolResult
+) -> (CallToolResult, QuestionEnd)
 where
     S: Surface,
 {
     // Before the task is spawned, and not inside it: a slot acquired inside the blocking task would
     // be a pool thread already taken while waiting for permission to take one.
-    let slot = match admission.admit().await {
+    let slot = match admit(admission, meter).await {
         Ok(slot) => slot,
-        Err(shed) => return outcome::at_capacity(&shed),
+        Err(shed) => return (outcome::at_capacity(&shed), QuestionEnd::AtCapacity),
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
@@ -895,13 +924,13 @@ where
     match working.await {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
-        Ok(Ok(ref outcome)) => outcome::produced(outcome),
-        Ok(Err(failure)) => outcome::could_not_answer(&failure),
+        Ok(Ok(ref outcome)) => (outcome::produced(outcome), QuestionEnd::from(outcome)),
+        Ok(Err(failure)) => (outcome::could_not_answer(&failure), QuestionEnd::from(&failure)),
         // The blocking task did not finish: it panicked, or the runtime is shutting down. Reported
         // like a failure, because from a caller's side it is the same fact.
         Err(error) => {
             tracing::error!(error = %error, "the blocking task answering a tool call did not finish");
-            outcome::failed("this deployment could not answer")
+            (outcome::failed("this deployment could not answer"), QuestionEnd::Internal)
         }
     }
 }
@@ -913,6 +942,7 @@ where
 async fn run_sql<S>(
     service: &Arc<S>,
     admission: &Admission,
+    meter: &dyn QuestionMeter,
     reply: RequestTimeout,
     asked_as: sutura_domain::identity::RequestContext,
     statement: RawStatement,
@@ -921,7 +951,7 @@ where
     S: Surface,
 {
     let deadline = Deadline::opened_at(Instant::now(), reply.budget());
-    let working = admitted_raw(service, admission, asked_as, statement, deadline);
+    let working = admitted_raw(service, admission, meter, asked_as, statement, deadline);
     match tokio::time::timeout(reply.duration(), working).await {
         Ok(result) => result,
         Err(_elapsed) => outcome::outran_its_deadline(reply),
@@ -935,6 +965,7 @@ where
 async fn admitted_raw<S>(
     service: &Arc<S>,
     admission: &Admission,
+    meter: &dyn QuestionMeter,
     asked_as: sutura_domain::identity::RequestContext,
     statement: RawStatement,
     deadline: Deadline,
@@ -942,7 +973,7 @@ async fn admitted_raw<S>(
 where
     S: Surface,
 {
-    let slot = match admission.admit().await {
+    let slot = match admit(admission, meter).await {
         Ok(slot) => slot,
         Err(shed) => return outcome::at_capacity(&shed),
     };

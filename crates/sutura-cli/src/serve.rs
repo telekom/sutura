@@ -478,6 +478,8 @@ fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, 
         state.surface(),
         state.settings(),
         state.admission().clone(),
+        // The state's own series, so both surfaces count questions into one set.
+        Arc::new(state.metrics().clone()),
         sutura_http::SpendHeadroomPush::of(state),
     )?))
 }

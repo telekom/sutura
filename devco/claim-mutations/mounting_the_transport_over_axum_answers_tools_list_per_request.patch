@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-mcp/src/http.rs b/crates/sutura-mcp/src/http.rs
 --- a/crates/sutura-mcp/src/http.rs
 +++ b/crates/sutura-mcp/src/http.rs
-@@ -138,7 +138,7 @@
+@@ -150,7 +150,7 @@
          move || {
              Ok(AgentSurface::new(
                  Arc::clone(&surface),
@@ -9,4 +9,4 @@ diff --git a/crates/sutura-mcp/src/http.rs b/crates/sutura-mcp/src/http.rs
 +                Asking::TheProcessOwner { permitted: sutura_app::Permitted::every_capability() },
                  prose,
                  admission.clone(),
-                 reply,
+                 Arc::clone(&meter),

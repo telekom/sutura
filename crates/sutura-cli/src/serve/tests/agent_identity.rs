@@ -289,6 +289,9 @@ struct PricedAgentSurface {
     /// what `sutura_spend_bytes_total` is read off: the gauge handle alone cannot see the counter,
     /// because the declaration carries only the gauge out and the state is consumed in here.
     registry: Arc<sutura_runtime::metrics::Registry>,
+    /// The process's one permit set, shared with both surfaces: a cell that holds a slot here makes
+    /// the next `/mcp` question wait for it.
+    admission: sutura_runtime::Admission,
     issuer: MockIssuer,
 }
 
@@ -305,7 +308,12 @@ struct PricedState {
 
 /// Builds the priced agent surface and returns the router, gauge, and issuer.
 fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
-    let PricedState { state, gate, issuer } = priced_state(key_set_id);
+    priced_agent_surface_with(key_set_id, "")
+}
+
+/// [`priced_agent_surface`] with `extra_overlay` appended to the settings it loads.
+fn priced_agent_surface_with(key_set_id: &str, extra_overlay: &str) -> PricedAgentSurface {
+    let PricedState { state, gate, issuer } = priced_state(key_set_id, extra_overlay);
     // The state owns the gauge; the composition root's own `agent_mount(&state)` hands a handle to
     // the SAME gauge into the agent mount, so both surfaces drive one
     // `sutura_spend_headroom_bytes` series. Going through `agent_mount` rather than hand-wiring
@@ -321,12 +329,14 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
         .expect("the agent mount builds")
         .expect("the priced overlay enabled the agent surface");
     let registry = Arc::clone(&state.registry());
+    let admission = state.admission().clone();
     let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
     let app = sutura_http::router(&state).expect("the test router assembles");
     PricedAgentSurface {
         app,
         gauge,
         registry,
+        admission,
         issuer,
     }
 }
@@ -341,11 +351,12 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
 /// own `agent::mount`, so what is refused is the real wiring mistake rather than a hand-made state.
 #[test]
 fn an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble() {
-    let PricedState { state, gate, .. } = priced_state("agent-spend-mismatch");
+    let PricedState { state, gate, .. } = priced_state("agent-spend-mismatch", "");
     let mount = super::super::agent::mount(
         state.surface(),
         state.settings(),
         state.admission().clone(),
+        Arc::new(state.metrics().clone()),
         sutura_http::SpendHeadroomPush::NoCeilingConfigured,
     )
     .expect("the agent mount builds");
@@ -365,10 +376,13 @@ fn an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble() {
 }
 
 /// Everything up to the state: the priced overlay, the ledger, the gate and the issuer.
-fn priced_state(key_set_id: &str) -> PricedState {
+fn priced_state(key_set_id: &str, extra_overlay: &str) -> PricedState {
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, key_set_id).expect("the key set publishes");
-    let overlay = priced_overlay(&issuer, &published.path().to_string_lossy());
+    let overlay = format!(
+        "{}\n{extra_overlay}",
+        priced_overlay(&issuer, &published.path().to_string_lossy())
+    );
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
         .expect("the priced agent-route overlay loads");
     let budget = settings.spend_budget().expect("the priced overlay configured a ceiling");
@@ -561,4 +575,129 @@ async fn a_served_agent_surface_raises_spend_bytes_total_after_an_answer() {
         1_000,
         "the second /mcp answer raised the spend total to 1000, not 1500: the push is raise_to, not add"
     );
+}
+
+// ------------------------------------------------- the question over /mcp, as over /v1 ----
+
+/// One sample off a rendered exposition, by its series name with labels.
+fn sample(exposition: &str, series: &str) -> u64 {
+    exposition
+        .lines()
+        .find_map(|line| line.strip_prefix(series)?.strip_prefix(' '))
+        .unwrap_or_else(|| panic!("the exposition has no `{series}` sample: {exposition}"))
+        .parse()
+        .unwrap_or_else(|cause| panic!("`{series}` is not an integer sample: {cause}"))
+}
+
+#[tokio::test]
+async fn a_served_agent_question_writes_the_question_line_the_query_route_writes() {
+    let PricedAgentSurface { app, issuer, .. } = priced_agent_surface("agent-question-line");
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let answered = {
+        let _logging = tracing::subscriber::set_default(subscriber);
+        post(app, &token, ask_metric_call()).await
+    };
+    assert!(
+        answered.get("error").is_none(),
+        "the ask_metric call must be answered, not refused: {answered}"
+    );
+
+    let rendered = sink.contents();
+    let line = rendered
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|line| line["msg"].as_str().is_some_and(|msg| msg.contains("question received")))
+        .unwrap_or_else(|| panic!("no `question received` line was written for the /mcp question: {rendered}"));
+    // The fields `/v1` writes: which question (on the span in a log, so every line of the request
+    // carries it), who asked as a label, and how many parts it had - never a value.
+    assert_eq!(line["metric"], "revenue", "{line}");
+    assert_eq!(line["grain"], "month", "{line}");
+    assert_eq!(line["asker"], "verified", "{line}");
+    assert_eq!(line["dimensions"], 0, "{line}");
+    assert_eq!(line["filters"], 0, "{line}");
+    assert!(
+        !line.to_string().contains(ASKING_SUBJECT),
+        "the line names the subject rather than the label: {line}"
+    );
+}
+
+#[tokio::test]
+async fn a_served_agent_question_is_counted_in_the_question_series() {
+    let PricedAgentSurface {
+        app, registry, issuer, ..
+    } = priced_agent_surface("agent-question-series");
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    let answered = post(app, &token, ask_metric_call()).await;
+    assert!(
+        answered.get("error").is_none(),
+        "the ask_metric call must be answered, not refused: {answered}"
+    );
+
+    // One answered question, on the series `/v1` moves for one answered question: the count by
+    // outcome, the duration, the time it waited for a slot and the rows it returned.
+    let exposition = registry.render();
+    for series in [
+        r#"sutura_questions_total{code="answer"}"#,
+        "sutura_question_duration_seconds_count",
+        "sutura_admission_wait_seconds_count",
+        "sutura_answer_rows_count",
+    ] {
+        assert_eq!(
+            sample(&exposition, series),
+            1,
+            "{series} after one /mcp question: {exposition}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_served_agent_question_shed_for_want_of_a_slot_is_counted() {
+    let PricedAgentSurface {
+        app,
+        registry,
+        admission,
+        issuer,
+        ..
+    } = priced_agent_surface_with(
+        "agent-question-shed",
+        "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n",
+    );
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    // The one slot is taken by something else, so the question waits the whole window and is shed.
+    let held = admission.admit().await.expect("the only slot is free");
+    let shed = post(app, &token, ask_metric_call()).await;
+    drop(held);
+    assert_eq!(
+        shed["result"]["isError"], true,
+        "the question was shed as a tool error: {shed}"
+    );
+
+    let exposition = registry.render();
+    for series in [
+        "sutura_admission_shed_total",
+        r#"sutura_questions_total{code="at_capacity"}"#,
+        "sutura_question_duration_seconds_count",
+        "sutura_admission_wait_seconds_count",
+    ] {
+        assert_eq!(
+            sample(&exposition, series),
+            1,
+            "{series} after one shed /mcp question: {exposition}"
+        );
+    }
 }

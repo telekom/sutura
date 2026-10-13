@@ -80,6 +80,7 @@ use std::sync::Arc;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use sutura_app::prompt::{CatalogProse, Tool};
+use sutura_app::question::QuestionMeter;
 use sutura_app::surface::Surface;
 use sutura_config::{BodyLimit, RequestTimeout};
 use sutura_runtime::Admission;
@@ -136,6 +137,7 @@ pub fn service<S>(
     list_physical_schema: bool,
     row_ceilings: sutura_domain::plan::RowCeilings,
     admission: Admission,
+    meter: Arc<dyn QuestionMeter>,
     reply: RequestTimeout,
     max_body: BodyLimit,
     tools: Arc<[Tool]>,
@@ -151,6 +153,7 @@ where
                 Asking::PerRequest,
                 prose,
                 admission.clone(),
+                Arc::clone(&meter),
                 reply,
                 Arc::clone(&tools),
                 operator_instructions.clone(),
@@ -326,6 +329,7 @@ mod tests {
             false,
             sutura_domain::plan::RowCeilings::DEFAULT,
             admission(),
+            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply(),
             settings().server().max_body(),
             testing::instructions(),
@@ -370,6 +374,7 @@ mod tests {
             false,
             sutura_domain::plan::RowCeilings::DEFAULT,
             admission(),
+            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply(),
             settings().server().max_body(),
             testing::instructions(),
@@ -422,6 +427,7 @@ mod tests {
             false,
             sutura_domain::plan::RowCeilings::DEFAULT,
             admission(),
+            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply(),
             settings().server().max_body(),
             testing::instructions(),
@@ -483,6 +489,7 @@ mod tests {
             false,
             sutura_domain::plan::RowCeilings::DEFAULT,
             admission(),
+            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply(),
             settings().server().max_body(),
             testing::instructions(),
@@ -540,6 +547,7 @@ mod tests {
             false,
             sutura_domain::plan::RowCeilings::DEFAULT,
             admission(),
+            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply(),
             settings().server().max_body(),
             testing::instructions(),
@@ -592,6 +600,7 @@ mod tests {
             false,
             sutura_domain::plan::RowCeilings::DEFAULT,
             admission(),
+            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply(),
             settings().server().max_body(),
             testing::instructions(),
