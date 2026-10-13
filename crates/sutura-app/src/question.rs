@@ -3,8 +3,7 @@
 //! Here and not in a transport because `sutura-http` and `sutura-mcp` cannot see each other: a line
 //! or a series spelled in one is one the other has to copy, and the two surfaces then drift on what an
 //! operator reads about the same question. [`received`] is the log line; [`QuestionMeter`] is the
-//! port the series are counted through, implemented by `sutura_http::Metrics` and by [`Unmetered`]
-//! for a surface with no scrape endpoint.
+//! port the series are counted through, implemented by `sutura_http::Metrics`.
 //!
 //! The port reports what happened and never a value the caller wrote: a refusal arrives as its code,
 //! an answer as its row count.
@@ -98,18 +97,6 @@ pub trait QuestionMeter: Send + Sync + std::fmt::Debug {
 
     /// One question ended, `elapsed` after it arrived.
     fn completed(&self, end: QuestionEnd, elapsed: Duration);
-}
-
-/// Counts nothing: the meter of a surface with no scrape endpoint, such as standard input and output.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Unmetered;
-
-impl QuestionMeter for Unmetered {
-    fn waited(&self, _waited: Duration) {}
-
-    fn shed(&self) {}
-
-    fn completed(&self, _end: QuestionEnd, _elapsed: Duration) {}
 }
 
 /// Observes one wait for an execution slot when dropped.

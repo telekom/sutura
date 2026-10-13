@@ -92,8 +92,7 @@ impl Serving {
 ///
 /// `sutura_mcp::http::service` is always `Asking::PerRequest` and needs the server's execution
 /// bound and per-request deadline; the bound is the process's own `Admission`, shared with the HTTP
-/// surface, so both transports answer under one permit set and one deadline, and `meter` is the
-/// HTTP surface's own series, so both count their questions into one set.
+/// surface, so both transports answer under one permit set and one deadline.
 ///
 /// **Fallible since `telekom/sutura#776`**, for the reason [`crate::commands::agent_instructions`]
 /// already states: an operator-configured `prompt.instructions_file` that cannot be read is a
@@ -105,7 +104,6 @@ pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
-    meter: Arc<dyn sutura_app::question::QuestionMeter>,
     spend_headroom: SpendHeadroomPush,
 ) -> Result<sutura_http::AgentMount, String> {
     // One read, two uses: the surface folds the operator's raw text into the prompt it renders AND
@@ -123,7 +121,6 @@ pub(crate) fn mount(
             settings.prompt().list_physical_schema(),
             settings.row_ceilings(),
             admission,
-            meter,
             settings.server().request_timeout(),
             settings.server().max_body(),
             tools,

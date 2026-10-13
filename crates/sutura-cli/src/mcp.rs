@@ -352,7 +352,6 @@ mod tests {
                 },
                 prose,
                 admission,
-                std::sync::Arc::new(sutura_app::question::Unmetered),
                 reply,
                 tools,
                 operator_instructions,

@@ -2486,8 +2486,7 @@ What each transport says about a question it takes, the same way on every surfac
 Here and not in a transport because `sutura-http` and `sutura-mcp` cannot see each other: a line
 or a series spelled in one is one the other has to copy, and the two surfaces then drift on what an
 operator reads about the same question. `received` is the log line; `QuestionMeter` is the
-port the series are counted through, implemented by `sutura_http::Metrics` and by `Unmetered`
-for a surface with no scrape endpoint.
+port the series are counted through, implemented by `sutura_http::Metrics`.
 
 The port reports what happened and never a value the caller wrote: a refusal arrives as its code,
 an answer as its row count.
@@ -2522,18 +2521,6 @@ pub trait QuestionMeter
 
 Where a transport reports its questions. Counting is the implementor's business; it must not
 block, and it cannot fail a question.
-
-### `struct Unmetered`
-
-```rust
-pub struct Unmetered
-```
-
-Counts nothing: the meter of a surface with no scrape endpoint, such as standard input and output.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Default`, `QuestionMeter`
 
 ### `struct AdmissionWait`
 

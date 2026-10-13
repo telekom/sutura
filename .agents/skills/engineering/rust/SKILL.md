@@ -86,7 +86,7 @@ signature it has now is the one two implementors settled, not the one a sketch g
 | `SemanticCatalog` | driven | The local catalog, the declaring one, the fakes, and the hand-written oracle the goldens compare against |
 | `CredentialBroker` | driven | Two real implementors - see `sutura/identity` for which one every shipped binary builds |
 | `AuditSink` | driven | The tracing sink in `sutura-runtime`, and the recording fakes |
-| `QuestionMeter` | driven | `sutura_http::Metrics` counts each question's wait, shed and end through it for `/v1` and `/mcp` alike; `Unmetered` is the surface with no scrape endpoint |
+| `QuestionMeter` | driven | `sutura_http::Metrics` counts each question's wait, shed and end through it for `/v1` and `/mcp` alike |
 | `Surface` | driving | `LocalService`, this crate's own service, plus a failing double |
 
 **This table is the hexagon's BOUNDARY and not the grep result, and the difference is not a

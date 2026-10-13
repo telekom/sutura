@@ -116,7 +116,6 @@ where
             crate::Asking::TheProcessOwner { permitted },
             prose,
             admission,
-            Arc::new(sutura_app::question::Unmetered),
             reply,
             testing::instructions(),
             testing::operator_instructions(),
@@ -901,17 +900,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     let call = tokio::spawn({
         let service = Arc::clone(&service);
         let admission = admission.clone();
-        async move {
-            super::answer(
-                &service,
-                &admission,
-                &sutura_app::question::Unmetered,
-                reply(""),
-                crate::principal::established(),
-                a_query(),
-            )
-            .await
-        }
+        async move { super::answer(&service, &admission, reply(""), crate::principal::established(), a_query()).await }
     });
     assert!(
         eventually(|| holding.inside() == 1).await,
@@ -934,15 +923,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     );
     // And the consequence, which is the whole point of holding it: nothing else may start on top of
     // work that is still running.
-    let shed = super::answer(
-        &service,
-        &admission,
-        &sutura_app::question::Unmetered,
-        reply(""),
-        crate::principal::established(),
-        a_query(),
-    )
-    .await;
+    let shed = super::answer(&service, &admission, reply(""), crate::principal::established(), a_query()).await;
     assert_eq!(shed.is_error, Some(true), "a second question ran on top of the first");
 
     // Handed back when the WORK finishes, and not before.

@@ -243,8 +243,6 @@ where
             Asking::TheProcessOwner { permitted },
             prose,
             admission,
-            // A pipe has no scrape endpoint to count into.
-            std::sync::Arc::new(sutura_app::question::Unmetered),
             reply,
             tools,
             operator_instructions,

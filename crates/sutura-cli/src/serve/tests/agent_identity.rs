@@ -289,9 +289,6 @@ struct PricedAgentSurface {
     /// what `sutura_spend_bytes_total` is read off: the gauge handle alone cannot see the counter,
     /// because the declaration carries only the gauge out and the state is consumed in here.
     registry: Arc<sutura_runtime::metrics::Registry>,
-    /// The process's one permit set, shared with both surfaces: a cell that holds a slot here makes
-    /// the next `/mcp` question wait for it.
-    admission: sutura_runtime::Admission,
     issuer: MockIssuer,
 }
 
@@ -308,12 +305,7 @@ struct PricedState {
 
 /// Builds the priced agent surface and returns the router, gauge, and issuer.
 fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
-    priced_agent_surface_with(key_set_id, "")
-}
-
-/// [`priced_agent_surface`] with `extra_overlay` appended to the settings it loads.
-fn priced_agent_surface_with(key_set_id: &str, extra_overlay: &str) -> PricedAgentSurface {
-    let PricedState { state, gate, issuer } = priced_state(key_set_id, extra_overlay);
+    let PricedState { state, gate, issuer } = priced_state(key_set_id);
     // The state owns the gauge; the composition root's own `agent_mount(&state)` hands a handle to
     // the SAME gauge into the agent mount, so both surfaces drive one
     // `sutura_spend_headroom_bytes` series. Going through `agent_mount` rather than hand-wiring
@@ -329,14 +321,12 @@ fn priced_agent_surface_with(key_set_id: &str, extra_overlay: &str) -> PricedAge
         .expect("the agent mount builds")
         .expect("the priced overlay enabled the agent surface");
     let registry = Arc::clone(&state.registry());
-    let admission = state.admission().clone();
     let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
     let app = sutura_http::router(&state).expect("the test router assembles");
     PricedAgentSurface {
         app,
         gauge,
         registry,
-        admission,
         issuer,
     }
 }
@@ -351,12 +341,11 @@ fn priced_agent_surface_with(key_set_id: &str, extra_overlay: &str) -> PricedAge
 /// own `agent::mount`, so what is refused is the real wiring mistake rather than a hand-made state.
 #[test]
 fn an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble() {
-    let PricedState { state, gate, .. } = priced_state("agent-spend-mismatch", "");
+    let PricedState { state, gate, .. } = priced_state("agent-spend-mismatch");
     let mount = super::super::agent::mount(
         state.surface(),
         state.settings(),
         state.admission().clone(),
-        Arc::new(state.metrics().clone()),
         sutura_http::SpendHeadroomPush::NoCeilingConfigured,
     )
     .expect("the agent mount builds");
@@ -376,13 +365,10 @@ fn an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble() {
 }
 
 /// Everything up to the state: the priced overlay, the ledger, the gate and the issuer.
-fn priced_state(key_set_id: &str, extra_overlay: &str) -> PricedState {
+fn priced_state(key_set_id: &str) -> PricedState {
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, key_set_id).expect("the key set publishes");
-    let overlay = format!(
-        "{}\n{extra_overlay}",
-        priced_overlay(&issuer, &published.path().to_string_lossy())
-    );
+    let overlay = priced_overlay(&issuer, &published.path().to_string_lossy());
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
         .expect("the priced agent-route overlay loads");
     let budget = settings.spend_budget().expect("the priced overlay configured a ceiling");
@@ -663,18 +649,44 @@ async fn a_served_agent_question_is_counted_in_the_question_series() {
     }
 }
 
+/// [`priced_agent_surface`] served under one execution slot and a one-second wait, and the process's
+/// permit set both surfaces share: a cell that holds its slot makes the next `/mcp` question wait.
+fn one_slot_agent_surface(key_set_id: &str) -> (PricedAgentSurface, sutura_runtime::Admission) {
+    let PricedState { state, gate, issuer } = priced_state(key_set_id);
+    let one_slot = Settings::load(
+        &Sources::defaults(Environment::Development)
+            .with_overlay("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n"),
+    )
+    .expect("the one-slot overlay loads");
+    let admission = sutura_runtime::Admission::from_settings(one_slot.runtime());
+    let state = sutura_http::ServiceState::new(state.surface(), Arc::new(state.settings().clone()), admission.clone());
+    let gauge = sutura_http::SpendHeadroomPush::of(&state)
+        .gauge()
+        .expect("the priced surface reports headroom at boot")
+        .clone();
+    let mount = super::super::agent_mount(&state)
+        .expect("the agent mount builds")
+        .expect("the priced overlay enabled the agent surface");
+    let registry = Arc::clone(&state.registry());
+    let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
+    let app = sutura_http::router(&state).expect("the test router assembles");
+    let surface = PricedAgentSurface {
+        app,
+        gauge,
+        registry,
+        issuer,
+    };
+    (surface, admission)
+}
+
 #[tokio::test]
 async fn a_served_agent_question_shed_for_want_of_a_slot_is_counted() {
-    let PricedAgentSurface {
-        app,
-        registry,
+    let (
+        PricedAgentSurface {
+            app, registry, issuer, ..
+        },
         admission,
-        issuer,
-        ..
-    } = priced_agent_surface_with(
-        "agent-question-shed",
-        "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n",
-    );
+    ) = one_slot_agent_surface("agent-question-shed");
     let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
     drop(post(app.clone(), &token, initialize(1)).await);
 
