@@ -193,6 +193,31 @@ fn a_deployment_token_and_the_direct_mode_are_refused_because_they_share_one_hea
 }
 
 #[test]
+fn a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_token() {
+    // A component that replaced the caller's token puts its assertion in `Authorization: Bearer`.
+    // Alone, that loads and reads the header the deployment token would.
+    let inbound = GATEWAY_INBOUND.replacen("X-Transit-Proof", "Authorization", 1);
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{inbound}")))
+        .expect("a gateway assertion in Authorization loads without a deployment token");
+    let declared = settings.security().inbound().expect("the declaration is there");
+    assert!(declared.reads_the_authorization_header());
+    assert_eq!(declared.requirement().location().to_string(), "authorization: Bearer");
+
+    // Beside a deployment token it is the same collision as `direct`: one header, two credentials.
+    let sources =
+        Sources::defaults(Environment::Development).with_overlay(format!("security:\n  access_token: \"{TOKEN}\"\n{inbound}"));
+    let error = Settings::load(&sources).expect_err("two credentials in one header is refused");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    let refusal = refusals
+        .iter()
+        .find(|refusal| **refusal == NotFitToServe::DeploymentTokenSharesTheHeader)
+        .unwrap_or_else(|| panic!("the shared header is refused: {refusals:?}"));
+    assert!(refusal.to_string().contains("transit_header"), "{refusal}");
+}
+
+#[test]
 fn a_production_deployment_that_verifies_its_callers_needs_no_deployment_token() {
     // The rule that had to change, and why it is not a weakening. The token was required because the
     // alternative was NO credential at all; a deployment that validates every caller's own token has

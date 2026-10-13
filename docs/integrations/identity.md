@@ -38,17 +38,23 @@ authenticates the deployment, and every question runs with the access of the dep
 
 ## Settings for `behind-gateway`
 
-| Key                            | Type        | Default  | Meaning                                                  |
-| ------------------------------ | ----------- | -------- | -------------------------------------------------------- |
-| `mode`                         | string      | required | `behind-gateway`                                         |
-| `transit_header`               | string      | required | The header that holds the assertion. Not `authorization` |
-| `transit_issuer`               | `https` URI | required | The issuer that must sign the assertion                  |
-| `transit_audience`             | `https` URI | required | The audience that the assertion must carry               |
-| `key_set_file`                 | path        | required | A JWK set file with the public keys of the gateway       |
-| `algorithms`                   | list        | required | The accepted algorithms, as for `direct`                 |
-| `transit_token_type`           | string      | required | The `typ` that the gateway sets, or `any`                |
-| `transit_max_lifetime_seconds` | integer     | `120`    | The longest accepted `exp - iat`, 1 to 3600              |
-| `accept_long_transit_lifetime` | boolean     | `false`  | Must be `true` for a lifetime above 300                  |
+| Key                            | Type        | Default  | Meaning                                            |
+| ------------------------------ | ----------- | -------- | -------------------------------------------------- |
+| `mode`                         | string      | required | `behind-gateway`                                   |
+| `transit_header`               | string      | required | The header that holds the assertion                |
+| `transit_issuer`               | `https` URI | required | The issuer that must sign the assertion            |
+| `transit_audience`             | `https` URI | required | The audience that the assertion must carry         |
+| `key_set_file`                 | path        | required | A JWK set file with the public keys of the gateway |
+| `algorithms`                   | list        | required | The accepted algorithms, as for `direct`           |
+| `transit_token_type`           | string      | required | The `typ` that the gateway sets, or `any`          |
+| `transit_max_lifetime_seconds` | integer     | `120`    | The longest accepted `exp - iat`, 1 to 3600        |
+| `accept_long_transit_lifetime` | boolean     | `false`  | Must be `true` for a lifetime above 300            |
+
+Some gateways authenticate the calling application, for example with its OAuth 2.0 client
+credentials, and replace its token with their own assertion in `Authorization: Bearer`. For such a
+gateway, set `transit_header: authorization`. sutura then reads the assertion after the `Bearer`
+scheme, and `security.access_token` cannot be set, because both use `Authorization: Bearer`. Behind
+such a gateway, the subject is the application that the gateway's assertion names.
 
 The gateway and sutura must be on a trusted network path. An assertion is not bound to one
 request, so keep its lifetime short.

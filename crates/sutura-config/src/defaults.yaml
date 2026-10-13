@@ -138,8 +138,10 @@ security:
   #       transit_max_lifetime_seconds: 120
   #
   # `direct` and `access_token` together are a refusal to start: both are read from
-  # `authorization: Bearer`, and a request cannot carry two credentials in one header. `behind-gateway`
-  # reads a header of its own, so there both survive.
+  # `authorization: Bearer`, and a request cannot carry two credentials in one header. A component that
+  # replaces the caller's token puts its assertion there too - `transit_header: "authorization"`, read
+  # as `Bearer <assertion>` - and that is refused beside `access_token` for the same reason. With a
+  # `transit_header` of the component's own, both survive.
   #
   # NEITHER makes a data source execute as the asking subject. That is leg 2: the credential port is
   # built - no question executes without a credential minted for its source - and no adapter a
