@@ -234,7 +234,8 @@ pub struct AgentSurface<S> {
     /// was the state that existed, and the fix is that it is no longer representable. It bounds the
     /// WAIT and not the question - see the module documentation.
     reply: RequestTimeout,
-    /// The operations the `initialize` prompt describes. The prompt is `sutura prompt`'s own document,
+    /// The operations this deployment mounts, which the `initialize` prompt describes and a refused
+    /// `run_sql` call reads to name the switch. The prompt is `sutura prompt`'s own document,
     /// rendered at `initialize` by [`sutura_app::prompt::render`] (`telekom/sutura#776`), and it is
     /// **still advisory**: a gateway that ignores everything but tools is answered correctly, because
     /// every rule is on the other side of the port. An `Arc` because [`crate::http::service`]'s
@@ -324,6 +325,17 @@ impl<S> AgentSurface<S> {
     pub const fn row_ceilings(mut self, row_ceilings: sutura_domain::plan::RowCeilings) -> Self {
         self.row_ceilings = row_ceilings;
         self
+    }
+
+    /// Which sentence a refused call reads, never whether it is refused: the deployment's switch
+    /// first, then the scope - the order `sutura_http::capability::require_capability` uses, so a
+    /// caller missing both reads the same reason on `/mcp`, stdio and `/v1`.
+    fn refused(&self, capability: Capability) -> ErrorData {
+        if capability == Capability::RunSql && !self.tools.contains(&Tool::RunSql) {
+            not_enabled(capability)
+        } else {
+            not_granted(capability)
+        }
     }
 
     /// Who this call is attributed to and what it may invoke, resolved from `self.asking` and - under
@@ -442,7 +454,7 @@ where
         // as `Subject::TheDeploymentItself` rather than a courtesy this handler happens to extend.
         let asked = self.asked(&context)?;
         if !asked.permitted().includes(capability) {
-            return Err(not_granted(capability));
+            return Err(self.refused(capability));
         }
         // The exhaustive match is what makes a capability added to `sutura_app::Capability` a compile
         // error here rather than a tool that lists and cannot be called.
@@ -561,6 +573,24 @@ fn not_granted(capability: Capability) -> ErrorData {
             "`{}` is not available to this caller. It requires the scope `{}`.",
             capability.id(),
             capability.scope()
+        ),
+        None,
+    )
+}
+
+/// A tool this DEPLOYMENT left off, as a JSON-RPC error naming the switch - distinct from
+/// [`not_granted`], whose scope would not help a caller here. The same code, for the reason
+/// [`not_granted`] gives.
+fn not_enabled(capability: Capability) -> ErrorData {
+    tracing::warn!(
+        tool = capability.id(),
+        "a tool call was refused: this deployment has not enabled this tool"
+    );
+    ErrorData::new(
+        ErrorCode::METHOD_NOT_FOUND,
+        format!(
+            "`{}` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`.",
+            capability.id()
         ),
         None,
     )

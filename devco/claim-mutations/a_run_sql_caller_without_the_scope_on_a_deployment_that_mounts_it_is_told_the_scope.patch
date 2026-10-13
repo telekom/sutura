@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-mcp/src/server.rs b/crates/sutura-mcp/src/server.rs
+--- a/crates/sutura-mcp/src/server.rs
++++ b/crates/sutura-mcp/src/server.rs
+@@ -331,7 +331,7 @@
+     /// first, then the scope - the order `sutura_http::capability::require_capability` uses, so a
+     /// caller missing both reads the same reason on `/mcp`, stdio and `/v1`.
+     fn refused(&self, capability: Capability) -> ErrorData {
+-        if capability == Capability::RunSql && !self.tools.contains(&Tool::RunSql) {
++        if capability == Capability::RunSql {
+             not_enabled(capability)
+         } else {
+             not_granted(capability)

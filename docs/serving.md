@@ -163,11 +163,12 @@ caller identity and grants every tool the deployment turns on. `runtime.max_conc
 
 `tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`.
 A call to `/v1/sql/run` gets `403` with `code: tool_not_enabled`. A `run_sql` call over `/mcp` or `sutura mcp` gets
-the JSON-RPC error `-32601` with the message `` `run_sql` is not available to this caller. It requires the scope
-`sutura:sql.run`. ``. When it is on, the caller needs `sutura:sql.run` as well. The
-tool answers only where the deployment has one source. The row cap of a certified answer applies, and every call
-writes an audit record. The page of the data system says what bounds a statement:
-[Postgres](integrations/data-systems/postgres.md), [DuckDB](integrations/data-systems/duckdb.md).
+the JSON-RPC error `-32601` with the message `` `run_sql` is not enabled on this deployment. The operator turns it on
+with `tools.run_sql.enabled`. ``. This holds for every caller, with or without the scope. When it is on, the caller
+needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with `code: insufficient_scope`, and `/mcp` gets
+`-32601` with a message that names the scope. The tool answers only where the deployment has one source. The row
+cap of a certified answer applies, and every call writes an audit record. The page of the data system says what
+bounds a statement: [Postgres](integrations/data-systems/postgres.md), [DuckDB](integrations/data-systems/duckdb.md).
 
 ## Endpoints
 

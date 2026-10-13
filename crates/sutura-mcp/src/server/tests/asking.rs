@@ -263,6 +263,37 @@ async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
     );
 }
 
+/// On a deployment that mounts `run_sql`, a caller without `sutura:sql.run` is told the scope, not
+/// the switch: the switch sentence is only for a deployment that left the tool off.
+#[tokio::test]
+async fn a_run_sql_caller_without_the_scope_on_a_deployment_that_mounts_it_is_told_the_scope() {
+    use sutura_app::prompt::Tool;
+
+    let surface = AgentSurface::new(
+        Arc::new(testing::RecordingSurface::new()),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        Arc::from([Tool::Catalog, Tool::Query, Tool::RunSql]),
+        None,
+    );
+    let narrow = subject_asked(
+        "alice@example.com",
+        Permitted::granted_by([Capability::DescribeCatalog.scope()]),
+    );
+
+    let error = surface
+        .call_tool(
+            super::raw(&serde_json::json!({ "statement": "select 1" })),
+            hand_built_context(1, a_peer().await, Some(narrow)),
+        )
+        .await
+        .expect_err("a caller without the scope must be refused, not answered");
+    assert_eq!(error.code, ErrorCode::METHOD_NOT_FOUND, "{error:?}");
+    assert!(error.message.contains(Capability::RunSql.scope()), "{}", error.message);
+}
+
 /// Two verified callers with different audience grants get two different `describe_catalog`
 /// listings from ONE surface instance - `docs/adr/0028`'s invisible-at-both-doors on the agent
 /// surface, mirroring `sutura_http`'s `two_verified_callers_get_two_different_catalogs_from_one_bundle`.

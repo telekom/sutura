@@ -169,6 +169,9 @@ fn the_raw_tool_is_absent_unless_this_deployment_turned_it_on() {
         &serde_json::json!({ "name": "run_sql", "arguments": { "statement": "select 1" } }),
     );
     assert_eq!(reply["error"]["code"], serde_json::json!(-32601), "{reply}");
+    // No scope reaches this pipe, so the refusal names the deployment's switch rather than one.
+    let message = reply["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("`tools.run_sql.enabled`"), "{reply}");
     assert!(agent.close().success(), "the process did not exit cleanly");
 
     // And turned on, it is listed - the schema test above proves what it is listed AS.
