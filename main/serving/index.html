@@ -3924,8 +3924,8 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Declare <code>verification_identity</code>, or remove the anchor</td>
 </tr>
 <tr>
-<td><code>tools.run_sql.enabled: true</code> with <code>security.identity: multi-user</code></td>
-<td>Use <code>single-user</code>, or leave the tool off</td>
+<td><code>tools.run_sql.enabled: true</code>, <code>security.identity: multi-user</code>, and no acknowledged shared source</td>
+<td>Acknowledge a shared source, use <code>single-user</code>, or leave the tool off</td>
 </tr>
 <tr>
 <td>A <code>security.outbound</code> trust-anchor bundle or client identity, and a source with <code>kind: bigquery</code></td>

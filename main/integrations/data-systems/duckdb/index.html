@@ -3595,7 +3595,7 @@ and this key:</p>
 <tr>
 <td><code>tools.run_sql.enabled</code></td>
 <td><code>false</code></td>
-<td>Turns on the raw SQL tool. Refused with <code>security.identity: multi-user</code></td>
+<td>Turns on the raw SQL tool. With <code>security.identity: multi-user</code>, only over an acknowledged shared source: every caller can then read what the shared account can read</td>
 </tr>
 <tr>
 <td><code>runtime.working_set_max_bytes</code></td>

@@ -6635,7 +6635,8 @@ configuration or a subject arrives per request.</p>
   arrive.</strong> This mode alone establishes no subject: leg 1 is built, but it is configured under
   <code>inbound</code>, and a <code>multi-user</code> deployment without that block still authenticates only the
   deployment's bearer token. What this mode decides mechanically is that every shared source
-  has to be acknowledged on its own entry, and that the raw SQL tool is refused.</p>
+  has to be acknowledged on its own entry, and that the raw SQL tool runs only over an acknowledged
+  shared source.</p>
 <h5 id="methods_41">Methods<a class="headerlink" href="#methods_41" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-232-1"><a id="__codelineno-232-1" name="__codelineno-232-1" href="#__codelineno-232-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>

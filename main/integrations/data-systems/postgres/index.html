@@ -3651,7 +3651,7 @@ accepted as loopback. <code>verified</code> and <code>mutual</code> need <code>h
 <tr>
 <td><code>tools.run_sql.enabled</code></td>
 <td><code>false</code></td>
-<td>Turns on the raw SQL tool. Refused with <code>security.identity: multi-user</code></td>
+<td>Turns on the raw SQL tool. With <code>security.identity: multi-user</code>, only over an acknowledged shared source: every caller can then read what the shared account can read</td>
 </tr>
 <tr>
 <td><code>SUTURA_POSTGRES_ADBC_DRIVER</code></td>
