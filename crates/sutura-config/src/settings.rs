@@ -687,18 +687,17 @@ impl Settings {
         refusals
     }
 
-    /// Why `/v1` may not start on this deployment, or an empty list - see
+    /// Why `/v1` may not start with no `security.inbound` on this deployment, or an empty list - see
     /// [`NotFitToServe::QuerySurfaceWithoutInboundIdentity`] and
     /// [`NotFitToServe::QuerySurfaceOverAnImpersonatingSource`].
     ///
     /// Not in [`Self::refusals`], because no key mounts `/v1`: every command that loads settings
-    /// would be refused by it. `sutura serve` asks it where it starts `/v1`. Only the mode is asked:
-    /// an off-host `/v1` is already refused without the deployment token and the limiter.
+    /// would be refused by it. `sutura serve` asks it where it starts `/v1` with no inbound block. It
+    /// does not read that block, so asked of a deployment that declares one it still refuses. Only
+    /// the mode is asked: an off-host `/v1` is already refused without the deployment token and the
+    /// limiter.
     #[must_use]
     pub fn query_surface_refusals(&self) -> Vec<NotFitToServe> {
-        if self.security.inbound().is_some() {
-            return Vec::new();
-        }
         let mut refusals = Vec::new();
         if !matches!(self.security.identity(), Some(DeploymentIdentity::StaticCredentials { .. })) {
             refusals.push(NotFitToServe::QuerySurfaceWithoutInboundIdentity);

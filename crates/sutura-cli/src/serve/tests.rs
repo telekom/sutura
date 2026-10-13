@@ -847,6 +847,7 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
 
 /// `/v1` with no `security.inbound` starts only where `single-user` is declared: `multi-user` and no
 /// mode at all are refused before the listener opens, naming the surface and the missing setting.
+/// The refusal is `NotFitToServe::QuerySurfaceWithoutInboundIdentity`, read off its rendered text.
 #[test]
 fn v1_with_no_inbound_identity_starts_only_on_a_single_user_deployment() {
     let load = |overlay: &str| {
@@ -857,7 +858,11 @@ fn v1_with_no_inbound_identity_starts_only_on_a_single_user_deployment() {
     };
     for overlay in ["security:\n  identity: \"multi-user\"\n", ""] {
         let refused = super::inbound_gate(&load(overlay)).expect_err("/v1 with no inbound identity does not start");
-        for key in ["/v1", "security.inbound", "single-user"] {
+        for key in [
+            "/v1 would answer every caller as the deployment",
+            "security.inbound",
+            "single-user",
+        ] {
             assert!(refused.contains(key), "{key} missing from: {refused}");
         }
     }
@@ -867,6 +872,7 @@ fn v1_with_no_inbound_identity_starts_only_on_a_single_user_deployment() {
 
 /// `/v1` with no `security.inbound` does not start over a source that runs each question as the
 /// verified caller, because there is no caller to run as.
+/// The refusal is `NotFitToServe::QuerySurfaceOverAnImpersonatingSource`, read off its rendered text.
 #[test]
 fn v1_with_no_inbound_identity_does_not_start_over_an_impersonating_source() {
     let impersonating = settings_under("", &entry("local", "impersonation-at-source", wif()));

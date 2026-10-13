@@ -955,11 +955,6 @@ mod allowed_hosts;
 #[cfg(test)]
 mod agent_surface;
 
-/// `/v1` with no inbound identity: its two refusals and the deployments that start without leg 1.
-/// Same `#[cfg(test)]` reason as `governance` above.
-#[cfg(test)]
-mod query_surface;
-
 /// The same off-host predicate asked by the `/v1` and `/metrics` refusals. Same reason as `governance`.
 #[cfg(test)]
 mod off_host;
