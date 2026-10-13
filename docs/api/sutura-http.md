@@ -1637,8 +1637,8 @@ The RFC 6750 challenge a refused request carries, where one is meaningful.
 challenge tells a client to present a bearer token to *this* resource; behind a component, the
 caller holds no token for us and the thing that was missing was an assertion the component sets.
 Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
-client that followed it would start putting credentials in a header this deployment refuses to
-read.
+client that followed it would present its own token, which is not an assertion this deployment
+accepts in any header.
 
 **No `error_description`** in the direct case, and that is the same decision the response body
 makes: a description would have to say which check failed to be worth anything, and that is the

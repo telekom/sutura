@@ -30,14 +30,16 @@ async fn a_gateway_assertion_in_authorization_bearer_reaches_the_versioned_surfa
         "a gateway deployment publishes no protected-resource metadata"
     );
 
-    // Without its scheme, or in another header, the assertion is not read.
-    let mut bare = request("POST", "/v1/query", None, axum::body::Body::from(A_QUESTION));
-    let value = HeaderValue::from_str(&assertion).expect("a test assertion is a header value");
-    let _previous = bare.headers_mut().insert(AUTHORIZATION, value);
+    // Without its scheme, with two spaces after it, or in another header, the assertion is not read.
     assert_eq!(
-        crate::testing::call(&app, bare).await.0,
+        authorized_as(&app, &assertion).await,
         StatusCode::UNAUTHORIZED,
         "an assertion with no Bearer scheme is refused"
+    );
+    assert_eq!(
+        authorized_as(&app, &format!("Bearer  {assertion}")).await,
+        StatusCode::UNAUTHORIZED,
+        "an assertion after two spaces is refused"
     );
     assert_eq!(
         status_of(&app, ("POST", "/v1/query"), None, Some(&assertion), None).await,
@@ -45,8 +47,8 @@ async fn a_gateway_assertion_in_authorization_bearer_reaches_the_versioned_surfa
         "an assertion in another header is not read"
     );
 
-    // A client that bypasses the component sends its own token in this header, so `aud` and the key
-    // set are what refuse it.
+    // A client that bypasses the component sends its own token in this header, so `aud`, the key set
+    // and the lifetime ceiling are what refuse it.
     let unaddressed = issuer
         .mint(&accepted_by("someone@example.com").living_for(60).for_nobody_in_particular())
         .expect("the issuer signs an assertion");
@@ -63,4 +65,28 @@ async fn a_gateway_assertion_in_authorization_bearer_reaches_the_versioned_surfa
         StatusCode::UNAUTHORIZED,
         "an assertion signed by a key outside the key set is refused"
     );
+    let long_lived = issuer
+        .mint(&accepted_by("someone@example.com").living_for(3600))
+        .expect("the issuer signs an assertion");
+    assert_eq!(
+        call(&app, Some(&long_lived)).await.status,
+        StatusCode::UNAUTHORIZED,
+        "an assertion living past the lifetime ceiling is refused"
+    );
+    let undated = issuer
+        .mint(&accepted_by("someone@example.com").living_for(60).stating_no_issued_at())
+        .expect("the issuer signs an assertion");
+    assert_eq!(
+        call(&app, Some(&undated)).await.status,
+        StatusCode::UNAUTHORIZED,
+        "an assertion with no iat is refused"
+    );
+}
+
+/// The status of a query whose `Authorization` value is `value`, exactly as written.
+async fn authorized_as(app: &axum::Router, value: &str) -> StatusCode {
+    let mut query = request("POST", "/v1/query", None, axum::body::Body::from(A_QUESTION));
+    let value = HeaderValue::from_str(value).expect("a test value is a header value");
+    let _previous = query.headers_mut().insert(AUTHORIZATION, value);
+    crate::testing::call(app, query).await.0
 }
