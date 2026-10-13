@@ -45,7 +45,7 @@ impl ProtectedResource {
         if requirement.location() != TokenLocation::AuthorizationBearer {
             return None;
         }
-        let resource = requirement.audience().as_str();
+        let resource = requirement.resource()?.as_str();
         let after_scheme = resource.strip_prefix("https://").unwrap_or(resource);
         let (authority, resource_path) = after_scheme
             .split_once('/')

@@ -55,7 +55,9 @@
 use core::time::Duration;
 
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use sutura_config::{ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenRequirement, TokenType};
+use sutura_config::{
+    ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
+};
 use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject};
 
 use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
@@ -285,6 +287,13 @@ struct Claims {
     /// RFC 6749's space-delimited scope string, if the issuer sent one.
     #[serde(default)]
     scope: Option<String>,
+    /// Entra's delegated scopes, read only where `security.inbound.extra_scope_claims` names it. A
+    /// `Value`, so its shape cannot refuse a token on a deployment that does not read it.
+    #[serde(default)]
+    scp: Option<serde_json::Value>,
+    /// Entra's app roles, read only where `security.inbound.extra_scope_claims` names it.
+    #[serde(default)]
+    roles: Option<serde_json::Value>,
     /// The caller's group membership, if the issuer sent one - `docs/adr/0028`. A JSON array, per
     /// every mainstream issuer's convention for this claim (unlike `scope`).
     #[serde(default)]
@@ -312,7 +321,10 @@ struct Claims {
 #[derive(Debug)]
 pub struct TokenValidator {
     validation: Validation,
-    audience: ResourceIdentifier,
+    audience: TokenAudience,
+    /// What a token with no `scope` claim is granted. See `sutura_config::GrantedScopes`.
+    grant: Option<Scopes>,
+    extra_scope_claims: ExtraScopeClaims,
     /// Which class of token, checked on the header of a document that already verified.
     token_type: RequiredTokenType,
     /// The ceiling on `exp - iat`, where this deployment puts one. `None` in the `direct` mode - see
@@ -349,6 +361,8 @@ impl TokenValidator {
         Self {
             validation,
             audience: requirement.audience().clone(),
+            grant: requirement.grant().map(Scopes::declared),
+            extra_scope_claims: requirement.extra_scope_claims(),
             token_type: requirement.token_type().clone(),
             max_lifetime: requirement.max_lifetime(),
         }
@@ -404,10 +418,9 @@ impl TokenValidator {
         if let Some(ref actor) = claims.act {
             chain = chain.acting(chain_from(actor)?);
         }
-        let scopes = match claims.scope {
-            None => Scopes::none(),
-            Some(ref written) => Scopes::parse(written).map_err(|cause| TokenRejected::UnusableScope { cause })?,
-        };
+        let scopes = self
+            .scopes_of(&claims)
+            .map_err(|cause| TokenRejected::UnusableScope { cause })?;
         let groups = match claims.groups {
             None => Groups::none(),
             Some(claimed) => Groups::parse(claimed).map_err(|cause| TokenRejected::UnusableGroups { cause })?,
@@ -423,6 +436,25 @@ impl TokenValidator {
             sutura_domain::identity::Secret::new(token),
             u64::try_from(claims.exp).unwrap_or(0),
         ))
+    }
+
+    /// The scopes a verified token grants.
+    ///
+    /// A token with no `scope` gets the configured grant, where there is one. Otherwise `scope` and
+    /// each extra claim the deployment names are read into one set, which `Scopes::parse` bounds as a
+    /// whole. A grant is never added to scopes a token states, an empty `scope` included.
+    fn scopes_of(&self, claims: &Claims) -> Result<Scopes, InvalidScope> {
+        if let (None, Some(grant)) = (claims.scope.as_ref(), self.grant.as_ref()) {
+            return Ok(grant.clone());
+        }
+        let mut written = claims.scope.clone().unwrap_or_default();
+        if self.extra_scope_claims.reads_scp() {
+            append_scope_claim(&mut written, claims.scp.as_ref())?;
+        }
+        if self.extra_scope_claims.reads_roles() {
+            append_scope_claim(&mut written, claims.roles.as_ref())?;
+        }
+        Scopes::parse(&written)
     }
 
     /// Is this the class of token this deployment accepts?
@@ -493,7 +525,7 @@ impl TokenValidator {
     /// The audience this validator requires, for a challenge and for a log line.
     #[inline]
     #[must_use]
-    pub const fn audience(&self) -> &ResourceIdentifier {
+    pub const fn audience(&self) -> &TokenAudience {
         &self.audience
     }
 
@@ -535,6 +567,33 @@ const fn map_algorithm(algorithm: SigningAlgorithm) -> Algorithm {
         SigningAlgorithm::Es384 => Algorithm::ES384,
         SigningAlgorithm::EdDsa => Algorithm::EdDSA,
     }
+}
+
+/// Appends one extra scope claim to `written`: a space-delimited string, or an array of single
+/// scopes. Any other shape, or an array entry holding whitespace, is not a scope claim.
+fn append_scope_claim(written: &mut String, claim: Option<&serde_json::Value>) -> Result<(), InvalidScope> {
+    use serde_json::Value;
+    match claim {
+        None => {}
+        Some(Value::String(scopes)) => {
+            written.push(' ');
+            written.push_str(scopes);
+        }
+        Some(Value::Array(entries)) => {
+            for entry in entries {
+                let Value::String(scope) = entry else {
+                    return Err(InvalidScope::NotAScopeClaim);
+                };
+                if let Some(position) = scope.chars().position(char::is_whitespace) {
+                    return Err(InvalidScope::NotAScopeToken { position });
+                }
+                written.push(' ');
+                written.push_str(scope);
+            }
+        }
+        Some(_) => return Err(InvalidScope::NotAScopeClaim),
+    }
+    Ok(())
 }
 
 /// Turns a nested `act` claim into an ordered actor chain.

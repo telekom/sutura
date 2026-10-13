@@ -320,8 +320,22 @@ fn announce_identity(settings: &Settings) {
                 "PER-CALLER IDENTITY IS ESTABLISHED; SOURCE ACCESS DEPENDS ON ITS DECLARED POSTURE"
             );
             announce_token_class(inbound);
+            announce_grant(inbound);
         }
     }
+}
+
+/// The line a deployment that grants scopes by configuration must not be able to miss: every
+/// scopeless assertion its gateway signs is granted them, whoever the subject is.
+fn announce_grant(inbound: &InboundIdentity) {
+    let Some(grant) = inbound.requirement().grant() else {
+        return;
+    };
+    tracing::warn!(
+        granted_scopes = %grant,
+        "SCOPES ARE GRANTED BY CONFIGURATION: every assertion with no `scope` claim is granted these, \
+         whoever its subject is. An assertion that states a `scope` is granted only that"
+    );
 }
 
 /// The line a deployment that switched off the token-class check must not be able to miss.
@@ -347,7 +361,26 @@ fn announce_token_class(inbound: &InboundIdentity) {
 mod tests {
     use sutura_config::{Environment, Settings, Sources};
 
-    use super::{BANNER, announce_provenance, announce_surface};
+    use super::{BANNER, announce_identity, announce_provenance, announce_surface};
+
+    #[test]
+    fn a_scope_granted_by_configuration_is_announced_at_warn() {
+        // A grant is a capability no token stated, so the log carries it on a line of its own.
+        let sources = Sources::defaults(Environment::Development).with_overlay(
+            "security:\n  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"Authorization\"\n    \
+             transit_issuer: \"https://gateway.example.com\"\n    transit_audience: \"https://sutura.example.com\"\n    \
+             key_set_file: \"/k.json\"\n    algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n    \
+             granted_scopes: [\"sutura:metrics.ask\", \"sutura:catalog.read\"]\n",
+        );
+        let settings = Settings::load(&sources).expect("a grant behind a gateway loads");
+        let recorded = crate::testing::capture(|| announce_identity(&settings));
+        let granted = recorded
+            .lines()
+            .find(|line| line.contains("\"granted_scopes\":"))
+            .unwrap_or_else(|| panic!("no line names the grant: {recorded}"));
+        assert!(granted.contains("\"level\":40"), "{granted}");
+        assert!(granted.contains("sutura:catalog.read sutura:metrics.ask"), "{granted}");
+    }
 
     #[test]
     fn a_postgres_sources_channel_and_anchors_reach_the_log_and_bigquery_reads_as_wire_owned() {

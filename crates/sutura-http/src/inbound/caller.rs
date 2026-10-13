@@ -67,6 +67,9 @@ pub enum InvalidScope {
     /// are exactly the ones that would print as nothing.
     #[error("a scope holds a character at position {position} that RFC 6749 does not allow in one")]
     NotAScopeToken { position: usize },
+    /// An extra scope claim that is neither a string nor an array of strings.
+    #[error("a scope claim is a space-delimited string or an array of strings")]
+    NotAScopeClaim,
 }
 
 /// The scopes a verified token carried.
@@ -89,6 +92,14 @@ impl Scopes {
     #[must_use]
     pub fn none() -> Self {
         Self::default()
+    }
+
+    /// The scopes a deployment grants by configuration, already parsed to a token's own bounds.
+    #[must_use]
+    pub(crate) fn declared(grant: &sutura_config::GrantedScopes) -> Self {
+        Self {
+            granted: grant.iter().map(String::from).collect(),
+        }
     }
 
     /// Parses RFC 6749's space-delimited scope string.

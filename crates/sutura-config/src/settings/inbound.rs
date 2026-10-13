@@ -6,8 +6,8 @@
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
 use crate::inbound::{
-    InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier,
-    TokenType, TransitProof,
+    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
+    RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
 };
 use crate::raw::RawInbound;
 use crate::settings::SettingsError;
@@ -42,8 +42,10 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
         .map_err(|cause| SettingsError::InboundValue { cause })?;
     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
     match mode {
-        "behind-gateway" => Ok(InboundIdentity::BehindGateway {
-            transit: TransitProof::new(
+        "behind-gateway" => {
+            read_only_in(written.audience.is_some(), TokenAudience::KEY, "direct")?;
+            read_only_in(written.extra_scope_claims.is_some(), ExtraScopeClaims::KEY, "direct")?;
+            let transit = TransitProof::new(
                 ProofHeader::parse(required(written.transit_header.as_deref(), ProofHeader::KEY, mode)?)
                     .map_err(|cause| SettingsError::InboundValue { cause })?,
                 IssuerUrl::parse_transit_issuer(required(
@@ -76,14 +78,19 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     None => ProofLifetime::default_lifetime(),
                     Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
-            ),
-        }),
+            );
+            Ok(InboundIdentity::BehindGateway {
+                transit: match written.granted_scopes.as_deref() {
+                    None => transit,
+                    Some(scopes) => transit.granting_when_absent(grant(scopes)?),
+                },
+            })
+        }
         // `direct` and nothing else, because the match above already refused every other spelling.
         // Written as the fallback arm rather than as `"direct" =>` plus an unreachable one, so there
         // is no arm here that a test cannot provoke.
         _ => Ok(InboundIdentity::Direct {
-            resource: ResourceIdentifier::parse(required(written.resource.as_deref(), ResourceIdentifier::KEY, mode)?)
-                .map_err(|cause| SettingsError::InboundValue { cause })?,
+            resource: direct_resource(written, mode)?,
             authorization_server: IssuerUrl::parse(required(written.authorization_server.as_deref(), IssuerUrl::KEY, mode)?)
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
             key_set,
@@ -106,6 +113,38 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
             },
         }),
     }
+}
+
+/// The resource identifier, with the audience and the extra scope claims `direct` reads beside it.
+fn direct_resource(written: &RawInbound, mode: &str) -> Result<ResourceIdentifier, SettingsError> {
+    read_only_in(written.granted_scopes.is_some(), GrantedScopes::KEY, "behind-gateway")?;
+    let value = |cause| SettingsError::InboundValue { cause };
+    let mut resource =
+        ResourceIdentifier::parse(required(written.resource.as_deref(), ResourceIdentifier::KEY, mode)?).map_err(value)?;
+    if let Some(audience) = written.audience.as_deref() {
+        resource = resource.minted_as(TokenAudience::parse(audience).map_err(value)?);
+    }
+    if let Some(claims) = written.extra_scope_claims.as_deref() {
+        resource = resource.reading_scopes_from(ExtraScopeClaims::parse(claims).map_err(value)?);
+    }
+    Ok(resource)
+}
+
+/// A written grant, refused where it names raw SQL.
+fn grant(written: &[String]) -> Result<GrantedScopes, SettingsError> {
+    let grant = GrantedScopes::parse(written).map_err(|cause| SettingsError::InboundValue { cause })?;
+    if grant.contains("sutura:sql.run") {
+        return Err(SettingsError::RawSqlGranted);
+    }
+    Ok(grant)
+}
+
+/// Refuses a key written under a mode that does not read it, naming the mode that does.
+const fn read_only_in(written: bool, key: &'static str, mode: &'static str) -> Result<(), SettingsError> {
+    if written {
+        return Err(SettingsError::InboundKeyNotForMode { key, mode });
+    }
+    Ok(())
 }
 
 /// A written transit lifetime: inside the ceiling, and past [`ProofLifetime::SHORT_LIVED_SECONDS`]

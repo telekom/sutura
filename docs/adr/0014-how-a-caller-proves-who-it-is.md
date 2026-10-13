@@ -607,3 +607,22 @@ location, not of the mode.
 What leg 1 identifies there is unchanged: the subject is the assertion's `sub`. Behind a component
 that authenticates the calling application - with its OAuth 2.0 client credentials, for example -
 that subject is the application, and the audit record names it rather than a person.
+
+## Seventh amendment, 2026-10-13: an audience other than the resource identifier, and a grant behind a gateway
+
+**Status of the amendment: accepted.** Decision 2.3 said that `aud` must equal the resource
+identifier. Some issuers mint for another value: Entra puts the API's application ID in `aud`, and a
+gateway that routes by path mints its assertion for the route. The value `aud` must equal is now
+`security.inbound.audience` in `direct` - an `https` URI or a client ID - and by default it is
+still `resource`. `security.inbound.transit_audience` also accepts an absolute path. It is still
+our own value, one value, compared byte for byte without condition. A value with a scheme other
+than `https` is still refused, so are `http://` and `api://`. The RFC 9728 document, the challenge's
+realm and the allowed host still read `resource`, so the published identifier stays `https`.
+
+Decision 4 and "Where scopes are authored" said that a caller's scopes come from the token's
+`scope` claim. Two more sources are now possible, and both are configuration. In `direct`,
+`security.inbound.extra_scope_claims` also reads `scp` and `roles`, into one bounded set with
+`scope`. Behind a gateway, `security.inbound.granted_scopes` is what an assertion with no `scope`
+claim is granted. It is never added to a `scope` that an assertion states, an empty one included,
+it cannot name `sutura:sql.run`, and start-up prints it at `WARN`. Neither source comes from the
+question, so Decision 4's argument holds. The subject and the audit record still come from `sub`.

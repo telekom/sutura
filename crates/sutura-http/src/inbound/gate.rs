@@ -39,7 +39,7 @@ use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{InboundIdentity, TokenLocation};
+use sutura_config::{InboundIdentity, ResourceIdentifier, TokenLocation};
 
 use sutura_runtime::Shutdown;
 
@@ -126,7 +126,11 @@ impl InboundGate {
             TokenLocation::Header { name } => (String::from(name.as_str()), false, false),
         };
         Self {
-            realm: String::from(requirement.audience().as_str()),
+            realm: String::from(
+                requirement
+                    .resource()
+                    .map_or_else(|| requirement.audience().as_str(), ResourceIdentifier::as_str),
+            ),
             validator: TokenValidator::new(&requirement),
             keys: Arc::new(keys),
             header,

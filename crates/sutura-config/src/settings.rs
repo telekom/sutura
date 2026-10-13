@@ -267,6 +267,17 @@ pub enum SettingsError {
     /// A key this mode needs. The mode is in the message on purpose - see `required`.
     #[error("`security.inbound.mode` is `{mode}`, which requires `{key}`")]
     InboundKeyMissing { key: &'static str, mode: String },
+    /// A key the configured mode does not read. Refused rather than ignored, because an ignored
+    /// audience or grant is a deployment that believes it says something it does not.
+    #[error("`{key}` is read only when `security.inbound.mode` is `{mode}`")]
+    InboundKeyNotForMode { key: &'static str, mode: &'static str },
+    /// A configured grant of raw SQL. `run_sql` is enabled and acknowledged by name, never handed to
+    /// every scopeless assertion a gateway signs.
+    #[error(
+        "`security.inbound.granted_scopes` names `sutura:sql.run`. Raw SQL is granted by a token's own \
+         `scope`, never by configuration - remove it from the list"
+    )]
+    RawSqlGranted,
     #[error("a value in `security.inbound` is not usable")]
     InboundValue {
         #[source]

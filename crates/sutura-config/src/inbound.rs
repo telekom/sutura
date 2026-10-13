@@ -62,12 +62,16 @@
 //! [`TokenRequirement`] borrowed out of whichever variant is configured. There is one validator, so
 //! there is one place algorithm pinning and the audience check can be got wrong.
 
+mod audience;
 mod primitive;
+mod scope;
 
+pub use crate::inbound::audience::TokenAudience;
 pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
     ResourceIdentifier, SigningAlgorithm, TokenType,
 };
+pub use crate::inbound::scope::{ExtraScopeClaims, GrantedScopes};
 
 /// Which class of token this deployment will accept, out of the `typ` header.
 ///
@@ -186,13 +190,15 @@ impl core::fmt::Display for TokenLocation<'_> {
 pub struct TransitProof {
     header: ProofHeader,
     issuer: IssuerUrl,
-    audience: ResourceIdentifier,
+    audience: TokenAudience,
     key_set: KeySetFile,
     algorithms: PinnedAlgorithms,
     /// The class of token the component emits. See [`RequiredTokenType`].
     token_type: RequiredTokenType,
     /// The ceiling this deployment puts on a lifetime the component chose. See [`ProofLifetime`].
     max_lifetime: ProofLifetime,
+    /// What an assertion with no `scope` claim is granted. See [`GrantedScopes`].
+    grant: Option<GrantedScopes>,
 }
 
 impl TransitProof {
@@ -208,7 +214,7 @@ impl TransitProof {
     pub const fn new(
         header: ProofHeader,
         issuer: IssuerUrl,
-        audience: ResourceIdentifier,
+        audience: TokenAudience,
         key_set: KeySetFile,
         algorithms: PinnedAlgorithms,
         token_type: RequiredTokenType,
@@ -222,6 +228,16 @@ impl TransitProof {
             algorithms,
             token_type,
             max_lifetime,
+            grant: None,
+        }
+    }
+
+    /// The same declaration, granting `grant` to an assertion that carries no `scope` claim.
+    #[must_use]
+    pub fn granting_when_absent(self, grant: GrantedScopes) -> Self {
+        Self {
+            grant: Some(grant),
+            ..self
         }
     }
 
@@ -273,7 +289,12 @@ pub enum InboundIdentity {
 pub struct TokenRequirement<'inbound> {
     location: TokenLocation<'inbound>,
     issuer: &'inbound IssuerUrl,
-    audience: &'inbound ResourceIdentifier,
+    audience: &'inbound TokenAudience,
+    /// The identifier this deployment publishes. `Some` in `direct` only.
+    resource: Option<&'inbound ResourceIdentifier>,
+    /// What a token with no `scope` claim is granted. `Some` behind a gateway that declares one.
+    grant: Option<&'inbound GrantedScopes>,
+    extra_scope_claims: ExtraScopeClaims,
     key_set: &'inbound KeySetFile,
     algorithms: &'inbound PinnedAlgorithms,
     token_type: &'inbound RequiredTokenType,
@@ -313,8 +334,30 @@ impl<'inbound> TokenRequirement<'inbound> {
     /// when the indicator is absent.
     #[inline]
     #[must_use]
-    pub const fn audience(&self) -> &'inbound ResourceIdentifier {
+    pub const fn audience(&self) -> &'inbound TokenAudience {
         self.audience
+    }
+
+    /// The identifier RFC 9728's metadata and a challenge name, whatever `aud` is. `None` behind a
+    /// gateway, which publishes none.
+    #[inline]
+    #[must_use]
+    pub const fn resource(&self) -> Option<&'inbound ResourceIdentifier> {
+        self.resource
+    }
+
+    /// What a token with no `scope` claim is granted - never added to one that has a `scope`.
+    #[inline]
+    #[must_use]
+    pub const fn grant(&self) -> Option<&'inbound GrantedScopes> {
+        self.grant
+    }
+
+    /// Which claims beside `scope` grant scopes.
+    #[inline]
+    #[must_use]
+    pub const fn extra_scope_claims(&self) -> ExtraScopeClaims {
+        self.extra_scope_claims
     }
 
     /// Where the signing keys are read from.
@@ -421,7 +464,10 @@ impl InboundIdentity {
                 // header, refused at startup - see `NotFitToServe::DeploymentTokenSharesTheHeader`.
                 location: TokenLocation::AuthorizationBearer,
                 issuer: authorization_server,
-                audience: resource,
+                audience: resource.audience(),
+                resource: Some(resource),
+                grant: None,
+                extra_scope_claims: resource.extra_scope_claims(),
                 key_set,
                 algorithms,
                 token_type,
@@ -437,6 +483,9 @@ impl InboundIdentity {
                 },
                 issuer: &transit.issuer,
                 audience: &transit.audience,
+                resource: None,
+                grant: transit.grant.as_ref(),
+                extra_scope_claims: ExtraScopeClaims::none(),
                 key_set: &transit.key_set,
                 algorithms: &transit.algorithms,
                 token_type: &transit.token_type,

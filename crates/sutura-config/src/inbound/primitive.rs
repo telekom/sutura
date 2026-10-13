@@ -31,12 +31,14 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::inbound::{ExtraScopeClaims, TokenAudience};
+
 /// The longest identifier, issuer or header name accepted.
 ///
 /// Generous for a URL and far below anything that could be a payload. The bound is here because
 /// every one of these values is read out of configuration into a startup log line, and because an
 /// unbounded input is a denial-of-service primitive whatever else it is.
-const MAX_LENGTH: usize = 512;
+pub(super) const MAX_LENGTH: usize = 512;
 
 /// The scheme every identifier and issuer here must carry.
 ///
@@ -135,6 +137,20 @@ pub enum InvalidInboundValue {
         key = ProofLifetime::KEY
     )]
     LifetimeOutOfRange { found: u64, limit: u64 },
+    /// A value written as a path that is not an absolute one: a second leading `/`, which a URL
+    /// reader takes for an authority, or an incomplete percent escape.
+    #[error("{key} written as a path starts with exactly one `/` and holds complete percent escapes")]
+    NotAnAbsolutePath { key: &'static str },
+    /// A list entry outside the closed set the key reads. The index and not the entry, as for
+    /// [`Self::NotPermitted`].
+    #[error("{key} entry {index} (counting from zero) is not one of: {accepted}")]
+    NotANamedValue {
+        key: &'static str,
+        index: usize,
+        accepted: &'static str,
+    },
+    #[error("{key} holds at most {limit} values")]
+    TooMany { key: &'static str, limit: usize },
 }
 
 /// What this deployment calls itself when it validates an audience.
@@ -146,7 +162,14 @@ pub enum InvalidInboundValue {
 /// token safe. The check is ours, it is unconditional, and it is not skippable when the client sent
 /// no indicator.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResourceIdentifier(String);
+pub struct ResourceIdentifier {
+    identifier: String,
+    /// What `aud` must equal. The identifier's own bytes unless `security.inbound.audience` says
+    /// otherwise - an Entra access token carries the API's application id there.
+    audience: TokenAudience,
+    /// Which claims beside `scope` grant scopes. None unless the deployment names them.
+    extra_scope_claims: ExtraScopeClaims,
+}
 
 /// Where the tokens this deployment accepts are minted.
 ///
@@ -480,7 +503,7 @@ const HEADER_CHARACTERS: &str = "lower-case letters, digits, `-` and `_`";
 /// Shared by [`ResourceIdentifier`] and [`IssuerUrl`] because they are one parse with two names: an
 /// audience and an issuer are both configured strings compared byte for byte against a claim, and a
 /// rule that held for one and not the other would be a hole with its matching pair next to it.
-fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboundValue> {
+pub(super) fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboundValue> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(InvalidInboundValue::Empty { key });
@@ -558,7 +581,7 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
     Ok(String::from(trimmed))
 }
 
-fn percent_escapes_are_complete(raw: &str) -> bool {
+pub(super) fn percent_escapes_are_complete(raw: &str) -> bool {
     let mut bytes = raw.bytes();
     while let Some(byte) = bytes.next() {
         if byte == b'%'
@@ -579,29 +602,65 @@ impl ResourceIdentifier {
 
     /// Reads the identifier this deployment declares for itself.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidInboundValue> {
-        parse_https_uri(Self::KEY, raw.as_ref()).map(Self)
+        let identifier = parse_https_uri(Self::KEY, raw.as_ref())?;
+        Ok(Self {
+            audience: TokenAudience::verbatim(identifier.clone()),
+            identifier,
+            extra_scope_claims: ExtraScopeClaims::none(),
+        })
     }
 
-    /// Reads a transit proof's expected audience, which is the same shape under a different key.
-    ///
-    /// A second entry point rather than a second parser: the only thing that differs is which key a
-    /// refusal names, and that is what makes an operator able to find it.
-    pub fn parse_transit_audience(raw: impl AsRef<str>) -> Result<Self, InvalidInboundValue> {
-        parse_https_uri("security.inbound.transit_audience", raw.as_ref()).map(Self)
+    /// Reads a transit proof's expected audience: an `https` URI, or an absolute path for a component
+    /// that mints its assertion for the route it forwards.
+    pub fn parse_transit_audience(raw: impl AsRef<str>) -> Result<TokenAudience, InvalidInboundValue> {
+        TokenAudience::parse_transit(raw.as_ref())
+    }
+
+    /// The same identifier, validating `aud` against `audience` instead of its own bytes.
+    #[must_use]
+    pub fn minted_as(self, audience: TokenAudience) -> Self {
+        Self { audience, ..self }
+    }
+
+    /// The same identifier, granting scopes out of `claims` as well as `scope`.
+    #[must_use]
+    pub fn reading_scopes_from(self, claims: ExtraScopeClaims) -> Self {
+        Self {
+            extra_scope_claims: claims,
+            ..self
+        }
     }
 
     #[inline]
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.identifier
+    }
+
+    /// What the `aud` claim must equal, byte for byte.
+    #[inline]
+    #[must_use]
+    pub const fn audience(&self) -> &TokenAudience {
+        &self.audience
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn extra_scope_claims(&self) -> ExtraScopeClaims {
+        self.extra_scope_claims
     }
 
     /// The host this identifier names, in the form a declared `Host` takes.
     #[must_use]
     pub fn host(&self) -> Option<crate::server::AllowedHost> {
-        let parsed = url::Url::parse(&self.0).ok()?;
-        crate::server::AllowedHost::parse(parsed.host_str()?).ok()
+        host_of(&self.identifier)
     }
+}
+
+/// The host an absolute URI names, in the form a declared `Host` takes. `None` for anything else.
+pub(super) fn host_of(uri: &str) -> Option<crate::server::AllowedHost> {
+    let parsed = url::Url::parse(uri).ok()?;
+    crate::server::AllowedHost::parse(parsed.host_str()?).ok()
 }
 
 impl TryFrom<String> for ResourceIdentifier {
@@ -614,7 +673,7 @@ impl TryFrom<String> for ResourceIdentifier {
 
 impl core::fmt::Display for ResourceIdentifier {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.identifier)
     }
 }
 

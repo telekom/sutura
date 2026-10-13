@@ -22,6 +22,7 @@
 //! makes it worth having - that every token it mints is one an issuer could have minted.
 
 use axum::http::StatusCode;
+use sutura_config::{Environment, Settings, Sources};
 use sutura_dev::issuer::{MockIssuer, Token};
 
 use crate::testing::{
@@ -736,6 +737,18 @@ async fn the_liveness_and_metrics_routes_answer_a_host_the_versioned_surface_ref
             "{path}"
         );
     }
+}
+
+/// A `direct` deployment whose `aud` is a client id still answers the host its resource names.
+#[tokio::test]
+async fn a_client_id_audience_leaves_the_resource_host_answered() {
+    let issuer = an_issuer();
+    let declared = format!("{}    audience: \"sutura-api\"\n", direct_overlay(&issuer, UNREAD));
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(declared)).expect("it starts");
+    let gate = gate_over(&declared_inbound(&settings), &issuer.key_set());
+    let app = serving(bundle(), fake_warehouse(), broker(), settings, Some(gate));
+    let status = status_of(&app, ("GET", "/v1/catalog"), None, None, Some("sutura.example.com")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 /// The body of one GET carrying `host`.

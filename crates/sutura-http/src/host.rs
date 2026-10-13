@@ -26,7 +26,7 @@ use axum::http::header::HOST;
 use axum::http::uri::Authority;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{AllowedHost, Settings};
+use sutura_config::{AllowedHost, ResourceIdentifier, Settings};
 
 use crate::problem::Failure;
 
@@ -49,10 +49,12 @@ impl HostAllowlist {
         if !settings.server().bind().is_loopback() && declared.is_empty() {
             return None;
         }
-        let resource = settings
-            .security()
-            .inbound()
-            .and_then(|inbound| inbound.requirement().audience().host());
+        let resource = settings.security().inbound().and_then(|inbound| {
+            let requirement = inbound.requirement();
+            requirement
+                .resource()
+                .map_or_else(|| requirement.audience().host(), ResourceIdentifier::host)
+        });
         let hosts = LOOPBACK
             .iter()
             .copied()

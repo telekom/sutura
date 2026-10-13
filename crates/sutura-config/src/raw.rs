@@ -446,9 +446,18 @@ pub(crate) struct RawInbound {
     /// `behind-gateway`: the issuer that must have signed the proof.
     #[serde(default)]
     pub(crate) transit_issuer: Option<String>,
-    /// `behind-gateway`: the audience the proof must carry.
+    /// `behind-gateway`: the audience the proof must carry - an `https` URI or an absolute path.
     #[serde(default)]
     pub(crate) transit_audience: Option<String>,
+    /// `direct`: what `aud` must equal, where it is not `resource` - an Entra application id.
+    #[serde(default)]
+    pub(crate) audience: Option<String>,
+    /// `direct`: which claims beside `scope` grant scopes, out of `scp` and `roles`.
+    #[serde(default)]
+    pub(crate) extra_scope_claims: Option<Vec<String>>,
+    /// `behind-gateway`: the scopes an assertion with no `scope` claim is granted.
+    #[serde(default)]
+    pub(crate) granted_scopes: Option<Vec<String>>,
     /// Both modes: where the signing keys are read from.
     #[serde(default)]
     pub(crate) key_set_file: Option<String>,

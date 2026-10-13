@@ -158,7 +158,9 @@ impl Capability {
 /// * [`Permitted::every_capability`] - nothing established a caller identity, so there is no verified
 ///   claim to narrow by. A single-player deployment, and the agent surface over standard input and
 ///   output.
-/// * [`Permitted::granted_by`] - a verified token's scopes decide, and **only** they do.
+/// * [`Permitted::granted_by`] - a verified token's scopes decide, and **only** they do. Behind a
+///   gateway that declares `security.inbound.granted_scopes`, an assertion with no `scope` claim
+///   arrives here carrying that grant; one that states a `scope` carries only its own.
 ///
 /// # It fails closed, and the consequence is named rather than softened
 ///

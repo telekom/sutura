@@ -27,7 +27,9 @@ authenticates the deployment, and every question runs with the access of the dep
 | Key                     | Type        | Default  | Meaning                                                                                                                       |
 | ----------------------- | ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `mode`                  | string      | required | `direct`                                                                                                                      |
-| `resource`              | `https` URI | required | The value that `aud` must equal exactly                                                                                       |
+| `resource`              | `https` URI | required | The identifier that sutura publishes. `aud` must equal it exactly, unless `audience` is set                                   |
+| `audience`              | string      | none     | The value that `aud` must equal exactly instead: an `https` URI, or a client ID of letters, digits, `-`, `.` and `_`          |
+| `extra_scope_claims`    | list        | none     | More claims that grant scopes, beside `scope`: `scp`, `roles`, or both                                                        |
 | `authorization_server`  | `https` URI | required | The value that `iss` must equal exactly                                                                                       |
 | `key_set_file`          | path        | required | A JWK set file with the public keys of the identity provider                                                                  |
 | `algorithms`            | list        | required | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
@@ -38,17 +40,18 @@ authenticates the deployment, and every question runs with the access of the dep
 
 ## Settings for `behind-gateway`
 
-| Key                            | Type        | Default  | Meaning                                            |
-| ------------------------------ | ----------- | -------- | -------------------------------------------------- |
-| `mode`                         | string      | required | `behind-gateway`                                   |
-| `transit_header`               | string      | required | The header that holds the assertion                |
-| `transit_issuer`               | `https` URI | required | The issuer that must sign the assertion            |
-| `transit_audience`             | `https` URI | required | The audience that the assertion must carry         |
-| `key_set_file`                 | path        | required | A JWK set file with the public keys of the gateway |
-| `algorithms`                   | list        | required | The accepted algorithms, as for `direct`           |
-| `transit_token_type`           | string      | required | The `typ` that the gateway sets, or `any`          |
-| `transit_max_lifetime_seconds` | integer     | `120`    | The longest accepted `exp - iat`, 1 to 3600        |
-| `accept_long_transit_lifetime` | boolean     | `false`  | Must be `true` for a lifetime above 300            |
+| Key                            | Type        | Default  | Meaning                                                                       |
+| ------------------------------ | ----------- | -------- | ----------------------------------------------------------------------------- |
+| `mode`                         | string      | required | `behind-gateway`                                                              |
+| `transit_header`               | string      | required | The header that holds the assertion                                           |
+| `transit_issuer`               | `https` URI | required | The issuer that must sign the assertion                                       |
+| `transit_audience`             | string      | required | The `aud` of the assertion: an `https` URI or a path that starts with one `/` |
+| `granted_scopes`               | list        | none     | The scopes of an assertion that has no `scope` claim                          |
+| `key_set_file`                 | path        | required | A JWK set file with the public keys of the gateway                            |
+| `algorithms`                   | list        | required | The accepted algorithms, as for `direct`                                      |
+| `transit_token_type`           | string      | required | The `typ` that the gateway sets, or `any`                                     |
+| `transit_max_lifetime_seconds` | integer     | `120`    | The longest accepted `exp - iat`, 1 to 3600                                   |
+| `accept_long_transit_lifetime` | boolean     | `false`  | Must be `true` for a lifetime above 300                                       |
 
 Some gateways authenticate the calling application, for example with its OAuth 2.0 client
 credentials, and replace its token with their own assertion in `Authorization: Bearer`. For such a
@@ -85,7 +88,32 @@ The `scope` claim of a verified token decides what the caller may do:
 | `sutura:metrics.ask`  | Ask a question       |
 | `sutura:sql.run`      | Use the raw SQL tool |
 
-A verified caller without one of these scopes gets `403 insufficient_scope`.
+A verified caller without one of these scopes gets `403 insufficient_scope`. A scope that names
+none of these grants nothing.
+
+In `direct`, `extra_scope_claims` also reads `scp` and `roles`. Each is a space-delimited string or
+a list of strings. sutura adds their scopes to the scopes of `scope`. When the setting is not set,
+sutura reads only `scope`.
+
+Behind a gateway, `granted_scopes` gives scopes to an assertion that has no `scope` claim. All
+subjects that the gateway signs an assertion for without `scope` get these scopes, so sutura writes
+them to the start-up log at `WARN`. An assertion with a `scope` claim, also an empty one, gets only
+the scopes of that claim. `granted_scopes` cannot hold `sutura:sql.run`.
+
+## Microsoft Entra ID
+
+An Entra access token has `typ: JWT` and the application ID of your API in `aud`. Set:
+
+- `authorization_server`: `https://login.microsoftonline.com/<tenant>/v2.0`.
+- `key_set_file`: a copy of `https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys`. Entra
+  rotates its keys, so refresh the file on a schedule.
+- `token_type: any` and `accept_any_token_type: true`.
+- `audience`: the application ID of the API.
+- `extra_scope_claims: [scp, roles]`: `scp` holds the delegated scopes of a user, and `roles` holds
+  the app roles of an application.
+
+In the app registration of the API, set `accessTokenAcceptedVersion` to `2`. A version 1 token has
+an `api://` audience, and sutura refuses it. Register the API separately from every client.
 
 ## ClickHouse token checker
 
