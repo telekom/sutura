@@ -607,7 +607,9 @@ mod tests {
         let fake = fake(&[(&format!("{REPO}@{OLD}"), old)]);
         let result = refresh(&record_for_old(), &pins(&[NEW]), &fake);
         assert!(
-            result.as_ref().is_err_and(|reason| reason.contains(NEW)),
+            result
+                .as_ref()
+                .is_err_and(|reason| reason.contains("no fixture for") && reason.contains(NEW)),
             "{:?}",
             result.map(|done| done.map(|d| d.record))
         );
@@ -620,7 +622,9 @@ mod tests {
         let fake = fake(&[(&format!("{REPO}@{NEW}"), new)]);
         let result = refresh(&record_for_old(), &pins(&[NEW]), &fake);
         assert!(
-            result.as_ref().is_err_and(|reason| reason.contains(OLD)),
+            result
+                .as_ref()
+                .is_err_and(|reason| reason.contains("no fixture for") && reason.contains(OLD)),
             "{:?}",
             result.map(|done| done.map(|d| d.record))
         );
@@ -633,6 +637,39 @@ mod tests {
         let result = refresh(&record_for_old(), &pins(&[OLD]), &fake);
         assert!(matches!(result, Ok(None)), "nothing to do");
         assert_eq!(fake.calls.get(), 0, "no fetch for a filed pin");
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kills `unpinned`.
+    #[test]
+    fn a_ref_that_is_not_a_sha_is_not_fetched() {
+        let fake = fake(&[]);
+        let pinned: BTreeSet<String> = [String::from("fresh/act@v4"), format!("{REPO}@{OLD}")].into_iter().collect();
+        let result = refresh(&record_for_old(), &pinned, &fake);
+        assert!(
+            matches!(result, Ok(None)),
+            "the gate refuses a ref; this tool does not file one"
+        );
+        assert_eq!(fake.calls.get(), 0);
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kills `still-pinned-a`, `still-pinned-b`.
+    #[test]
+    fn an_entry_the_tree_still_pins_is_kept_beside_the_new_one() {
+        let new = manifest_text(&[("one", "true", "x")]);
+        let fake = fake(&[(&format!("{REPO}@{NEW}"), new)]);
+        let done = refresh(&record_for_old(), &pins(&[OLD, NEW]), &fake)
+            .expect("fetch answers")
+            .expect("a pin moved");
+        assert!(
+            done.record.contains(&format!("{REPO}@{OLD}\n  one\n  two\n")),
+            "{}",
+            done.record
+        );
+        assert!(done.record.ends_with(&format!("{REPO}@{NEW}\n  one\n")), "{}", done.record);
+        assert_eq!(
+            done.report,
+            vec![format!("{REPO}: new at {NEW:.12}"), String::from("  + one")]
+        );
     }
 
     /// Not measured by causality: shares a file with its code; held by kill `new-action`.
