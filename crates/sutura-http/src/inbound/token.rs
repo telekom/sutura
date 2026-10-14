@@ -204,6 +204,13 @@ pub enum TokenRejected {
     /// above cannot be trusted to mean what it says.
     #[error("the presented proof was issued {seconds}s in the future, past the {leeway}s allowed for clock skew")]
     IssuedInTheFuture { seconds: i64, leeway: u64 },
+    /// With `extra_scope_claims` set, a token that names no client in `azp`.
+    #[error("the presented token names no client in `azp`")]
+    ClientNotNamed,
+    /// With `extra_scope_claims` set, a token whose `azp` is this deployment's own audience: the
+    /// client must differ from the API.
+    #[error("the presented token names this deployment's own audience as its client")]
+    ClientIsTheApi,
 }
 
 /// Why a presented token did not verify, when it did not.
@@ -294,6 +301,10 @@ struct Claims {
     /// Entra's app roles, read only where `security.inbound.extra_scope_claims` names it.
     #[serde(default)]
     roles: Option<serde_json::Value>,
+    /// The client the token was issued to, read only where `security.inbound.extra_scope_claims` is
+    /// set. A `Value` for the same reason as `scp`.
+    #[serde(default)]
+    azp: Option<serde_json::Value>,
     /// The caller's group membership, if the issuer sent one - `docs/adr/0028`. A JSON array, per
     /// every mainstream issuer's convention for this claim (unlike `scope`).
     #[serde(default)]
@@ -410,6 +421,7 @@ impl TokenValidator {
         self.of_the_right_class(decoded.header.typ.as_deref())?;
         let claims = decoded.claims;
         self.within_the_lifetime_ceiling(&claims)?;
+        self.issued_to_another_client(&claims)?;
         // The single construction of a verified subject: both the masked id a record renders and the
         // full impersonation-map key come from one parse of the same verified `sub`, so they cannot
         // disagree about who was verified.
@@ -455,6 +467,19 @@ impl TokenValidator {
             append_scope_claim(&mut written, claims.roles.as_ref())?;
         }
         Scopes::parse(&written)
+    }
+
+    /// With `extra_scope_claims` set, the token must name its client in `azp`, and the client must
+    /// differ from the API. Without the key nothing here is read.
+    fn issued_to_another_client(&self, claims: &Claims) -> Result<(), TokenRejected> {
+        if !self.extra_scope_claims.reads_scp() && !self.extra_scope_claims.reads_roles() {
+            return Ok(());
+        }
+        match claims.azp.as_ref().and_then(serde_json::Value::as_str) {
+            None => Err(TokenRejected::ClientNotNamed),
+            Some(client) if client.eq_ignore_ascii_case(self.audience.as_str()) => Err(TokenRejected::ClientIsTheApi),
+            Some(_) => Ok(()),
+        }
     }
 
     /// Is this the class of token this deployment accepts?

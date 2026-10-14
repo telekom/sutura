@@ -2399,6 +2399,8 @@ and an error is not a place for credential material.
   A separate refusal from an expiry, because it says something different: a proof issued in the
   future is a clock that disagrees or a claim somebody wrote, and either way the lifetime bound
   above cannot be trusted to mean what it says.
+- `ClientNotNamed` - With `extra_scope_claims` set, a token that names no client in `azp`.
+- `ClientIsTheApi` - With `extra_scope_claims` set, a token whose `azp` is this deployment's own audience: the client must differ from the API.
 
 ##### Implements
 

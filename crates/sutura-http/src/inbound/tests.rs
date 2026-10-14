@@ -782,7 +782,12 @@ async fn an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_de
     let user = signed_as(
         &pair,
         KID,
-        &claims("someone@example.com", CLIENT_ID, ISSUER, r#"{"scp":"sutura:metrics.ask"}"#),
+        &claims(
+            "someone@example.com",
+            CLIENT_ID,
+            ISSUER,
+            r#"{"azp":"0b7c1d4e-2f3a-4b5c-8d6e-7f8091a2b3c4","scp":"sutura:metrics.ask"}"#,
+        ),
         Some("JWT"),
     );
     let app_only = signed_as(
@@ -792,7 +797,7 @@ async fn an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_de
             "daemon@example.com",
             CLIENT_ID,
             ISSUER,
-            r#"{"roles":["sutura:catalog.read"]}"#,
+            r#"{"azp":"0b7c1d4e-2f3a-4b5c-8d6e-7f8091a2b3c4","roles":["sutura:catalog.read"]}"#,
         ),
         Some("JWT"),
     );
@@ -817,6 +822,14 @@ async fn an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_de
         .await
         .expect("the token still verifies");
     assert!(scopes_of(&caller).is_empty(), "`scp` grants nothing where it is not declared");
+    let caller = undeclared
+        .establish(&bearer(&app_only), Instant::now())
+        .await
+        .expect("the token still verifies");
+    assert!(
+        scopes_of(&caller).is_empty(),
+        "`roles` grants nothing where it is not declared"
+    );
 
     let resource_audience = gate_for(&entra_declared("    extra_scope_claims: [\"scp\", \"roles\"]\n"));
     assert!(

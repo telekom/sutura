@@ -2,6 +2,7 @@
 //! Principal rendering through the event the shipped audit sink emits.
 //!
 //! The actor and task values are synthetic: no published transport populates those tail positions.
+//! A scope granted by configuration, which no token stated, is announced on a start-up line of its own.
 
 #[cfg(test)]
 mod tests {
@@ -134,5 +135,33 @@ mod tests {
         assert_eq!(id.to_string(), "o***@f***");
         assert_eq!(format!("{id:?}"), "o***@f***");
         assert!(!id.to_string().contains("full-secret-id"));
+    }
+
+    #[test]
+    fn a_scope_granted_by_configuration_is_announced_at_warn() {
+        let sources = sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(
+            "security:\n  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"Authorization\"\n    \
+             transit_issuer: \"https://gateway.example.com\"\n    transit_audience: \"https://sutura.example.com\"\n    \
+             key_set_file: \"/k.json\"\n    algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n    \
+             granted_scopes: [\"sutura:metrics.ask\", \"sutura:catalog.read\"]\n",
+        );
+        let settings = sutura_config::Settings::load(&sources).expect("a grant behind a gateway loads");
+        let sink = sutura_runtime::testing::Capture::new();
+        let telemetry = sutura_config::TelemetrySettings::new(
+            sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+            sutura_config::LogFilter::parse("warn").expect("a test directive is a directive"),
+            sutura_config::LogFormat::Bunyan,
+            true,
+        );
+        let subscriber =
+            sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+        tracing::subscriber::with_default(subscriber, || sutura_runtime::banner::announce(&settings));
+        let recorded = sink.contents();
+        let granted = recorded
+            .lines()
+            .find(|line| line.contains("\"granted_scopes\":"))
+            .unwrap_or_else(|| panic!("no line names the grant: {recorded}"));
+        assert!(granted.contains("\"level\":40"), "{granted}");
+        assert!(granted.contains("sutura:catalog.read sutura:metrics.ask"), "{granted}");
     }
 }

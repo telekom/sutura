@@ -622,7 +622,8 @@ realm and the allowed host still read `resource`, so the published identifier st
 Decision 4 and "Where scopes are authored" said that a caller's scopes come from the token's
 `scope` claim. Two more sources are now possible, and both are configuration. In `direct`,
 `security.inbound.extra_scope_claims` also reads `scp` and `roles`, into one bounded set with
-`scope`. Behind a gateway, `security.inbound.granted_scopes` is what an assertion with no `scope`
+`scope`; with it set, a token must name its client in `azp`, and the client must differ from the
+API's `audience`. Behind a gateway, `security.inbound.granted_scopes` is what an assertion with no `scope`
 claim is granted. It is never added to a `scope` that an assertion states, an empty one included,
 it cannot name `sutura:sql.run`, and start-up prints it at `WARN`. Neither source comes from the
 question, so Decision 4's argument holds. The subject and the audit record still come from `sub`.
