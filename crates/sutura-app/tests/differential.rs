@@ -421,9 +421,14 @@ mod tests {
     /// own, and must answer what two engines answer - or, declaring no leg execution, be refused by
     /// name before anything runs. The engine's own entry is compared against itself, a determinism
     /// check; an entry with no venue here (`BigQuery`, Oracle, or a tier that is not up) is skipped
-    /// under its named exemption through `adapters::runs_here`, so `ClickHouse`'s refusal is asserted
-    /// only where its tier is up. An entry `runs_here` admits and the walk did not ask is a finding,
-    /// and the entries compared are printed, so the `bigquery-conformance` job's log names `bigquery`.
+    /// under its named exemption through `adapters::runs_here`. `Cube` is the only entry with no
+    /// leg execution and no offline venue brings it up, so no offline venue runs the refusal arm
+    /// here; the capability gate itself is held by
+    /// `a_federated_answer_is_refused_when_no_adapter_executes_a_leg` and
+    /// `a_federated_answer_is_refused_when_only_one_leg_can_execute` in
+    /// `sutura-app`'s `federated/tests.rs`. An entry `runs_here` admits and the walk did not ask is
+    /// a finding, and the entries compared are printed, so the `bigquery-conformance` job's log
+    /// names `bigquery`.
     /// One cell over the registry rather than one per entry, and one assertion in it:
     /// `federated::two_fact::compared` says what each entry did, and the two engines it compares
     /// against are held to hand-worked figures by that file's own cell. **The first finding stops the

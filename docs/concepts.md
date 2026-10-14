@@ -164,7 +164,7 @@ A **data system** runs the query. It has two kinds of adapter:
   runs it.
 
 **Two sources in one question.** sutura splits the plan into legs, runs each leg on its own source, and joins the
-results. It refuses a plan with three or more sources (`PlanSpansTooManySources`). A ClickHouse source cannot run a
+results. It refuses a plan with three or more sources (`PlanSpansTooManySources`). A Cube source cannot run a
 leg, so a two-source question that names one is refused (`FederationNotExecutable`).
 
 **Identity for each leg.** Each leg runs in the identity mode of its source: `shared-service-user` or
