@@ -7109,10 +7109,9 @@ legitimate one.</p>
   shape <code>Postgres</code> above describes, for the same reason: the vocabulary of kinds is the
   vocabulary of adapters this repository has, and which one a given BUILD linked is a property
   of its features.</p>
-<p>The static-credential half, and the only half that exists: <code>sutura_exec_clickhouse</code>'s
-  <code>Warehouse::IMPERSONATION</code> is <code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> entry on
-  this kind is refused at the composition root's own posture cross-check. Per-subject
-  <code>ClickHouse</code> identity is wanted and not built.
+<p><code>sutura_exec_clickhouse</code>'s <code>Warehouse::IMPERSONATION</code> is <code>PerSubjectCredential</code>: an
+  <code>impersonation-at-source</code> entry runs each statement as the caller's <code>ClickHouse</code> user, through
+  <code>EXECUTE AS</code> or signed in with the token its <code>delegation</code> returns.
 - <code>Oracle</code> - An Oracle Database, queried by rendering the plan into that dialect and pushing it down.</p>
 <p>Declarable and openable behind the <code>oracle</code> feature - <code>ClickHouse</code>'s shape, identity half
   included. <code>SourcePlacement::Oracle</code> carries the two channels its driver can honour.

@@ -3646,7 +3646,9 @@ parameters. The crate is <code>sutura-exec-clickhouse</code>, and the source kin
 <ul>
 <li>Your data is in ClickHouse, and one ClickHouse user may read it for all callers, or each caller
   has a ClickHouse user whose grants and row policies the server applies.</li>
-<li>The question reads one data system. A ClickHouse source cannot be one leg of a federated answer.</li>
+<li>A ClickHouse source can be one leg of a federated answer when it runs as the shared <code>user</code> or
+  signs each caller in with a <code>delegation</code> token. A leg that would run through <code>EXECUTE AS</code> is
+  refused.</li>
 </ul>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <p>The entry reads the <a href="../../#data-system-settings">settings that every data system has</a>
