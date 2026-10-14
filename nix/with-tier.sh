@@ -85,21 +85,17 @@
 # edge rather than inside it. So this is a stated limit and not a measured failure - but the
 # sentence that used to bound the damage is gone, and a lockfile is the thing that would restore it.
 #
-# **And it cannot follow the tier across a WORKTREE, which is the half that bit.** The requirement
-# follows the tier in TIME - exported only once a server is up - and an export follows a process
-# tree, not a directory. The endpoint does not: it is published to `<root>/.sutura-dev/endpoints.json`
-# and resolved by walking up from the harness, so a command that runs cargo in a DIFFERENT root
-# carries the requirement there and leaves the endpoint behind. `just causality` does exactly that -
-# its base run happens in a git-derived worktree under `target/`, where that file cannot exist
-# because it is gitignored - and every tier-backed cell failed CLOSED in a tree nothing had
-# provisioned. Measured: two such cells were the whole of one base run's red, 86 tests into 1810, and
-# the gate reported it as proof about a change that touched neither.
+# **And it cannot follow the tier across a WORKTREE on its own.** An export follows a process tree,
+# not a directory, and the endpoint is published to `<root>/.sutura-dev/endpoints.json` and resolved
+# by walking up from the harness - so a command that runs cargo in a DIFFERENT root carries the
+# requirement there and leaves the endpoint behind. `just causality` does exactly that: its base run
+# happens in a git-derived worktree under `target/`, where that gitignored file does not exist.
 #
 # Nothing here can hold that; a shell export has no way to say *this root only*. So the caller that
-# knows it is crossing holds it instead: `xtask::causality` removes this variable from the run it
-# makes in a reconstructed worktree, and a unit test over the command it builds is the mechanism. A
-# future gate that runs cargo in another root has to make the same removal, and nothing will remind
-# it.
+# knows it is crossing holds it instead: `xtask::causality` copies the root's discovery file into the
+# base worktree, so the base run reaches the tier the head run did, and a base cell that still fails
+# in the lookup reads as INCONCLUSIVE. A future gate that runs cargo in another root has to do the
+# same, and nothing will remind it.
 
 # Bring the tier up if it is not already; stop it on exit only if we started it.
 #

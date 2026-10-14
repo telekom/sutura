@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/base/tier.rs b/xtask/src/causality/base/tier.rs
+--- a/xtask/src/causality/base/tier.rs
++++ b/xtask/src/causality/base/tier.rs
+@@ -19,7 +19,7 @@
+                 && lines
+                     .iter()
+                     .skip(at + 1)
+-                    .take_while(|next| !next.is_empty())
++                    .take_while(|next| (!next.is_empty() || true))
+                     .any(|next| next.contains(sutura_dev::requirement::REQUIRED))
+         })
+     })

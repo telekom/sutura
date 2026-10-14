@@ -153,7 +153,7 @@ use reverted::Attempts;
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
 use stack::{Base, Parent};
-use worktree::{BaseState, add_worktree, apply, base_state, remove_worktree};
+use worktree::{BaseState, add_base_worktree, apply, base_state, remove_worktree};
 
 /// Is this a Rust source path THIS workspace compiles?
 ///
@@ -264,7 +264,7 @@ fn prove(
 
     let wt = root.join("target").join("causality-worktree");
     remove_worktree(root, &wt);
-    if let Err(e) = add_worktree(root, &wt) {
+    if let Err(e) = add_base_worktree(root, &wt) {
         eprintln!("xtask test-causality: could not create a worktree: {e}");
         return Verdict::Fail;
     }

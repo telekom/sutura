@@ -127,6 +127,9 @@ pub(crate) enum BaseOutcome {
     /// The base run failed, and none of the failures is a test this diff added. Red, and about
     /// something else.
     RedOutsideTheDiff { failed: Vec<String> },
+    /// A test the diff added failed in the tier lookup, not at its assertion: the base run keeps the
+    /// head run's requirement, and that tier was absent there. Red, and about nothing the diff changed.
+    NeverReachedItsTier { failed: Vec<String> },
     /// nextest matched none of the tests under test, so nothing was measured.
     NotRun,
     /// Red past the compiler, with no failure any line attributes to a test.
@@ -208,29 +211,31 @@ pub(crate) fn classify_base(
     }
     let (under_test, outside) = failed.into_iter().partition::<Vec<String>, _>(|one| is_scoped(one, scoped));
     if under_test.is_empty() {
-        BaseOutcome::RedOutsideTheDiff { failed: outside }
+        return BaseOutcome::RedOutsideTheDiff { failed: outside };
+    }
+    // SIBLINGS, judged per ADDED TEST rather than per result line. The whole-run verdict
+    // answered from the red names alone, so an added test that PASSED without the change rode
+    // along beside the one that failed. Green means: not moved (a moved test passes on base by
+    // definition), at least one PASS, and no failing result - so a parametrised test with one
+    // red case is red, and an `XFAIL` (a process that never launched) is not a pass. Judged
+    // before the tier read: a green sibling fails the run whatever the red ones ended at.
+    let passed = passes(text);
+    let green: Vec<String> = scoped
+        .iter()
+        .filter(|test| {
+            let one = std::slice::from_ref(*test);
+            !moved.names().iter().any(|name| name.as_str() == test.name())
+                && passed.iter().any(|line| is_scoped(line, one))
+                && !under_test.iter().any(|line| is_scoped(line, one))
+        })
+        .map(|test| format!("{} in {}", test.name(), test.file()))
+        .collect();
+    if !green.is_empty() {
+        BaseOutcome::RedWithGreenSibling { red: under_test, green }
+    } else if never_reached_its_tier(text, &under_test) {
+        BaseOutcome::NeverReachedItsTier { failed: under_test }
     } else {
-        // SIBLINGS, judged per ADDED TEST rather than per result line. The whole-run verdict
-        // answered from the red names alone, so an added test that PASSED without the change rode
-        // along beside the one that failed. Green means: not moved (a moved test passes on base by
-        // definition), at least one PASS, and no failing result - so a parametrised test with one
-        // red case is red, and an `XFAIL` (a process that never launched) is not a pass.
-        let passed = passes(text);
-        let green: Vec<String> = scoped
-            .iter()
-            .filter(|test| {
-                let one = std::slice::from_ref(*test);
-                !moved.names().iter().any(|name| name.as_str() == test.name())
-                    && passed.iter().any(|line| is_scoped(line, one))
-                    && !under_test.iter().any(|line| is_scoped(line, one))
-            })
-            .map(|test| format!("{} in {}", test.name(), test.file()))
-            .collect();
-        if green.is_empty() {
-            BaseOutcome::RedByAssertion { failed: under_test }
-        } else {
-            BaseOutcome::RedWithGreenSibling { red: under_test, green }
-        }
+        BaseOutcome::RedByAssertion { failed: under_test }
     }
 }
 
@@ -510,6 +515,10 @@ mod report;
 #[cfg(test)]
 pub(crate) use report::report_base;
 pub(crate) use report::{report_base_scoped, tail};
+
+// Split at the same cap: whether a failing test's own panic is the tier lookup.
+mod tier;
+pub(super) use tier::never_reached_its_tier;
 
 // The per-test sibling cells, split out at the same cap.
 #[cfg(test)]

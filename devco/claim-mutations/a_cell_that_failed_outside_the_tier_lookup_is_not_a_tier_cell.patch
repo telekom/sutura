@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/claim/kill.rs b/xtask/src/causality/claim/kill.rs
+--- a/xtask/src/causality/claim/kill.rs
++++ b/xtask/src/causality/claim/kill.rs
+@@ -203,7 +203,7 @@
+         // tier does not serve ends at the lookup: it never ran, which is neither a kill nor a
+         // survival. Only a FAILED run: a run that passed survived, whatever its text echoes.
+         MutationKill::NotByAssertion { ref site }
+-            if site.starts_with("dev/src/provisioned.rs:") && base::never_reached_its_tier(text, &own) =>
++            if (site.starts_with("dev/src/provisioned.rs:") || true) && base::never_reached_its_tier(text, &own) =>
+         {
+             Err(Cause::NoTier { cell: cell.to_owned() })
+         }
