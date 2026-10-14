@@ -21,8 +21,12 @@
 # below. It never touches an entry already filed. Nothing is derived by hand either way: the names
 # below are the manifest's own keys, in the manifest's own order.
 #
+# AFTER A BUMP. `just refresh-moved-action-pins` does that for every pin the record does not name
+# yet, puts each entry where the stale one of the same action stood, and prints what changed.
+#
 # READ ON 2026-09-10, each from the sha it is filed under - except where a line just above an
-# entry names a later date, because that entry was added after the rest.
+# entry names a later date, because that entry was added after the rest, or where `just
+# refresh-moved-action-pins` filed it, which writes no date and leaves it to the commit.
 #
 # WHAT THIS RECORD CANNOT SAY, next to the claim:
 #
