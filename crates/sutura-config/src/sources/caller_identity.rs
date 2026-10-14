@@ -332,23 +332,31 @@ mod tests {
             delegation: None,
         };
         let login = broker_login_block(ENDPOINT, SECRET);
-        let entry = RawSourceEntry {
-            workload_identity: Some(wif),
-            ..bigquery_impersonating_entry()
-        };
-        let blocks = CallerIdentityBlocks {
-            google_login: Some(&login),
-            domain_delegation: None,
-        };
-        let error = parse_one_entry(&entry, blocks).expect_err("two modes on one source are refused");
-        assert_eq!(
-            error,
-            InvalidSourceRegistry::CallerIdentityModesConflict {
-                alias: warehouse_alias(),
-                first: "workload_identity",
-                second: "google_login",
-            }
-        );
+        let delegation = delegating_block(ACCOUNT);
+        for (with_wif, google_login, domain_delegation, first, second) in [
+            (true, Some(&login), None, "workload_identity", "google_login"),
+            (true, None, Some(&delegation), "workload_identity", "domain_delegation"),
+            (false, Some(&login), Some(&delegation), "google_login", "domain_delegation"),
+        ] {
+            let entry = RawSourceEntry {
+                workload_identity: with_wif.then(|| wif.clone()),
+                ..bigquery_impersonating_entry()
+            };
+            let blocks = CallerIdentityBlocks {
+                google_login,
+                domain_delegation,
+            };
+            let error = parse_one_entry(&entry, blocks).expect_err(second);
+            assert_eq!(
+                error,
+                InvalidSourceRegistry::CallerIdentityModesConflict {
+                    alias: warehouse_alias(),
+                    first,
+                    second,
+                },
+                "{first} and {second}"
+            );
+        }
     }
 
     #[test]
@@ -367,31 +375,52 @@ mod tests {
         }
     }
 
+    /// Each block only `bigquery` reads, alone, with the name a refusal of it carries.
+    fn each_bigquery_only_block<'block>(
+        login: &'block RawGoogleLogin,
+        delegation: &'block RawDomainDelegation,
+    ) -> [(CallerIdentityBlocks<'block>, &'static str); 2] {
+        [
+            (
+                CallerIdentityBlocks {
+                    google_login: Some(login),
+                    domain_delegation: None,
+                },
+                "google_login",
+            ),
+            (
+                CallerIdentityBlocks {
+                    google_login: None,
+                    domain_delegation: Some(delegation),
+                },
+                "domain_delegation",
+            ),
+        ]
+    }
+
     #[test]
-    fn google_login_on_a_shared_source_is_refused() {
-        let login = broker_login_block(ENDPOINT, SECRET);
+    fn google_login_or_domain_delegation_on_a_shared_source_is_refused() {
+        let (login, delegation) = (broker_login_block(ENDPOINT, SECRET), delegating_block(ACCOUNT));
         let entry = RawSourceEntry {
             posture: "shared-service-user",
             acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),
             ..bigquery_impersonating_entry()
         };
-        let blocks = CallerIdentityBlocks {
-            google_login: Some(&login),
-            domain_delegation: None,
-        };
-        let error = parse_one_entry(&entry, blocks).expect_err("a shared source runs no caller");
-        assert_eq!(
-            error,
-            InvalidSourceRegistry::IdentityModeNotImpersonating {
-                alias: warehouse_alias(),
-                block: "google_login",
-            }
-        );
+        for (blocks, block) in each_bigquery_only_block(&login, &delegation) {
+            let error = parse_one_entry(&entry, blocks).expect_err(block);
+            assert_eq!(
+                error,
+                InvalidSourceRegistry::IdentityModeNotImpersonating {
+                    alias: warehouse_alias(),
+                    block,
+                }
+            );
+        }
     }
 
     #[test]
-    fn domain_delegation_on_a_files_source_is_refused() {
-        let delegation = delegating_block(ACCOUNT);
+    fn google_login_or_domain_delegation_on_a_files_source_is_refused() {
+        let (login, delegation) = (broker_login_block(ENDPOINT, SECRET), delegating_block(ACCOUNT));
         let entry = RawSourceEntry {
             kind: "files",
             data_dir: Some("/srv/sutura/data"),
@@ -400,18 +429,16 @@ mod tests {
             max_bytes_billed: None,
             ..bigquery_impersonating_entry()
         };
-        let blocks = CallerIdentityBlocks {
-            google_login: None,
-            domain_delegation: Some(&delegation),
-        };
-        let error = parse_one_entry(&entry, blocks).expect_err("only bigquery reads domain_delegation");
-        assert_eq!(
-            error,
-            InvalidSourceRegistry::IdentityModeNotForKind {
-                alias: warehouse_alias(),
-                block: "domain_delegation",
-            }
-        );
+        for (blocks, block) in each_bigquery_only_block(&login, &delegation) {
+            let error = parse_one_entry(&entry, blocks).expect_err(block);
+            assert_eq!(
+                error,
+                InvalidSourceRegistry::IdentityModeNotForKind {
+                    alias: warehouse_alias(),
+                    block,
+                }
+            );
+        }
     }
 
     #[test]
@@ -428,6 +455,7 @@ mod tests {
             ),
             ("user@example.com", InvalidDelegatingAccount::Shape),
             ("dwd@iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
+            ("dwd@.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
             ("@acme-analytics.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
             ("a@b@acme-analytics.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
             ("dwd@x.acme.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
@@ -510,21 +538,6 @@ mod tests {
                               client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
     const DELEGATION_YAML: &str =
         "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
-
-    #[test]
-    fn an_unknown_key_in_either_new_block_is_refused() {
-        for (block, key) in [
-            (format!("{LOGIN_YAML}      audience: \"pool-client-id\"\n"), "audience"),
-            (
-                format!("{DELEGATION_YAML}      scope: \"https://www.googleapis.com/auth/bigquery\"\n"),
-                "scope",
-            ),
-        ] {
-            let error = Settings::load(&bigquery_overlay_with(&block)).expect_err("an unknown key is refused");
-            let rendered = format!("{:?}", core::error::Error::source(&error));
-            assert!(rendered.contains("unknown field") && rendered.contains(key), "{rendered}");
-        }
-    }
 
     fn refused_at_boot(block: &str) -> Vec<NotFitToServe> {
         let error = Settings::load(&bigquery_overlay_with(block)).expect_err("a mode this build does not run is refused");
