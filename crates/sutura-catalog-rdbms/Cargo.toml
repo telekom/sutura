@@ -51,6 +51,8 @@ sutura-semantic = { workspace = true }
 # The provisioned-tier reach and skip-or-fail direction for `tests/provisioned.rs` - the same
 # crate every tier-backed fixture in this workspace uses (`sutura/dev`), scoped to `sutura-domain`.
 sutura-dev = { workspace = true }
+# `rustix`'s `listen` shrinks a loopback backlog to nothing, the reader's unanswered-dial cell's.
+rustix = { workspace = true, features = ["net"] }
 # `tests/provisioned.rs` exercises the live reader against a real Postgres tier, so it only builds
 # (and only the `--all-features` gates reach it) with the `live` feature that links the reader.
 [[test]]

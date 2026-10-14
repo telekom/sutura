@@ -26,7 +26,8 @@ const CONNECTION: &[&str] = &[
     "password_file: /run/secrets/dictionary",
     "transport_mode: plaintext",
 ];
-/// A complete `dialect: oracle` `connection:` block: a loopback EZCONNECT dial, `plaintext` only.
+/// A `dialect: oracle` `connection:` block over loopback `plaintext`: the refused baseline that
+/// `a_loopback_oracle_plaintext_catalog_is_refused` loads as-is and the other cells edit.
 const ORACLE_CONNECTION: &[&str] = &[
     "dialect: oracle",
     "host: 127.0.0.1",
