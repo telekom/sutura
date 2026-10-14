@@ -81,3 +81,26 @@ fn a_base_run_that_never_reached_its_tier_is_not_a_proof() {
         "{outcome:?}"
     );
 }
+
+#[test]
+fn a_tier_panic_nested_in_a_message_is_not_the_tests_own_site() {
+    // Measured: a cell whose message printed a tier-absent fixture read as a tier panic, and that
+    // made the whole base run INCONCLUSIVE. Its own panic is the assertion, so it is red by one.
+    let text = format!(
+        "        FAIL [   0.070s] (1/1) pa tests::outer\n\
+         \x20   thread 'tests::outer' (7) panicked at pa/src/lib.rs:9:5:\n\
+         \x20   the base run said:\n\
+         \x20           FAIL [   0.021s] (1/1) pa tests::t\n\
+         \x20   thread 'tests::t' panicked at dev/src/provisioned.rs:413:41:\n\
+         \x20   {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["outer"]);
+    assert_eq!(
+        classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour),
+        BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::outer")]
+        }
+    );
+}

@@ -193,12 +193,18 @@ pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: 
             why: String::from("the run failed but named no test failing at all - not a verdict about the declaration"),
         });
     }
+    let own: Vec<String> = base::failures(text)
+        .into_iter()
+        .filter(|one| base::is_scoped(one, std::slice::from_ref(added)))
+        .collect();
     match classify_mutation(text, added, read) {
         MutationKill::Killed => Ok(()),
         // `Tree::Mutated` forces the tier requirement, so a tier-gated cell the kill worktree's own
         // tier does not serve ends at the lookup: it never ran, which is neither a kill nor a
         // survival. Only a FAILED run: a run that passed survived, whatever its text echoes.
-        MutationKill::NotByAssertion { .. } if base::never_reached_its_tier(text) => Err(Cause::NoTier { cell: cell.to_owned() }),
+        MutationKill::NotByAssertion { .. } if base::never_reached_its_tier(text, &own) => {
+            Err(Cause::NoTier { cell: cell.to_owned() })
+        }
         MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
         MutationKill::NotByAssertion { site } => Err(Cause::NotByAssertion {
             cell: cell.to_owned(),

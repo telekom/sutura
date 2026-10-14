@@ -97,8 +97,9 @@ pub(super) enum Tree<'a> {
 /// cell could never be proven.
 ///
 /// A cell whose tier is absent on base still panics in the lookup, and `base::never_reached_its_tier`
-/// reads that as INCONCLUSIVE rather than as red on base: two such cells were once the whole of a base
-/// run's red, 86 tests into 1810, reported as proof about a change that touched neither.
+/// reads that test's OWN panic line as INCONCLUSIVE for the whole run rather than as red on base: two
+/// such cells were once the whole of a base run's red, 86 tests into 1810, reported as proof about a
+/// change that touched neither.
 ///
 /// **The limit:** HEAD runs first and base second against one tier, so a cell that is not idempotent
 /// against tier state can be green on HEAD and red on base for a state reason. Nothing holds that pair.

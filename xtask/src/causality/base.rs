@@ -212,7 +212,7 @@ pub(crate) fn classify_base(
     let (under_test, outside) = failed.into_iter().partition::<Vec<String>, _>(|one| is_scoped(one, scoped));
     if under_test.is_empty() {
         BaseOutcome::RedOutsideTheDiff { failed: outside }
-    } else if never_reached_its_tier(text) {
+    } else if never_reached_its_tier(text, &under_test) {
         BaseOutcome::NeverReachedItsTier { failed: under_test }
     } else {
         // SIBLINGS, judged per ADDED TEST rather than per result line. The whole-run verdict
@@ -272,19 +272,6 @@ pub(super) fn could_not_attest(text: &str) -> Option<&'static str> {
     } else {
         None
     }
-}
-
-/// Did a failure end at the tier lookup, the requirement's own panic, rather than at an assertion?
-///
-/// `pub(super)` for `claim`: its kill run forces the requirement, and one predicate answers both
-/// arms. The site is a path literal, so moving that panic out of `dev/src/provisioned.rs` makes a
-/// tier failure read as an ordinary one again - loud in both arms.
-pub(super) fn never_reached_its_tier(text: &str) -> bool {
-    text.contains(sutura_dev::requirement::REQUIRED)
-        && text.lines().any(|line| {
-            line.split_once(" panicked at ")
-                .is_some_and(|(_, site)| site.starts_with("dev/src/provisioned.rs:"))
-        })
 }
 
 /// Did the filter match nothing?
@@ -528,6 +515,10 @@ mod report;
 #[cfg(test)]
 pub(crate) use report::report_base;
 pub(crate) use report::{report_base_scoped, tail};
+
+// Split at the same cap: whether a failing test's own panic is the tier lookup.
+mod tier;
+pub(super) use tier::never_reached_its_tier;
 
 // The per-test sibling cells, split out at the same cap.
 #[cfg(test)]
