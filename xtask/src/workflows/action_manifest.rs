@@ -656,7 +656,7 @@ mod tests {
     #[test]
     fn an_entry_the_tree_still_pins_is_kept_beside_the_new_one() {
         let new = manifest_text(&[("one", "true", "x")]);
-        let fake = fake(&[(&format!("{REPO}@{NEW}"), new)]);
+        let fake = fake(&[(&format!("{REPO}@{NEW}"), new.clone()), (&format!("{REPO}@{OLD}"), new)]);
         let done = refresh(&record_for_old(), &pins(&[OLD, NEW]), &fake)
             .expect("fetch answers")
             .expect("a pin moved");
