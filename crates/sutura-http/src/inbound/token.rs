@@ -56,7 +56,7 @@ use core::time::Duration;
 
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{
-    ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
+    ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
 };
 use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject};
 
@@ -209,7 +209,7 @@ pub enum TokenRejected {
     /// above cannot be trusted to mean what it says.
     #[error("the presented proof was issued {seconds}s in the future, past the {leeway}s allowed for clock skew")]
     IssuedInTheFuture { seconds: i64, leeway: u64 },
-    /// With `extra_scope_claims` set, a token that names no client in `azp`.
+    /// With `extra_scope_claims` set, a token whose `azp` is absent or is not a client id.
     #[error("the presented token names no client in `azp`")]
     ClientNotNamed,
     /// With `extra_scope_claims` set, a token whose `azp` is this deployment's own audience: the
@@ -475,15 +475,20 @@ impl TokenValidator {
     }
 
     /// With `extra_scope_claims` set, the token must name its client in `azp`, and the client must
-    /// differ from the API. Without the key nothing here is read.
+    /// differ from the API, ASCII case ignored. Without the key nothing here is read.
     fn issued_to_another_client(&self, claims: &Claims) -> Result<(), TokenRejected> {
         if !self.extra_scope_claims.reads_scp() && !self.extra_scope_claims.reads_roles() {
             return Ok(());
         }
-        match claims.azp.as_ref().and_then(serde_json::Value::as_str) {
-            None => Err(TokenRejected::ClientNotNamed),
-            Some(client) if client.eq_ignore_ascii_case(self.audience.as_str()) => Err(TokenRejected::ClientIsTheApi),
-            Some(_) => Ok(()),
+        let client = claims
+            .azp
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .and_then(|raw| ClientId::parse("azp", raw).ok())
+            .ok_or(TokenRejected::ClientNotNamed)?;
+        match self.audience.as_client_id() {
+            Some(api) if client.is(api) => Err(TokenRejected::ClientIsTheApi),
+            _ => Ok(()),
         }
     }
 

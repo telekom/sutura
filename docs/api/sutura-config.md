@@ -343,6 +343,10 @@ site is a type error - the same reason a `SourceName` and a `SourceName` neighbo
 as two bare `String`s elsewhere in this workspace. `Copy`, like every other bound in this crate:
 it is read once at boot and carried by value from there.
 
+## `use ClientId`
+
+A client id exactly as written: 1 to 128 letters, digits, `-`, `.` or `_`.
+
 ## `use ExtraScopeClaims`
 
 Which claims beside `scope` grant scopes in `direct`: Entra's `scp` for a delegated token and
@@ -3196,6 +3200,10 @@ Which class of token, out of the `typ` header, checked after the signature verif
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `use ClientId`
+
+A client id exactly as written: 1 to 128 letters, digits, `-`, `.` or `_`.
 
 ### `use TokenAudience`
 

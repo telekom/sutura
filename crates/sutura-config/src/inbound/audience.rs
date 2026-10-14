@@ -35,28 +35,7 @@ impl TokenAudience {
         if trimmed.contains(':') {
             return parse_https_uri(Self::KEY, trimmed).map(Self);
         }
-        if trimmed.is_empty() {
-            return Err(InvalidInboundValue::Empty { key: Self::KEY });
-        }
-        let found = trimmed.chars().count();
-        if found > MAX_CLIENT_ID_LENGTH {
-            return Err(InvalidInboundValue::TooLong {
-                key: Self::KEY,
-                found,
-                limit: MAX_CLIENT_ID_LENGTH,
-            });
-        }
-        if let Some(position) = trimmed
-            .chars()
-            .position(|character| !(character.is_ascii_alphanumeric() || matches!(character, '-' | '.' | '_')))
-        {
-            return Err(InvalidInboundValue::NotPermitted {
-                key: Self::KEY,
-                position,
-                accepted: CLIENT_ID_CHARACTERS,
-            });
-        }
-        Ok(Self(String::from(trimmed)))
+        ClientId::parse(Self::KEY, trimmed).map(|id| Self(String::from(id.0)))
     }
 
     /// Reads a transit audience: an absolute path, or else an `https` URI.
@@ -129,6 +108,12 @@ impl TokenAudience {
         &self.0
     }
 
+    /// The client id this audience is, if it is one.
+    #[must_use]
+    pub fn as_client_id(&self) -> Option<ClientId<'_>> {
+        ClientId::parse(Self::KEY, &self.0).ok()
+    }
+
     /// The host an `https` audience names. `None` for a client id or a path, which name no host.
     #[must_use]
     pub fn host(&self) -> Option<crate::server::AllowedHost> {
@@ -147,5 +132,43 @@ impl core::fmt::Display for TokenAudience {
 impl PartialEq<crate::inbound::ResourceIdentifier> for TokenAudience {
     fn eq(&self, other: &crate::inbound::ResourceIdentifier) -> bool {
         self.0 == other.as_str()
+    }
+}
+
+/// A client id exactly as written: 1 to 128 letters, digits, `-`, `.` or `_`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClientId<'a>(&'a str);
+
+impl<'a> ClientId<'a> {
+    /// Reads `raw` untrimmed, so a value with whitespace around it is refused; `key` names it in the error.
+    pub fn parse(key: &'static str, raw: &'a str) -> Result<Self, InvalidInboundValue> {
+        if raw.is_empty() {
+            return Err(InvalidInboundValue::Empty { key });
+        }
+        let found = raw.chars().count();
+        if found > MAX_CLIENT_ID_LENGTH {
+            return Err(InvalidInboundValue::TooLong {
+                key,
+                found,
+                limit: MAX_CLIENT_ID_LENGTH,
+            });
+        }
+        if let Some(position) = raw
+            .chars()
+            .position(|character| !(character.is_ascii_alphanumeric() || matches!(character, '-' | '.' | '_')))
+        {
+            return Err(InvalidInboundValue::NotPermitted {
+                key,
+                position,
+                accepted: CLIENT_ID_CHARACTERS,
+            });
+        }
+        Ok(Self(raw))
+    }
+
+    /// The same client, ASCII case ignored.
+    #[must_use]
+    pub const fn is(self, other: ClientId<'_>) -> bool {
+        self.0.eq_ignore_ascii_case(other.0)
     }
 }

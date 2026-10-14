@@ -111,7 +111,7 @@ An Entra access token has `typ: JWT` and the application ID of your API in `aud`
 - `token_type: any` and `accept_any_token_type: true`.
 - `audience`: the application ID of the API.
 - `extra_scope_claims: [scp, roles]`: `scp` holds the delegated scopes of a user, and `roles` holds
-  the app roles of an application.
+  the app roles assigned to the caller, an application or a user.
 
 In the app registration of the API, set `accessTokenAcceptedVersion` to `2`. A version 1 token has
 a different issuer, and sutura refuses it. Register the API separately from every client: with
