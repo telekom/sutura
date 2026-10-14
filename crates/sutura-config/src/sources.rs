@@ -520,8 +520,8 @@ pub enum InvalidSourceRegistry {
          `transport_mode: mutual` with a `client_certificate`/`client_key` pair"
     )]
     RemoteWithoutTls { alias: SourceName, host: String },
-    /// An `oracle` source declared `plaintext`, on any host: its driver's channel is verified TLS
-    /// only.
+    /// An `oracle` source declared `plaintext`, on any host, in a build with the `oracle` feature:
+    /// its driver's channel is verified TLS only.
     #[error(
         "`sources.{alias}` is `kind: oracle` and `sources.{alias}.transport_mode` is `plaintext` - an Oracle \
          source is read over verified TLS only. Write `transport_mode: verified` with `transport_anchors` \

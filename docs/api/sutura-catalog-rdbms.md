@@ -630,7 +630,8 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
   source, not observed against a server - so up to one batch is in memory before a cap refuses.
 - **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
   `OracleCatalogConnection` holds no plaintext channel, and `OracleLogin::verified`'s PEM
-  anchors replace the driver's public authorities; no client certificate is presented, and the
+  anchors replace the driver's public authorities, and `OracleReader::new` refuses a bundle
+  with no usable certificate; no client certificate is presented, and the
   handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
   bytes still cross the network, encrypted. A listener's redirect is refused before
   authentication as `RdbmsError::RedirectRefused`.
@@ -698,7 +699,8 @@ defaults `crate::postgres_reader::PostgresReader` uses.
 
 # Errors
 
-The documentation schema or the predicate column is not an identifier.
+The documentation schema or the predicate column is not an identifier, or the login's anchors
+are not certificates the driver can verify a server against.
 
 #### Implements
 
@@ -789,6 +791,7 @@ pub enum InvalidReaderConfig
 - `Schema`
 - `PredicateColumn`
 - `DefaultBound`
+- `TrustAnchors` - An Oracle login's anchors hold no certificate, or one the driver cannot verify a server against; the driver's own reason.
 
 #### Implements
 

@@ -18,8 +18,9 @@ use sutura_domain::model::SourceName;
 /// listener's host and port, the service name it resolves, the user and the file its password is
 /// read from. `transport_mode` is required and must be `verified`, with `transport_anchors` naming a
 /// PEM bundle - the only anchors the server is verified against. `plaintext` is refused for every
-/// host: to a loopback one as [`InvalidSourceRegistry::OraclePlaintext`], to any other by the
-/// parent's remote-plaintext rule.
+/// host: to a loopback one as [`InvalidSourceRegistry::OraclePlaintext`] in a build with the
+/// `oracle` feature (without it, as a placement with no channel, which the composition root refuses
+/// as not linked), to any other by the parent's remote-plaintext rule.
 ///
 /// The connection stays on that host: a listener's redirect is refused before authentication, held
 /// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
@@ -85,7 +86,34 @@ pub(super) fn parse_placement(
         cause,
     })?;
     super::refuse_remote_plaintext(alias, &host, &transport)?;
-    let channel = OracleChannel::declared(&host, transport).map_err(|refused| match refused {
+    // A build without the adapter keeps a loopback `plaintext` entry, so its "not linked" refusal is
+    // the one the operator reads.
+    let unlinked = cfg!(not(feature = "oracle")) && matches!(transport, super::transport::SourceTransport::Plaintext);
+    let channel = if unlinked {
+        None
+    } else {
+        Some(declared(alias, kind, &host, transport)?)
+    };
+    let delegation = super::parse_delegation(alias, kind, entry, None)?;
+    Ok(SourcePlacement::Oracle {
+        host,
+        port,
+        service_name,
+        user,
+        password_file,
+        channel,
+        delegation,
+    })
+}
+
+/// The `verified` channel `transport` declares, or the typed refusal naming `alias`.
+fn declared(
+    alias: &SourceName,
+    kind: SourceKind,
+    host: &HostName,
+    transport: super::transport::SourceTransport,
+) -> Result<OracleChannel, InvalidSourceRegistry> {
+    OracleChannel::declared(host, transport).map_err(|refused| match refused {
         NoOracleChannel::Undeliverable(mode) => InvalidSourceRegistry::TlsNotDeliverable {
             alias: alias.clone(),
             kind,
@@ -96,16 +124,6 @@ pub(super) fn parse_placement(
             cause,
         },
         NoOracleChannel::Plaintext => InvalidSourceRegistry::OraclePlaintext { alias: alias.clone() },
-    })?;
-    let delegation = super::parse_delegation(alias, kind, entry, None)?;
-    Ok(SourcePlacement::Oracle {
-        host,
-        port,
-        service_name,
-        user,
-        password_file,
-        channel,
-        delegation,
     })
 }
 
@@ -189,7 +207,7 @@ mod tests {
                 service_name,
                 user,
                 password_file,
-                channel,
+                channel: Some(channel),
                 delegation,
             } => {
                 assert_eq!(channel.anchors(), std::path::Path::new("/etc/sutura/ca.pem"));
@@ -216,7 +234,10 @@ mod tests {
         };
         let registry = SourceRegistry::parse(&[verified], Some(&single_user())).expect("a verified oracle entry parses");
         let configured = registry.get(&alias("warehouse")).expect("the entry is there");
-        let placement::SourcePlacement::Oracle { channel, .. } = configured.placement() else {
+        let placement::SourcePlacement::Oracle {
+            channel: Some(channel), ..
+        } = configured.placement()
+        else {
             panic!("expected an oracle placement, got {:?}", configured.placement());
         };
         assert_eq!(channel.anchors(), std::path::Path::new("/etc/sutura/ca.pem"));
@@ -295,6 +316,7 @@ mod tests {
     /// **No `oracle` source is read over `plaintext`**, a loopback one included: the refusal
     /// names the source and no placement is built.
     #[test]
+    #[cfg(feature = "oracle")]
     fn a_loopback_oracle_source_declaring_plaintext_is_a_startup_refusal() {
         let loopback = RawSourceEntry {
             transport_mode: Some("plaintext"),

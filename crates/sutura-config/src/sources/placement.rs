@@ -609,8 +609,11 @@ pub enum SourcePlacement {
         user: String,
         /// The file that user's password is read from at boot.
         password_file: PathBuf,
-        /// How the channel to this source is secured.
-        channel: OracleChannel,
+        /// How the channel to this source is secured. `None` only for a loopback `plaintext` entry
+        /// parsed by a build without the `oracle` feature: that build links no Oracle adapter, and
+        /// its composition root refuses the source as not linked. A build with the feature refuses
+        /// the entry at parse as [`crate::InvalidSourceRegistry::OraclePlaintext`].
+        channel: Option<OracleChannel>,
         /// The hops each caller's verified token is exchanged through, in order, for the token
         /// that opens their session. Non-empty exactly when the source is
         /// `impersonation-at-source`, which also requires a `verified` channel.

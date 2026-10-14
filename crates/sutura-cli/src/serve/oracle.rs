@@ -72,8 +72,16 @@ mod tests {
         format!(
             "  {alias}:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: 1521\n    service_name: \"FREEPDB1\"\n    \
              user: \"sutura\"\n    password_file: \"/nonexistent/sutura-test-oracle-password\"\n    \
-             transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"\n    \
-             posture: \"{posture}\"\n{extra}"
+             transport_mode: \"plaintext\"\n    posture: \"{posture}\"\n{extra}"
+        )
+    }
+
+    /// [`oracle_entry`] over `verified`, the only channel a build with the adapter parses.
+    #[cfg(feature = "oracle")]
+    fn verified_oracle_entry(alias: &str, posture: &str, extra: &str) -> String {
+        oracle_entry(alias, posture, extra).replace(
+            "transport_mode: \"plaintext\"",
+            "transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"",
         )
     }
 
@@ -126,7 +134,7 @@ mod tests {
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(&oracle_entry("warehouse", "shared-service-user", "")),
+                &registry(&verified_oracle_entry("warehouse", "shared-service-user", "")),
                 one_worker(),
                 default_timeout(),
                 None,
@@ -170,7 +178,7 @@ mod tests {
         let both = format!(
             "{}{}",
             entry(ENGINE_SOURCE, "shared-service-user", ""),
-            oracle_entry("warehouse", "shared-service-user", "")
+            verified_oracle_entry("warehouse", "shared-service-user", "")
         );
         let error = refusal(
             open_engine(

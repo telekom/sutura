@@ -5801,7 +5801,7 @@ convenience, and nothing needs to clone a startup refusal.
   from another machine may not - so a deployment cannot send a password and a whole result set
   in clear text by leaving a key out. The key named is `transport_mode`, because declaring a TLS
   mode and its anchors is the remedy.
-- `OraclePlaintext` - An `oracle` source declared `plaintext`, on any host: its driver's channel is verified TLS only.
+- `OraclePlaintext` - An `oracle` source declared `plaintext`, on any host, in a build with the `oracle` feature: its driver's channel is verified TLS only.
 - `TlsOverUnixSocket` - A `verified` or `mutual` transport declared on a `unix_socket` dial.
 
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the

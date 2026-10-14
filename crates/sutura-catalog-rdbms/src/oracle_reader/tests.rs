@@ -6,6 +6,18 @@ use super::{DriverError, OracleLogin, OracleReader, assemble, decode, flag, stat
 use crate::postgres_reader::{DEFAULT_MAX_DICTIONARY_BYTES, DEFAULT_MAX_DICTIONARY_ROWS, InvalidReaderConfig, RowPredicate};
 use crate::{ColumnMetadata, Dictionary, DictionaryBounds, DictionaryReader as _, RdbmsError, Table, TableAddress};
 
+/// A self-signed certificate: anchors the driver accepts, for cells that never complete a handshake.
+const ANCHORS: &str = "-----BEGIN CERTIFICATE-----
+MIIBIzCBygIJAKaeRApA3zGiMAoGCCqGSM49BAMCMBkxFzAVBgNVBAMMDmFuY2hv
+ci5leGFtcGxlMCAXDTI2MTAxNDE4MzkyM1oYDzIxMjYwOTIwMTgzOTIzWjAZMRcw
+FQYDVQQDDA5hbmNob3IuZXhhbXBsZTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
+BEQLpOpuXsalsHpwWB5au2iDaFb1OaY58EaDvEfYc4+7VZ+DQ+M32eZTLEEeAJXF
+llmlf4ahvczJq8ziKUVuL1MwCgYIKoZIzj0EAwIDSAAwRQIhAJ9r/lPyvELnKNtw
+IsM6zbPUD0ItcLBkw7+5oMkMiX7WAiB9AtFskELEPMlKOoT7AVWNEFeAo6xr8LS9
+meI3sHDXCg==
+-----END CERTIFICATE-----
+";
+
 fn login() -> OracleLogin {
     login_at("127.0.0.1")
 }
@@ -31,7 +43,7 @@ fn equals(column: &str) -> RowPredicate {
 fn the_oracle_reader_refuses_a_schema_or_predicate_column_that_is_not_an_identifier() {
     let reader = |schema: &str, predicate: RowPredicate| {
         OracleReader::new(
-            login().verified(String::new()),
+            login().verified(String::from(ANCHORS)),
             schema,
             String::from("prod"),
             predicate,
@@ -81,7 +93,7 @@ fn a_primary_key_flag_is_evidence_only_as_zero_or_one() {
 fn the_reader_binds_the_environment_and_the_equals_value_in_placeholder_order() {
     let reader = |predicate: RowPredicate| {
         OracleReader::new(
-            login().verified(String::new()),
+            login().verified(String::from(ANCHORS)),
             "dictionary",
             String::from("prod"),
             predicate,
@@ -108,7 +120,7 @@ fn cap(value: u64) -> NonZeroU64 {
 fn the_oracle_reader_holds_the_declared_caps_or_the_documented_defaults() {
     let reader = |rows, bytes| {
         OracleReader::new(
-            login().verified(String::new()),
+            login().verified(String::from(ANCHORS)),
             "dictionary",
             String::from("prod"),
             RowPredicate::None,
@@ -266,7 +278,7 @@ fn with_the_packet_trace_switched_on_a_dictionary_read_is_refused() {
             String::from("reader"),
             Secret::new("a-test-password"),
         )
-        .verified(String::new());
+        .verified(String::from(ANCHORS));
         let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
             .expect("a valid reader config");
         let refused = reader

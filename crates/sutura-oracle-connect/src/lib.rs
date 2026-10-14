@@ -27,7 +27,7 @@ pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10
 /// How the connection to the listener is secured.
 #[derive(Debug, Clone, Copy)]
 pub enum Channel<'pem> {
-    /// No transport security. A composition root reaches this only for a loopback host.
+    /// No transport security. No composition root builds this; the adapter's own unit cells do.
     Plaintext,
     /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
     /// public certificate authorities rather than adding to them.

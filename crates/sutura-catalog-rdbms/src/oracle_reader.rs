@@ -39,7 +39,8 @@
 //!   source, not observed against a server - so up to one batch is in memory before a cap refuses.
 //! - **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
 //!   `OracleCatalogConnection` holds no plaintext channel, and [`OracleLogin::verified`]'s PEM
-//!   anchors replace the driver's public authorities; no client certificate is presented, and the
+//!   anchors replace the driver's public authorities, and [`OracleReader::new`] refuses a bundle
+//!   with no usable certificate; no client certificate is presented, and the
 //!   handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
 //!   bytes still cross the network, encrypted. A listener's redirect is refused before
 //!   authentication as [`RdbmsError::RedirectRefused`].
@@ -118,7 +119,8 @@ impl OracleReader {
     ///
     /// # Errors
     ///
-    /// The documentation schema or the predicate column is not an identifier.
+    /// The documentation schema or the predicate column is not an identifier, or the login's anchors
+    /// are not certificates the driver can verify a server against.
     pub fn new(
         login: VerifiedOracleLogin,
         documentation_schema: &str,
@@ -128,6 +130,9 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
+        oracledb::Config::default()
+            .set_trust_anchors_pem(&login.anchors_pem)
+            .map_err(|cause| InvalidReaderConfig::TrustAnchors(cause.to_string()))?;
         Ok(Self {
             login,
             statement: statement(documentation_schema, &predicate),
@@ -321,6 +326,32 @@ mod dial_bound {
             config.transport_connect_timeout(),
             Some(sutura_oracle_connect::DIAL_DEADLINE),
             "the reader's dial is not bounded by the dial deadline"
+        );
+    }
+}
+
+#[cfg(test)]
+mod anchors {
+    use sutura_domain::identity::Secret;
+
+    use super::{OracleLogin, OracleReader};
+    use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
+
+    /// **Anchors that hold no certificate refuse the reader at build, before any dial.**
+    #[test]
+    fn the_oracle_reader_refuses_anchors_that_hold_no_certificate() {
+        let login = OracleLogin::new(
+            String::from("127.0.0.1"),
+            1521,
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        )
+        .verified(String::from("not a certificate"));
+        let refusal = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None);
+        assert!(
+            matches!(refusal, Err(InvalidReaderConfig::TrustAnchors(ref cause)) if cause.contains("no certificates found")),
+            "{refusal:?}"
         );
     }
 }

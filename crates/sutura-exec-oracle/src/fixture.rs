@@ -54,17 +54,15 @@ impl FixtureCredential {
     /// This process's credential, as `compose.services.yaml`'s anchors export it, and the tier's
     /// certificate authority read from the file `SUTURA_ORACLE_TIER_CA` names.
     pub fn from_env() -> Result<Self, UnconfiguredFixture> {
-        let anchors = std::env::var(TIER_CA)
-            .ok()
+        Self::read(|name| std::env::var(name).ok())
+    }
+
+    /// [`Self::parse`] with the certificate authority read from the file `lookup` names for it.
+    pub(crate) fn read(lookup: impl Fn(&'static str) -> Option<String>) -> Result<Self, UnconfiguredFixture> {
+        let anchors = lookup(TIER_CA)
             .map(|path| std::fs::read_to_string(path).map_err(|cause| UnconfiguredFixture::Unreadable(TIER_CA, cause.kind())))
             .transpose()?;
-        Self::parse(|name| {
-            if name == TIER_CA {
-                anchors.clone()
-            } else {
-                std::env::var(name).ok()
-            }
-        })
+        Self::parse(|name| if name == TIER_CA { anchors.clone() } else { lookup(name) })
     }
 
     /// The parse, over a LOOKUP rather than over the process environment - `std::env::set_var` is
@@ -116,6 +114,20 @@ mod tests {
     fn a_blank_variable_is_refused_and_named() {
         let refusal = FixtureCredential::parse(|name| Some(String::from(if name == "SUTURA_DEV_USER" { "   " } else { "x" })));
         assert_eq!(refusal.err(), Some(UnconfiguredFixture::Blank("SUTURA_DEV_USER")));
+    }
+
+    #[test]
+    fn an_unreadable_tier_authority_file_is_refused_and_named() {
+        let missing = concat!(env!("CARGO_MANIFEST_DIR"), "/no-such-tier-authority.pem");
+        let refusal =
+            FixtureCredential::read(|name| Some(String::from(if name == "SUTURA_ORACLE_TIER_CA" { missing } else { "x" })));
+        assert_eq!(
+            refusal.err(),
+            Some(UnconfiguredFixture::Unreadable(
+                "SUTURA_ORACLE_TIER_CA",
+                std::io::ErrorKind::NotFound
+            ))
+        );
     }
 
     #[test]

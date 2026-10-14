@@ -34,7 +34,7 @@ How the connection to the listener is secured.
 
 ### Variants
 
-- `Plaintext` - No transport security. A composition root reaches this only for a loopback host.
+- `Plaintext` - No transport security. No composition root builds this; the adapter's own unit cells do.
 - `Verified` - TLS, verified against these PEM certificates and no others: they replace the driver's bundled public certificate authorities rather than adding to them.
 
 ### Implements

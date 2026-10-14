@@ -58,7 +58,7 @@ pub(crate) fn build(
         ref service_name,
         ref user,
         ref password_file,
-        ref channel,
+        channel: Some(ref channel),
         ..
     } = *configured.placement()
     else {

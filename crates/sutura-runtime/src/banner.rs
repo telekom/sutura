@@ -270,7 +270,11 @@ fn announce_surface(settings: &Settings) {
             SourcePlacement::Files { .. } | SourcePlacement::Duckdb { .. } => ("none declared", None),
             SourcePlacement::BigQuery { .. } | SourcePlacement::Cube { .. } => ("wire-owned tls (not declared)", None),
             // Declared, as the one mode its driver is given - see `OracleChannel`.
-            SourcePlacement::Oracle { channel, .. } => ("verified", Some(channel.anchors().display().to_string())),
+            SourcePlacement::Oracle {
+                channel: Some(channel), ..
+            } => ("verified", Some(channel.anchors().display().to_string())),
+            // Declared plaintext, in a build that links no Oracle adapter and refuses the source at open.
+            SourcePlacement::Oracle { channel: None, .. } => ("plaintext", None),
         };
         tracing::info!(
             source = %source,
