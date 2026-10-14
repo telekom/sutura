@@ -213,7 +213,7 @@ async fn established_reading_roles(extra: &str) -> Result<crate::inbound::Verifi
 }
 
 /// With `extra_scope_claims` set, a token that names no client in `azp` is refused with
-/// [`TokenRejected::ClientNotNamed`].
+/// [`TokenRejected::ClientNotNamed`], asserted through its message.
 #[tokio::test]
 async fn a_token_naming_no_client_is_refused_where_extra_scope_claims_are_read() {
     let rejected = established_reading_roles(
@@ -221,14 +221,11 @@ async fn a_token_naming_no_client_is_refused_where_extra_scope_claims_are_read()
     )
     .await
     .expect_err("a token naming no client grants nothing");
-    assert!(
-        matches!(rejected, TokenRejected::ClientNotNamed),
-        "expected ClientNotNamed, got {rejected:?}"
-    );
+    assert_eq!(rejected.to_string(), "the presented token names no client in `azp`");
 }
 
 /// With `extra_scope_claims` set, a token whose client is the API itself is refused with
-/// [`TokenRejected::ClientIsTheApi`].
+/// [`TokenRejected::ClientIsTheApi`], asserted through its message.
 #[tokio::test]
 async fn a_token_whose_client_is_the_api_is_refused_where_extra_scope_claims_are_read() {
     let rejected = established_reading_roles(&format!(
@@ -236,9 +233,9 @@ async fn a_token_whose_client_is_the_api_is_refused_where_extra_scope_claims_are
     ))
     .await
     .expect_err("a token whose client is the API grants nothing");
-    assert!(
-        matches!(rejected, TokenRejected::ClientIsTheApi),
-        "expected ClientIsTheApi, got {rejected:?}"
+    assert_eq!(
+        rejected.to_string(),
+        "the presented token names this deployment's own audience as its client"
     );
 }
 
