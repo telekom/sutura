@@ -5748,7 +5748,12 @@ convenience, and nothing needs to clone a startup refusal.
   rather than a widened first one: `data_dir` is the only key whose absence has a refusal of its
   own - `Self::NoDataDirectory` - so folding them would make one message stand for two checks
   that are not the same. This one names the key.
+- `RelativeHopPath` - A delegation hop's path is relative, so it resolves against the process working directory.
+
+  `Self::RelativePath` for a value of a list: it names the hop's position, because with two
+  hops the field alone does not say which one to correct.
 - `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
+- `HopCredentialsInUrl` - A delegation hop's URL carries an `@` - `Self::CredentialsInUrl` for a value of a list, naming the hop's position.
 - `DelegationEndsInBrokerToken` - A delegation whose last hop is `broker-token`: that token is for the next identity provider, so no hop exchanges it for the data system.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
@@ -6963,6 +6968,22 @@ Which request a `DelegationDeclared` exchange sends its endpoint.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+#### `struct HopKey`
+
+```rust
+pub struct HopKey
+```
+
+Where one value of a `delegation` list is written: the list's key under the source, the hop's
+position in it, and the field.
+
+A refusal names this rather than the field alone, because with two hops the field name does not
+say which hop to correct.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 #### `enum InvalidWorkloadIdentity`
 
