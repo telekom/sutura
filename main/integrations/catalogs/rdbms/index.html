@@ -2385,6 +2385,8 @@
       
         
       
+        
+      
     
     
     
@@ -2986,6 +2988,34 @@
     
   
     sutura-adbc-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/sutura-oracle-connect/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-oracle-connect
   
 
     
@@ -3792,7 +3822,7 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 <td><code>connection.transport_mode</code></td>
 <td>string</td>
 <td>required</td>
-<td><code>plaintext</code>, <code>verified</code> or <code>mutual</code>. Oracle accepts <code>plaintext</code> only</td>
+<td><code>plaintext</code>, <code>verified</code> or <code>mutual</code>. Oracle accepts <code>verified</code> only</td>
 </tr>
 <tr>
 <td><code>connection.transport_anchors</code></td>
@@ -3811,8 +3841,10 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 <p><code>sutura serve</code> reads all catalog entries again at the shortest <code>refresh_seconds</code> among them. The default is 900, and <code>0</code> is refused. See <a href="../../../serving/">Serving</a>.</p>
 <p><code>plaintext</code> needs a loopback IP address as <code>host</code>. <code>verified</code> and <code>mutual</code> need <code>host</code>, not
 <code>unix_socket</code>. A build with the <code>rdbms</code> feature reads PostgreSQL dictionaries; the Oracle
-dictionary needs a build with the <code>oracle</code> feature. The Oracle reader refuses a listener that
-redirects the connection, before it logs in.</p>
+dictionary needs a build with the <code>oracle</code> feature. Oracle refuses <code>plaintext</code> for every host:
+write <code>verified</code> with <code>transport_anchors</code> naming a PEM file. Those certificates replace the public
+authorities, <code>host</code> is the name TLS verifies, and sutura presents no client certificate. The Oracle
+reader refuses a listener that redirects the connection, before it logs in.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">catalogs</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">"dictionary"</span>
