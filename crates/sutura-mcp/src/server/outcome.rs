@@ -93,6 +93,9 @@ pub(super) fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
         SurfaceFailure::Broker { .. } => {
             "the identity provider this deployment depends on did not answer; this may work if you try again shortly"
         }
+        SurfaceFailure::NotLinked { .. } => {
+            "your account is not linked at the identity provider this source runs you through; retrying will not help until it is linked"
+        }
         SurfaceFailure::Miswired { .. } => {
             "this deployment is misconfigured: what it holds for the data system does not match the question's. Nothing you can change - report it"
         }

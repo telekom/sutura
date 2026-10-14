@@ -211,7 +211,7 @@ pub enum NotFitToServe {
     )]
     DelegationWithoutDirectInbound {
         alias: SourceName,
-        /// `workload_identity.delegation` on `bigquery`, `delegation` on `oracle`.
+        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`.
         key: &'static str,
     },
     /// A source declares a caller-identity mode this build does not run.
@@ -224,7 +224,7 @@ pub enum NotFitToServe {
     )]
     CallerIdentityModeNotBuilt {
         alias: SourceName,
-        /// `google_login` or `domain_delegation`.
+        /// `domain_delegation`.
         block: &'static str,
     },
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged

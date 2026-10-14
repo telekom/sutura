@@ -7,8 +7,9 @@
 //!   verified address. The deployment vouches for the caller here, not the caller's own credential.
 //!
 //! Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-//! This build runs `workload_identity` only: `Settings::refusals` refuses to serve a source that
-//! declares either other block, so a block that nothing reads does not load as if it did.
+//! This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
+//! source that declares `domain_delegation`, so a block that nothing reads does not load as if it
+//! did.
 //! `docs/adr/20261014100540-bigquery-caller-identity-modes.md` records the decision.
 
 use std::path::{Path, PathBuf};
@@ -34,7 +35,7 @@ pub(crate) struct CallerIdentityBlocks<'raw> {
 pub enum CallerIdentity {
     /// The caller's own pool principal.
     WorkloadIdentity(WorkloadIdentityConfig),
-    /// The caller's own Google login, brokered by the identity provider. Not served by this build.
+    /// The caller's own Google login, brokered by the identity provider.
     GoogleLogin(GoogleLogin),
     /// A delegating service account acting as the caller's verified address. Not served by this
     /// build.
@@ -45,8 +46,7 @@ impl CallerIdentity {
     /// The block of a mode this build does not serve - see `NotFitToServe::CallerIdentityModeNotBuilt`.
     pub(crate) const fn not_built(&self) -> Option<&'static str> {
         match *self {
-            Self::WorkloadIdentity(_) => None,
-            Self::GoogleLogin(_) => Some(GOOGLE_LOGIN),
+            Self::WorkloadIdentity(_) | Self::GoogleLogin(_) => None,
             Self::DomainDelegation(_) => Some(DOMAIN_DELEGATION),
         }
     }
@@ -535,12 +535,42 @@ mod tests {
     }
 
     #[test]
-    fn a_google_login_source_is_refused_at_boot_as_not_built() {
+    fn a_google_login_source_is_refused_without_a_direct_caller() {
+        // The broker request sends the caller's own inbound token, which only `direct` verifies.
         assert_eq!(
             refused_at_boot(LOGIN_YAML),
+            vec![NotFitToServe::DelegationWithoutDirectInbound {
+                alias: warehouse_alias(),
+                key: "google_login",
+            }]
+        );
+    }
+
+    /// [`bigquery_overlay_with`]'s source on a deployment that verifies `direct` callers.
+    fn direct_overlay_with(block: &str) -> Sources {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\n  \
+             inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+             authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
+             algorithms: [\"RS256\"]\n\
+             sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+             dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
+        ))
+    }
+
+    #[test]
+    fn a_google_login_source_boots_on_a_direct_deployment() {
+        let settings = Settings::load(&direct_overlay_with(LOGIN_YAML)).expect("a google_login source is served");
+        assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+        let error = Settings::load(&direct_overlay_with(DELEGATION_YAML)).expect_err("domain_delegation is not built");
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+            panic!("expected a boot refusal, got {error:?}");
+        };
+        assert_eq!(
+            *refusals,
             vec![NotFitToServe::CallerIdentityModeNotBuilt {
                 alias: warehouse_alias(),
-                block: "google_login",
+                block: "domain_delegation",
             }]
         );
     }

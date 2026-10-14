@@ -178,13 +178,24 @@ fn build_bigquery(
     // measurement - so `sutura_config` refuses the key by name rather than carry a value that
     // reaches nothing. A value carried here and dropped later would be the shape this whole change
     // exists to remove.
-    let impersonation = match configured.workload_identity() {
+    let impersonation = match configured.caller_identity() {
         None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
-        Some(workload) => sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
-            sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str()).map_err(|cause| {
-                format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
-            })?,
-        ),
+        Some(sutura_config::sources::caller_identity::CallerIdentity::WorkloadIdentity(workload)) => {
+            sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
+                sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str()).map_err(|cause| {
+                    format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
+                })?,
+            )
+        }
+        Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(_)) => {
+            sutura_exec_bigquery::adbc::Impersonation::GoogleLogin
+        }
+        // `Settings::refusals` refuses to serve it; answered rather than unwrapped.
+        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(_)) => {
+            return Err(format!(
+                "`sources.{source}.domain_delegation` is a mode this build does not run"
+            ));
+        }
     };
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
         source.clone(),

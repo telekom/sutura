@@ -63,6 +63,8 @@ pub enum QuestionEnd {
     DataSystemUnavailable,
     /// The credential broker did not answer.
     IdentityUnavailable,
+    /// The caller has no account linked at the identity provider.
+    IdentityNotLinked,
     /// This deployment's own fault.
     Internal,
 }
@@ -81,6 +83,7 @@ impl From<&SurfaceFailure> for QuestionEnd {
         match *failure {
             SurfaceFailure::Warehouse { .. } => Self::DataSystemUnavailable,
             SurfaceFailure::Broker { .. } => Self::IdentityUnavailable,
+            SurfaceFailure::NotLinked { .. } => Self::IdentityNotLinked,
             SurfaceFailure::Compile { .. } | SurfaceFailure::Miswired { .. } => Self::Internal,
         }
     }

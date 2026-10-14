@@ -84,3 +84,30 @@ assert any address in the domain.
   account's protection.
 - A configuration for a mode is checked at load before sutura runs that mode, and sutura refuses to
   start with a mode it does not run.
+
+## First amendment, 2026-10-14: how mode b reads the broker's answer and the not-linked refusal
+
+**Status of the amendment: accepted** (issue #1439). Mode b is built, with these decisions the
+record above does not hold.
+
+- **The Google token is opaque, and its expiry is the identity provider's absolute
+  `accessTokenExpiration`.** The broker endpoint returns the response the identity provider
+  stored when the caller signed in, so `expires_in` counts from that sign-in and not from this
+  request. An answer without `accessTokenExpiration`, or with one at or before now, is refused.
+  sutura does not verify the Google token; BigQuery does, at `jobs.insert`.
+- **sutura keeps no refresh token.** The stored response carries Google's refresh token and ID
+  token. The answer is read into a zeroized secret and decoded into a value that has no field for
+  either, so neither reaches a type. Refreshing stays with the identity provider. A static token
+  cannot be refreshed during a query, so a job that outlives it fails.
+- **The token option and the auth type that selects it are set together, always.** One function
+  produces `bigquery.auth_type: access_token` and `bigquery.auth.access_token` as one pair, so no
+  job carries the token under another auth type, and none carries the auth type with no token.
+- **Not linked is classified from one fixed message, and the message is never kept.** The
+  identity provider answers a caller with no linked account with `400 invalid_request` and the
+  description `User not associated to identity provider`; the same status and code also mean a
+  disabled feature or an unknown provider. sutura compares the description to that literal only
+  to choose `identity_not_linked` (`403`), and every other `400 invalid_request` stays
+  `identity_unavailable`. The description is not echoed, logged or stored. A changed message
+  degrades to `identity_unavailable`: still a refusal, never an answer.
+- **A `google_login` source needs a `direct` inbound deployment**, for the reason a delegation
+  does: the broker request sends the caller's own inbound token, which only `direct` verifies.

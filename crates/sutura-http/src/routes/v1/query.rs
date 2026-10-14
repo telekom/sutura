@@ -389,6 +389,10 @@ pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
             tracing::error!(error = %cause, chain = ?chain, "the credential broker did not answer");
             Failure::IdentityUnavailable
         }
+        SurfaceFailure::NotLinked { ref cause } => {
+            tracing::warn!(error = %cause, chain = ?chain, "the caller has no linked account at the identity provider");
+            Failure::IdentityNotLinked
+        }
         // Our own wiring, so it carries nothing outward. An operator finds it in this line.
         SurfaceFailure::Miswired { ref cause } => {
             tracing::error!(error = %cause, chain = ?chain, "the credentials that came back do not fit this request");

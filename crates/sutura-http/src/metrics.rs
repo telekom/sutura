@@ -64,6 +64,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     label("at_capacity"),
     BUDGET_EXHAUSTED,
     label("host_not_allowed"),
+    label("identity_not_linked"),
     label("identity_unavailable"),
     label("insufficient_scope"),
     label("internal"),
@@ -167,6 +168,7 @@ impl QuestionOutcome {
             QuestionEnd::TimedOut => Self::failed(&Failure::Timeout),
             QuestionEnd::DataSystemUnavailable => Self::failed(&Failure::Unavailable),
             QuestionEnd::IdentityUnavailable => Self::failed(&Failure::IdentityUnavailable),
+            QuestionEnd::IdentityNotLinked => Self::failed(&Failure::IdentityNotLinked),
             QuestionEnd::Internal => Self::internal(),
         }
     }
@@ -395,6 +397,7 @@ mod tests {
             Failure::Internal,
             Failure::Unavailable,
             Failure::IdentityUnavailable,
+            Failure::IdentityNotLinked,
             Failure::AtCapacity { retry_after_seconds: 1 },
         ];
         for failure in &every {
@@ -412,6 +415,7 @@ mod tests {
                 | Failure::Internal
                 | Failure::Unavailable
                 | Failure::IdentityUnavailable
+                | Failure::IdentityNotLinked
                 | Failure::AtCapacity { .. } => {}
             }
             assert!(
