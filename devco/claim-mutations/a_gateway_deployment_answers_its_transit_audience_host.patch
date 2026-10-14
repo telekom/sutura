@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/host.rs b/crates/sutura-http/src/host.rs
+index fdafb412a..1a9352523 100644
+--- a/crates/sutura-http/src/host.rs
++++ b/crates/sutura-http/src/host.rs
+@@ -53,7 +53,7 @@ impl HostAllowlist {
+             let requirement = inbound.requirement();
+             requirement
+                 .resource()
+-                .map_or_else(|| requirement.audience().host(), ResourceIdentifier::host)
++                .map_or_else(|| requirement.audience().host().filter(|_| false), ResourceIdentifier::host)
+         });
+         let hosts = LOOPBACK
+             .iter()
