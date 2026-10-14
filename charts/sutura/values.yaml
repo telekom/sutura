@@ -5,9 +5,12 @@ image:
   repository: ghcr.io/telekom/sutura
   # Image tag. Empty means the chart's app version.
   tag: ""
-  # When true, run the optimised image of the same version: the tag gets the suffix `-performance`.
-  # That image exists only for releases where it was published. An explicit `tag` wins and is
-  # used as is.
+  # C library of the image: `musl` (default, a static image; the tag gets the suffix `-musl`) or
+  # `glibc` (the tag has no libc suffix). An explicit `tag` wins and is used as is.
+  variant: musl
+  # When true, run the optimised image of the same version: the tag gets the suffix `-performance`,
+  # before the variant's suffix (`<version>-performance-musl`). That image exists only for releases
+  # where it was published. An explicit `tag` wins and is used as is.
   performance: false
   pullPolicy: IfNotPresent
 
@@ -26,6 +29,14 @@ config:
   base: {}
   # Contents of the environment file. They override base.
   environment: {}
+
+# Log output of the service. Both are written to base.yaml; a `telemetry` key in `config.base` or
+# `config.environment` overrides them.
+telemetry:
+  # Log format: `bunyan` (default, one JSON object per line) or `pretty` (for a terminal).
+  format: bunyan
+  # Log filter directive, for example `info` (default) or `sutura=debug`.
+  filter: info
 
 # Credentials and TLS declarations for the service.
 security:

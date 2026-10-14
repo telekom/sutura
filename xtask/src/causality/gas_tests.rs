@@ -1,11 +1,9 @@
-//! The REAL-CARGO fixtures for `causality::run`'s claim dispatch, split out of `causality.rs`
-//! at the 1000-line cap.
+//! The REAL-CARGO fixtures for `causality::run`'s claim dispatch, split out of `causality.rs` at the 1000-line cap.
 //!
-//! `claim::tests` drives `claim::run` with string-only fixtures; these build a tiny real
-//! crate and run `kill_cell`'s real `cargo test` against it, because the dispatch from
-//! `causality::run` into `claim::run` (and, after `github.com/telekom/sutura#954`, the COMPOSITE
-//! that also runs the ordinary proof over a range's undeclared additions) is a seam no string
-//! fixture reaches. `set_current_dir` is process-global, so each fixture asserts `NEXTEST` and
+//! `claim::tests` drives `claim::run` with string-only fixtures; these build a tiny real crate and run `kill_cell`'s
+//! real `cargo test` against it, because the dispatch from `causality::run` into `claim::run` (and, after
+//! `github.com/telekom/sutura#954`, the COMPOSITE that also runs the ordinary proof over a range's undeclared additions)
+//! is a seam no string fixture reaches. `set_current_dir` is process-global, so each fixture asserts `NEXTEST` and
 //! runs alone.
 //!
 //! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch, reached
@@ -23,6 +21,8 @@ static SEQ: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
 mod deleted_tests;
+#[cfg(test)]
+mod endpoint_tests;
 #[cfg(test)]
 mod merge_tests;
 

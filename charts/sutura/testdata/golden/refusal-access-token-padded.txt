@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.access_token in config begins or ends with whitespace: sutura refuses to start with it, because no token can be read from it (SettingsError::AccessToken, InvalidAccessToken::Untrimmed) - remove the whitespace, or set the token from a Secret with security.accessToken.secretName
+
+Use --debug flag to render out invalid YAML

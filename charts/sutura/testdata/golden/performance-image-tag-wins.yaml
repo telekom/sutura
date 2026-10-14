@@ -15,6 +15,9 @@ data:
     security:
       identity: single-user
       single_user_because: a test deployment one operator runs with their own credentials
+    telemetry:
+      filter: info
+      format: bunyan
   production.yaml: |
     {}
 

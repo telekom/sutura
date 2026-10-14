@@ -79,7 +79,7 @@ pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree<'_>) 
 pub(super) enum Tree<'a> {
     /// The repo root: the tree whose service tier something provisioned before invoking the gate.
     Provisioned,
-    /// The base worktree under `target/`, which no provisioner has ever seen.
+    /// The base worktree under `target/`, carrying a copy of the root's discovery file.
     Reconstructed,
     /// The claim arm's kill worktree, provisioned its OWN Postgres tier keyed on that worktree's
     /// path (`claim::tier`), whose credential this carries - empty when it did not start. A skip there would pass as a mutation
@@ -89,38 +89,28 @@ pub(super) enum Tree<'a> {
 
 /// The nextest invocation for one run.
 ///
-/// THE REQUIREMENT DOES NOT CROSS INTO A TREE ITS ENDPOINT CANNOT REACH. `nix/with-tier.sh`
-/// exports `SUTURA_DEV_REQUIRE_TIER` into the recipe's whole process tree, so this gate inherits
-/// it - while the endpoint that requirement belongs to is published to
-/// `<root>/.sutura-dev/endpoints.json` and resolved by walking up from the harness. The base run
-/// happens in a git-derived worktree whose root is a different directory, and that file is
-/// gitignored, so it is not there and cannot be: the requirement crossed and the endpoint did
-/// not, and every tier-backed cell failed CLOSED in a tree where nothing was provisioned.
+/// **THE BASE RUN SHARES THE HEAD RUN'S TIER.** `nix/with-tier.sh` exports `SUTURA_DEV_REQUIRE_TIER`
+/// into the recipe's whole process tree, and the endpoint it belongs to is published to the gitignored
+/// `<root>/.sutura-dev/endpoints.json`, which a worktree under `target/` does not have. `add_base_worktree`
+/// copies that file in, so both runs reach one tier and the requirement holds in both. Dropping the
+/// requirement there instead made every tier-backed cell skip on base - green on base, so a causal tier
+/// cell could never be proven.
 ///
-/// Measured, and it is why this parameter exists rather than a comment: two such cells were the
-/// whole of a base run's red, 86 tests into 1810, and the gate reported it as proof about a
-/// change that touched neither. `sutura_dev::requirement`'s own rule is that only the thing which
-/// provisioned a tier may declare one - so a run in a tree nothing provisioned gets the
-/// developer-machine direction, which skips loudly and names what did not run.
+/// A cell whose tier is absent on base still panics in the lookup, and `base::never_reached_its_tier`
+/// reads that test's OWN panic line as INCONCLUSIVE for the whole run rather than as red on base: two
+/// such cells were once the whole of a base run's red, 86 tests into 1810, reported as proof about a
+/// change that touched neither.
 ///
-/// AND IT IS WHY ONE COMMIT ANSWERED DIFFERENTLY IN TWO VENUES. `just causality` sources
-/// `nix/with-tier.sh` and so provisions a tier, and `just ship-check` calls that recipe; CI's
-/// `nix run .#causality` does not, so there those cells skip and the verdict is about the change.
-/// `just ship-check` once ran the bare task, so those cells skipped there too. The false green
-/// was reachable from the one venue a person runs by hand and cites, which is the worst place for
-/// it to live and the reason it went unnoticed.
+/// **The limit:** HEAD runs first and base second against one tier, so a cell that is not idempotent
+/// against tier state can be green on HEAD and red on base for a state reason. Nothing holds that pair.
 ///
-/// WHAT THAT LEAVES: a tier-backed cell cannot be proven causal by this gate. It skips in the
-/// reconstructed tree instead of running, so the base run is green and the verdict is *green
-/// against base behaviour* - a false alarm rather than a false green, which is the direction to
-/// be wrong in. Closing it means publishing an endpoint into a second root, and a second root for
-/// the discovery file is the cross-worktree defect `dev/src/scope.rs` exists to prevent.
+/// `just causality` and `nix run .#causality` both source `nix/with-tier.sh`, and `just ship-check`
+/// calls the recipe, so every venue gives the base run the same requirement.
 ///
-/// THE CLAIM ARM'S KILL RUN IS THE EXCEPTION, `Tree::Mutated`: there a skip reads as a mutation
-/// the cell survived, which is a false verdict rather than a false alarm. So the requirement is
-/// forced, and the kill worktree starts its OWN Postgres tier and passes its credential here, so a
-/// Postgres-backed claim cell runs against it. Where that tier did not start - or the cell needs
-/// another tier - `claim::kill::attest` reads the tier failure as INCONCLUSIVE.
+/// THE CLAIM ARM'S KILL RUN, `Tree::Mutated`, does not share it: its kill worktree starts its OWN
+/// Postgres tier and passes its credential here, and the requirement is forced, because a skip there
+/// reads as a mutation the cell survived. Where that tier did not start - or the cell needs another
+/// tier - `claim::kill::attest` reads the tier failure as INCONCLUSIVE.
 ///
 /// `--no-fail-fast` IS AFFORDABLE ONLY BECAUSE THE RUN IS SCOPED, and it is what makes the verdict
 /// the same twice. Over the whole suite it would be a long bill for output nobody reads; over the
@@ -165,10 +155,7 @@ pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree<'_>) -> Comman
         .arg(isolated.profile())
         .args(["--no-fail-fast", "--status-level", "all", "-E", only]);
     match tree {
-        Tree::Provisioned => {}
-        Tree::Reconstructed => {
-            command.env_remove(sutura_dev::requirement::FORCE);
-        }
+        Tree::Provisioned | Tree::Reconstructed => {}
         Tree::Mutated(tier) => {
             command
                 .env(sutura_dev::requirement::FORCE, "1")
@@ -287,26 +274,21 @@ mod tests {
     }
 
     #[test]
-    fn a_tier_backed_cell_is_not_required_in_a_worktree_the_endpoint_does_not_reach() {
-        // `nix/with-tier.sh` exports the requirement into this gate's whole process tree, and the
-        // endpoint it belongs to is published under the ROOT - so the base run, which happens in
-        // a worktree under `target/`, inherited a requirement whose discovery file is gitignored
-        // and therefore absent there. Every tier-backed cell then failed CLOSED in a tree nothing
-        // had provisioned, and the gate reported that as red-on-base.
+    fn the_base_run_keeps_the_requirement_the_head_run_has() {
+        // The base worktree gets the root's discovery file, so a tier-backed cell reaches the tier
+        // there too. Dropping the requirement made it skip instead: green on base, a false alarm.
         let requirement = OsStr::new(sutura_dev::requirement::FORCE);
         let isolated = Isolated::for_a_wiring_test(Path::new("/tmp/dir"), Path::new("/tmp/target"));
-        let removed = |tree: Tree| {
+        let envs = |tree: Tree| {
             nextest(&isolated, "test(=t)", tree)
                 .get_envs()
-                .any(|(name, value)| name == requirement && value.is_none())
+                .map(|(name, value)| (name.to_owned(), value.map(OsStr::to_owned)))
+                .collect::<Vec<_>>()
         };
-        assert!(
-            removed(Tree::Reconstructed),
-            "a tree nothing provisioned may not inherit the requirement"
-        );
-        assert!(
-            !removed(Tree::Provisioned),
-            "the root keeps it: that is the tree whose endpoint was published"
+        assert_eq!(
+            envs(Tree::Reconstructed),
+            envs(Tree::Provisioned),
+            "the base run inherits the head run's requirement"
         );
         assert!(
             nextest(&isolated, "test(=t)", Tree::Mutated(&[]))

@@ -23,6 +23,9 @@ data:
         kind: bigquery
         max_bytes_billed: 1073741824
         posture: shared-service-user
+    telemetry:
+      filter: info
+      format: bunyan
   production.yaml: |
     {}
 
@@ -79,7 +82,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sutura
-          image: "ghcr.io/telekom/sutura:latest"
+          image: "ghcr.io/telekom/sutura:latest-musl"
           imagePullPolicy: IfNotPresent
           # `sutura serve` - the HTTP surface folded into the one published binary
           # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays

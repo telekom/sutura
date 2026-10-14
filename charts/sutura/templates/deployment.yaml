@@ -30,7 +30,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: sutura
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "%s%s" .Chart.AppVersion (ternary "-performance" "" .Values.image.performance)) }}"
+          image: "{{ .Values.image.repository }}:{{ include "sutura.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # `sutura serve` - the HTTP surface folded into the one published binary
           # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays

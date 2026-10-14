@@ -1,0 +1,16 @@
+# `minimal.yaml` with a `telemetry` key in `config.base`: it wins over the `telemetry.format` value,
+# while the key it does not set keeps the chart default.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
+    telemetry:
+      format: pretty

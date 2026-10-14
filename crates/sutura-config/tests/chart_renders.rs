@@ -38,7 +38,9 @@ mod tests {
 
     use serde::Deserialize as _;
     use serde_norway::Value;
-    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment};
+    use sutura_config::{
+        Environment, InvalidAccessToken, InvalidInboundValue, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment,
+    };
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
     /// `SUTURA__*` variable.
@@ -148,6 +150,16 @@ mod tests {
             .map(String::from)
     }
 
+    /// The parsed settings file `file` of the `ConfigMap` in the golden render named `name`.
+    fn rendered_config(name: &str, file: &str) -> Option<Value> {
+        let golden = goldens()
+            .into_iter()
+            .find(|path| path.file_stem().is_some_and(|stem| stem == name))?;
+        let docs = documents(&std::fs::read_to_string(golden).expect("a readable golden"));
+        let text = of_kind(&docs, "ConfigMap")["data"][file].as_str()?.to_owned();
+        Some(serde_norway::from_str(&text).expect("a settings file is YAML"))
+    }
+
     fn app_version() -> String {
         let chart = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../charts/sutura/Chart.yaml");
         let text = std::fs::read_to_string(&chart).unwrap_or_else(|error| panic!("{} is readable: {error}", chart.display()));
@@ -159,7 +171,7 @@ mod tests {
     fn the_performance_image_flag_adds_the_suffix_to_the_app_version() {
         assert_eq!(
             rendered_image("performance-image"),
-            Some(format!("ghcr.io/telekom/sutura:{}-performance", app_version()))
+            Some(format!("ghcr.io/telekom/sutura:{}-performance-musl", app_version()))
         );
     }
 
@@ -167,8 +179,45 @@ mod tests {
     fn the_performance_image_flag_off_keeps_the_app_version_tag() {
         assert_eq!(
             rendered_image("performance-image-off"),
+            Some(format!("ghcr.io/telekom/sutura:{}-musl", app_version()))
+        );
+    }
+
+    #[test]
+    fn the_default_image_is_the_musl_variant() {
+        assert_eq!(
+            rendered_image("minimal"),
+            Some(format!("ghcr.io/telekom/sutura:{}-musl", app_version()))
+        );
+    }
+
+    #[test]
+    fn the_glibc_variant_keeps_the_app_version_tag() {
+        assert_eq!(
+            rendered_image("image-glibc"),
             Some(format!("ghcr.io/telekom/sutura:{}", app_version()))
         );
+    }
+
+    #[test]
+    fn a_default_render_logs_bunyan_at_info() {
+        let telemetry = &rendered_config("minimal", "base.yaml").expect("a minimal render")["telemetry"];
+        assert_eq!(telemetry["format"].as_str(), Some("bunyan"));
+        assert_eq!(telemetry["filter"].as_str(), Some("info"));
+    }
+
+    #[test]
+    fn the_telemetry_values_are_rendered() {
+        let telemetry = &rendered_config("telemetry-values", "base.yaml").expect("a telemetry render")["telemetry"];
+        assert_eq!(telemetry["format"].as_str(), Some("pretty"));
+        assert_eq!(telemetry["filter"].as_str(), Some("sutura=debug"));
+    }
+
+    #[test]
+    fn a_telemetry_key_in_config_base_keeps_priority() {
+        let telemetry = &rendered_config("telemetry-config-base", "base.yaml").expect("a telemetry render")["telemetry"];
+        assert_eq!(telemetry["format"].as_str(), Some("pretty"));
+        assert_eq!(telemetry["filter"].as_str(), Some("info"));
     }
 
     #[test]
@@ -219,6 +268,8 @@ mod tests {
     enum Binary {
         /// The binary refuses the same configuration, by a refusal this accepts.
         Refuses(fn(&NotFitToServe) -> bool),
+        /// The binary refuses it while reading the settings, by an error this accepts.
+        Fails(fn(&SettingsError) -> bool),
         /// The chart refuses a configuration the binary starts with, on purpose: the reason.
         Accepts(&'static str),
         /// The chart fails deriving a value from a limit, so no configuration reaches the binary.
@@ -226,10 +277,50 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 11] = [
+    const REFUSALS: [(&str, Binary); 19] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
+        ),
+        (
+            "access-token-padded",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::AccessToken {
+                        cause: InvalidAccessToken::Untrimmed
+                    }
+                )
+            }),
+        ),
+        (
+            "access-token-whitespace-only",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::AccessToken {
+                        cause: InvalidAccessToken::Untrimmed
+                    }
+                )
+            }),
+        ),
+        (
+            "behind-gateway-authorization-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "behind-gateway-transit-header-not-ascii",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::InboundValue {
+                        cause: InvalidInboundValue::NotPermitted {
+                            key: "security.inbound.transit_header",
+                            ..
+                        }
+                    }
+                )
+            }),
         ),
         ("cpu-limit-unparseable", Binary::Derivation),
         (
@@ -253,6 +344,10 @@ mod tests {
             "identity-undeclared-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
         ),
+        ("image-variant-capitalised", Binary::Derivation),
+        ("image-variant-padded", Binary::Derivation),
+        ("image-variant-unknown", Binary::Derivation),
+        ("image-variant-upper-case", Binary::Derivation),
         // `sutura serve` refuses it as `QuerySurfaceOverAnImpersonatingSource`, asked through the agent rule.
         (
             "impersonating-source-without-inbound",
@@ -348,8 +443,11 @@ mod tests {
                     SettingsError::NotFitToServe { refusals } if refusals.iter().any(held) => {}
                     other => wrong.push(format!("{name}: the binary refuses it another way: {other:?}")),
                 },
+                (Binary::Fails(held), Ok(Err(error))) if !held(error.reason()) => {
+                    wrong.push(format!("{name}: the binary refuses it another way: {:?}", error.reason()));
+                }
                 (Binary::Refuses(held), Ok(Ok(settings))) if settings.agent_surface_refusals().iter().any(held) => {}
-                (Binary::Refuses(_), Ok(Ok(_))) => {
+                (Binary::Refuses(_) | Binary::Fails(_), Ok(Ok(_))) => {
                     wrong.push(format!("{name}: the chart refuses it and the binary starts with it"));
                 }
                 (Binary::Accepts(why), Ok(Err(error))) => wrong.push(format!(
@@ -362,7 +460,7 @@ mod tests {
                         settings.agent_surface_refusals()
                     ));
                 }
-                (Binary::Accepts(_) | Binary::Derivation, Ok(_)) => {}
+                (Binary::Accepts(_) | Binary::Derivation | Binary::Fails(_), Ok(_)) => {}
             }
         }
         assert!(

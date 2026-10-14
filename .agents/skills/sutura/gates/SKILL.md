@@ -1306,16 +1306,29 @@ because most `#[ignore` in this tree is a doc comment ABOUT one. **No figure is 
 purpose:** the argument holds at any count above zero, so a number would only be a second thing to
 keep true - and the review that reported this defect cited the unanchored one.
 
-**Why one commit answered differently in two venues, which is the part nobody could have guessed:
-only one venue provisions the tier.** `just causality` sources `nix/with-tier.sh`, which starts
-Postgres and exports `SUTURA_DEV_REQUIRE_TIER` into the whole process tree - and the endpoint that
-requirement belongs to is published under the ROOT, in a gitignored file the base worktree cannot
-have. So the tier-backed cells failed closed there and became the base run's red. CI's
-`nix run .#causality` provisions no tier, so those cells skipped and the verdict was about the
-change; `just ship-check` once did the same and now runs the recipe, so it provisions the tier.
-**The false green was reachable from the one venue a person runs by hand and cites.**
-The base run drops that variable now, in the gate, because only the thing that provisioned a tier
-may declare one.
+**The base run shares the head run's tier, and an absent tier there is not a proof.**
+`nix/with-tier.sh` starts the tiers and exports `SUTURA_DEV_REQUIRE_TIER`; the endpoint is published
+under the ROOT in a gitignored file, which the base worktree under `target/` does not have. The gate
+copies that file into the base worktree (`worktree::add_base_worktree`) and keeps the requirement, so
+a tier-backed cell runs on base against the head run's tier and can be proven causal. `just causality`
+and `nix run .#causality` both source `nix/with-tier.sh` (Postgres and ClickHouse), and `just
+ship-check` calls the recipe. A scoped base cell that fails in the tier lookup - its OWN panic line,
+`thread '<its name>' panicked at dev/src/provisioned.rs`, with `requirement::REQUIRED` in the message
+under it - makes the whole base run INCONCLUSIVE, never red on base: two such cells were once the whole
+of a base run's red, reported as proof about a change that touched neither. Green siblings are judged
+first, so an added test that passed on base without a `Claim-Cell:` fails the run whatever the red
+ones ended at. Only that line is read, so a cell that prints a tier-absent fixture in its own failure
+stays red by its assertion. The claim arm's kill worktree gets no copy; it starts its own tier, and
+its kill run asks the same predicate of the cell's own failure, only where that failure's site is
+`dev/src/provisioned.rs`.
+
+| Limit | What it costs |
+| --- | --- |
+| HEAD runs first, base second, on ONE tier | a cell not idempotent against tier state can be green on HEAD and red on base for a state reason - a false proof no gate holds |
+| `dev/tests/provisioned.rs` asserts the discovery file's project is its own tree's | with a docker-provisioned ClickHouse in the root, the copied file names the root's project, so that file goes red on base - only when a diff scopes it |
+| one test's own tier panic decides the whole base run | a real red beside it is INCONCLUSIVE too, not measured; a green sibling still fails it |
+| a copy of the panic line under the failing test's OWN thread name, with the requirement below it | it reads as that test's tier panic |
+| a tier cell that never calls `provisioned::here` (an opt-in skip of its own) | it still passes vacuously on a host without that tier, on base and on HEAD alike |
 
 **A `#[cfg(test)]` ITEM IS NOT A TEST, and one attribute was the whole difference between a hard
 refusal and a silent pass.** The classifier read a bare added `#[cfg(test)]` as *this file adds a

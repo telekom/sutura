@@ -1,0 +1,17 @@
+# `image.variant` is held to its exact spelling: a case or whitespace variant of `musl` fails the
+# render rather than selecting the glibc image. The binary reads no image variant, so there is no
+# render to hand it.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  variant: MUSL
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

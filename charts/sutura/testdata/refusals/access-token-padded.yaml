@@ -1,0 +1,22 @@
+# Mirrors the binary's refusal of a configured `security.access_token` with whitespace at either end
+# (`SettingsError::AccessToken`, `InvalidAccessToken::Untrimmed`), which it makes while reading the
+# settings, before `DeploymentTokenSharesTheHeader` is asked. The shape is the gateway refusal's, so a
+# regression that names the sharing cause instead moves this case's golden.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  environment:
+    security:
+      access_token: " tok "
+      inbound:
+        mode: behind-gateway
+        transit_header: authorization
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]
