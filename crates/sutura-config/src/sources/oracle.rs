@@ -523,6 +523,30 @@ mod tests {
         );
     }
 
+    /// A refusal over one hop names its position in `delegation`, so with two hops the second is the
+    /// one the message points at.
+    #[test]
+    fn an_oracle_delegation_refusal_names_the_position_of_the_hop() {
+        use crate::sources::workload_identity::HopKey;
+
+        let relative = [
+            hop("sutura-app", DelegationGrant::TokenExchange),
+            crate::raw::RawDelegation {
+                client_secret_file: String::from("run/secrets/idp"),
+                ..hop("https://db.example.com", DelegationGrant::OnBehalfOf)
+            },
+        ];
+        assert_eq!(
+            SourceRegistry::parse(&[impersonating(&relative)], Some(&single_user()))
+                .expect_err("a relative client secret file is refused"),
+            InvalidSourceRegistry::RelativeHopPath {
+                alias: alias("warehouse"),
+                hop: HopKey::new("delegation", 1, "client_secret_file"),
+                path: std::path::PathBuf::from("run/secrets/idp"),
+            }
+        );
+    }
+
     /// A chain ending in `broker-token` is refused at load; the same hop before another parses.
     #[test]
     fn an_oracle_delegation_ending_in_a_broker_token_hop_is_refused() {

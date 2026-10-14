@@ -156,7 +156,8 @@ fn delegation(
     let (agent, rotator) = rotating_agent(bounds, outbound.cloned())
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (delegation exchange)", rotator);
-    let hop = |declared: &sutura_config::sources::workload_identity::DelegationDeclared| {
+    let hop = |position: usize, declared: &sutura_config::sources::workload_identity::DelegationDeclared| {
+        let key = format!("{key}[{position}]");
         let endpoint = TokenEndpoint::parse(declared.token_endpoint())
             .map_err(|cause| format!("`{key}.token_endpoint` is not an endpoint this exchange can dial: {cause}"))?;
         let audience = RequestedAudience::parse(declared.audience())
@@ -173,10 +174,11 @@ fn delegation(
             std::sync::Arc::new(OverHttp::new(endpoint, client, agent.clone(), bounds).granting(grant));
         Ok::<_, String>((exchange, audience))
     };
-    let (exchange, audience) = hop(first)?;
+    let (exchange, audience) = hop(0, first)?;
     then.iter()
-        .try_fold(Delegation::through(exchange, audience), |chain, declared| {
-            let (exchange, audience) = hop(declared)?;
+        .enumerate()
+        .try_fold(Delegation::through(exchange, audience), |chain, (position, declared)| {
+            let (exchange, audience) = hop(position + 1, declared)?;
             Ok(chain.then(exchange, audience))
         })
 }
