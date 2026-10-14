@@ -101,7 +101,16 @@ buildGoModule {
   __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    GOMODCACHE=$TMPDIR/test-modcache go test -v -run '^(TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused)$' .
+    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused'
+    GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
+    cat "$TMPDIR/go-test.log"
+    # `-run` passes when a name stops matching, so every listed name has to pass.
+    want="$(tr '|' '\n' <<< "$tests" | wc -l)"
+    passed="$(grep -c '^--- PASS: ' "$TMPDIR/go-test.log" || true)"
+    if [ "$passed" -ne "$want" ]; then
+      echo "go test passed $passed of the $want tests the run list names" >&2
+      exit 1
+    fi
     runHook postCheck
   '';
   installPhase = ''
