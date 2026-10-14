@@ -1,15 +1,28 @@
 #![forbid(unsafe_code)]
-//! Every golden render of `charts/sutura` is a configuration this binary starts with.
+//! Every golden render of `charts/sutura` is a configuration this binary starts with under `sutura serve`.
 //!
 //! The chart's own gate proves a render is what the template produces; this proves the binary
 //! accepts it. Read from the RENDERED output, so no second copy of the template's env mapping
 //! exists to drift: the `ConfigMap`'s files become the settings directory and the Deployment
 //! container's `env` becomes the variables, a `secretKeyRef` standing in as a distinct value.
 //!
+//! The other direction, a chart refusal the binary would not make, is
+//! `a_chart_refusal_is_the_binarys_or_a_stated_gap`. A refused case has no render, so the chart gate
+//! renders each one through a copy of the chart without its posture guard
+//! (`charts/sutura/testdata/golden/unguarded/`): the env mapping is the template's own, and a render that
+//! drifts from the template is a diff in `just chart`.
+//!
 //! # What this does NOT reach
 //!
-//! * **The refusal direction.** A chart refusal has no render, so nothing here asserts that the
-//!   binary would also have refused it.
+//! * **A serve rule stricter than the agent rule.** `sutura serve`'s `/v1` rule
+//!   (`Settings::query_surface_refusals`) is asked here through `Settings::agent_surface_refusals`,
+//!   which refuses at least what it does with no inbound block. So a change that makes the serve
+//!   rule refuse more is not seen here; the serve cells hold that rule itself.
+//! * **A refusal outside the posture guard.** The unguarded copy drops only that guard. A refusal
+//!   raised while deriving a value from a limit still fails the render, so such a case is declared
+//!   `Binary::Derivation` by hand. A `Derivation` case must have no unguarded golden, so one the
+//!   guard-less chart renders is refused; a case that really fails derivation, and that the binary
+//!   would also refuse, is held by review alone.
 //! * **Secret and file contents.** A placeholder token is never empty, and `Settings::load` opens
 //!   no key-set or TLS file, so neither a Secret holding `""` nor a missing mount is seen.
 //! * **`extraEnv`**, beyond what a golden's values file happens to set.
@@ -25,7 +38,7 @@ mod tests {
 
     use serde::Deserialize as _;
     use serde_norway::Value;
-    use sutura_config::{Environment, Settings, Sources};
+    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment};
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
     /// `SUTURA__*` variable.
@@ -103,7 +116,8 @@ mod tests {
         }
     }
 
-    /// Why the binary refuses these inputs, or `None` when it starts.
+    /// Why the binary refuses these inputs, or `None` when `sutura serve` starts with them: its `/v1`
+    /// rule is asked through the agent rule (module docs).
     fn refusal(environment: &str, directory: Option<&Path>, variables: BTreeMap<String, String>) -> Option<String> {
         let environment = match Environment::parse(environment) {
             Ok(environment) => environment,
@@ -116,6 +130,9 @@ mod tests {
         match Settings::load(&sources) {
             Err(error) => Some(format!("{:?}", error.reason())),
             Ok(settings) if !settings.refusals().is_empty() => Some(format!("{:?}", settings.refusals())),
+            Ok(settings) if !settings.agent_surface_refusals().is_empty() => {
+                Some(format!("{:?}", settings.agent_surface_refusals()))
+            }
             Ok(_) => None,
         }
     }
@@ -195,6 +212,163 @@ mod tests {
             refused.is_empty(),
             "the binary refuses these chart renders:\n{}",
             refused.join("\n")
+        );
+    }
+
+    /// How the binary stands to one chart refusal case.
+    enum Binary {
+        /// The binary refuses the same configuration, by a refusal this accepts.
+        Refuses(fn(&NotFitToServe) -> bool),
+        /// The chart refuses a configuration the binary starts with, on purpose: the reason.
+        Accepts(&'static str),
+        /// The chart fails deriving a value from a limit, so no configuration reaches the binary.
+        Derivation,
+    }
+
+    /// Every `testdata/refusals/` case, by name.
+    const REFUSALS: [(&str, Binary); 11] = [
+        (
+            "access-token-missing",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
+        ),
+        ("cpu-limit-unparseable", Binary::Derivation),
+        (
+            "direct-padded-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "direct-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "direct-with-config-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "environment-not-exact",
+            Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
+        ),
+        // `sutura serve` refuses it as `QuerySurfaceWithoutInboundIdentity`, asked through the agent rule.
+        (
+            "identity-undeclared-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
+        ),
+        // `sutura serve` refuses it as `QuerySurfaceOverAnImpersonatingSource`, asked through the agent rule.
+        (
+            "impersonating-source-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceOverAnImpersonatingSource { .. })),
+        ),
+        ("memory-limit-unparseable", Binary::Derivation),
+        (
+            "metrics-token-missing",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::MetricsTokenRequired { .. })),
+        ),
+        // `sutura serve` refuses it as `QuerySurfaceWithoutInboundIdentity`, asked through the agent rule.
+        (
+            "multi-user-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
+        ),
+    ];
+
+    fn testdata() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../charts/sutura/testdata")
+    }
+
+    /// The refusal cases the chart gate holds, by file stem.
+    fn refusal_cases() -> Vec<String> {
+        let dir = testdata().join("refusals");
+        let mut found: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|error| panic!("{} is readable: {error}", dir.display()))
+            .filter_map(|entry| {
+                let path = entry.expect("a directory entry").path();
+                let is_case = path.extension().is_some_and(|ext| ext == "yaml");
+                path.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .filter(|_| is_case)
+                    .map(String::from)
+            })
+            .collect();
+        found.sort();
+        found
+    }
+
+    /// What the binary would be handed by one unguarded render, or the environment it does not read,
+    /// and the render's scratch directory.
+    type Handed = (Result<Sources, UnknownEnvironment>, Option<PathBuf>);
+
+    fn sources_of(name: &str, render: &Path) -> Handed {
+        let docs = documents(&std::fs::read_to_string(render).expect("a readable render"));
+        let Inputs {
+            environment,
+            directory,
+            variables,
+        } = inputs(name, &docs);
+        let sources = Environment::parse(&environment).map(|environment| {
+            let sources = Sources::defaults(environment).with_variables(variables);
+            match &directory {
+                Some(dir) => sources.with_directory(dir.clone()),
+                None => sources,
+            }
+        });
+        (sources, directory)
+    }
+
+    #[test]
+    fn a_chart_refusal_is_the_binarys_or_a_stated_gap() {
+        let declared: Vec<&str> = REFUSALS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            refusal_cases(),
+            declared,
+            "every testdata/refusals case declares how the binary stands to it, and no declaration is orphaned"
+        );
+        let unguarded = testdata().join("golden/unguarded");
+        let mut wrong = Vec::new();
+        for (name, binary) in &REFUSALS {
+            let render = unguarded.join(format!("{name}.yaml"));
+            if matches!(binary, Binary::Derivation) {
+                if render.is_file() {
+                    wrong.push(format!(
+                        "{name}: declared a derivation failure, and testdata/golden/unguarded/{name}.yaml renders"
+                    ));
+                }
+                continue;
+            }
+            if !render.is_file() {
+                wrong.push(format!("{name}: no testdata/golden/unguarded/{name}.yaml"));
+                continue;
+            }
+            let (sources, directory) = sources_of(name, &render);
+            let loaded = sources.map(|sources| Settings::load(&sources));
+            if let Some(dir) = directory {
+                std::fs::remove_dir_all(dir).expect("the scratch directory is removed");
+            }
+            match (binary, loaded) {
+                (_, Err(error)) => wrong.push(format!("{name}: the binary does not read the render's environment: {error}")),
+                (Binary::Refuses(held), Ok(Err(error))) => match error.reason() {
+                    SettingsError::NotFitToServe { refusals } if refusals.iter().any(held) => {}
+                    other => wrong.push(format!("{name}: the binary refuses it another way: {other:?}")),
+                },
+                (Binary::Refuses(held), Ok(Ok(settings))) if settings.agent_surface_refusals().iter().any(held) => {}
+                (Binary::Refuses(_), Ok(Ok(_))) => {
+                    wrong.push(format!("{name}: the chart refuses it and the binary starts with it"));
+                }
+                (Binary::Accepts(why), Ok(Err(error))) => wrong.push(format!(
+                    "{name}: declared stricter than the binary ({why}), which refuses: {:?}",
+                    error.reason()
+                )),
+                (Binary::Accepts(why), Ok(Ok(settings))) if !settings.agent_surface_refusals().is_empty() => {
+                    wrong.push(format!(
+                        "{name}: declared as one the binary accepts ({why}), and `sutura serve` refuses it: {:?}",
+                        settings.agent_surface_refusals()
+                    ));
+                }
+                (Binary::Accepts(_) | Binary::Derivation, Ok(_)) => {}
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "a chart refusal the binary does not make:\n{}",
+            wrong.join("\n")
         );
     }
 }

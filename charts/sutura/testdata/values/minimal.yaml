@@ -1,6 +1,7 @@
 # The smallest values file that clears every refusal `sutura.requireOffHostPosture` mirrors:
-# an environment, an access token Secret, a metrics token Secret, and TLS terminated in front of this Deployment
-# (`ingress` - something else in the cluster ends TLS). Everything else stays at its chart
+# an environment, an access token Secret, a metrics token Secret, TLS terminated in front of this Deployment
+# (`ingress` - something else in the cluster ends TLS), and, with no inbound identity, a `single-user`
+# deployment with its reason. Everything else stays at its chart
 # default. `charts/sutura/testdata/golden/minimal.yaml` is `helm template` over this file.
 environment: production
 security:
@@ -9,3 +10,8 @@ security:
   metricsToken:
     secretName: sutura-metrics-token
   tlsTermination: ingress
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

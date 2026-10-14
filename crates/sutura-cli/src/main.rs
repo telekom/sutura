@@ -296,7 +296,7 @@ enum Requested<'a> {
 fn main() -> ExitCode {
     // Before any command, so no composition root opens an Oracle connection with the trace on.
     #[cfg(feature = "oracle")]
-    if let Err(refused) = sutura_runtime::oracle_trace::refuse() {
+    if let Err(refused) = sutura_exec_oracle::oracle_trace::refuse() {
         eprintln!("sutura: {}", commands::render(&refused));
         return ExitCode::FAILURE;
     }

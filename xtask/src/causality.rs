@@ -581,9 +581,8 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let measured = Base::of(asked_for, &head, parent);
     let at = measured.at();
 
-    let Some(diff::Changes { files, gone }) = diff::changes(at) else {
+    let Ok(diff::Changes { files, gone }) = diff::changes(at).map_err(|e| eprintln!("xtask test-causality: FAILED - {e}")) else {
         // Same rule as classify: an unusable base ref is not evidence of nothing to do.
-        eprintln!("xtask test-causality: could not diff against `{base}`");
         return Verdict::Fail;
     };
 

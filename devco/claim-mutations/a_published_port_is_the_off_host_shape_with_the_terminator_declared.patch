@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-config/src/settings.rs b/crates/sutura-config/src/settings.rs
+--- a/crates/sutura-config/src/settings.rs
++++ b/crates/sutura-config/src/settings.rs
+@@ -504,7 +504,7 @@
+ 
+         // The bind alone, not `off_host`: what this records is the cleartext hop in front of THIS
+         // listener, and on a loopback bind that hop is loopback whatever forwards to it.
+-        if !bind.is_loopback() && !self.security.tls_termination().is_declared() {
++        if !bind.is_loopback() && !self.security.tls_termination().is_declared() && false {
+             // The key the refusal names, and the layer that supplied it. `layers` retained the
+             // provenance `read` used to drop, so the operator is told WHICH variable or file set
+             // the off-host bind rather than being handed the list of candidates #386 left them.

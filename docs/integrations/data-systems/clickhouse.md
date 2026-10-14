@@ -15,7 +15,9 @@ parameters. The crate is `sutura-exec-clickhouse`, and the source kind is `click
 
 - Your data is in ClickHouse, and one ClickHouse user may read it for all callers, or each caller
   has a ClickHouse user whose grants and row policies the server applies.
-- The question reads one data system. A ClickHouse source cannot be one leg of a federated answer.
+- A ClickHouse source can be one leg of a federated answer when it runs as the shared `user` or
+  signs each caller in with a `delegation` token. A leg that would run through `EXECUTE AS` is
+  refused.
 
 ## Settings
 

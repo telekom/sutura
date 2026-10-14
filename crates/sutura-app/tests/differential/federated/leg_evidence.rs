@@ -28,10 +28,11 @@ enum LegEvidence {
     /// and to be non-empty, so a moved or emptied venue reddens instead of leaving a citation.
     ///
     /// **Does not reach whether that venue ran HERE**, nor whether it is a real data system:
-    /// `datafusion` and `duckdb` are this file's own two passes, `postgres` a conformance binding
-    /// against the tier `nix/postgres-tier.nix` provisions, and `bigquery` the canned transport its
-    /// pack binds - a fake standing in for a dataset, whose own header says so. Asserting anything
-    /// about `available()` here would redden a host whose venue comes up, which is not a defect.
+    /// `datafusion` and `duckdb` are this file's own two passes, `postgres` and `clickhouse`
+    /// conformance bindings against the tiers `nix/postgres-tier.nix` and `nix/clickhouse-tier.nix`
+    /// provision, and `bigquery` the canned transport its pack binds - a fake standing in for a
+    /// dataset, whose own header says so. Asserting anything about `available()` here would redden
+    /// a host whose venue comes up, which is not a defect.
     Executed {
         /// The file whose cells execute a leg on this adapter.
         at: &'static str,
@@ -68,6 +69,12 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
         "postgres",
         LegEvidence::Executed {
             at: "crates/sutura-exec-postgres/tests/conformance.rs",
+        },
+    ),
+    (
+        "clickhouse",
+        LegEvidence::Executed {
+            at: "crates/sutura-exec-clickhouse/tests/conformance.rs",
         },
     ),
     (

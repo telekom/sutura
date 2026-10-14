@@ -24,8 +24,13 @@
 //! measured to matter only over a non-`Nullable` schema, so a nullable importer would make the
 //! executed goldens blind to that setting. And a non-`Nullable` column reads an empty CSV cell as
 //! the type's default - `0`, `''` - where every other adapter reads `NULL`: a silently different
-//! fixture. No committed fixture has one; a future one is refused rather than rewritten.
+//! fixture. No golden-matrix fixture has one; a future one is refused rather than rewritten.
+//!
+//! The federated corpus holds one absent key on purpose, so [`ClickHouseWarehouse::load_federated_csv`]
+//! declares `Nullable` exactly the columns holding an empty cell, at the matrix's type, and every
+//! other column as the matrix does.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use sutura_domain::identity::Secret;
@@ -168,35 +173,28 @@ impl ClickHouseWarehouse<Http> {
     /// departure), the table is recreated, then the file is sent as the body of an
     /// `INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
     pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
-        self.load_csv_with_types(table, path, false)
+        self.load_csv_with_types(table, path, Columns::Matrix)
+    }
+
+    /// [`Self::load_csv`], except a column holding an empty cell is `Nullable`, so the cell is NULL.
+    pub fn load_federated_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
+        self.load_csv_with_types(table, path, Columns::Federated)
     }
 
     /// The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
     pub fn load_conformance_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
-        self.load_csv_with_types(table, path, true)
+        self.load_csv_with_types(table, path, Columns::Conformance)
     }
 
-    fn load_csv_with_types(&self, table: &TableName, path: &Path, conformance: bool) -> Result<(), FixtureError> {
+    fn load_csv_with_types(&self, table: &TableName, path: &Path, load: Columns) -> Result<(), FixtureError> {
         let shown = || path.display().to_string();
         let text = std::fs::read_to_string(path).map_err(|cause| FixtureError::Read { path: shown(), cause })?;
-        if !conformance && let Some(line) = first_empty_cell(&text) {
+        if load == Columns::Matrix
+            && let Some(line) = first_empty_cell(&text)
+        {
             return Err(FixtureError::EmptyCell { path: shown(), line });
         }
-        let columns = csv::infer(&text).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
-        let declared: Vec<String> = columns
-            .iter()
-            .map(|column| {
-                let kind = if conformance {
-                    match column.kind() {
-                        FixtureType::Decimal { scale } => format!("Nullable(Decimal(38,{scale}))"),
-                        other => format!("Nullable({})", clickhouse_type(other)),
-                    }
-                } else {
-                    String::from(clickhouse_type(column.kind()))
-                };
-                format!("\"{}\" {kind}", column.name().as_str())
-            })
-            .collect();
+        let declared = declared_columns(&text, load).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
         let server = |cause| FixtureError::Server {
             subject: format!("table {table}"),
             cause,
@@ -210,6 +208,39 @@ impl ClickHouseWarehouse<Http> {
         let insert = format!("INSERT INTO \"{}\" FORMAT CSVWithNames", table.as_str());
         self.transport.command(&insert, text.as_bytes()).map_err(server)
     }
+}
+
+/// How `load_csv_with_types` declares a fixture's columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Columns {
+    /// The golden matrix's types, none `Nullable`, and an empty cell refused.
+    Matrix,
+    /// The matrix's types, `Nullable` on exactly the columns holding an empty cell.
+    Federated,
+    /// Exact decimals, every column `Nullable`.
+    Conformance,
+}
+
+/// Each column of a fixture CSV as `CREATE TABLE` declares it under `load`.
+fn declared_columns(text: &str, load: Columns) -> Result<Vec<String>, InferenceError> {
+    let nullable = if load == Columns::Federated {
+        columns_with_an_empty_cell(text)
+    } else {
+        BTreeSet::new()
+    };
+    Ok(csv::infer(text)?
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            let kind = match (load, column.kind()) {
+                (Columns::Conformance, FixtureType::Decimal { scale }) => format!("Nullable(Decimal(38,{scale}))"),
+                (Columns::Conformance, other) => format!("Nullable({})", clickhouse_type(other)),
+                (_, other) if nullable.contains(&index) => format!("Nullable({})", clickhouse_type(other)),
+                (_, other) => String::from(clickhouse_type(other)),
+            };
+            format!("\"{}\" {kind}", column.name().as_str())
+        })
+        .collect())
 }
 
 /// The column type attached for one shared fixture classification.
@@ -235,9 +266,23 @@ fn first_empty_cell(text: &str) -> Option<usize> {
         .map(|(index, _)| index.saturating_add(1))
 }
 
+/// The 0-based index of every column some data row leaves empty.
+fn columns_with_an_empty_cell(text: &str) -> BTreeSet<usize> {
+    text.lines()
+        .skip(1)
+        .filter(|line| !line.is_empty())
+        .flat_map(|line| {
+            line.split(',')
+                .enumerate()
+                .filter(|(_, cell)| cell.is_empty())
+                .map(|(index, _)| index)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FixtureVariable, UnconfiguredFixture, first_empty_cell, parse};
+    use super::{Columns, FixtureVariable, UnconfiguredFixture, declared_columns, first_empty_cell, parse};
 
     #[test]
     fn an_absent_or_blank_variable_is_refused_and_named() {
@@ -254,5 +299,16 @@ mod tests {
         assert_eq!(first_empty_cell("a,b\n1,2\n3,\n"), Some(3));
         assert_eq!(first_empty_cell("a,b\n1,2\n,4\n"), Some(3));
         assert_eq!(first_empty_cell("a,b\n1,2\n\n3,4\n"), None);
+    }
+
+    #[test]
+    fn a_federated_load_declares_nullable_only_the_columns_holding_an_empty_cell() {
+        let text = "a,b,c\n1,,x\n\n4,5,\n";
+        let declared = |load| declared_columns(text, load).expect("the columns classify");
+        assert_eq!(
+            declared(Columns::Federated),
+            ["\"a\" Int64", "\"b\" Nullable(Int64)", "\"c\" Nullable(String)"]
+        );
+        assert_eq!(declared(Columns::Matrix), ["\"a\" Int64", "\"b\" Int64", "\"c\" String"]);
     }
 }

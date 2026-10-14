@@ -484,16 +484,22 @@ fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, 
 
 /// Leg 1, for a deployment that declared one.
 ///
-/// **`None` is a posture and not a gap.** A deployment with no `security.inbound` block is a
-/// single-player deployment - `docs/adr/0008` part 5a calls that a first-class shape - and every
-/// deployment that existed before leg 1 is one. `sutura_config` refuses a block that does not say
-/// which mode, so there is no third answer here.
+/// **`None` is a posture and not a gap, but only on a `single-user` deployment over no impersonating
+/// source.** That is the single-player shape `docs/adr/0008` part 5a calls first-class; any other
+/// deployment with no `security.inbound` block is refused here by
+/// `Settings::query_surface_refusals`, before the listener opens. `sutura_config` refuses a block
+/// that does not say which mode, so there is no third answer here.
 ///
 /// The key set is read on this line, before the listener opens. What that buys is the difference
 /// between a process that does not start and a process that starts and authenticates nobody.
 fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>, String> {
     let Some(declared) = settings.security().inbound() else {
-        return Ok(None);
+        let refusals = settings.query_surface_refusals();
+        return if refusals.is_empty() {
+            Ok(None)
+        } else {
+            Err(flatten(sutura_config::SettingsError::NotFitToServe { refusals }))
+        };
     };
     let gate = sutura_http::InboundGate::from_declaration(declared).map_err(flatten)?;
     tracing::info!(

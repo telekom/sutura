@@ -715,7 +715,8 @@ fn an_oracle_dictionary_in_a_build_without_the_feature_is_refused_naming_it() {
          catalogs:\n  - name: \"dictionary\"\n    kind: \"rdbms\"\n    version: \"dict-1\"\n    \
          environment: \"prod\"\n    source_alias: \"warehouse\"\n    connection:\n      dialect: \"oracle\"\n      \
          host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      user: \"reader\"\n      \
-         password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
+         password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"verified\"\n      \
+         transport_anchors: \"/etc/sutura/dictionary-ca.pem\"\n";
     let settings = sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
     )
@@ -843,4 +844,44 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     assert_eq!(opens.len(), 2, "one opened catalog per declared entry");
     assert_eq!(opens[0].name().as_str(), "structure");
     assert_eq!(opens[1].name().as_str(), "metrics");
+}
+
+/// `/v1` with no `security.inbound` starts only where `single-user` is declared: `multi-user` and no
+/// mode at all are refused before the listener opens, naming the surface and the missing setting.
+/// The refusal is `NotFitToServe::QuerySurfaceWithoutInboundIdentity`, read off its rendered text.
+#[test]
+fn v1_with_no_inbound_identity_starts_only_on_a_single_user_deployment() {
+    let load = |overlay: &str| {
+        sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("the test settings load")
+    };
+    for overlay in ["security:\n  identity: \"multi-user\"\n", ""] {
+        let refused = super::inbound_gate(&load(overlay)).expect_err("/v1 with no inbound identity does not start");
+        for key in [
+            "/v1 would answer every caller as the deployment",
+            "security.inbound",
+            "single-user",
+        ] {
+            assert!(refused.contains(key), "{key} missing from: {refused}");
+        }
+    }
+    let single_user = load("security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n");
+    assert!(super::inbound_gate(&single_user).is_ok_and(|gate| gate.is_none()));
+}
+
+/// `/v1` with no `security.inbound` does not start over a source that runs each question as the
+/// verified caller, because there is no caller to run as.
+/// The refusal is `NotFitToServe::QuerySurfaceOverAnImpersonatingSource`, read off its rendered text.
+#[test]
+fn v1_with_no_inbound_identity_does_not_start_over_an_impersonating_source() {
+    let impersonating = settings_under("", &entry("local", "impersonation-at-source", wif()));
+    let refused =
+        super::inbound_gate(&impersonating).expect_err("an impersonating source with no inbound identity does not start");
+    for needle in ["source `local` is `impersonation-at-source`", "/v1", "security.inbound"] {
+        assert!(refused.contains(needle), "{needle} missing from: {refused}");
+    }
+    let shared = settings_under("", &entry("local", "shared-service-user", ""));
+    assert!(super::inbound_gate(&shared).is_ok_and(|gate| gate.is_none()));
 }

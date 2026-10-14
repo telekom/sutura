@@ -9,8 +9,9 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, InvalidDelegation, OracleChannel, OracleServiceName, SourcePlacement, TlsServerName};
-use crate::sources::transport::{SourceTransport, TrustAnchors};
+use crate::sources::placement::{
+    HostName, InvalidDelegation, NoOracleChannel, OracleChannel, OracleServiceName, SourcePlacement,
+};
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
@@ -87,27 +88,17 @@ pub(super) fn parse_placement(
         cause,
     })?;
     super::refuse_remote_plaintext(alias, &host, &transport)?;
-    let refused = |mode| InvalidSourceRegistry::TlsNotDeliverable {
-        alias: alias.clone(),
-        kind,
-        mode,
-    };
-    let channel = match transport {
-        SourceTransport::Plaintext => OracleChannel::Plaintext,
-        SourceTransport::Verified {
-            anchors: TrustAnchors::File(anchors),
-        } => OracleChannel::Verified {
-            anchors,
-            server_name: TlsServerName::parse(&host).map_err(|cause| InvalidSourceRegistry::TlsServerName {
-                alias: alias.clone(),
-                cause,
-            })?,
+    let channel = OracleChannel::declared(&host, transport).map_err(|refused| match refused {
+        NoOracleChannel::Undeliverable(mode) => InvalidSourceRegistry::TlsNotDeliverable {
+            alias: alias.clone(),
+            kind,
+            mode,
         },
-        SourceTransport::Verified {
-            anchors: TrustAnchors::System,
-        } => return Err(refused("verified with `transport_anchors: system`")),
-        SourceTransport::Mutual { .. } => return Err(refused("mutual")),
-    };
+        NoOracleChannel::ServerName(cause) => InvalidSourceRegistry::TlsServerName {
+            alias: alias.clone(),
+            cause,
+        },
+    })?;
     let delegation = super::parse_delegation(
         alias,
         kind,

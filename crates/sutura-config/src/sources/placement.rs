@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use super::SourceKind;
-use super::transport::SourceTransport;
+use super::transport::{SourceTransport, TrustAnchors};
 
 /// The project a `BigQuery` query job is billed to.
 ///
@@ -333,6 +333,35 @@ pub enum OracleChannel {
     /// others: they replace the driver's bundled public certificate authorities. The host is
     /// dialled as `server_name`, the name the handshake verifies.
     Verified { anchors: PathBuf, server_name: TlsServerName },
+}
+
+/// Why a declared transport has no [`OracleChannel`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoOracleChannel {
+    /// A TLS mode the driver cannot honour, as the refusal names it.
+    Undeliverable(&'static str),
+    /// A `verified` host that is not a name TLS can verify.
+    ServerName(InvalidTlsServerName),
+}
+
+impl OracleChannel {
+    /// The channel `transport` declares for `host` - the one match both Oracle kinds, a source and
+    /// an rdbms catalog, read their transport through.
+    pub(crate) fn declared(host: &HostName, transport: SourceTransport) -> Result<Self, NoOracleChannel> {
+        match transport {
+            SourceTransport::Plaintext => Ok(Self::Plaintext),
+            SourceTransport::Verified {
+                anchors: TrustAnchors::File(anchors),
+            } => Ok(Self::Verified {
+                anchors,
+                server_name: TlsServerName::parse(host).map_err(NoOracleChannel::ServerName)?,
+            }),
+            SourceTransport::Verified {
+                anchors: TrustAnchors::System,
+            } => Err(NoOracleChannel::Undeliverable("verified with `transport_anchors: system`")),
+            SourceTransport::Mutual { .. } => Err(NoOracleChannel::Undeliverable("mutual")),
+        }
+    }
 }
 
 /// The host of a `verified` Oracle source, parsed as the name TLS verifies.

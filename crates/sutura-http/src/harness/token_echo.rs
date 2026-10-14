@@ -268,8 +268,9 @@ fn deployment_verifying(issuer: &MockIssuer, published: &PublishedKeySet) -> Rou
 /// What a case is called, the `Authorization` value it sends, and the strings that must not come back.
 type Presented = (&'static str, String, Vec<String>);
 
-/// Every route a caller's token is read on: the two versioned operations and, where the build has
-/// one, the agent route.
+/// The routes a caller's token is read on and answered in a default deployment: two of the three
+/// versioned operations and, where the build has one, the agent route. The third, `POST /v1/sql/run`,
+/// is refused before its handler until a deployment turns it on; [`every_gated_route`] adds it.
 fn routes_reading_a_caller() -> Vec<(&'static str, Request)> {
     let mut routes = vec![("GET /v1/catalog", get("/v1/catalog")), ("POST /v1/query", ask())];
     #[cfg(feature = "agent")]
@@ -399,5 +400,232 @@ fn a_caller_token_this_deployment_accepts_is_not_echoed_either() {
             seen.received,
             seen.logged
         );
+    }
+}
+
+// ------------------------------------------------- an assertion behind a gateway ----
+
+/// The header a gateway puts its assertion in, which the deployment token does not share.
+const TRANSIT_HEADER: &str = "x-transit-proof";
+
+/// Where a gateway puts its assertion: in [`TRANSIT_HEADER`] beside the deployment token, or in
+/// `Authorization` in its place - one header cannot carry both, so that shape declares no token.
+#[derive(Clone, Copy, Debug)]
+enum Carried {
+    OwnHeader,
+    Authorization,
+}
+
+/// A deployment behind a gateway with `POST /v1/sql/run` turned on, and the agent route over a fake
+/// transport when the build carries one.
+fn behind_gateway(issuer: &MockIssuer, published: &PublishedKeySet, carried: Carried) -> Router {
+    let (token, header) = match carried {
+        Carried::OwnHeader => (format!("  access_token: \"{TOKEN}\"\n"), TRANSIT_HEADER),
+        Carried::Authorization => (String::new(), "Authorization"),
+    };
+    let settings = settings_with(&format!(
+        "security:\n{token}  inbound:\n    mode: \"behind-gateway\"\n    \
+         transit_header: \"{header}\"\n    transit_issuer: \"{}\"\n    transit_audience: \"{}\"\n    \
+         key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n\
+         tools:\n  run_sql:\n    enabled: true\n",
+        issuer.issuer(),
+        issuer.audience(),
+        published.path().to_string_lossy(),
+    ));
+    let gate = crate::InboundGate::from_declaration(&declared_inbound(&settings)).expect("a published key set builds a gate");
+    let service = crate::surface::LocalService::start(
+        &crate::testing::catalog_of(bundle()),
+        fake_warehouse(),
+        crate::testing::sink(),
+        broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates");
+    let state =
+        crate::testing::state_over(std::sync::Arc::new(service), settings).with_inbound_identity(std::sync::Arc::new(gate));
+    #[cfg(feature = "agent")]
+    let state = state.with_agent_surface(crate::state::AgentMount::new(
+        tower::service_fn(|request: axum::http::Request<Body>| {
+            let _request = request;
+            async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(Body::empty())) }
+        }),
+        crate::state::SpendHeadroomPush::NoCeilingConfigured,
+    ));
+    crate::router(&state).expect("a gateway deployment assembles")
+}
+
+/// `request` carrying `assertion` as the gateway's, beside `token` as the deployment token where the
+/// shape has one.
+fn through_the_gateway(request: Request, carried: Carried, token: &str, assertion: &str) -> Request {
+    if matches!(carried, Carried::Authorization) {
+        return presenting(request, &format!("Bearer {assertion}"));
+    }
+    let mut request = presenting(request, &format!("Bearer {token}"));
+    let _previous = request.headers_mut().insert(
+        TRANSIT_HEADER,
+        HeaderValue::from_str(assertion).expect("a test assertion is a header value"),
+    );
+    request
+}
+
+/// [`routes_reading_a_caller`] and `POST /v1/sql/run`, which [`behind_gateway`] turns on.
+fn every_gated_route() -> Vec<(&'static str, Request)> {
+    let mut routes = routes_reading_a_caller();
+    routes.push((
+        "POST /v1/sql/run",
+        request("POST", "/v1/sql/run", None, Body::from(r#"{"statement":"select 1"}"#)),
+    ));
+    routes
+}
+
+/// A short-lived assertion for `subject` with every scope, or none.
+fn asserted(issuer: &MockIssuer, subject: &str, scoped: bool) -> String {
+    let token = if scoped {
+        accepted_by(subject)
+    } else {
+        Token::for_subject(subject)
+    };
+    issuer.mint(&token.living_for(60)).expect("the issuer signs an assertion")
+}
+
+#[test]
+fn an_assertion_this_gateway_refuses_is_not_echoed_on_any_route() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "token-echo-gateway").expect("the key set publishes");
+    let unknown_key =
+        MockIssuer::generating(issuer.issuer(), issuer.audience(), CANARY).expect("a mock issuer generates a key pair");
+    let by_canary = || Token::for_subject(CANARY).living_for(60);
+    let garbage = format!("{CANARY}.{CANARY}.{CANARY}");
+    let forged = [
+        (
+            "a key id this deployment does not hold",
+            unknown_key.mint(&by_canary()).expect("the issuer signs an assertion"),
+        ),
+        (
+            "a signature from somebody else",
+            issuer
+                .mint_signed_by_a_stranger(&by_canary())
+                .expect("the stranger signs an assertion"),
+        ),
+        (
+            "an expired assertion",
+            issuer
+                .mint(&by_canary().expired_since(3600))
+                .expect("the issuer signs an assertion"),
+        ),
+        (
+            "another audience",
+            issuer
+                .mint(&by_canary().for_audience("https://another.example.com"))
+                .expect("the issuer signs an assertion"),
+        ),
+        (
+            "an ID token",
+            issuer
+                .mint(&by_canary().classed(Token::ID_TOKEN))
+                .expect("the issuer signs an assertion"),
+        ),
+        (
+            "no signature at all",
+            issuer.mint_unsigned(&by_canary()).expect("the unsigned assertion assembles"),
+        ),
+        ("a value that is not a JWT", garbage),
+    ];
+    for carried in [Carried::OwnHeader, Carried::Authorization] {
+        let app = behind_gateway(&issuer, &published, carried);
+        for (what, assertion) in &forged {
+            let mut secrets = secrets_of(assertion, true);
+            secrets.extend(secrets_of(TOKEN, false));
+            for (route, probe) in every_gated_route() {
+                let seen = observe(&app, through_the_gateway(probe, carried, TOKEN, assertion));
+                assert_eq!(
+                    seen.status,
+                    StatusCode::UNAUTHORIZED,
+                    "{route} in {carried:?} accepted {what}: {}",
+                    seen.received
+                );
+                assert!(
+                    seen.leaks(&secrets).is_empty(),
+                    "{route} in {carried:?} sent back or logged {what}: {:?}\n{}\n{}",
+                    seen.leaks(&secrets),
+                    seen.received,
+                    seen.logged
+                );
+                assert!(
+                    seen.logged.contains("no verified caller"),
+                    "{route} in {carried:?} refused {what} and wrote nothing, so the absence proves nothing: {}",
+                    seen.logged
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_assertion_this_gateway_accepts_is_not_echoed_either() {
+    // As the direct cell: a verified caller with no scope is a `403`, one with every scope is answered,
+    // and neither may carry the assertion that established them - or the deployment token beside it.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "token-echo-gateway-accepted").expect("the key set publishes");
+    let scopeless = asserted(&issuer, "reader@example.com", false);
+    let granted = asserted(&issuer, "asker@example.com", true);
+
+    for carried in [Carried::OwnHeader, Carried::Authorization] {
+        let app = behind_gateway(&issuer, &published, carried);
+        for (what, assertion, expected, routes) in [
+            (
+                "a caller with no scope",
+                &scopeless,
+                StatusCode::FORBIDDEN,
+                vec![("GET /v1/catalog", get("/v1/catalog"))],
+            ),
+            ("a caller with every scope", &granted, StatusCode::OK, every_gated_route()),
+        ] {
+            let mut secrets = secrets_of(assertion, false);
+            secrets.extend(secrets_of(TOKEN, false));
+            for (route, probe) in routes {
+                let seen = observe(&app, through_the_gateway(probe, carried, TOKEN, assertion));
+                assert_eq!(seen.status, expected, "{route} in {carried:?} for {what}: {}", seen.received);
+                assert!(
+                    seen.leaks(&secrets).is_empty(),
+                    "{route} in {carried:?} sent back or logged the assertion of {what}: {:?}\n{}\n{}",
+                    seen.leaks(&secrets),
+                    seen.received,
+                    seen.logged
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "agent")]
+#[test]
+fn a_deployment_token_is_not_echoed_on_the_agent_route_whether_it_is_refused_or_accepted() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "token-echo-agent").expect("the key set publishes");
+    let app = behind_gateway(&issuer, &published, Carried::OwnHeader);
+    let assertion = asserted(&issuer, "asker@example.com", true);
+    let wrong = format!("{CANARY}-{}", "d".repeat(32));
+    for (token, status) in [(wrong.as_str(), StatusCode::UNAUTHORIZED), (TOKEN, StatusCode::OK)] {
+        let mut secrets = secrets_of(token, token == wrong);
+        secrets.extend(secrets_of(&assertion, false));
+        let probe = request("POST", crate::constants::AGENT_MOUNT_PATH, None, Body::empty());
+        let seen = observe(&app, through_the_gateway(probe, Carried::OwnHeader, token, &assertion));
+        assert_eq!(seen.status, status, "POST /mcp: {}", seen.received);
+        assert!(
+            seen.leaks(&secrets).is_empty(),
+            "POST /mcp sent back or logged a credential it was presented: {:?}\n{}\n{}",
+            seen.leaks(&secrets),
+            seen.received,
+            seen.logged
+        );
+        if status == StatusCode::UNAUTHORIZED {
+            assert!(
+                seen.logged.contains("rejected a request with no valid bearer token"),
+                "POST /mcp refused a wrong token and wrote nothing, so the absence proves nothing: {}",
+                seen.logged
+            );
+        }
     }
 }

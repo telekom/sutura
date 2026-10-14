@@ -1,0 +1,24 @@
+# `single-user`, an `impersonation-at-source` source, and no `security.inbound.mode`: that source
+# runs each query as a verified caller, and none is verified, so `sutura serve` refuses to start
+# `/v1` (`NotFitToServe::QuerySurfaceOverAnImpersonatingSource`).
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
+    sources:
+      warehouse:
+        kind: bigquery
+        billing_project: example-project
+        dataset: metrics
+        max_bytes_billed: 1073741824
+        posture: impersonation-at-source
+        workload_identity:
+          audience: "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/example-pool/providers/example-provider"

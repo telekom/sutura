@@ -16,7 +16,8 @@ security:
 config:
   base:
     security:
-      identity: multi-user
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
     sources:
       warehouse:
         kind: bigquery

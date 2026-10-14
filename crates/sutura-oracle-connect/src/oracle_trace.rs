@@ -1,8 +1,7 @@
 //! The vendored Oracle driver's packet trace, which no Oracle dial in this workspace runs under.
 //!
-//! The variable is read from the process environment, so the refusal lives with the other process
-//! globals: `sutura-exec-oracle` and `sutura-catalog-rdbms`'s Oracle reader both ask [`refuse`]
-//! before they dial, and the composition root asks it before any command.
+//! The variable is a process global: every [`crate::Dial::config`] asks [`refuse`] before it
+//! builds a configuration, and the composition root asks it before any command.
 
 /// The variable that switches the driver's packet trace on, at any value.
 const VARIABLE: &str = "RSO_DEBUG_PACKETS";

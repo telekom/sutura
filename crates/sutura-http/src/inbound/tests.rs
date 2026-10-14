@@ -393,6 +393,21 @@ async fn a_token_over_the_size_bound_is_refused_before_anything_reads_it() {
 }
 
 #[tokio::test]
+async fn two_authorization_lines_establish_nobody_even_when_each_carries_a_valid_token() {
+    // Reading either line is choosing which caller to believe, so neither is read.
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let mut headers = bearer(&a_token(&pair));
+    let line = headers.get("authorization").expect("the bearer line").clone();
+    assert!(headers.append("authorization", line));
+    let rejected = gate
+        .establish(&headers, Instant::now())
+        .await
+        .expect_err("two Authorization lines establish nobody");
+    assert!(rejected.to_string().contains("more than one"), "{rejected}");
+}
+
+#[tokio::test]
 async fn a_token_that_names_no_key_is_refused_rather_than_tried_against_every_key() {
     // A decision rather than a limitation: verifying a token with no `kid` means trying every key,
     // which makes an unknown key indistinguishable from a bad signature and makes a rotation invisible.

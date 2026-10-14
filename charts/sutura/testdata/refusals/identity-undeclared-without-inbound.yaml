@@ -1,0 +1,9 @@
+# No `security.inbound.mode` and no `security.identity`: `sutura serve` refuses to start `/v1`
+# (`NotFitToServe::QuerySurfaceWithoutInboundIdentity`).
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress

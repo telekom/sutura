@@ -104,11 +104,11 @@ pub mod postgres_reader;
 #[cfg(feature = "live")]
 #[derive(Debug)]
 pub enum AnyDictionaryReader {
-    /// The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
+    /// The Postgres documentation-schema reader.
     Postgres(Box<crate::postgres_reader::PostgresReader>),
     /// The Oracle documentation-schema reader, behind the `live-oracle` feature.
     #[cfg(feature = "live-oracle")]
-    Oracle(crate::oracle_reader::OracleReader),
+    Oracle(Box<crate::oracle_reader::OracleReader>),
 }
 
 #[cfg(feature = "live")]

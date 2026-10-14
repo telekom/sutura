@@ -12,10 +12,9 @@
 //! `kind: rdbms` by name. Every value below is a checked declaration either way.
 //!
 //! The `connection:` block selects its dialect through a `dialect` key (default `postgres`):
-//! `postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection held to
-//! plaintext, loopback-confined EZCONNECT - the constraint the `oracle` source kind holds - and
-//! nothing reads it: the composition root refuses it as not supported by this build, so the
-//! declaration is checked but never opened.
+//! `postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection over
+//! verified TLS only, to any host: `plaintext` is refused even on loopback, and a build without
+//! `sutura-cli`'s `oracle` feature refuses the declaration by name.
 
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
@@ -25,7 +24,8 @@ use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
 use crate::raw::{RawCatalog, RawCatalogConnection, RawLiveRowPredicate};
 use crate::sources::SourceRegistry;
 use crate::sources::placement::{
-    HostName, InvalidHostName, InvalidOracleServiceName, InvalidSocketDirectory, OracleServiceName, PostgresDial, SocketDirectory,
+    HostName, InvalidHostName, InvalidOracleServiceName, InvalidSocketDirectory, InvalidTlsServerName, NoOracleChannel,
+    OracleChannel, OracleServiceName, PostgresDial, SocketDirectory, TlsServerName,
 };
 use crate::sources::transport::{InvalidTransport, SourceTransport, UnsafeChannel};
 
@@ -345,14 +345,13 @@ impl DictionarySource {
 ///
 /// **Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
 /// before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
-/// dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
-/// plaintext EZCONNECT, loopback-confined. The composition root matches on the
-/// variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
+/// dials a documentation schema over a `PostgresDial`, and an Oracle connection over verified TLS
+/// only. The composition root matches on the variant to build the reader.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatalogConnection {
     /// A Postgres documentation-schema connection, the default dialect.
     Postgres(PostgresCatalogConnection),
-    /// An Oracle dictionary connection: plaintext, loopback-confined EZCONNECT.
+    /// An Oracle dictionary connection over verified TLS.
     Oracle(OracleCatalogConnection),
 }
 
@@ -375,7 +374,7 @@ impl CatalogConnection {
 pub enum Dialect {
     /// The Postgres documentation-schema reader - the default and the precedent.
     Postgres,
-    /// An Oracle connection, plaintext EZCONNECT over loopback. Parsed; no reader exists.
+    /// An Oracle connection over verified TLS.
     Oracle,
 }
 
@@ -502,14 +501,17 @@ impl PostgresCatalogConnection {
     }
 }
 
-/// An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+/// An Oracle dictionary connection over TLS verified against a declared PEM bundle.
 ///
-/// **The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
-/// driver builds its own TLS configuration and takes no caller-built one, so `verified` and
-/// `mutual` transport modes are refused (not wired) and the declared `host` is confined to a
-/// loopback literal through [`crate::sources::transport::refuse_remote_plaintext`]. The driver
-/// names the database by `service_name` rather than `database`, so there is no `database` field.
-/// **No password is held here:** `password_file` is a path the composition root reads at boot.
+/// **No plaintext channel is representable**: the type holds the anchors path and the server name
+/// and nothing else, so `plaintext` is refused at parse - to a loopback host as
+/// [`InvalidConnection::OraclePlaintext`], to any other through
+/// [`crate::sources::transport::refuse_remote_plaintext`]. The transport is read through the one
+/// match the `oracle` source kind reads it through, so the pinned driver's limit holds here too:
+/// it builds its own TLS configuration, so `transport_anchors: system` and `mutual` are refused.
+/// The driver names the database by `service_name` rather than `database`, so there is no
+/// `database` field. **No secret is held here:** `password_file` and `transport_anchors` are paths
+/// the composition root reads at boot.
 ///
 /// The connection stays on that host: the reader refuses a listener's redirect before
 /// authentication, held by `sutura-catalog-rdbms`'s
@@ -521,6 +523,8 @@ pub struct OracleCatalogConnection {
     service_name: OracleServiceName,
     user: String,
     password_file: PathBuf,
+    transport_anchors: PathBuf,
+    server_name: TlsServerName,
 }
 
 impl OracleCatalogConnection {
@@ -553,19 +557,23 @@ impl OracleCatalogConnection {
             raw.client_key.as_deref(),
         )
         .map_err(|cause| InvalidConnection::Transport { cause })?;
-        if transport != SourceTransport::Plaintext {
-            return Err(InvalidConnection::TlsNotDeliverable {
-                mode: transport.describe(),
-            });
-        }
         crate::sources::transport::refuse_remote_plaintext(&host, &transport)
             .map_err(|cause| InvalidConnection::Channel { cause })?;
+        let channel = OracleChannel::declared(&host, transport).map_err(|refused| match refused {
+            NoOracleChannel::Undeliverable(mode) => InvalidConnection::TlsNotDeliverable { mode },
+            NoOracleChannel::ServerName(cause) => InvalidConnection::TlsServerName { cause },
+        })?;
+        let OracleChannel::Verified { anchors, server_name } = channel else {
+            return Err(InvalidConnection::OraclePlaintext);
+        };
         Ok(Self {
             host,
             port,
             service_name,
             user,
             password_file,
+            transport_anchors: anchors,
+            server_name,
         })
     }
 
@@ -597,6 +605,20 @@ impl OracleCatalogConnection {
     #[must_use]
     pub fn password_file(&self) -> &Path {
         &self.password_file
+    }
+
+    /// The PEM bundle the server is verified against, and no other certificate.
+    #[inline]
+    #[must_use]
+    pub fn transport_anchors(&self) -> &Path {
+        &self.transport_anchors
+    }
+
+    /// The `host`, as the name the TLS handshake verifies.
+    #[inline]
+    #[must_use]
+    pub const fn server_name(&self) -> &TlsServerName {
+        &self.server_name
     }
 }
 
@@ -696,9 +718,22 @@ pub enum InvalidConnection {
     #[error("`connection.{key}` is not read when `dialect` is `{dialect}` - remove it")]
     ForeignKey { key: &'static str, dialect: &'static str },
     #[error(
-        "`connection` is `dialect: oracle` and declares transport mode `{mode}`, but the Oracle driver builds its own TLS - only `plaintext` is accepted"
+        "`connection` is `dialect: oracle` and declares `{mode}`, but the Oracle driver builds its own TLS - it verifies a \
+         server only against a PEM bundle and presents no client certificate. Write `transport_mode: verified` with \
+         `transport_anchors` naming a PEM bundle"
     )]
     TlsNotDeliverable { mode: &'static str },
+    #[error(
+        "`connection` is `dialect: oracle` and declares no transport security: `transport_mode` is `plaintext`, and an \
+         Oracle dictionary is read over verified TLS only. Write `transport_mode: verified` with `transport_anchors` \
+         naming a PEM bundle"
+    )]
+    OraclePlaintext,
+    #[error("`connection.host` is not a host name `transport_mode: verified` can verify")]
+    TlsServerName {
+        #[source]
+        cause: InvalidTlsServerName,
+    },
 }
 
 #[cfg(test)]

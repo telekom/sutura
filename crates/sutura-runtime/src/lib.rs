@@ -73,7 +73,6 @@ pub mod audit;
 pub mod banner;
 pub mod blocking;
 pub mod metrics;
-pub mod oracle_trace;
 pub mod panics;
 pub mod relative_range;
 pub mod shutdown;

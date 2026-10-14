@@ -2355,6 +2355,9 @@ and an error is not a place for credential material.
   client sending `Basic` or `Negotiate` here is a client configured for a different service, and a
   log saying nothing was presented sends whoever reads it looking for a missing header. The scheme
   itself is not rendered: it is caller text.
+- `Repeated` - The header this deployment reads was sent more than once.
+
+  Reading either line is choosing which caller to believe, so none is read.
 - `TooLong`
 - `UnreadableHeader` - The header is not a JWT header, or names no key.
 - `NoKeyId` - No `kid`.
@@ -2610,15 +2613,6 @@ pub fn set_capacity(&self, bound: usize)
 The capacity denominator, reported when the bound is known.
 
 ```rust
-pub fn shed(&self)
-```
-
-Records a shed: a slot not granted, distinct from a fault.
-
-Counts only the admission event. The outer completion layer records the question outcome and
-duration from the response extension, as it does for every other terminal response.
-
-```rust
 pub fn slot_started(&self) -> SlotGuard
 ```
 
@@ -2638,7 +2632,7 @@ move the question family. The outer completion layer owns that accounting.
 
 #### Implements
 
-`Clone`, `Debug`
+`Clone`, `Debug`, `QuestionMeter`
 
 ### `struct SlotGuard`
 

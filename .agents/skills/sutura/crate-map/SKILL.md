@@ -73,6 +73,14 @@ rows hold it, not the sentence: `FORBIDDEN_EDGES` `sutura-adbc-postgres -> sutur
 sets:** a connector two adapter classes share is an unprefixed `sutura-adbc-<system>` crate with
 both rows; the adapter keeps the port implementation and the dialect.
 
+**`sutura-oracle-connect` is that precedent for a native driver**: the EZCONNECT address, its TLS
+posture (`Channel`), the dial bound and the driver configuration (`Dial::config`) that
+`sutura-exec-oracle` and `sutura-catalog-rdbms`'s Oracle reader both dial through - the reader's own
+copy had already lost the dial bound. No ADBC driver is involved, so the name is
+`sutura-<system>-connect`, not `sutura-adbc-<system>`. The same two rows hold it:
+`FORBIDDEN_EDGES` `sutura-oracle-connect -> sutura-sql` (`Edges::Every`) and its `shared_client`
+row.
+
 Rules that are not visible from a manifest:
 
 - **`sutura-domain`'s dependency list is an allowlist walked over the whole resolve graph**, so a

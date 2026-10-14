@@ -599,7 +599,9 @@ fn commit_added_tests(wt: &Path, commit: &str) -> Option<Vec<AddedTest>> {
     use crate::causality::scoped::Scan;
     let at = crate::causality::provenance::Commit::parse(commit)?;
     let read = |path: &str| worktree::at_base(wt, &at, path);
-    let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
+    let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)
+        .map_err(|e| eprintln!("xtask test-causality: FAILED - {e}"))
+        .ok()?;
     let (test_files, scannable) = match crate::causality::plan::partition(&files, &read) {
         Plan::Separable(separable) => (separable.test_files.into_iter().chain(separable.inseparable).collect(), files),
         Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),

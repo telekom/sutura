@@ -962,3 +962,8 @@ mod off_host;
 /// The `catalogs[].refresh_seconds` default and refusals. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod refresh_seconds;
+
+/// The configurations that `docs/serving.md` and `docs/serving-behind-a-gateway.md` print. Same
+/// `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod deployment_pages;

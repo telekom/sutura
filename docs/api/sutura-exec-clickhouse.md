@@ -77,10 +77,7 @@ answer, and nothing executed holds the third.
 `kind: clickhouse` source behind its default-off `clickhouse` feature, which `nix/shipped.nix`
 now enables, once the `github.com/telekom/sutura#955` join-nulls fix landed.
 
-**No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
-and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
-`Executable::Leg` answers `ClickHouseError::LegWithoutCombiner` exactly as
-`sutura_exec_bigquery` does).
+**No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default).
 
 **No `dry_run` override.** `ClickHouse`'s HTTP interface has no cheap "prepare, do not run"
 step this adapter could ask for without paying most of the cost of running the statement, so
@@ -104,9 +101,9 @@ lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to i
 
 - `Endpoint` - The endpoint (or the canned pack) did not answer.
 - `Render`
-- `LegWithoutCombiner` - A leg without a combiner - `Warehouse::EXECUTES_LEGS` stays at its default; see the crate header.
 - `NoPlaceForASubject` - The credential broker handed this adapter a subject's own credential with no user beside it, so there is no `ClickHouse` user to sign in as.
 - `NotAClickHouseUser` - The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
+- `LegUnderExecuteAs` - A federated leg would run as the deployment's user switched by `EXECUTE AS`, which is the deployment's credential and not the caller's - the source declares no `delegation`.
 - `PresentedDisagreesWithPosture`
 - `UnsupportedType` - A column came back as a `ClickHouse` type this adapter does not map.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
@@ -162,6 +159,12 @@ Exposes a fixture CSV as a table.
 Columns are typed by `csv::infer` (see the module header for the one deliberate
 departure), the table is recreated, then the file is sent as the body of an
 `INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
+
+```rust
+pub fn load_federated_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
+```
+
+`Self::load_csv`, except a column holding an empty cell is `Nullable`, so the cell is NULL.
 
 ```rust
 pub const fn of(source: SourceName, posture: SourcePosture, transport: T, result_budget: sutura_domain::warehouse::ResultBudget) -> Self
@@ -277,7 +280,11 @@ real and differ from all three for a reason that is the importer's, not the serv
 measured to matter only over a non-`Nullable` schema, so a nullable importer would make the
 executed goldens blind to that setting. And a non-`Nullable` column reads an empty CSV cell as
 the type's default - `0`, `''` - where every other adapter reads `NULL`: a silently different
-fixture. No committed fixture has one; a future one is refused rather than rewritten.
+fixture. No golden-matrix fixture has one; a future one is refused rather than rewritten.
+
+The federated corpus holds one absent key on purpose, so `ClickHouseWarehouse::load_federated_csv`
+declares `Nullable` exactly the columns holding an empty cell, at the matrix's type, and every
+other column as the matrix does.
 
 ### `enum FixtureVariable`
 

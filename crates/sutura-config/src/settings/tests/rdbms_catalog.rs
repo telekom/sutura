@@ -26,7 +26,8 @@ const CONNECTION: &[&str] = &[
     "password_file: /run/secrets/dictionary",
     "transport_mode: plaintext",
 ];
-/// A complete `dialect: oracle` `connection:` block: a loopback EZCONNECT dial, `plaintext` only.
+/// A `dialect: oracle` `connection:` block over loopback `plaintext`: the refused baseline that
+/// `a_loopback_oracle_plaintext_catalog_is_refused` loads as-is and the other cells edit.
 const ORACLE_CONNECTION: &[&str] = &[
     "dialect: oracle",
     "host: 127.0.0.1",
@@ -295,17 +296,35 @@ fn a_zero_dictionary_bound_is_refused() {
 
 #[test]
 fn a_complete_oracle_catalog_loads() {
-    let settings = load(&overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION))).expect("the entry loads");
+    let verified = edit(
+        ORACLE_CONNECTION,
+        &[
+            "host: db.example.com",
+            "transport_mode: verified",
+            "transport_anchors: /etc/sutura/dictionary-ca.pem",
+        ],
+    );
+    let settings = load(&overlay("rdbms", ENTRY, Some(&verified))).expect("the entry loads");
     let rdbms = rdbms(&settings);
     let CatalogConnection::Oracle(connection) = rdbms.connection() else {
         panic!("`dialect: oracle` parses as an Oracle connection: {:?}", rdbms.connection());
     };
-    assert_eq!(connection.host().as_str(), "127.0.0.1");
+    assert_eq!(connection.host().as_str(), "db.example.com");
     assert_eq!(connection.port(), 1521);
     assert_eq!(connection.service_name().as_str(), "FREEPDB1");
     assert_eq!(connection.user(), "reader");
     assert_eq!(connection.password_file(), Path::new("/run/secrets/dictionary"));
     assert_eq!(rdbms.dictionary_source(), DictionarySource::DocumentationSchema);
+}
+
+#[test]
+fn a_loopback_oracle_plaintext_catalog_is_refused() {
+    let plaintext = overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION));
+    load(&plaintext).expect_err("an Oracle dictionary is read over verified TLS only, loopback or not");
+    assert_names(
+        &refusal(&plaintext),
+        "`transport_mode` is `plaintext`, and an Oracle dictionary is read over verified TLS only",
+    );
 }
 
 #[test]

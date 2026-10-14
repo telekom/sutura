@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-http/src/routes/v1/run_sql.rs b/crates/sutura-http/src/routes/v1/run_sql.rs
-index c15923f45..85b085a90 100644
 --- a/crates/sutura-http/src/routes/v1/run_sql.rs
 +++ b/crates/sutura-http/src/routes/v1/run_sql.rs
-@@ -87,8 +87,9 @@ pub(crate) async fn run_sql(
+@@ -100,8 +100,9 @@ pub(crate) async fn run_sql(
  ) -> Result<RunSqlOutcome, Failure> {
      let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
      // `harness/run_sql.rs` pins this path's status and code, not its detail's bytes.
@@ -13,4 +12,4 @@ index c15923f45..85b085a90 100644
 +        Failure::Internal
      })?;
  
-     let admission_wait = state.metrics().admission_started();
+     let admission_wait = sutura_app::question::AdmissionWait::start(state.metrics());

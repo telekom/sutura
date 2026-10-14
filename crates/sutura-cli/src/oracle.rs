@@ -90,12 +90,7 @@ pub(crate) fn build(
             ref server_name,
         } => (
             server_name.as_str(),
-            Some(std::fs::read_to_string(anchors).map_err(|cause| {
-                format!(
-                    "`sources.{source}.transport_anchors` ({}) could not be read: {cause}",
-                    anchors.display()
-                )
-            })?),
+            Some(read_anchors(&format!("sources.{source}.transport_anchors"), anchors)?),
         ),
     };
     let channel = anchors_pem
@@ -111,6 +106,11 @@ pub(crate) fn build(
         working_set.result_budget(),
     )
     .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
+}
+
+/// The PEM bundle at `anchors`, which `key` declared; the refusal names both.
+pub(crate) fn read_anchors(key: &str, anchors: &std::path::Path) -> Result<String, String> {
+    std::fs::read_to_string(anchors).map_err(|cause| format!("`{key}` ({}) could not be read: {cause}", anchors.display()))
 }
 
 /// The hops an `impersonation-at-source` source exchanges each caller's token through, in order;
