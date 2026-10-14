@@ -3916,6 +3916,14 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Declare <code>security.inbound</code></td>
 </tr>
 <tr>
+<td>No <code>security.inbound</code> and <code>security.identity</code> is not <code>single-user</code></td>
+<td>Declare <code>security.inbound</code>, or <code>single-user</code> with its reason</td>
+</tr>
+<tr>
+<td>No <code>security.inbound</code> and a source with <code>impersonation-at-source</code></td>
+<td>Declare <code>security.inbound</code></td>
+</tr>
+<tr>
 <td>A <code>security.inbound</code> block with no <code>mode</code></td>
 <td>Write <code>direct</code> or <code>behind-gateway</code></td>
 </tr>
