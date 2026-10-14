@@ -2,8 +2,8 @@ diff --git a/crates/sutura-http/src/router.rs b/crates/sutura-http/src/router.rs
 index c2ad1f528..5d6ca788f 100644
 --- a/crates/sutura-http/src/router.rs
 +++ b/crates/sutura-http/src/router.rs
-@@ -730,16 +730,13 @@ fn agent_subtree(
-         ))
+@@ -734,16 +734,13 @@ fn agent_subtree(
+             .route_layer(axum::Extension(meter))
      });
      let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
 -    let mount = mount

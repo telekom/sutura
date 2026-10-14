@@ -41,6 +41,8 @@ tracing = { workspace = true }
 # Generated self-signed pairs for the refusal tests below - the same crate
 # `sutura-exec-postgres/src/tls.rs` and `sutura-http`'s own TLS tests already rest on.
 rcgen = { workspace = true }
+# Test-only: the `Debug` cell looks for a private scalar written as base64. Already resolved.
+base64 = { workspace = true }
 
 [lints]
 workspace = true

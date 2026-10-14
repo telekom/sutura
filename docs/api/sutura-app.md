@@ -2478,3 +2478,90 @@ priced adapter can be served with one; `DuckDB` and Postgres answer
 own default `PreFlight::NotAsked`. A dashboard reading `sum(rate(...))` of zero here
 therefore cannot distinguish "nothing was spent" from "no call was ever priced" - see
 the architecture decision's amendment for the same sentence.
+
+## Module `question`
+
+What each transport says about a question it takes, the same way on every surface.
+
+Here and not in a transport because `sutura-http` and `sutura-mcp` cannot see each other: a line
+or a series spelled in one is one the other has to copy, and the two surfaces then drift on what an
+operator reads about the same question. `received` is the log line; `QuestionMeter` is the
+port the series are counted through, implemented by `sutura_http::Metrics`.
+
+The port reports what happened and never a value the caller wrote: a refusal arrives as its code,
+an answer as its row count.
+
+### `enum QuestionEnd`
+
+```rust
+pub enum QuestionEnd
+```
+
+How one question ended, as the series count it.
+
+#### Variants
+
+- `Answered` - Answered with this many rows.
+- `Refused` - Refused, under `RefusalReason::code`.
+- `AtCapacity` - No execution slot came free inside the admission window.
+- `TimedOut` - The caller's whole wait ran out first.
+- `DataSystemUnavailable` - The data system did not answer.
+- `IdentityUnavailable` - The credential broker did not answer.
+- `Internal` - This deployment's own fault.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `trait QuestionMeter`
+
+```rust
+pub trait QuestionMeter
+```
+
+Where a transport reports its questions. Counting is the implementor's business; it must not
+block, and it cannot fail a question.
+
+### `struct AdmissionWait`
+
+```rust
+pub struct AdmissionWait<'a>
+```
+
+Observes one wait for an execution slot when dropped.
+
+Drop and not a call, so a grant, a shed and a caller that stops waiting each end the observation
+once.
+
+#### Methods
+
+```rust
+pub fn start(meter: &'a dyn QuestionMeter) -> Self
+```
+
+Starts timing a wait for a slot.
+
+#### Implements
+
+`Debug`, `Drop`
+
+### `fn received`
+
+```rust
+pub fn received(request: &tracing::Span, query: &sutura_domain::query::Query, asker: &sutura_domain::identity::RequestContext)
+```
+
+Says which question was asked, before it is answered or turned away.
+
+`metric` and `grain` go on the request span, so every later line of the request carries them
+(they are what the request IS, and what an operator filters by); `asker` goes with them as the
+established label, never the subject. The counts stay on the event. Deliberately no filter value:
+a value reflected into a log outlives the request.
+
+`request` is the span the transport declared `metric`, `grain` and `asker` on, and it is passed
+rather than read from `Span::current()` because the current span is not always that one: `tracing`
+cannot record a field a span was not opened with and drops the write silently, and the `/mcp`
+tool call runs inside a span of the MCP library, a child of the request's. The line is written
+inside `request` for the same reason: the log formatter copies a parent's fields into a child when
+the child opens, so a span opened before these records - that MCP span among them - never carries
+them, and neither does a line written inside it.

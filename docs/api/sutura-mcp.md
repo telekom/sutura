@@ -633,6 +633,12 @@ pub const fn row_ceilings(self, row_ceilings: sutura_domain::plan::RowCeilings) 
 The row ceilings this deployment configured, which the prompt states.
 `RowCeilings::DEFAULT` unless set.
 
+```rust
+pub fn within_request(self, request: tracing::Span) -> Self
+```
+
+The request span this surface answers inside, so a question's fields land on it.
+
 #### Implements
 
 `Debug`, `ServerHandler`

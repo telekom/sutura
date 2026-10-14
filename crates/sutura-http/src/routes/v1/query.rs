@@ -80,6 +80,7 @@ use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
+use sutura_app::question::QuestionMeter as _;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::AtCapacity;
@@ -260,34 +261,13 @@ pub(crate) async fn ask(
         })?,
     };
 
-    // WHICH question, onto the span, so every subsequent line of this request carries it.
-    //
-    // The two identifying fields go on the span and the two counts stay on the event, and the split
-    // is not cosmetic: `metric` and `grain` are what the request IS, and they are what an operator
-    // filters a log by - with `JsonStorageLayer` a field on the span appears on every line inside
-    // it, including the answer, a refusal, and anything the data system says on the way. A count is
-    // something that happened once and belongs where it happened.
-    //
-    // The fields are declared on the span in `crate::router::request_span`, as `Empty`, because
-    // `tracing` cannot record a field a span was not opened with - and they are filled in here
-    // because this is the first line at which the body has parsed and the values exist.
-    let span = tracing::Span::current();
-    span.record("metric", tracing::field::display(query.metric()));
-    span.record("grain", tracing::field::display(query.grain()));
-
-    // What was asked, before it is answered. Deliberately not the filter values: a rejected or
-    // accepted value reflected into a log is a value that outlives the request, and the surface
-    // already refuses to echo one back to the caller. The counts say how many there were, which is
-    // what sizing a question needs and is not a value anybody wrote down.
-    tracing::info!(
-        dimensions = query.dimensions().len(),
-        filters = query.filters().len(),
-        "question received"
-    );
+    // The fields are declared on the span in `crate::router::request_span`, as `Empty`, and filled in
+    // here because this is the first line at which the body has parsed and the values exist.
+    sutura_app::question::received(&tracing::Span::current(), &query, asked.context());
 
     // Before the task is spawned, and not inside it: a slot acquired inside the blocking task would
     // be a thread already taken while waiting for permission to take one.
-    let admission_wait = state.metrics().admission_started();
+    let admission_wait = sutura_app::question::AdmissionWait::start(state.metrics());
     let slot = state.admission().admit().await.map_err(|shed| {
         state.metrics().shed();
         refused(&shed)
@@ -302,11 +282,6 @@ pub(crate) async fn ask(
     // What `establish_asked` already derived, and nothing the caller *sent*. Cloned rather than
     // borrowed: the closure below moves onto the blocking pool and outlives this extractor's value.
     let context = asked.context().clone();
-    // WHO asked, onto the span, so every line of this request is attributable. The label and not the
-    // identifier: `established()` is a fixed word - `verified` or `deployment` - so it cannot raise
-    // the log's cardinality or carry a subject into a field a caller chose. The audit record is where
-    // the identifier goes, and `sutura_app::LocalService::answer` writes it.
-    span.record("asker", context.chain().subject().established());
     // `spawn_carrying_span` rather than `tokio::task::spawn_blocking`, and the bare call is now on
     // the `disallowed-methods` list in `clippy.toml`: the pool thread has no current span, so a
     // bare spawn writes every line the engine emits outside this request. The three lines that fix
