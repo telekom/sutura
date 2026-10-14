@@ -16,6 +16,9 @@
 use std::path::Path;
 use std::process::Command;
 
+use sutura_dev::discovery::path_for;
+use sutura_dev::scope::Scope;
+
 use super::provenance::Commit;
 use super::stack::BranchRef;
 
@@ -266,6 +269,26 @@ pub(super) fn add_worktree(root: &Path, dir: &Path) -> Result<(), String> {
     } else {
         Err(String::from_utf8_lossy(&out.stderr).into_owned())
     }
+}
+
+/// [`add_worktree`] for the base run, with a COPY of the root's discovery file, so a tier-backed
+/// cell there reaches the tier the head run did - `runner::nextest` says why.
+///
+/// A copy rather than a symlink: a `forget` in the base tree must not withdraw the root's entry.
+/// [`remove_worktree`] deletes it with the worktree. The claim arm's kill worktree does not call
+/// this - it starts its own tier.
+pub(super) fn add_base_worktree(root: &Path, dir: &Path) -> Result<(), String> {
+    add_worktree(root, dir)?;
+    let scope = |at: &Path| Scope::from_root(at).map_err(|e| e.to_string());
+    let (from, to) = (path_for(&scope(root)?), path_for(&scope(dir)?));
+    if !from.exists() {
+        return Ok(());
+    }
+    let failed = |e: std::io::Error| format!("could not copy `{}` into the base worktree: {e}", from.display());
+    if let Some(state) = to.parent() {
+        std::fs::create_dir_all(state).map_err(failed)?;
+    }
+    std::fs::copy(&from, &to).map(drop).map_err(failed)
 }
 
 /// Best-effort teardown. A leftover worktree is noise, not a correctness problem, so a

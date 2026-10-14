@@ -179,6 +179,7 @@ fn evaluate_verdict(outcome: &BaseOutcome, output: &str, retried: bool, moved: &
             eprintln!("provision what those tests need, or fix them, and ask again.");
             Verdict::Fail
         }
+        BaseOutcome::NeverReachedItsTier { ref failed } => no_tier_verdict(failed, measured),
         BaseOutcome::NotRun => {
             if retried {
                 println!("xtask test-causality: INCONCLUSIVE - the coherent base tree ran none of the added tests");
@@ -274,6 +275,20 @@ fn evaluate_verdict(outcome: &BaseOutcome, output: &str, retried: bool, moved: &
             Verdict::Inconclusive
         }
     }
+}
+
+/// The verdict for a base run red in the tier lookup: INCONCLUSIVE, since no test reached its assert.
+fn no_tier_verdict(failed: &[String], measured: &str) -> Verdict {
+    println!("  base: red in the tier lookup, not at an assertion");
+    for one in failed {
+        println!("    no tier:   {one}");
+    }
+    println!();
+    println!("xtask test-causality: INCONCLUSIVE - the base run never reached its tier.");
+    println!("It keeps the head run's requirement, and the tier those tests need was absent");
+    println!("in the base worktree - a test that never ran is not evidence about behaviour.");
+    println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
+    Verdict::Inconclusive
 }
 
 /// The verdict for a red run whose SIBLING added test passed on base.
@@ -721,5 +736,24 @@ mod tests {
     #[test]
     fn an_exempted_test_with_no_base_result_keeps_the_runs_own_verdict() {
         assert_eq!(skipped_a_under("skipped_a # only built with rdbms\n").1, Verdict::Pass);
+    }
+
+    #[test]
+    fn a_base_run_that_never_reached_its_tier_is_not_a_proof() {
+        // The base run keeps the head run's requirement, so a cell whose tier is absent there panics
+        // in the lookup: red, and about nothing the diff changed.
+        let text = format!(
+            "        FAIL [   0.021s] (1/1) pa tests::t\n\
+             thread 'tests::t' panicked at dev/src/provisioned.rs:413:41:\n\
+             {}: no `postgres` endpoint\n\
+             error: test run failed\n",
+            sutura_dev::requirement::REQUIRED
+        );
+        let outcome = classified(&text, false, &scoped("pa", "pa/src/lib.rs", &["t"]));
+        assert_eq!(
+            reported(&outcome, &text, false, &named(1)),
+            Verdict::Inconclusive,
+            "{outcome:?}"
+        );
     }
 }

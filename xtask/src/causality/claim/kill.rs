@@ -197,14 +197,8 @@ pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: 
         MutationKill::Killed => Ok(()),
         // `Tree::Mutated` forces the tier requirement, so a tier-gated cell the kill worktree's own
         // tier does not serve ends at the lookup: it never ran, which is neither a kill nor a
-        // survival. Only a FAILED run whose panic site is the requirement's own, carrying its
-        // sentence: a run that passed survived, whatever its text echoes. The site is a path literal, so moving that panic out of
-        // `dev/src/provisioned.rs` makes a tier skip read as `NotByAssertion` again - loud.
-        MutationKill::NotByAssertion { ref site }
-            if site.starts_with("dev/src/provisioned.rs:") && text.contains(sutura_dev::requirement::REQUIRED) =>
-        {
-            Err(Cause::NoTier { cell: cell.to_owned() })
-        }
+        // survival. Only a FAILED run: a run that passed survived, whatever its text echoes.
+        MutationKill::NotByAssertion { .. } if base::never_reached_its_tier(text) => Err(Cause::NoTier { cell: cell.to_owned() }),
         MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
         MutationKill::NotByAssertion { site } => Err(Cause::NotByAssertion {
             cell: cell.to_owned(),

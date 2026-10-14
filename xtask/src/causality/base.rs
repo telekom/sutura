@@ -127,6 +127,9 @@ pub(crate) enum BaseOutcome {
     /// The base run failed, and none of the failures is a test this diff added. Red, and about
     /// something else.
     RedOutsideTheDiff { failed: Vec<String> },
+    /// A test the diff added failed in the tier lookup, not at its assertion: the base run keeps the
+    /// head run's requirement, and that tier was absent there. Red, and about nothing the diff changed.
+    NeverReachedItsTier { failed: Vec<String> },
     /// nextest matched none of the tests under test, so nothing was measured.
     NotRun,
     /// Red past the compiler, with no failure any line attributes to a test.
@@ -209,6 +212,8 @@ pub(crate) fn classify_base(
     let (under_test, outside) = failed.into_iter().partition::<Vec<String>, _>(|one| is_scoped(one, scoped));
     if under_test.is_empty() {
         BaseOutcome::RedOutsideTheDiff { failed: outside }
+    } else if never_reached_its_tier(text) {
+        BaseOutcome::NeverReachedItsTier { failed: under_test }
     } else {
         // SIBLINGS, judged per ADDED TEST rather than per result line. The whole-run verdict
         // answered from the red names alone, so an added test that PASSED without the change rode
@@ -267,6 +272,19 @@ pub(super) fn could_not_attest(text: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Did a failure end at the tier lookup, the requirement's own panic, rather than at an assertion?
+///
+/// `pub(super)` for `claim`: its kill run forces the requirement, and one predicate answers both
+/// arms. The site is a path literal, so moving that panic out of `dev/src/provisioned.rs` makes a
+/// tier failure read as an ordinary one again - loud in both arms.
+pub(super) fn never_reached_its_tier(text: &str) -> bool {
+    text.contains(sutura_dev::requirement::REQUIRED)
+        && text.lines().any(|line| {
+            line.split_once(" panicked at ")
+                .is_some_and(|(_, site)| site.starts_with("dev/src/provisioned.rs:"))
+        })
 }
 
 /// Did the filter match nothing?
