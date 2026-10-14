@@ -236,21 +236,21 @@ mod oracle_provisioned {
     }
 
     /// **The tier's dictionary is read over TCPS, verified against the tier's authority and no
-    /// other.** The read under `SUTURA_ORACLE_TIER_CA` returns the fixture's table; the same login
-    /// anchored on a certificate the tier never saw is refused before it reaches a login.
+    /// other.** Under `SUTURA_ORACLE_TIER_CA` the server itself answers; the same login anchored on
+    /// a certificate the tier never saw is refused before the server says anything. It reads a
+    /// schema with no `COLUMNS`, so it shares no fixture with the cells running beside it.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
     fn a_live_oracle_dictionary_reads_over_tls_verified_against_the_tier_authority_only() {
         let tier = Tier::here();
-        install_fixture(&tier.connect());
-        tier.await_read_only_snapshot();
-
-        let dictionary = tier
-            .reader(&tier.user, None, None)
+        let answered = tier
+            .reader("no_such_schema", None, None)
             .read_dictionary()
-            .expect("the tier's TCPS listener serves the dictionary under its own authority");
-        let tables: Vec<&str> = dictionary.tables().iter().map(sutura_catalog_rdbms::Table::model).collect();
-        assert_eq!(tables, ["orders"], "the fixture's one live table is read");
+            .expect_err("a missing documentation schema is a read error");
+        assert!(
+            matches!(answered, RdbmsError::Read(_)) && answered.to_string().contains("ORA-"),
+            "the server answered over the session its own authority verified: {answered:?}"
+        );
 
         let key = rcgen::KeyPair::generate().expect("a key pair generates");
         let stranger = rcgen::CertificateParams::new([String::from("127.0.0.1")])
@@ -259,7 +259,7 @@ mod oracle_provisioned {
             .expect("a self-signed certificate signs")
             .pem();
         let refused = tier
-            .reader_anchored(stranger, &tier.user, None, None)
+            .reader_anchored(stranger, "no_such_schema", None, None)
             .read_dictionary()
             .expect_err("a listener another authority signed is refused");
         assert!(
