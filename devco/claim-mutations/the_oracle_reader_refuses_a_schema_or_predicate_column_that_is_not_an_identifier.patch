@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -127,7 +127,7 @@
+         row_cap: Option<NonZeroU64>,
+         byte_cap: Option<NonZeroU64>,
+     ) -> Result<Self, InvalidReaderConfig> {
+-        let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
++        let bounds = checked_bounds("dictionary", &predicate, row_cap, byte_cap)?;
+         Ok(Self {
+             login,
+             statement: statement(documentation_schema, &predicate),

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -159,7 +159,7 @@
+         Dial::new(&login.host, login.port, &login.service_name, channel)
+             .config()
+             .map_err(|refused| match refused {
+-                DialError::PacketTraceOn(on) => RdbmsError::Read(Box::new(on)),
++                DialError::PacketTraceOn(on) => RdbmsError::Read(Box::new(std::io::Error::other(on))),
+                 DialError::TrustAnchors(cause) | DialError::Address(cause) => read_err(cause),
+             })
+     }
