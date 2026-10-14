@@ -643,8 +643,8 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
 pub struct OracleLogin
 ```
 
-Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial, plaintext
-until `OracleLogin::verified`.
+Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial. No reader takes
+it until `OracleLogin::verified` names the anchors the listener is verified against.
 
 #### Methods
 
@@ -653,11 +653,23 @@ pub const fn new(host: String, port: u16, service_name: String, user: String, pa
 ```
 
 ```rust
-pub fn verified(self, anchors_pem: String) -> Self
+pub const fn verified(self, anchors_pem: String) -> VerifiedOracleLogin
 ```
 
-The same login over TLS, verified against `anchors_pem` and no other certificate, with
-`host` as the name the handshake verifies.
+The same login over TLS, verified against `anchors_pem` and no other certificate.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct VerifiedOracleLogin`
+
+```rust
+pub struct VerifiedOracleLogin
+```
+
+An `OracleLogin` over TLS, verified against `anchors_pem` and no other certificate, with the
+login's host as the name the handshake verifies - the only login an `OracleReader` takes.
 
 #### Implements
 
@@ -678,7 +690,7 @@ pub const fn bounds(&self) -> DictionaryBounds
 ```
 
 ```rust
-pub fn new(login: OracleLogin, documentation_schema: &str, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
+pub fn new(login: VerifiedOracleLogin, documentation_schema: &str, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
 ```
 
 Builds the reader without dialling. An absent `row_cap`/`byte_cap` selects the documented

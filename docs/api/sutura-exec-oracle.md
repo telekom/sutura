@@ -131,11 +131,12 @@ A redirect from the listener is refused before authentication as
 each question's own session.
 
 ```rust
-pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, credential: &fixture::FixtureCredential, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
+pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, anchors_pem: &str, credential: &fixture::FixtureCredential, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
 ```
 
 A connection config's host/port/credential for the fixture tier - the counterpart of
-`sutura_exec_postgres::adbc::Conninfo`. `service_name` is fixed at
+`sutura_exec_postgres::adbc::Conninfo` - over TLS verified against `anchors_pem`, the
+tier's own certificate authority. `service_name` is fixed at
 `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
 publishes - it is the image's name for itself.
 

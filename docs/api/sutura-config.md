@@ -5801,6 +5801,7 @@ convenience, and nothing needs to clone a startup refusal.
   from another machine may not - so a deployment cannot send a password and a whole result set
   in clear text by leaving a key out. The key named is `transport_mode`, because declaring a TLS
   mode and its anchors is the remedy.
+- `OraclePlaintext` - An `oracle` source declared `plaintext`, on any host: its driver's channel is verified TLS only.
 - `TlsOverUnixSocket` - A `verified` or `mutual` transport declared on a `unix_socket` dial.
 
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the
@@ -6140,18 +6141,30 @@ Parses a declared service name.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `enum OracleChannel`
+#### `struct OracleChannel`
 
 ```rust
-pub enum OracleChannel
+pub struct OracleChannel
 ```
 
-How an Oracle listener is reached - the two `SourceTransport` states its driver can honour.
+How an Oracle listener is reached: TLS, verified against the bundle at `anchors` only.
 
-##### Variants
+Those certificates replace the driver's bundled public certificate authorities. The host is
+dialled as `server_name`, the name the handshake verifies. No plaintext channel is representable.
 
-- `Plaintext` - No transport security. The parse allows it only for a loopback host.
-- `Verified` - TLS, verified against the certificates in the PEM bundle at this absolute path and no others: they replace the driver's bundled public certificate authorities. The host is dialled as `server_name`, the name the handshake verifies.
+##### Methods
+
+```rust
+pub fn anchors(&self) -> &Path
+```
+
+The PEM bundle whose certificates are the only ones the listener is verified against.
+
+```rust
+pub const fn server_name(&self) -> &TlsServerName
+```
+
+The name the host is dialled as and the handshake verifies.
 
 ##### Implements
 
@@ -6348,7 +6361,6 @@ Why an `oracle`, `clickhouse` or `cube` source's `delegation` is not one it can 
 
 - `Missing` - An impersonating source with no exchange, so no caller's token could open a session.
 - `NotImpersonating` - An exchange on a source that is not impersonating, which nothing would run.
-- `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
 - `PlaintextEndpoint` - An impersonating `cube` source whose endpoint is not `https`: each request sends its caller's token.
 
 ##### Implements
