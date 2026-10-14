@@ -127,6 +127,28 @@ async fn a_scopeless_gateway_assertion_gets_exactly_the_grant_and_a_scoped_one_o
     }
 }
 
+/// With no published resource, the host a gateway deployment answers is its transit audience's.
+#[tokio::test]
+async fn a_gateway_deployment_answers_its_transit_audience_host() {
+    let issuer = an_issuer();
+    let app = app(
+        &gateway_overlay(&issuer).replacen("X-Transit-Proof", "Authorization", 1),
+        Some(&issuer.key_set()),
+    );
+    let assertion = assertion_from(&issuer, "someone@example.com");
+    let route = ("GET", "/v1/catalog");
+    assert_eq!(
+        status_of(&app, route, Some(&assertion), None, Some("sutura.example.com")).await,
+        StatusCode::OK,
+        "the transit audience's host is answered"
+    );
+    assert_eq!(
+        status_of(&app, route, Some(&assertion), None, Some("other.example.com")).await,
+        StatusCode::FORBIDDEN,
+        "a host nothing declared is refused"
+    );
+}
+
 /// The status of a query whose `Authorization` value is `value`, exactly as written.
 async fn authorized_as(app: &axum::Router, value: &str) -> StatusCode {
     let mut query = request("POST", "/v1/query", None, axum::body::Body::from(A_QUESTION));
