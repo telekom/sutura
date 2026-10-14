@@ -508,6 +508,13 @@ mod tests {
     }
 
     #[test]
+    fn a_caller_with_no_linked_account_is_a_403_identity_not_linked() {
+        let not_linked = Failure::IdentityNotLinked;
+        assert_eq!(not_linked.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(not_linked.code(), "identity_not_linked");
+    }
+
+    #[test]
     fn an_identity_provider_outage_is_not_reported_as_a_data_system_outage() {
         // `docs/adr/0014` states this as a requirement rather than a nicety: the identity path is a
         // hard runtime dependency once a broker exchanges anything, and a caller told "the data

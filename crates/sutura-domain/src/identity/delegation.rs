@@ -184,6 +184,24 @@ pub enum DelegationFailed {
     },
 }
 
+impl DelegationFailed {
+    /// Whether this is [`Self::NotLinked`], at any hop of a chain.
+    #[must_use]
+    pub fn is_not_linked(&self) -> bool {
+        match *self {
+            Self::NotLinked => true,
+            Self::AtHop { ref cause, .. } => cause.is_not_linked(),
+            Self::Unreachable { .. }
+            | Self::Refused { .. }
+            | Self::TooLarge { .. }
+            | Self::Malformed { .. }
+            | Self::WrongTokenType
+            | Self::WrongAudience
+            | Self::AlreadyExpired => false,
+        }
+    }
+}
+
 /// The port: one RFC 8693 exchange at the caller's own identity provider.
 ///
 /// **Synchronous**, because [`CredentialBroker::mint`](crate::identity::CredentialBroker::mint) is and every

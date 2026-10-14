@@ -237,14 +237,14 @@ pub trait Surface: Send + Sync + 'static {
 pub type ErasedCause = Box<dyn core::error::Error + Send + Sync + 'static>;
 
 /// A broker failure, as [`SurfaceFailure::NotLinked`] when a cause in its chain is
-/// [`sutura_domain::identity::DelegationFailed::NotLinked`], and [`SurfaceFailure::Broker`] otherwise.
+/// [`sutura_domain::identity::DelegationFailed::NotLinked`] at any hop, and
+/// [`SurfaceFailure::Broker`] otherwise.
 fn broker_failure(cause: ErasedCause) -> SurfaceFailure {
     let not_linked =
         core::iter::successors(Some(&*cause as &(dyn core::error::Error + 'static)), |error| error.source()).any(|error| {
-            matches!(
-                error.downcast_ref(),
-                Some(sutura_domain::identity::DelegationFailed::NotLinked)
-            )
+            error
+                .downcast_ref::<sutura_domain::identity::DelegationFailed>()
+                .is_some_and(sutura_domain::identity::DelegationFailed::is_not_linked)
         });
     if not_linked {
         SurfaceFailure::NotLinked { cause }
@@ -959,5 +959,24 @@ mod tests {
         assert!(lines[0].contains("select 1"), "{lines:?}");
         assert!(lines[1].starts_with("raw_refused"), "{lines:?}");
         assert!(lines[1].contains("refuse me"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_caller_with_no_linked_account_is_not_an_identity_provider_outage() {
+        use sutura_domain::identity::DelegationFailed;
+        let at_hop = |cause| DelegationFailed::AtHop {
+            hop: 1,
+            cause: Box::new(cause),
+        };
+        let not_linked = super::broker_failure(Box::new(at_hop(DelegationFailed::NotLinked)));
+        assert!(
+            matches!(not_linked, super::SurfaceFailure::NotLinked { .. }),
+            "{not_linked:?}"
+        );
+        let refused = super::broker_failure(Box::new(at_hop(DelegationFailed::Refused {
+            status: 400,
+            error: Some(String::from("invalid_request")),
+        })));
+        assert!(matches!(refused, super::SurfaceFailure::Broker { .. }), "{refused:?}");
     }
 }

@@ -268,9 +268,9 @@ artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` c
 that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
 one pinned source.
 
-`impersonation` is whether this source impersonates and through which pool - the source's
-declared `workload_identity.audience`, or `adbc::Impersonation::Disabled` for a shared
-one. Taken here rather than read per request because it is a property of the source, and a
+`impersonation` is whether this source impersonates and how - through the pool of the
+source's declared `workload_identity.audience`, with the subject's own Google access token
+for `google_login`, or `adbc::Impersonation::Disabled` for a shared one. Taken here rather than read per request because it is a property of the source, and a
 pool the driver would refuse then fails before a listener is bound.
 
 `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
@@ -576,12 +576,12 @@ Only `driver_message.rs` itself can skip `of`.
 
 ### `use Impersonation`
 
-Whether this source impersonates at all, and against which pool when it does.
+Whether this source impersonates at all, and how when it does.
 
-**A two-variant type rather than an `Option<WorkloadPool>`, because the absence is a
-DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
-`workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
-which of these a transport holds is decided once, at composition, from a value an operator wrote.
+**An enum rather than an `Option<WorkloadPool>`, because the absence is a DECLARATION.** A
+source is opened shared or impersonating - `sutura_config` refuses a caller-identity block on a
+shared entry and refuses its absence on an impersonating one - so which of these a transport
+holds is decided once, at composition, from a value an operator wrote.
 
 ### `use UnusablePool`
 
