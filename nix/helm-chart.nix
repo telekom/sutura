@@ -27,6 +27,12 @@
 #   4. Each of those renders, piped into `kubeconform` against the Kubernetes API schemas
 #      vendored below, once per pinned version - the only thing here that catches an
 #      apiVersion that moved.
+#   5. Each refusal case rendered again through a copy of the chart without its posture guard,
+#      compared against `testdata/golden/unguarded/<case>.yaml`. A refused case has no render, and
+#      `crates/sutura-config/tests/chart_renders.rs` loads these as settings to hold that the
+#      binary refuses what the chart refuses, so the env mapping it reads is the template's own
+#      rather than a second copy that could drift. A case that still refuses without the guard
+#      (a value derived from a limit) has no render and must have no golden.
 #
 # NO NETWORK AT CHECK TIME. `kubeconform`'s default schema source is a URL fetch, which a nix
 # sandbox refuses - so `schemas` below vendors the three schema files this chart's own Kinds
@@ -148,6 +154,41 @@ in
       fi
       if ! diff -u "$testdata/golden/refusal-$name.txt" "$log"; then
         echo "sutura-chart: $name's refusal wording moved - see the diff above." >&2
+        failed=1
+      fi
+    done
+
+    # The refusal cases once more, through a copy of the chart without the posture guard (the one
+    # include each of the two templates opens with), so each shows what the template WOULD have
+    # rendered. If the guard moves, the copy still refuses, every golden below reads as stale and
+    # this leg fails loudly rather than comparing nothing.
+    unguarded="$work/unguarded"
+    cp -r --no-preserve=mode "$chart" "$unguarded"
+    sed -i '/include "sutura.requireOffHostPosture"/d' "$unguarded/templates/deployment.yaml" "$unguarded/templates/configmap.yaml"
+    for refusalFile in "$testdata"/refusals/*.yaml; do
+      name="$(basename "$refusalFile" .yaml)"
+      golden="$testdata/golden/unguarded/$name.yaml"
+      rendered="$work/unguarded-$name.yaml"
+      if helm template test-release "$unguarded" -f "$refusalFile" > "$rendered" 2> "$work/unguarded-$name.log"; then
+        if [ ! -f "$golden" ]; then
+          echo "sutura-chart: $name renders without the posture guard and has no golden at $golden" >&2
+          failed=1
+          continue
+        fi
+        if ! diff -u "$golden" "$rendered"; then
+          echo "sutura-chart: $name's unguarded render drifted from $golden (diff above)." >&2
+          failed=1
+        fi
+      elif [ -e "$golden" ]; then
+        cat "$work/unguarded-$name.log" >&2
+        echo "sutura-chart: $golden exists but $name still refuses without the posture guard." >&2
+        failed=1
+      fi
+    done
+    for goldenFile in "$testdata"/golden/unguarded/*.yaml; do
+      name="$(basename "$goldenFile" .yaml)"
+      if [ ! -f "$testdata/refusals/$name.yaml" ]; then
+        echo "sutura-chart: $goldenFile has no matching refusal case at testdata/refusals/$name.yaml" >&2
         failed=1
       fi
     done

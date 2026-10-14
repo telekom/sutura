@@ -3,6 +3,7 @@
 //! Split out of `causality.rs` for the file-length gate, and the seam is a real one: everything
 //! here reads a diff, and nothing here decides anything about a test.
 
+use std::fmt;
 use std::path::Path;
 use std::process::Command;
 
@@ -68,29 +69,73 @@ pub(crate) struct Changes {
     pub(crate) gone: Vec<ChangedFile>,
 }
 
+/// Why a diff was not read. Either one fails the gate: an unread diff is not evidence that nothing
+/// changed.
+#[derive(Debug)]
+pub(crate) enum DiffError {
+    /// git could not run, or refused the diff; what it printed.
+    Git(String),
+    /// A file header outside the plain `a/<path>` / `b/<path>` form the readers pin, which
+    /// [`parse`] refuses rather than read.
+    Header(String),
+}
+
+impl fmt::Display for DiffError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Git(said) => write!(f, "git diff failed: {said}"),
+            Self::Header(line) => write!(f, "a diff entry outside the pinned header form, refused: {line:?}"),
+        }
+    }
+}
+
+/// The output format both readers pin, so these git config keys cannot change what [`parse`]
+/// reads: every hunk as text, no external diff or textconv filter, the `a/` and `b/` prefixes, no
+/// colour, and a rename printed as a deletion and an addition.
+const PINNED: [&str; 9] = [
+    "diff",
+    "--text",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--unified=0",
+    "--no-color",
+    "--no-renames",
+];
+
+/// `git diff` of `revs` in `dir`, in the [`PINNED`] format, with paths printed unquoted.
+fn read(dir: &Path, revs: &[&str]) -> Result<Changes, DiffError> {
+    let mut command = Command::new("git");
+    crate::repo::strip_git_env(&mut command);
+    let out = command
+        .args(["-c", "core.quotePath=false", "-C"])
+        .arg(dir)
+        .args(PINNED)
+        .args(revs)
+        .arg("--")
+        .output()
+        .map_err(|e| DiffError::Git(e.to_string()))?;
+    if !out.status.success() {
+        return Err(DiffError::Git(String::from_utf8_lossy(&out.stderr).trim().to_owned()));
+    }
+    parse(&String::from_utf8_lossy(&out.stdout))
+}
+
 /// Added lines per changed file, from `git diff`, each carrying its post-image line number, and
 /// the files it deleted whole beside them.
 ///
 /// A [`Commit`] and not a ref, for the reason `super::provenance` states: a ref that has moved
 /// puts commits this branch never made into the diff, and every consumer downstream then treats
 /// them as the change under test.
-pub(crate) fn changes(base: &Commit) -> Option<Changes> {
-    let mut command = Command::new("git");
-    crate::repo::strip_git_env(&mut command);
-    let out = command
-        .args(["diff", "--unified=0", "--no-color", base.as_str(), "--"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(parse(&String::from_utf8_lossy(&out.stdout)))
+pub(crate) fn changes(base: &Commit) -> Result<Changes, DiffError> {
+    read(Path::new("."), &[base.as_str()])
 }
 
 /// [`changes`]' live files alone, for the cells that run a diff through the planner by hand.
 #[cfg(test)]
 pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> {
-    Some(changes(base)?.files)
+    changes(base).ok().map(|changes| changes.files)
 }
 
 /// Added lines per changed file in ONE COMMIT's own diff, `<commit>^..<commit>`.
@@ -101,21 +146,11 @@ pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> 
 /// same way [`changes`] maps the whole base. `dir` is the repository (or worktree)
 /// the commit lives in - the worktree the claim arm created - and git commands run there via
 /// `-C`, so a real (test) repo beyond the process CWD resolves the commit identically. A merge
-/// commit's parent is its first parent; a commit with no parent (an orphan root) yields nothing,
-/// which a claim can never be held against anyway. `None` on a diff git refuses - a hash that is
-/// not an object name here, fail-closed in the direction that refuses the declaration.
-pub(crate) fn commit_additions(dir: &Path, commit: &str) -> Option<Vec<ChangedFile>> {
-    let mut command = Command::new("git");
-    crate::repo::strip_git_env(&mut command);
-    let out = command
-        .args(["-C", dir.as_os_str().to_str()?])
-        .args(["diff", "--unified=0", "--no-color", &format!("{commit}^"), commit, "--"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(parse_diff(&String::from_utf8_lossy(&out.stdout)))
+/// commit's parent is its first parent. A diff git refuses is an error: a commit with no parent
+/// (an orphan root, which a claim can never be held against anyway) or a hash that is not an
+/// object name here, fail-closed in the direction that refuses the declaration.
+pub(crate) fn commit_additions(dir: &Path, commit: &str) -> Result<Vec<ChangedFile>, DiffError> {
+    Ok(read(dir, &[&format!("{commit}^"), commit])?.files)
 }
 
 /// Parse a unified diff into added lines with their post-image line numbers.
@@ -128,16 +163,20 @@ pub(crate) fn commit_additions(dir: &Path, commit: &str) -> Option<Vec<ChangedFi
 /// A `diff --git` header closes the previous file, so a DELETED file - whose `+++` is
 /// `/dev/null` rather than `b/<path>` - cannot leave the previous file's entry open and collect
 /// stray lines into it. It has no entry in THIS list: [`parse`] returns it apart.
+#[cfg(test)]
 fn parse_diff(text: &str) -> Vec<ChangedFile> {
-    parse(text).files
+    parse(text).map_or_default(|changes| changes.files)
 }
 
-/// [`parse_diff`]'s list, and beside it the files the diff deleted whole.
+/// The changed files with their added lines, and beside them the files the diff deleted whole.
 ///
 /// A deletion's `+++ /dev/null` names no path, so its entry is named for the `--- a/<path>` before
 /// it, and every hunk line under it is a removal numbered in the pre-image. It is returned apart
 /// rather than listed, because the first list is what a post-image reader may act on.
-fn parse(text: &str) -> Changes {
+///
+/// A file header outside the [`plain_header`] form is a [`DiffError::Header`]: an entry this cannot
+/// name would otherwise drop its lines unread.
+fn parse(text: &str) -> Result<Changes, DiffError> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut gone: Vec<ChangedFile> = Vec::new();
     let mut current: Option<ChangedFile> = None;
@@ -163,12 +202,15 @@ fn parse(text: &str) -> Changes {
             before = None;
             continue;
         }
+        if !in_hunk && (line.starts_with("---") || line.starts_with("+++")) && !plain_header(line) {
+            return Err(DiffError::Header(String::from(line)));
+        }
         if let Some(rest) = (!in_hunk).then(|| line.strip_prefix("--- a/")).flatten() {
             before = Some(String::from(rest));
             continue;
         }
-        // A `-diff` file - `Cargo.lock`, by `.gitattributes` - gets this line and no `+++` header,
-        // so it used to vanish from the diff, and from every build-input decision with it.
+        // No pinned reader prints this line, since `--text` suppresses it; kept as the fallback for a
+        // diff read without that flag, where a `-diff` file such as `Cargo.lock` would otherwise vanish.
         if let Some((old, new)) = (!in_hunk).then(|| binary_paths(line)).flatten() {
             if let Some(done) = current.take() {
                 files.push(done);
@@ -240,7 +282,17 @@ fn parse(text: &str) -> Changes {
     }
     files.extend(current.take());
     gone.extend(deleted.take());
-    Changes { files, gone }
+    Ok(Changes { files, gone })
+}
+
+/// `--- a/<path>`, `+++ b/<path>`, or either side's `/dev/null`: the one header form [`parse`] reads.
+fn plain_header(line: &str) -> bool {
+    line.strip_prefix("--- a/")
+        .or_else(|| line.strip_prefix("+++ b/"))
+        .map_or_else(
+            || line == "--- /dev/null" || line == "+++ /dev/null",
+            |path| !path.contains('\t'),
+        )
 }
 
 /// The old and new path of git's `Binary files <old> and b/<new> differ` line. `None` for a

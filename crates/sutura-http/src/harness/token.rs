@@ -1,9 +1,9 @@
 //! The bearer-token gate, through the assembled router.
 //!
-//! Split out of `harness.rs` by the `max-lines` gate. The tests are unchanged: the same three
-//! questions about a deployment that configures `security.access_token` - the versioned API needs
-//! it, a path that matched nothing does not, and a loopback development service with none is open
-//! on purpose.
+//! Split out of `harness.rs` by the `max-lines` gate. Four questions about a deployment that
+//! configures `security.access_token` - the versioned API needs it, a request carrying two
+//! `Authorization` lines is refused, a path that matched nothing does not need it, and a loopback
+//! development service with none is open on purpose.
 
 use axum::body::Body;
 use axum::http::StatusCode;
@@ -38,6 +38,19 @@ async fn the_versioned_api_needs_the_token_when_one_is_configured() {
     let (status, body) = call(&app, request("GET", "/v1/catalog", Some(TOKEN), Body::empty())).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("revenue"), "{body}");
+}
+
+#[tokio::test]
+async fn two_authorization_lines_are_refused_even_when_each_carries_the_token() {
+    let app = app(settings(
+        Environment::Development,
+        &format!("security:\n  access_token: \"{TOKEN}\"\n"),
+    ));
+    let mut twice = request("GET", "/v1/catalog", Some(TOKEN), Body::empty());
+    let line = twice.headers().get("authorization").expect("the bearer line").clone();
+    assert!(twice.headers_mut().append("authorization", line));
+    let (status, _) = call(&app, twice).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

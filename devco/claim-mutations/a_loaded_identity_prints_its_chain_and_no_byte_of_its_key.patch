@@ -1,0 +1,25 @@
+diff --git a/crates/sutura-tls/src/lib.rs b/crates/sutura-tls/src/lib.rs
+--- a/crates/sutura-tls/src/lib.rs
++++ b/crates/sutura-tls/src/lib.rs
+@@ -236,12 +236,20 @@
+ /// Private fields behind named accessors, not a tuple and not `pub` fields - a struct literal built
+ /// from outside this crate could pair any chain with any key, which is exactly the invariant
+ /// `load_identity` exists to hold (each half read from the SAME declared [`Identity`]).
+-#[derive(Debug)]
+ pub struct LoadedIdentity {
+     chain: Vec<CertificateDer<'static>>,
+     key: PrivateKeyDer<'static>,
+ }
+ 
++impl core::fmt::Debug for LoadedIdentity {
++    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
++        f.debug_struct("LoadedIdentity")
++            .field("chain", &self.chain)
++            .field("key", &self.key.secret_der())
++            .finish()
++    }
++}
++
+ impl LoadedIdentity {
+     /// The certificate chain, for inspection without giving up the key.
+     #[must_use]

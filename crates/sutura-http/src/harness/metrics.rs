@@ -224,6 +224,15 @@ async fn the_metrics_token_is_separate_from_the_api_token() {
 }
 
 #[tokio::test]
+async fn two_authorization_lines_are_refused_on_metrics_even_when_each_carries_the_metrics_token() {
+    let app = app(metrics_settings(Environment::Development));
+    let mut twice = request("GET", "/metrics", Some(METRICS_TOKEN), Body::empty());
+    let line = twice.headers().get("authorization").expect("the bearer line").clone();
+    assert!(twice.headers_mut().append("authorization", line));
+    assert_eq!(call(&app, twice).await.0, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn metrics_and_non_question_routes_never_move_the_question_family() {
     let app = app(metrics_settings(Environment::Development));
     assert_eq!(

@@ -13,7 +13,8 @@ metadata:
 data:
   base.yaml: |
     security:
-      identity: multi-user
+      identity: single-user
+      single_user_because: a test deployment one operator runs with their own credentials
     sources:
       warehouse:
         acknowledged_because: a single analytics project this deployment owns

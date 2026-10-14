@@ -235,13 +235,13 @@ pub enum NotFitToServe {
     /// `/mcp` may answer every caller as the deployment.
     ///
     /// Without `security.inbound`, `/mcp` serves every caller as the deployment with every
-    /// capability, the posture `/v1` already has there. That is accepted only where the operator
-    /// declared `single-user` with its written reason AND the surface is reachable from loopback
-    /// only, or sits behind the deployment token and the limiter. Loopback only means a loopback
-    /// bind, no `rate_limit.trusted_proxies` hop, no `security.tls_termination` terminator other than
-    /// this process, and no `server.allowed_hosts` entry that is not a loopback address. A missing
-    /// mode is not single-user, so a deployment that says nothing gets this refusal. **The limit:**
-    /// `single-user` is a word an operator writes, not a count of who calls.
+    /// capability, the posture `/v1` has on a `single-user` deployment. That is accepted only where
+    /// the operator declared `single-user` with its written reason AND the surface is reachable from
+    /// loopback only, or sits behind the deployment token and the limiter. Loopback only means a
+    /// loopback bind, no `rate_limit.trusted_proxies` hop, no `security.tls_termination` terminator
+    /// other than this process, and no `server.allowed_hosts` entry that is not a loopback address. A
+    /// missing mode is not single-user, so a deployment that says nothing gets this refusal. **The
+    /// limit:** `single-user` is a word an operator writes, not a count of who calls.
     #[error(
         "server.agent_surface.enabled is true and no security.inbound is declared, so /mcp would \
          answer every caller as the deployment. That is served only where {key} is `single-user` with \
@@ -266,6 +266,33 @@ pub enum NotFitToServe {
          surface off"
     )]
     AgentSurfaceOverAnImpersonatingSource { alias: SourceName },
+    /// `/v1` would start with no inbound identity on a deployment that did not declare itself
+    /// `single-user`.
+    ///
+    /// Without `security.inbound`, `/v1` answers every caller as the deployment. That is the
+    /// declared shape of a `single-user` deployment and of nothing else, so `multi-user` and a
+    /// missing mode are refused. Asked by `sutura serve` where it starts `/v1`, not by
+    /// `Settings::refusals`: no key mounts `/v1`. **The limit:** `single-user` is a word an
+    /// operator writes, not a count of who calls.
+    #[error(
+        "no security.inbound is declared and {key} is not `single-user`, so /v1 would answer every \
+         caller as the deployment. Declare security.inbound, or declare {key} as `single-user` with \
+         its written reason",
+        key = DeploymentIdentity::KEY
+    )]
+    QuerySurfaceWithoutInboundIdentity,
+    /// `/v1` would start with no inbound identity over a source that runs each question as the
+    /// asking subject.
+    ///
+    /// The `/v1` twin of [`Self::AgentSurfaceOverAnImpersonatingSource`], read off the same
+    /// declared posture.
+    #[error(
+        "source `{alias}` is `impersonation-at-source` and no security.inbound is declared. That \
+         source runs each question as the verified caller, and without an inbound identity /v1 \
+         verifies nobody. Declare security.inbound, or give that source the `shared-service-user` \
+         posture"
+    )]
+    QuerySurfaceOverAnImpersonatingSource { alias: SourceName },
     /// A per-replica spend ceiling declared over a `BigQuery` source, whose ADBC transport prices
     /// nothing.
     ///

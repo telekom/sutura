@@ -377,20 +377,50 @@ fn a_principal_that_is_not_a_clickhouse_user_is_refused_before_sending() {
     assert_eq!(warehouse.transport.last_statement(), None, "nothing was sent");
 }
 
-/// `Warehouse::EXECUTES_LEGS` stays at its domain default, so a leg needs a combiner this adapter
-/// does not have.
+/// A leg runs as the caller: the declaration the capability gate reads is `true`, and the leg's
+/// own rendering is sent signed in with the caller's exchanged token, never as the deployment user.
 #[test]
-fn a_leg_is_refused_without_a_combiner() {
+fn a_leg_signs_the_caller_in_with_the_exchanged_token() {
     let leg_case = sutura_conformance::corpus::leg_case();
-    let warehouse = warehouse(Scripted::answering("[]\n[]\n"));
+    let warehouse = impersonating(Scripted::answering("[\"region\"]\n[\"String\"]\n[\"north\"]\n"));
+    assert!(
+        warehouse.executes_legs(),
+        "the capability gate refuses every leg where this is false"
+    );
+    let presented = Presented::SubjectSignIn {
+        name: PrincipalName::parse("analyst_one").expect("a test name is a name"),
+        material: Secret::new(String::from("exchanged-token")),
+    };
+    warehouse
+        .execute(
+            Executable::Leg(leg_case.leg()),
+            &presented,
+            sutura_conformance::corpus::deadline(),
+        )
+        .expect("a leg renders and runs");
+    assert_eq!(
+        warehouse.transport.signed_in.lock().clone(),
+        Some((String::from("analyst_one"), String::from("exchanged-token")))
+    );
+    let rendered = sutura_sql::generate::generate_leg(leg_case.leg(), Dialect::ClickHouse).expect("the corpus leg renders");
+    assert_eq!(warehouse.transport.last_statement(), Some(String::from(rendered.sql())));
+}
+
+/// A leg presented as a principal with no token would run through `EXECUTE AS`, the deployment's
+/// credential, so it is refused before anything is sent.
+#[test]
+fn a_leg_under_execute_as_is_refused_before_sending() {
+    let leg_case = sutura_conformance::corpus::leg_case();
+    let warehouse = impersonating(Scripted::answering("[]\n[]\n"));
     let error = warehouse
         .execute(
             Executable::Leg(leg_case.leg()),
-            &sutura_conformance::corpus::presented(),
+            &as_principal("analyst_one"),
             sutura_conformance::corpus::deadline(),
         )
-        .expect_err("a leg with no combiner above this adapter is refused");
-    assert!(matches!(error, ClickHouseError::LegWithoutCombiner { .. }), "{error}");
+        .expect_err("a leg under `EXECUTE AS` is refused");
+    assert!(error.to_string().contains("switched by `EXECUTE AS`"), "{error}");
+    assert_eq!(warehouse.transport.last_statement(), None, "nothing was sent");
 }
 
 #[test]

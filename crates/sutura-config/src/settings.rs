@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use sutura_domain::model::InvalidIdentifier;
+use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::pinned::InvalidVersion;
 use sutura_domain::plan::{FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidRowCeiling, RowCeiling, RowCeilings};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture, host_is_loopback};
@@ -680,21 +680,49 @@ impl Settings {
         if !(single_user && guarded) {
             refusals.push(NotFitToServe::AgentSurfaceWithoutInboundIdentity);
         }
-        // A posture only an adapter with a place for a subject can deliver is one that needs a verified
-        // subject. `deliverable_by` is exhaustive over the posture, so a third posture cannot fall through.
         refusals.extend(
-            self.sources
-                .each()
-                .filter(|(alias, source)| {
-                    source.posture().is_some_and(|posture| {
-                        posture
-                            .deliverable_by(ImpersonationCapability::NoPlaceForASubject, alias)
-                            .is_err()
-                    })
-                })
-                .map(|(alias, _)| NotFitToServe::AgentSurfaceOverAnImpersonatingSource { alias: alias.clone() }),
+            self.impersonating_sources()
+                .map(|alias| NotFitToServe::AgentSurfaceOverAnImpersonatingSource { alias: alias.clone() }),
         );
         refusals
+    }
+
+    /// Why `/v1` may not start with no `security.inbound` on this deployment, or an empty list - see
+    /// [`NotFitToServe::QuerySurfaceWithoutInboundIdentity`] and
+    /// [`NotFitToServe::QuerySurfaceOverAnImpersonatingSource`].
+    ///
+    /// Not in [`Self::refusals`], because no key mounts `/v1`: every command that loads settings
+    /// would be refused by it. `sutura serve` asks it where it starts `/v1` with no inbound block. It
+    /// does not read that block, so asked of a deployment that declares one it still refuses. Only
+    /// the mode is asked: an off-host `/v1` is already refused without the deployment token and the
+    /// limiter.
+    #[must_use]
+    pub fn query_surface_refusals(&self) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        if !matches!(self.security.identity(), Some(DeploymentIdentity::StaticCredentials { .. })) {
+            refusals.push(NotFitToServe::QuerySurfaceWithoutInboundIdentity);
+        }
+        refusals.extend(
+            self.impersonating_sources()
+                .map(|alias| NotFitToServe::QuerySurfaceOverAnImpersonatingSource { alias: alias.clone() }),
+        );
+        refusals
+    }
+
+    /// The sources whose posture only an adapter with a place for a subject can deliver, so each
+    /// needs a verified subject. `deliverable_by` is exhaustive over the posture, so a third posture
+    /// cannot fall through.
+    fn impersonating_sources(&self) -> impl Iterator<Item = &SourceName> {
+        self.sources
+            .each()
+            .filter(|(alias, source)| {
+                source.posture().is_some_and(|posture| {
+                    posture
+                        .deliverable_by(ImpersonationCapability::NoPlaceForASubject, alias)
+                        .is_err()
+                })
+            })
+            .map(|(alias, _)| alias)
     }
 
     /// Whether callers can arrive from beyond this host, asked by every refusal that guards a surface

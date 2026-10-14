@@ -69,10 +69,7 @@
 //! `kind: clickhouse` source behind its default-off `clickhouse` feature, which `nix/shipped.nix`
 //! now enables, once the `github.com/telekom/sutura#955` join-nulls fix landed.
 //!
-//! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
-//! and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
-//! [`Executable::Leg`] answers [`ClickHouseError::LegWithoutCombiner`] exactly as
-//! `sutura_exec_bigquery` does).
+//! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default).
 //!
 //! **No `dry_run` override.** `ClickHouse`'s HTTP interface has no cheap "prepare, do not run"
 //! step this adapter could ask for without paying most of the cost of running the statement, so
@@ -97,7 +94,7 @@ use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqu
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, ResultBatches, RowSet, Value, Warehouse};
-use sutura_sql::generate::{generate, generate_key_probe};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use transport::ClickHouseTransport;
 
@@ -125,10 +122,6 @@ where
         #[source]
         cause: GenerateError,
     },
-    /// A leg without a combiner - `Warehouse::EXECUTES_LEGS` stays at its default; see the crate
-    /// header.
-    #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The credential broker handed this adapter a subject's own credential with no user beside it,
     /// so there is no `ClickHouse` user to sign in as.
     #[error(
@@ -143,6 +136,13 @@ where
         #[source]
         cause: NotAClickHouseUser,
     },
+    /// A federated leg would run as the deployment's user switched by `EXECUTE AS`, which is the
+    /// deployment's credential and not the caller's - the source declares no `delegation`.
+    #[error(
+        "source `{at}` declares no `delegation`, so a federated leg would run as the deployment's user \
+         switched by `EXECUTE AS` rather than with the caller's own credential"
+    )]
+    LegUnderExecuteAs { at: String },
     #[error("the credential broker presented a leg that disagrees with how this source is declared")]
     PresentedDisagreesWithPosture {
         #[source]
@@ -273,9 +273,7 @@ where
     fn render(executable: Executable<'_>) -> ChResult<GeneratedQuery, T::Error> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),
-            Executable::Leg(leg) => Err(ClickHouseError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Leg(leg) => generate_leg(leg, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),
         }
     }
 
@@ -313,6 +311,11 @@ where
     /// [`execute_as`], or the user each request signs in as with the caller's exchanged token.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
+    /// A leg renders through `generate_leg` and runs as the shared service user or signed in with
+    /// the caller's exchanged token. A leg that would run through `EXECUTE AS` is refused as
+    /// [`ClickHouseError::LegUnderExecuteAs`].
+    const EXECUTES_LEGS: bool = true;
+
     fn source(&self) -> &SourceName {
         &self.source
     }
@@ -328,6 +331,11 @@ where
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let user = self.deliverable(presented)?;
+        if matches!((executable, &user), (Executable::Leg(_), RunsAs::Switched(_))) {
+            return Err(ClickHouseError::LegUnderExecuteAs {
+                at: String::from(self.source.as_str()),
+            });
+        }
         let query = Self::render(executable)?;
         let rows = self.run_as(&user, &query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see

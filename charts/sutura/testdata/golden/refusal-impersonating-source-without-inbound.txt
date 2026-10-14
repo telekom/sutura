@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): sources.warehouse is impersonation-at-source and config.base and config.environment set no security.inbound.mode: sutura serve refuses to start /v1 over a source that runs each query as a verified caller when no inbound identity verifies one (Settings::query_surface_refusals::QuerySurfaceOverAnImpersonatingSource) - declare security.inbound, or give the source another posture
+
+Use --debug flag to render out invalid YAML
