@@ -58,3 +58,12 @@ anonymous request is refused before any source is asked, and no question runs as
   `roles/bigquery.dataViewer`, and names row access policy grantees, as the pool principal.
 - A principal is an opaque subject string in grants and logs, not a nameable account.
 - `SESSION_USER()` reads the principal, so no address a deployment holds predicts it.
+
+## First amendment, 2026-10-14: workload identity is one of three declared modes
+
+This record is now the `workload_identity` mode of
+`docs/adr/20261014100540-bigquery-caller-identity-modes.md`. An `impersonation-at-source`
+`bigquery` source declares exactly one of `workload_identity`, `google_login` and
+`domain_delegation`. "No step uses a service account" holds for a `workload_identity` source only:
+a `domain_delegation` source runs its caller through one delegating service account, and the
+deployment vouches for the caller there.

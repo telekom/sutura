@@ -654,7 +654,7 @@ fn a_workload_identity_block_belongs_to_impersonation_and_nowhere_else() {
         ..impersonating("warehouse")
     }];
     let error = SourceRegistry::parse(&missing, Some(&single_user())).expect_err("an impersonating source needs a provider");
-    assert!(matches!(error, InvalidSourceRegistry::MissingWorkloadIdentity { .. }));
+    assert!(matches!(error, InvalidSourceRegistry::NoCallerIdentityMode { .. }));
 
     let on_shared = [RawSourceEntry {
         posture: "shared-service-user",
@@ -662,10 +662,7 @@ fn a_workload_identity_block_belongs_to_impersonation_and_nowhere_else() {
         ..impersonating("local")
     }];
     let error = SourceRegistry::parse(&on_shared, Some(&single_user())).expect_err("a shared source may not carry one");
-    assert!(matches!(
-        error,
-        InvalidSourceRegistry::WorkloadIdentityNotImpersonating { .. }
-    ));
+    assert!(matches!(error, InvalidSourceRegistry::IdentityModeNotImpersonating { .. }));
 
     // And the good shape carries it, so the broker the composition root builds has somewhere to read
     // it from.

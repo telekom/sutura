@@ -135,6 +135,13 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
+    /// The caller's own Google login, brokered by the identity provider - see
+    /// `crate::sources::caller_identity`.
+    #[serde(default)]
+    pub(crate) google_login: Option<RawGoogleLogin>,
+    /// Domain-wide delegation through one service account - see `crate::sources::caller_identity`.
+    #[serde(default)]
+    pub(crate) domain_delegation: Option<RawDomainDelegation>,
     /// The removed `clickhouse` subject map, read only so that a configuration still declaring it is
     /// refused naming the key rather than as an unknown one.
     #[serde(default)]
@@ -217,6 +224,24 @@ pub(crate) struct RawWorkloadIdentity {
     /// order - see `crate::sources::workload_identity::DelegationDeclared`.
     #[serde(default, deserialize_with = "null_as_empty")]
     pub(crate) delegation: Option<Vec<RawDelegation>>,
+}
+
+/// One source's `google_login` block, as read. `client_secret_file` is a PATH. No `audience` key:
+/// a Google access token is opaque, so nothing could compare one.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawGoogleLogin {
+    pub(crate) token_endpoint: String,
+    pub(crate) client_id: String,
+    pub(crate) client_secret_file: String,
+}
+
+/// One source's `domain_delegation` block, as read. No `scope` key: `jobs.insert` accepts the
+/// `bigquery` scope and not `bigquery.readonly`, so it is a constant rather than a choice.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDomainDelegation {
+    pub(crate) delegating_account: String,
 }
 
 /// A `delegation` key written with no value (`delegation:` or `delegation: null`) reads as an empty

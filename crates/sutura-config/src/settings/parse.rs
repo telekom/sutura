@@ -18,6 +18,7 @@ use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
 use crate::security::{AccessToken, DeploymentIdentity, SecuritySettings, TlsTermination};
 use crate::server::{AllowedHost, BindAddress, BodyLimit, RequestTimeout, ServerSettings};
+use crate::sources::caller_identity::CallerIdentityBlocks;
 use crate::sources::{RawSourceEntry, SourceRegistry};
 use crate::telemetry::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
 
@@ -94,44 +95,52 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
 /// The data systems this deployment declares.
 ///
 /// The map's keys are the aliases, so this only has to put them beside their entries in a stable order
-/// and let `SourceRegistry::parse` do the parsing. `BTreeMap` iteration is sorted, which is what makes
+/// and let `SourceRegistry::parse_declared` do the parsing. `BTreeMap` iteration is sorted, which is what makes
 /// "an earlier entry" in the duplicate-alias refusal a deterministic phrase rather than one that
 /// depends on how the file was written.
 pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result<SourceRegistry, SettingsError> {
-    let entries: Vec<RawSourceEntry<'_>> = raw
+    let entries: Vec<(RawSourceEntry<'_>, CallerIdentityBlocks<'_>)> = raw
         .sources
         .iter()
-        .map(|(written, source)| RawSourceEntry {
-            written,
-            kind: &source.kind,
-            data_dir: source.data_dir.as_deref(),
-            billing_project: source.billing_project.as_deref(),
-            dataset: source.dataset.as_deref(),
-            max_bytes_billed: source.max_bytes_billed,
-            posture: &source.posture,
-            acknowledged_because: source.acknowledged_because.as_deref(),
-            verification_identity: source.verification_identity.as_deref(),
-            workload_identity: source.workload_identity.clone(),
-            host: source.host.as_deref(),
-            unix_socket: source.unix_socket.as_deref(),
-            port: source.port,
-            database: source.database.as_deref(),
-            service_name: source.service_name.as_deref(),
-            endpoint: source.endpoint.as_deref(),
-            token_file: source.token_file.as_deref(),
-            database_file: source.database_file.as_deref(),
-            user: source.user.as_deref(),
-            password_file: source.password_file.as_deref(),
-            transport_mode: source.transport_mode.as_deref(),
-            transport_anchors: source.transport_anchors.as_deref(),
-            client_certificate: source.client_certificate.as_deref(),
-            client_key: source.client_key.as_deref(),
-            impersonate: source.impersonate.is_some(),
-            subjects: source.subjects.is_some(),
-            delegation: source.delegation.as_deref(),
+        .map(|(written, source)| {
+            let entry = RawSourceEntry {
+                written,
+                kind: &source.kind,
+                data_dir: source.data_dir.as_deref(),
+                billing_project: source.billing_project.as_deref(),
+                dataset: source.dataset.as_deref(),
+                max_bytes_billed: source.max_bytes_billed,
+                posture: &source.posture,
+                acknowledged_because: source.acknowledged_because.as_deref(),
+                verification_identity: source.verification_identity.as_deref(),
+                workload_identity: source.workload_identity.clone(),
+                host: source.host.as_deref(),
+                unix_socket: source.unix_socket.as_deref(),
+                port: source.port,
+                database: source.database.as_deref(),
+                service_name: source.service_name.as_deref(),
+                endpoint: source.endpoint.as_deref(),
+                token_file: source.token_file.as_deref(),
+                database_file: source.database_file.as_deref(),
+                user: source.user.as_deref(),
+                password_file: source.password_file.as_deref(),
+                transport_mode: source.transport_mode.as_deref(),
+                transport_anchors: source.transport_anchors.as_deref(),
+                client_certificate: source.client_certificate.as_deref(),
+                client_key: source.client_key.as_deref(),
+                impersonate: source.impersonate.is_some(),
+                subjects: source.subjects.is_some(),
+                delegation: source.delegation.as_deref(),
+            };
+            let blocks = CallerIdentityBlocks {
+                google_login: source.google_login.as_ref(),
+                domain_delegation: source.domain_delegation.as_ref(),
+            };
+            (entry, blocks)
         })
         .collect();
-    SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })
+    SourceRegistry::parse_declared(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), mode)
+        .map_err(|cause| SettingsError::Sources { cause })
 }
 
 pub(super) fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {
