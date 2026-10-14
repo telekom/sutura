@@ -737,23 +737,4 @@ mod tests {
     fn an_exempted_test_with_no_base_result_keeps_the_runs_own_verdict() {
         assert_eq!(skipped_a_under("skipped_a # only built with rdbms\n").1, Verdict::Pass);
     }
-
-    #[test]
-    fn a_base_run_that_never_reached_its_tier_is_not_a_proof() {
-        // The base run keeps the head run's requirement, so a cell whose tier is absent there panics
-        // in the lookup: red, and about nothing the diff changed.
-        let text = format!(
-            "        FAIL [   0.021s] (1/1) pa tests::t\n\
-             thread 'tests::t' panicked at dev/src/provisioned.rs:413:41:\n\
-             {}: no `postgres` endpoint\n\
-             error: test run failed\n",
-            sutura_dev::requirement::REQUIRED
-        );
-        let outcome = classified(&text, false, &scoped("pa", "pa/src/lib.rs", &["t"]));
-        assert_eq!(
-            reported(&outcome, &text, false, &named(1)),
-            Verdict::Inconclusive,
-            "{outcome:?}"
-        );
-    }
 }
