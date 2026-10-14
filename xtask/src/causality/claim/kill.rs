@@ -202,7 +202,9 @@ pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: 
         // `Tree::Mutated` forces the tier requirement, so a tier-gated cell the kill worktree's own
         // tier does not serve ends at the lookup: it never ran, which is neither a kill nor a
         // survival. Only a FAILED run: a run that passed survived, whatever its text echoes.
-        MutationKill::NotByAssertion { .. } if base::never_reached_its_tier(text, &own) => {
+        MutationKill::NotByAssertion { ref site }
+            if site.starts_with("dev/src/provisioned.rs:") && base::never_reached_its_tier(text, &own) =>
+        {
             Err(Cause::NoTier { cell: cell.to_owned() })
         }
         MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),

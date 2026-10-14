@@ -104,3 +104,46 @@ fn a_tier_panic_nested_in_a_message_is_not_the_tests_own_site() {
         }
     );
 }
+
+#[test]
+fn a_green_sibling_is_judged_before_the_tier_read() {
+    let text = format!(
+        "        FAIL [   0.021s] (1/2) pa tests::t\n\
+         \x20   thread 'tests::t' (9) panicked at dev/src/provisioned.rs:413:41:\n\
+         \x20   {}: no `postgres` endpoint\n\
+         \n\
+         \x20       PASS [   0.010s] (2/2) pa tests::pin\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["t", "pin"]);
+    let outcome = classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour);
+    assert_eq!(
+        report_base(&outcome, &text, false, &named(2), &Moved::Nothing, &Reverted::Behaviour),
+        Verdict::Fail,
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_tier_site_without_the_requirement_under_it_is_an_ordinary_red() {
+    // The requirement counts only in the test's own message, which ends at the first blank line.
+    let text = format!(
+        "        FAIL [   0.021s] (1/2) pa tests::t\n\
+         \x20   thread 'tests::t' (9) panicked at dev/src/provisioned.rs:200:5:\n\
+         \x20   a malformed endpoint\n\
+         \n\
+         \x20       FAIL [   0.021s] (2/2) pa tests::elsewhere\n\
+         \x20   thread 'tests::elsewhere' (10) panicked at dev/src/provisioned.rs:413:41:\n\
+         \x20   {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
+    assert_eq!(
+        classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour),
+        BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::t")]
+        }
+    );
+}

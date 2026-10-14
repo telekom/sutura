@@ -1,0 +1,17 @@
+diff --git a/xtask/src/causality/base.rs b/xtask/src/causality/base.rs
+--- a/xtask/src/causality/base.rs
++++ b/xtask/src/causality/base.rs
+@@ -230,10 +230,10 @@
+         })
+         .map(|test| format!("{} in {}", test.name(), test.file()))
+         .collect();
+-    if !green.is_empty() {
+-        BaseOutcome::RedWithGreenSibling { red: under_test, green }
+-    } else if never_reached_its_tier(text, &under_test) {
++    if never_reached_its_tier(text, &under_test) {
+         BaseOutcome::NeverReachedItsTier { failed: under_test }
++    } else if !green.is_empty() {
++        BaseOutcome::RedWithGreenSibling { red: under_test, green }
+     } else {
+         BaseOutcome::RedByAssertion { failed: under_test }
+     }

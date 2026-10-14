@@ -1315,16 +1315,18 @@ and `nix run .#causality` both source `nix/with-tier.sh` (Postgres and ClickHous
 ship-check` calls the recipe. A scoped base cell that fails in the tier lookup - its OWN panic line,
 `thread '<its name>' panicked at dev/src/provisioned.rs`, with `requirement::REQUIRED` in the message
 under it - makes the whole base run INCONCLUSIVE, never red on base: two such cells were once the whole
-of a base run's red, reported as proof about a change that touched neither. Only that line is read, so
-a cell that prints a tier-absent fixture in its own failure stays red by its assertion. The claim
-arm's kill worktree gets no copy; it starts its own tier, and its kill run asks the same predicate of
-the cell's own failure.
+of a base run's red, reported as proof about a change that touched neither. Green siblings are judged
+first, so an added test that passed on base without a `Claim-Cell:` fails the run whatever the red
+ones ended at. Only that line is read, so a cell that prints a tier-absent fixture in its own failure
+stays red by its assertion. The claim arm's kill worktree gets no copy; it starts its own tier, and
+its kill run asks the same predicate of the cell's own failure, only where that failure's site is
+`dev/src/provisioned.rs`.
 
 | Limit | What it costs |
 | --- | --- |
 | HEAD runs first, base second, on ONE tier | a cell not idempotent against tier state can be green on HEAD and red on base for a state reason - a false proof no gate holds |
 | `dev/tests/provisioned.rs` asserts the discovery file's project is its own tree's | with a docker-provisioned ClickHouse in the root, the copied file names the root's project, so that file goes red on base - only when a diff scopes it |
-| one test's own tier panic decides the whole base run | a real red beside it is INCONCLUSIVE too, not measured |
+| one test's own tier panic decides the whole base run | a real red beside it is INCONCLUSIVE too, not measured; a green sibling still fails it |
 | a copy of the panic line under the failing test's OWN thread name, with the requirement below it | it reads as that test's tier panic |
 | a tier cell that never calls `provisioned::here` (an opt-in skip of its own) | it still passes vacuously on a host without that tier, on base and on HEAD alike |
 

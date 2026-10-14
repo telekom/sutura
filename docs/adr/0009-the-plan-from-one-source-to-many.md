@@ -1128,6 +1128,6 @@ copies the root's discovery file into that worktree, so that both runs reach the
   `SUTURA_DEV_REQUIRE_TIER`. Without the copy, the base run removed it, so each tier-backed cell
   skipped on base and a causal change to one could never be proven.
 - **An absent tier is not a proof.** A base cell that fails in the tier lookup is INCONCLUSIVE,
-  not red on base.
+  not red on base. An added test that passed on base still fails the run.
 - **The limit.** HEAD runs first and base runs second against one tier. A cell that is not
   idempotent against tier state can be green on HEAD and red on base for a state reason.

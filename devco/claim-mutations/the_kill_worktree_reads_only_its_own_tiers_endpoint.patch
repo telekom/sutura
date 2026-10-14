@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -739,7 +739,7 @@
+     let target = root.join("target").join("causality-target");
+     let wt = root.join("target").join("causality-claim-worktree");
+     worktree::remove_worktree(root, &wt);
+-    if let Err(e) = worktree::add_worktree(root, &wt) {
++    if let Err(e) = worktree::add_base_worktree(root, &wt) {
+         eprintln!("xtask {}: could not create a claim worktree: {e}", caller.task);
+         return Verdict::Fail;
+     }
