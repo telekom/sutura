@@ -216,3 +216,29 @@ pub(super) fn impersonation_of(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(feature = "bigquery")]
+    fn a_google_login_source_is_opened_in_the_google_login_mode() {
+        let overlay = "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  inbound:\n    \
+                       mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+                       authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
+                       algorithms: [\"RS256\"]\nsources:\n  warehouse:\n    kind: \"bigquery\"\n    \
+                       billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    \
+                       posture: \"impersonation-at-source\"\n    google_login:\n      \
+                       token_endpoint: \"https://idp.example.com/realms/r/broker/google/token\"\n      \
+                       client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("a direct deployment admits a google_login source");
+        let warehouse = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let configured = settings.sources().get(&warehouse).expect("the source is declared");
+        assert_eq!(
+            super::impersonation_of(&warehouse, configured),
+            Ok(sutura_exec_bigquery::adbc::Impersonation::GoogleLogin)
+        );
+    }
+}

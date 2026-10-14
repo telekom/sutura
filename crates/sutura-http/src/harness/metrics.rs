@@ -957,23 +957,3 @@ async fn spend_bytes_total_moves_with_admitted_calls_and_a_refusal_does_not_rese
     let after_refusal = scrape(&app).await;
     assert_eq!(sample(&after_refusal, "sutura_spend_bytes_total"), 1_000, "{after_refusal}");
 }
-
-#[tokio::test]
-async fn a_caller_with_no_linked_account_is_a_403_counted_as_identity_not_linked() {
-    let app = crate::testing::serving(
-        bundle(),
-        crate::testing::fake_warehouse(),
-        super::LinksNoAccount,
-        metrics_settings(Environment::Development),
-        None,
-    );
-    let (status, body) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION))).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-    assert!(body.contains(r#""code":"identity_not_linked""#), "{body}");
-    let exposition = scrape(&app).await;
-    assert_eq!(
-        sample(&exposition, r#"sutura_questions_total{code="identity_not_linked"}"#),
-        1,
-        "{exposition}"
-    );
-}

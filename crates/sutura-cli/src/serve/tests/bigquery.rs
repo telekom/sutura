@@ -634,17 +634,3 @@ fn a_google_login_source_presents_the_token_the_identity_provider_stored() {
         "{body}"
     );
 }
-
-#[test]
-#[cfg(feature = "bigquery")]
-fn a_google_login_source_is_opened_in_the_google_login_mode() {
-    let login = "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/r/broker/google/token\"\n      \
-                 client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
-    let registry = direct_registry(&bigquery_entry("warehouse", "impersonation-at-source", login));
-    let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
-    let configured = registry.get(&warehouse).expect("the source is declared");
-    assert_eq!(
-        super::super::bigquery::impersonation_of(&warehouse, configured),
-        Ok(sutura_exec_bigquery::adbc::Impersonation::GoogleLogin)
-    );
-}
