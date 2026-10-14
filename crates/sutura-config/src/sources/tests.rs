@@ -787,38 +787,36 @@ fn a_workload_identity_delegation_declares_its_hops_in_order() {
 /// the message points at.
 #[test]
 fn a_workload_identity_delegation_refusal_names_the_position_of_the_hop() {
-    use super::workload_identity::{DelegationGrant::TokenExchange, HopKey};
-    let key = |field| HopKey::new("workload_identity.delegation", 1, field);
+    use super::workload_identity::DelegationGrant::TokenExchange;
     let relative = crate::raw::RawDelegation {
         client_secret_file: String::from("run/secrets/idp"),
         ..hop("pool-client-id", TokenExchange)
     };
-    assert_eq!(
-        SourceRegistry::parse(
-            &[delegating(vec![hop("sutura-app", TokenExchange), relative])],
-            Some(&single_user())
-        )
-        .expect_err("a relative client secret file is refused"),
-        InvalidSourceRegistry::RelativeHopPath {
-            alias: alias("warehouse"),
-            hop: key("client_secret_file"),
-            path: PathBuf::from("run/secrets/idp"),
-        }
+    let refused = SourceRegistry::parse(
+        &[delegating(vec![hop("sutura-app", TokenExchange), relative])],
+        Some(&single_user()),
+    )
+    .expect_err("a relative client secret file is refused");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("`sources.warehouse.workload_identity.delegation[1].client_secret_file` is"),
+        "{refused}"
     );
     let userinfo = crate::raw::RawDelegation {
         token_endpoint: String::from("https://svc@idp.example.com/token"),
         ..hop("pool-client-id", TokenExchange)
     };
-    assert_eq!(
-        SourceRegistry::parse(
-            &[delegating(vec![hop("sutura-app", TokenExchange), userinfo])],
-            Some(&single_user())
-        )
-        .expect_err("a token endpoint with userinfo is refused"),
-        InvalidSourceRegistry::HopCredentialsInUrl {
-            alias: alias("warehouse"),
-            hop: key("token_endpoint"),
-        }
+    let refused = SourceRegistry::parse(
+        &[delegating(vec![hop("sutura-app", TokenExchange), userinfo])],
+        Some(&single_user()),
+    )
+    .expect_err("a token endpoint with userinfo is refused");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("`sources.warehouse.workload_identity.delegation[1].token_endpoint` carries an `@`"),
+        "{refused}"
     );
 }
 

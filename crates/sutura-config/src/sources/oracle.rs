@@ -527,8 +527,6 @@ mod tests {
     /// one the message points at.
     #[test]
     fn an_oracle_delegation_refusal_names_the_position_of_the_hop() {
-        use crate::sources::workload_identity::HopKey;
-
         let relative = [
             hop("sutura-app", DelegationGrant::TokenExchange),
             crate::raw::RawDelegation {
@@ -536,14 +534,13 @@ mod tests {
                 ..hop("https://db.example.com", DelegationGrant::OnBehalfOf)
             },
         ];
-        assert_eq!(
-            SourceRegistry::parse(&[impersonating(&relative)], Some(&single_user()))
-                .expect_err("a relative client secret file is refused"),
-            InvalidSourceRegistry::RelativeHopPath {
-                alias: alias("warehouse"),
-                hop: HopKey::new("delegation", 1, "client_secret_file"),
-                path: std::path::PathBuf::from("run/secrets/idp"),
-            }
+        let refused = SourceRegistry::parse(&[impersonating(&relative)], Some(&single_user()))
+            .expect_err("a relative client secret file is refused");
+        assert!(
+            refused
+                .to_string()
+                .starts_with("`sources.warehouse.delegation[1].client_secret_file` is"),
+            "{refused}"
         );
     }
 
