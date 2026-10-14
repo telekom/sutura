@@ -2109,6 +2109,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#run-sutura" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run sutura
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3639,6 +3650,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#run-sutura" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run sutura
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3799,6 +3821,20 @@ settings files. Its loader writes the <code>orders</code> and <code>customers</c
 <p><code>setup.sh</code> writes the secrets of this DataHub to <code>.env</code>. The loader writes a DataHub token for
 sutura to <code>.local/datahub-token</code>. Give sutura that file as <code>/run/sutura/datahub-token</code>, the catalog
 <code>token_file</code> in both settings files. Every port of this DataHub binds to <code>127.0.0.1</code> only.</p>
+<h2 id="run-sutura">Run sutura<a class="headerlink" href="#run-sutura" title="Permanent link">&para;</a></h2>
+<p>sutura reads <code>base.yaml</code> in <code>SUTURA_CONFIG_DIR</code>, so a settings file under another name is not read.
+From <code>examples/metrics-layer</code>, give sutura the file you chose under that name and start it:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>.local/conf
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>cp<span class="w"> </span>conf/impersonation-at-source.yaml<span class="w"> </span>.local/conf/base.yaml
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nv">SUTURA_CONFIG_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/.local/conf"</span><span class="w"> </span>sutura<span class="w"> </span>serve
+</span></code></pre></div>
+<p>Ask the example question as <code>alice</code>. <code>$TOKEN</code> is her access token from the <code>sutura</code> client of the
+realm (password grant, user and password <code>alice</code>):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://127.0.0.1:8080/v1/query<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'content-type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}'</span>
+</span></code></pre></div>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../../integrations/identity/">Inbound identity</a>: how sutura verifies a caller's token.</li>
