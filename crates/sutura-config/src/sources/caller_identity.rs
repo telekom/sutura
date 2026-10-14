@@ -534,8 +534,6 @@ mod tests {
         ))
     }
 
-    const LOGIN_YAML: &str = "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
-                              client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
     const DELEGATION_YAML: &str =
         "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
 
@@ -545,47 +543,6 @@ mod tests {
             panic!("expected a boot refusal, got {error:?}");
         };
         refusals.clone()
-    }
-
-    #[test]
-    fn a_google_login_source_is_refused_without_a_direct_caller() {
-        // The broker request sends the caller's own inbound token, which only `direct` verifies.
-        assert_eq!(
-            refused_at_boot(LOGIN_YAML),
-            vec![NotFitToServe::DelegationWithoutDirectInbound {
-                alias: warehouse_alias(),
-                key: "google_login",
-            }]
-        );
-    }
-
-    /// [`bigquery_overlay_with`]'s source on a deployment that verifies `direct` callers.
-    fn direct_overlay_with(block: &str) -> Sources {
-        Sources::defaults(Environment::Development).with_overlay(format!(
-            "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\n  \
-             inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
-             authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
-             algorithms: [\"RS256\"]\n\
-             sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
-             dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
-        ))
-    }
-
-    #[test]
-    fn a_google_login_source_boots_on_a_direct_deployment() {
-        let settings = Settings::load(&direct_overlay_with(LOGIN_YAML)).expect("a google_login source is served");
-        assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
-        let error = Settings::load(&direct_overlay_with(DELEGATION_YAML)).expect_err("domain_delegation is not built");
-        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-            panic!("expected a boot refusal, got {error:?}");
-        };
-        assert_eq!(
-            *refusals,
-            vec![NotFitToServe::CallerIdentityModeNotBuilt {
-                alias: warehouse_alias(),
-                block: "domain_delegation",
-            }]
-        );
     }
 
     #[test]

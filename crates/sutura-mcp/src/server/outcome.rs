@@ -106,3 +106,24 @@ pub(super) fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
 pub(super) fn failed(detail: &str) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(String::from(detail))])
 }
+
+#[cfg(test)]
+mod tests {
+    use rmcp::model::ContentBlock;
+    use sutura_app::surface::{ErasedCause, SurfaceFailure};
+
+    #[test]
+    fn a_caller_with_no_linked_account_is_told_to_link_it_not_to_retry() {
+        let result = super::could_not_answer(&SurfaceFailure::NotLinked {
+            cause: ErasedCause::from("no account linked"),
+        });
+        assert_eq!(result.is_error, Some(true), "{result:?}");
+        let text = result
+            .content
+            .first()
+            .and_then(ContentBlock::as_text)
+            .map(|block| block.text.clone())
+            .expect("a failure carries a text block");
+        assert!(text.contains("not linked") && !text.contains("try again"), "{text}");
+    }
+}

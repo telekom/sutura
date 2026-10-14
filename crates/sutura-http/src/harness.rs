@@ -337,6 +337,28 @@ impl sutura_domain::identity::CredentialBroker for CannotBeReached {
     }
 }
 
+/// A broker whose one delegation hop finds no account linked for the caller, the error chain the
+/// declared broker builds.
+pub(super) struct LinksNoAccount;
+
+impl sutura_domain::identity::CredentialBroker for LinksNoAccount {
+    type Error = sutura_config::DeclaredPrincipalsUnusable;
+
+    fn mint(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _sources: &sutura_domain::identity::SourceSet,
+    ) -> Result<sutura_domain::identity::Minted, Self::Error> {
+        Err(sutura_config::DeclaredPrincipalsUnusable::Delegation {
+            source: crate::testing::source(),
+            cause: sutura_domain::identity::DelegationFailed::AtHop {
+                hop: 1,
+                cause: Box::new(sutura_domain::identity::DelegationFailed::NotLinked),
+            },
+        })
+    }
+}
+
 #[tokio::test]
 async fn a_broker_that_cannot_be_reached_is_a_503_identity_unavailable() {
     // The sibling of the outage above: the same retryable `503`, and its own code, because an

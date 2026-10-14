@@ -414,6 +414,62 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     );
 }
 
+/// One impersonating `bigquery` source, `warehouse`, declaring the caller-identity `block`.
+fn impersonating_bigquery(block: &str) -> String {
+    format!(
+        "sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+         dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
+    )
+}
+
+const LOGIN_BLOCK: &str = "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
+                           client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
+
+#[test]
+fn a_google_login_source_is_refused_without_a_direct_caller() {
+    // The broker request sends the caller's own inbound token, which only `direct` verifies.
+    let refused = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        impersonating_bigquery(LOGIN_BLOCK)
+    ));
+    let error = Settings::load(&refused).expect_err("a google_login source on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a boot refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            key: "google_login",
+        }]
+    );
+}
+
+#[test]
+fn a_google_login_source_boots_on_a_direct_deployment() {
+    let direct = |block: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+            impersonating_bigquery(block)
+        ))
+    };
+    let settings = Settings::load(&direct(LOGIN_BLOCK)).expect("a google_login source is served");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+    let delegation =
+        "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
+    let error = Settings::load(&direct(delegation)).expect_err("domain_delegation is not built");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a boot refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::CallerIdentityModeNotBuilt {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            block: "domain_delegation",
+        }]
+    );
+}
+
 #[test]
 fn a_delegation_written_as_one_mapping_is_refused_at_load() {
     // `delegation` is a list of hops, and a single mapping is not read as a one-hop list.

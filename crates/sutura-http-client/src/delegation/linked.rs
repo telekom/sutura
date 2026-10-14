@@ -9,7 +9,7 @@
 
 use sutura_domain::identity::{Delegated, DelegationFailed, LinkedLogin, Secret};
 
-use super::{ExchangeClient, Grant, OverHttp, TokenEndpoint};
+use super::{ExchangeClient, OverHttp, TokenEndpoint};
 use crate::ReadBounds;
 
 /// [`LinkedLogin`] over HTTP, at a `/realms/<realm>/broker/<alias>/token` endpoint.
@@ -24,7 +24,7 @@ impl BrokeredLogin {
         agent: sutura_tls::Rotating<ureq::Agent>,
         bounds: ReadBounds,
     ) -> Self {
-        Self(OverHttp::new(endpoint, client, agent, bounds).granting(Grant::BrokerToken))
+        Self(OverHttp::new(endpoint, client, agent, bounds))
     }
 }
 
@@ -121,6 +121,26 @@ mod tests {
                 .expect_err("an expiry at or before now is refused");
             assert!(matches!(refused, DelegationFailed::AlreadyExpired), "{refused:?}");
         }
+    }
+
+    #[test]
+    fn a_broker_answer_of_another_token_type_is_refused() {
+        let answer = format!(
+            r#"{{"access_token":"ya29.opaque-google-token","token_type":"DPoP","accessTokenExpiration":{}}}"#,
+            NOW + 60
+        );
+        let refused = opaque_answered(200, &answer, NOW).expect_err("only a bearer token is presented");
+        assert!(matches!(refused, DelegationFailed::WrongTokenType), "{refused:?}");
+    }
+
+    #[test]
+    fn a_broker_answer_with_an_empty_access_token_is_refused() {
+        let answer = format!(r#"{{"access_token":"","accessTokenExpiration":{}}}"#, NOW + 60);
+        let refused = opaque_answered(200, &answer, NOW).expect_err("an empty token is no token");
+        assert!(
+            matches!(refused, DelegationFailed::Malformed { what: "no access_token" }),
+            "{refused:?}"
+        );
     }
 
     #[test]

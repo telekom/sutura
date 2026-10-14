@@ -178,7 +178,25 @@ fn build_bigquery(
     // measurement - so `sutura_config` refuses the key by name rather than carry a value that
     // reaches nothing. A value carried here and dropped later would be the shape this whole change
     // exists to remove.
-    let impersonation = match configured.caller_identity() {
+    let impersonation = impersonation_of(source, configured)?;
+    Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
+        source.clone(),
+        identity.posture().clone(),
+        project,
+        dataset,
+        driver,
+        impersonation,
+        max_bytes_billed,
+    ))
+}
+
+/// Which mode `configured` impersonates in, decided once at composition and never per request.
+#[cfg(feature = "bigquery")]
+pub(super) fn impersonation_of(
+    source: &sutura_domain::model::SourceName,
+    configured: &sutura_config::ConfiguredSource,
+) -> Result<sutura_exec_bigquery::adbc::Impersonation, String> {
+    Ok(match configured.caller_identity() {
         None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
         Some(sutura_config::sources::caller_identity::CallerIdentity::WorkloadIdentity(workload)) => {
             sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
@@ -196,14 +214,5 @@ fn build_bigquery(
                 "`sources.{source}.domain_delegation` is a mode this build does not run"
             ));
         }
-    };
-    Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
-        source.clone(),
-        identity.posture().clone(),
-        project,
-        dataset,
-        driver,
-        impersonation,
-        max_bytes_billed,
-    ))
+    })
 }
