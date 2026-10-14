@@ -699,8 +699,8 @@ defaults `crate::postgres_reader::PostgresReader` uses.
 
 # Errors
 
-The documentation schema or the predicate column is not an identifier, or the login's anchors
-are not certificates the driver can verify a server against.
+The documentation schema or the predicate column is not an identifier, the login's anchors are
+not certificates the driver can verify a server against, or the driver cannot parse its address.
 
 #### Implements
 
@@ -792,6 +792,7 @@ pub enum InvalidReaderConfig
 - `PredicateColumn`
 - `DefaultBound`
 - `TrustAnchors` - An Oracle login's anchors hold no certificate, or one the driver cannot verify a server against; the driver's own reason.
+- `Address` - The driver cannot parse the reader's address.
 
 #### Implements
 

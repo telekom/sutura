@@ -50,7 +50,7 @@
 use std::num::NonZeroU64;
 
 use sutura_domain::identity::Secret;
-use sutura_oracle_connect::{Channel, Dial, DialError};
+use sutura_oracle_connect::{Channel, Dial, PrepareError, PreparedDial};
 
 use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow, checked_bounds};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
@@ -106,7 +106,8 @@ impl OracleLogin {
 /// A live [`DictionaryReader`] over an Oracle documentation schema.
 #[derive(Debug, Clone)]
 pub struct OracleReader {
-    login: VerifiedOracleLogin,
+    login: OracleLogin,
+    dial: PreparedDial,
     statement: String,
     environment: String,
     predicate: RowPredicate,
@@ -119,8 +120,8 @@ impl OracleReader {
     ///
     /// # Errors
     ///
-    /// The documentation schema or the predicate column is not an identifier, or the login's anchors
-    /// are not certificates the driver can verify a server against.
+    /// The documentation schema or the predicate column is not an identifier, the login's anchors are
+    /// not certificates the driver can verify a server against, or the driver cannot parse its address.
     pub fn new(
         login: VerifiedOracleLogin,
         documentation_schema: &str,
@@ -130,11 +131,23 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
-        oracledb::Config::default()
-            .set_trust_anchors_pem(&login.anchors_pem)
-            .map_err(|cause| InvalidReaderConfig::TrustAnchors(cause.to_string()))?;
+        let VerifiedOracleLogin { login, anchors_pem } = login;
+        let dial = Dial::new(
+            &login.host,
+            login.port,
+            &login.service_name,
+            Channel::Verified {
+                anchors_pem: &anchors_pem,
+            },
+        )
+        .prepare()
+        .map_err(|refused| match refused {
+            PrepareError::TrustAnchors(cause) => InvalidReaderConfig::TrustAnchors(cause.to_string()),
+            PrepareError::Address(cause) => InvalidReaderConfig::Address(cause.to_string()),
+        })?;
         Ok(Self {
             login,
+            dial,
             statement: statement(documentation_schema, &predicate),
             environment,
             predicate,
@@ -159,20 +172,13 @@ impl OracleReader {
     /// The driver's configuration for the read's dial, with no credential, refused while the
     /// driver's packet trace is on.
     fn driver_config(&self) -> Result<oracledb::Config, RdbmsError> {
-        let VerifiedOracleLogin { login, anchors_pem } = &self.login;
-        let channel = Channel::Verified { anchors_pem };
-        Dial::new(&login.host, login.port, &login.service_name, channel)
-            .config()
-            .map_err(|refused| match refused {
-                DialError::PacketTraceOn(on) => RdbmsError::Read(Box::new(on)),
-                DialError::TrustAnchors(cause) | DialError::Address(cause) => read_err(cause),
-            })
+        self.dial.config().map_err(|on| RdbmsError::Read(Box::new(on)))
     }
 
     /// Opens the read's session, refused before it dials while the driver's packet trace is on.
     fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
         let config = self.driver_config()?;
-        let login = &self.login.login;
+        let login = &self.login;
         #[expect(
             clippy::disallowed_methods,
             reason = "the password's destination is the connection handshake, which is the one place the \
@@ -181,7 +187,7 @@ impl OracleReader {
         let password = login.password.expose_secret();
         #[expect(
             clippy::disallowed_methods,
-            reason = "`Dial::config` asked `sutura_oracle_connect::oracle_trace::refuse` first"
+            reason = "`PreparedDial::config` asked `sutura_oracle_connect::oracle_trace::refuse` first"
         )]
         let connection = oracledb::connect(config.set_credentials(&login.user, password));
         connection.map_err(read_err)
@@ -298,7 +304,7 @@ mod dial_bound {
     use sutura_domain::identity::Secret;
 
     use super::{OracleLogin, OracleReader};
-    use crate::postgres_reader::RowPredicate;
+    use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 
     /// A self-signed certificate's PEM: anchors the driver accepts.
     fn anchor() -> String {
@@ -327,6 +333,21 @@ mod dial_bound {
             Some(sutura_oracle_connect::DIAL_DEADLINE),
             "the reader's dial is not bounded by the dial deadline"
         );
+    }
+
+    /// **An address the driver cannot parse refuses the reader at build, before any dial.**
+    #[test]
+    fn the_oracle_reader_refuses_an_address_the_driver_cannot_parse() {
+        let login = OracleLogin::new(
+            String::from("not a host"),
+            1521,
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        )
+        .verified(anchor());
+        let refusal = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None);
+        assert!(matches!(refusal, Err(InvalidReaderConfig::Address(_))), "{refusal:?}");
     }
 }
 

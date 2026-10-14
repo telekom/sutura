@@ -64,7 +64,7 @@ use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqu
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
-use sutura_oracle_connect::DialError;
+use sutura_oracle_connect::{DialError, PrepareError};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -274,8 +274,8 @@ impl TokenSessions {
     pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
         dial.config().map(Self).map_err(|refused| match refused {
             DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
-            DialError::TrustAnchors(cause) => OracleError::TrustAnchors { cause: cause.into() },
-            DialError::Address(cause) => connect_err(cause),
+            DialError::Prepare(PrepareError::TrustAnchors(cause)) => OracleError::TrustAnchors { cause: cause.into() },
+            DialError::Prepare(PrepareError::Address(cause)) => connect_err(cause),
         })
     }
 
