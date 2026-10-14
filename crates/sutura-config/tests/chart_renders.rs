@@ -14,10 +14,10 @@
 //!
 //! # What this does NOT reach
 //!
-//! * **A serve rule stricter than the agent rule.** `sutura serve`'s `/v1` rule
-//!   (`Settings::query_surface_refusals`) is asked here through `Settings::agent_surface_refusals`,
-//!   which refuses at least what it does with no inbound block. So a change that makes the serve
-//!   rule refuse more is not seen here; the serve cells hold that rule itself.
+//! * **A rule `sutura serve` asks only at the listener.** `serve_refusals` asks
+//!   `Settings::query_surface_refusals` where `sutura serve` does, a deployment with no
+//!   `security.inbound` block; the `/mcp` rule is in `Settings::refusals`. The serve cells hold the
+//!   rule itself, and nothing here proves `serve_refusals` is the call site's whole condition.
 //! * **A refusal outside the posture guard.** The unguarded copy drops only that guard. A refusal
 //!   raised while deriving a value from a limit still fails the render, so such a case is declared
 //!   `Binary::Derivation` by hand. A `Derivation` case must have no unguarded golden, so one the
@@ -118,8 +118,16 @@ mod tests {
         }
     }
 
-    /// Why the binary refuses these inputs, or `None` when `sutura serve` starts with them: its `/v1`
-    /// rule is asked through the agent rule (module docs).
+    /// What `sutura serve` refuses once `Settings::load` accepted: `/v1` with no `security.inbound` block.
+    fn serve_refusals(settings: &Settings) -> Vec<NotFitToServe> {
+        if settings.security().inbound().is_some() {
+            Vec::new()
+        } else {
+            settings.query_surface_refusals()
+        }
+    }
+
+    /// Why the binary refuses these inputs, or `None` when `sutura serve` starts with them.
     fn refusal(environment: &str, directory: Option<&Path>, variables: BTreeMap<String, String>) -> Option<String> {
         let environment = match Environment::parse(environment) {
             Ok(environment) => environment,
@@ -132,9 +140,7 @@ mod tests {
         match Settings::load(&sources) {
             Err(error) => Some(format!("{:?}", error.reason())),
             Ok(settings) if !settings.refusals().is_empty() => Some(format!("{:?}", settings.refusals())),
-            Ok(settings) if !settings.agent_surface_refusals().is_empty() => {
-                Some(format!("{:?}", settings.agent_surface_refusals()))
-            }
+            Ok(settings) if !serve_refusals(&settings).is_empty() => Some(format!("{:?}", serve_refusals(&settings))),
             Ok(_) => None,
         }
     }
@@ -339,29 +345,26 @@ mod tests {
             "environment-not-exact",
             Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
         ),
-        // `sutura serve` refuses it as `QuerySurfaceWithoutInboundIdentity`, asked through the agent rule.
         (
             "identity-undeclared-without-inbound",
-            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
         ("image-variant-capitalised", Binary::Derivation),
         ("image-variant-padded", Binary::Derivation),
         ("image-variant-unknown", Binary::Derivation),
         ("image-variant-upper-case", Binary::Derivation),
-        // `sutura serve` refuses it as `QuerySurfaceOverAnImpersonatingSource`, asked through the agent rule.
         (
             "impersonating-source-without-inbound",
-            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceOverAnImpersonatingSource { .. })),
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceOverAnImpersonatingSource { .. })),
         ),
         ("memory-limit-unparseable", Binary::Derivation),
         (
             "metrics-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::MetricsTokenRequired { .. })),
         ),
-        // `sutura serve` refuses it as `QuerySurfaceWithoutInboundIdentity`, asked through the agent rule.
         (
             "multi-user-without-inbound",
-            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AgentSurfaceWithoutInboundIdentity)),
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
     ];
 
@@ -446,7 +449,7 @@ mod tests {
                 (Binary::Fails(held), Ok(Err(error))) if !held(error.reason()) => {
                     wrong.push(format!("{name}: the binary refuses it another way: {:?}", error.reason()));
                 }
-                (Binary::Refuses(held), Ok(Ok(settings))) if settings.agent_surface_refusals().iter().any(held) => {}
+                (Binary::Refuses(held), Ok(Ok(settings))) if serve_refusals(&settings).iter().any(held) => {}
                 (Binary::Refuses(_) | Binary::Fails(_), Ok(Ok(_))) => {
                     wrong.push(format!("{name}: the chart refuses it and the binary starts with it"));
                 }
@@ -454,10 +457,10 @@ mod tests {
                     "{name}: declared stricter than the binary ({why}), which refuses: {:?}",
                     error.reason()
                 )),
-                (Binary::Accepts(why), Ok(Ok(settings))) if !settings.agent_surface_refusals().is_empty() => {
+                (Binary::Accepts(why), Ok(Ok(settings))) if !serve_refusals(&settings).is_empty() => {
                     wrong.push(format!(
                         "{name}: declared as one the binary accepts ({why}), and `sutura serve` refuses it: {:?}",
-                        settings.agent_surface_refusals()
+                        serve_refusals(&settings)
                     ));
                 }
                 (Binary::Accepts(_) | Binary::Derivation | Binary::Fails(_), Ok(_)) => {}

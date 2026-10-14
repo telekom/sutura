@@ -1,6 +1,6 @@
 --- a/crates/sutura-cli/src/catalog.rs
 +++ b/crates/sutura-cli/src/catalog.rs
-@@ -699,6 +699,7 @@ fn open_one_datahub_catalog(
+@@ -814,6 +814,7 @@
      use sutura_catalog_datahub::http::{
          DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, ReadBounds,
      };
@@ -8,9 +8,8 @@
  
      let endpoint_raw = settings.endpoint().ok_or_else(|| {
          format!(
-@@ -742,7 +743,7 @@ fn open_one_datahub_catalog(
-     let mut sources = std::collections::BTreeMap::new();
-     drop(sources.insert(String::from("bigquery"), settings.name().clone()));
+@@ -852,7 +853,7 @@
+     };
      Ok(sutura_catalog_datahub::DataHubCatalog::new(
          settings.name().clone(),
 -        settings.version().clone(),

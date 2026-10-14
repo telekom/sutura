@@ -1,0 +1,44 @@
+# sutura's settings for this example. One metric from Postgres, grouped by one dimension from
+# ClickHouse. Both sources run as the deployment's own user, and DataHub says which platform is
+# which source.
+server:
+  host: "127.0.0.1"
+  port: 8080
+security:
+  identity: "single-user"
+  single_user_because: "one operator reads both sources as the deployment's own user"
+catalogs:
+  # DataHub, read with one token for every caller.
+  - name: "datahub"
+    kind: "datahub"
+    # Required for every catalog kind, and not read for DataHub.
+    dir: "/unused-for-datahub"
+    data_dir: "/unused-for-datahub"
+    version: "example"
+    endpoint: "http://127.0.0.1:8081"
+    token_file: "/run/sutura/datahub-token"
+    metric_property: "sutura"
+    # A dataset on the `postgres` platform is read from the source `billing`, and one on the
+    # `clickhouse` platform from the source `crm`.
+    platforms:
+      postgres: "billing"
+      clickhouse: "crm"
+sources:
+  billing:
+    kind: "postgres"
+    host: "127.0.0.1"
+    port: 5432
+    database: "federated"
+    user: "sutura"
+    password_file: "/run/sutura/postgres-password"
+    transport_mode: "verified"
+    transport_anchors: "/run/sutura/postgres-ca.pem"
+    posture: "shared-service-user"
+  crm:
+    kind: "clickhouse"
+    host: "127.0.0.1"
+    port: 8123
+    user: "default"
+    password_file: "/run/sutura/clickhouse-password"
+    transport_mode: "plaintext"
+    posture: "shared-service-user"

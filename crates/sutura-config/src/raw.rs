@@ -253,6 +253,21 @@ where
     <Hops as serde::Deserialize>::deserialize(deserializer).map(|hops| Some(hops.unwrap_or_default()))
 }
 
+/// A `datahub` entry's `platforms` as written: each platform name to its source alias, which may be null.
+pub(crate) type RawPlatformMap = BTreeMap<String, Option<String>>;
+
+/// A `platforms` key, absent or as written.
+pub(crate) type RawPlatforms = Option<RawPlatformMap>;
+
+/// A `platforms` key written with no value reads as an empty map rather than as an absent key, so it
+/// is refused as the empty map is.
+fn null_platforms_as_empty<'de, D>(deserializer: D) -> Result<RawPlatforms, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <RawPlatforms as serde::Deserialize>::deserialize(deserializer).map(|written| Some(written.unwrap_or_default()))
+}
+
 /// A `delegation` key, absent or as read.
 type Hops = Option<Vec<RawDelegation>>;
 
@@ -593,6 +608,12 @@ pub(crate) struct RawCatalog {
     /// decision 7's *not ours to say*, so there is no default and no adapter-chosen constant.
     #[serde(default)]
     pub(crate) metric_property: Option<String>,
+    /// `catalog.kind: datahub` only: each `DataHub` platform name mapped to the declared `sources:`
+    /// alias that serves its datasets. Absent selects the single `bigquery` platform served by this
+    /// catalog's own name; written empty, null or with a null value it is refused, and
+    /// `parse_catalogs` refuses the key on any other kind.
+    #[serde(default, deserialize_with = "null_platforms_as_empty")]
+    pub(crate) platforms: RawPlatforms,
     /// `catalog.kind: datahub`/`openmetadata`'s read deadline, in seconds, shared across the
     /// requests one `read()` makes. Absent means the reader's own recommended default - the
     /// matching adapter crate's `DEFAULT_TIMEOUT_SECONDS` - which `sutura-config` cannot name (it

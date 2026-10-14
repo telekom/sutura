@@ -1690,6 +1690,12 @@ Existence of the directories is checked when the catalog loads, not here: a dire
 disappear after configuration parsing.
 
 ```rust
+pub const fn platforms(&self) -> &BTreeMap<DataHubPlatform, SourceName>
+```
+
+The declared platform-to-source map; empty selects the single `bigquery` platform.
+
+```rust
 pub const fn rdbms(&self) -> Option<&RdbmsSettings>
 ```
 
@@ -1725,6 +1731,13 @@ where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::pa
 single owner of that range. This used to cite `BytesBilledCeiling::parse` as the same split
 for `BigQuery`'s ceiling; that type is deleted and its range is now owned by nobody, so the
 `DataHub` bounds are the only live example of the split.
+
+```rust
+pub fn with_datahub_platforms(self, platforms: BTreeMap<DataHubPlatform, SourceName>) -> Self
+```
+
+Adds the `catalog.kind: datahub`-only platform-to-source map. `parse_catalogs` has already
+checked that every value names a declared source.
 
 ```rust
 pub fn with_datahub_reader(self, endpoint: String, token_file: PathBuf, metric_property: String) -> Result<Self, InvalidCatalogSettings>
@@ -1797,6 +1810,12 @@ Why a catalog configuration is not usable.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is the default interval, not "never".
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
+- `UnknownPlatformSource` - A `catalog.kind: datahub` entry maps a platform to a source nobody declared under `sources:`.
+- `InvalidPlatform` - A `platforms:` key that is no platform name.
+- `DuplicatePlatform` - Two `platforms:` keys that read as one platform once trimmed, so the second would silently replace the first.
+- `EmptyPlatforms` - `platforms` was written with no entry, which would read as the default and so declares nothing.
+- `PlatformWithoutSource` - A platform was written with no source.
+- `PlatformsOnOtherKind` - A catalog of another kind wrote `platforms`, a key nothing would read.
 
 #### Implements
 
@@ -1839,6 +1858,17 @@ Reads the declared catalogs, refusing an empty list and any duplicated name.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `use DataHubPlatform`
+
+A `DataHub` data platform's name as `platforms:` keys it: what a dataset's platform URN ends in.
+
+Refuses only shapes that cannot be one - empty, or any whitespace. Whether `DataHub` knows the
+platform is not this type's question: an unmapped platform is refused where the models load.
+
+### `use InvalidDataHubPlatform`
+
+Why a written `platforms:` key cannot be a `DataHub` platform name.
 
 ### `use CatalogConnection`
 
@@ -1941,6 +1971,56 @@ The `kind: rdbms`-only half of a catalog entry, all or nothing.
 
 An rdbms entry carries every required field, and `crate::catalog::CatalogSettings` holds this
 as one `Option`, so no state with half of it set is representable.
+
+### Module `platform`
+
+The `DataHub` platform name a `catalogs[].platforms` key is.
+
+#### `struct DataHubPlatform`
+
+```rust
+pub struct DataHubPlatform
+```
+
+A `DataHub` data platform's name as `platforms:` keys it: what a dataset's platform URN ends in.
+
+Refuses only shapes that cannot be one - empty, or any whitespace. Whether `DataHub` knows the
+platform is not this type's question: an unmapped platform is refused where the models load.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The name as `DataHub` spells it.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDataHubPlatform>
+```
+
+Parses a written platform name, trimmed.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `enum InvalidDataHubPlatform`
+
+```rust
+pub enum InvalidDataHubPlatform
+```
+
+Why a written `platforms:` key cannot be a `DataHub` platform name.
+
+##### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `Whitespace` - A platform name is one token; a space inside it names no platform.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### Module `rdbms`
 
