@@ -37,6 +37,7 @@ use crate::causality::attributes::{attached, item_below};
 use crate::causality::diff::ChangedFile;
 use crate::causality::names::{CargoName, Ident};
 use crate::causality::regions::{AddedLine, PostImage, item_head, module_name};
+use crate::causality::runner::Build;
 use crate::changes::package_name;
 
 /// One test the diff added, as a key that identifies it in a run's output.
@@ -91,6 +92,20 @@ impl AddedTest {
 
     pub(crate) fn gate(&self) -> Option<&str> {
         self.gate.as_deref()
+    }
+
+    /// The build this test compiles in: its package's default one under an exact
+    /// `#[cfg(not(feature = ".."))]`, which `--all-features` leaves out. Any other spelling of that
+    /// condition reads as [`Build::All`], where it matches nothing and the run refuses.
+    pub(crate) fn build(&self) -> Build {
+        let off = self
+            .gate
+            .as_deref()
+            .and_then(|gate| gate.strip_prefix("#[cfg(not(feature = \""));
+        match off.and_then(|rest| rest.strip_suffix("\"))]")) {
+            Some(name) if !name.is_empty() && !name.contains('"') => Build::Default(self.binary.package().clone()),
+            _ => Build::All,
+        }
     }
 
     /// The function name, for a line a PERSON reads.
@@ -264,6 +279,12 @@ pub(super) enum Binary {
 }
 
 impl Binary {
+    const fn package(&self) -> &CargoName {
+        match *self {
+            Self::Package(ref package) | Self::Target(ref package, _) => package,
+        }
+    }
+
     /// The nextest predicate that selects it.
     pub(super) fn predicate(&self) -> String {
         match *self {

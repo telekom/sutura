@@ -44,6 +44,15 @@ pub(crate) enum Verdict {
 }
 
 impl Verdict {
+    /// Two answers about one change as one: a violation outranks no answer, which outranks a pass.
+    pub(crate) const fn worst(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Fail, _) | (_, Self::Fail) => Self::Fail,
+            (Self::Inconclusive, _) | (_, Self::Inconclusive) => Self::Inconclusive,
+            _ => Self::Pass,
+        }
+    }
+
     // Not const: `ExitCode::from` is not a const fn.
     pub(crate) fn exit_code(self) -> ExitCode {
         match self {

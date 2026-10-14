@@ -1330,6 +1330,20 @@ its kill run asks the same predicate of the cell's own failure, only where that 
 | a copy of the panic line under the failing test's OWN thread name, with the requirement below it | it reads as that test's tier panic |
 | a tier cell that never calls `provisioned::here` (an opt-in skip of its own) | it still passes vacuously on a host without that tier, on base and on HEAD alike |
 
+**A test that compiles only with a feature OFF is measured in its package's default build.**
+`--all-features` leaves out a `#[cfg(not(feature = ".."))]` test, so the head run used to match
+nothing and refuse. `place::AddedTest::build` sends such a test to `runner::Build::Default`
+(`--package <p>`, no `--features`, the selection of `check-default-feature-tests`). There the head run
+and the base run use the same red-on-base rules, and the gate answers with the worst verdict of the builds.
+
+| Not covered | What happens |
+| --- | --- |
+| any other spelling: `not(any(..))`, `cfg_attr`, a gated `mod`, or extra spaces | the test stays in the `--all-features` run, matches nothing, and is refused |
+| the feature is in the package's `default` set | the default build leaves it out too, so it is refused |
+| a `Claim-Cell:` kill run | always `--all-features`, so it never reaches a declared cell under that gate |
+| a diff that changes `default` | the base retry restores the manifest, so base can build other features than HEAD |
+| the `measured:` line | printed per build: each build lists the other build's tests as not measured |
+
 **A `#[cfg(test)]` ITEM IS NOT A TEST, and one attribute was the whole difference between a hard
 refusal and a silent pass.** The classifier read a bare added `#[cfg(test)]` as *this file adds a
 test* whatever sat beneath it, so a diff adding a test-only HELPER entered the proof and then failed

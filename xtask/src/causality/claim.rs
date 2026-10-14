@@ -81,7 +81,7 @@ use crate::causality::diff::{self, ChangedFile};
 use crate::causality::names::Ident;
 use crate::causality::place::AddedTest;
 use crate::causality::regions::{PostImage, TestScope, cfg_test_regions as test_regions, scope as test_scope};
-use crate::causality::runner::{Tree, cargo_test};
+use crate::causality::runner::{Build, Tree, cargo_test};
 use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
 
@@ -655,7 +655,7 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str, tier: &[(Str
     // The isolation clean runs INSIDE `cargo_test` on the same witness (dir, target, profile);
     // there is no second call here whose failure would read as a misleading "does not apply".
     let term = added.term();
-    let (ok, text) = cargo_test(wt, target, &term, Tree::Mutated(tier));
+    let (ok, text) = cargo_test(wt, target, &term, &Build::All, Tree::Mutated(tier));
     // ATTEST BEFORE RESTORE: the region the panic site is judged against must be the cell's
     // post-mutation file, because a mixed-file patch shifts its own test region's line numbers -
     // reading the HEAD image would compare a mutated `panicked at <line>` against the wrong region.

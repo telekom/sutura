@@ -74,6 +74,7 @@ use crate::causality::features::{Because, Enabled};
 use crate::causality::names::Ident;
 use crate::causality::place::{AddedTest, Declares, accounted_for, place};
 use crate::causality::regions::{AddedLine, PostImage};
+use crate::causality::runner::Build;
 use crate::serde_parse::scan::{code_lines_blanking_all_strings, starts_in_code};
 
 /// A provable file that named no test, and where its tests actually are.
@@ -109,6 +110,9 @@ pub(crate) struct Scoped {
     /// tests*. A runnable neighbour is what makes that reachable, so the list has to survive
     /// alongside one.
     ignored: Vec<Ident>,
+    /// What a run of these tests compiles. [`Scan::of`] says [`Build::All`] for all of them, and
+    /// [`Self::by_build`] splits off the tests that compile only in another build.
+    build: Build,
 }
 
 impl Scoped {
@@ -125,6 +129,30 @@ impl Scoped {
     /// The added tests no run in this venue reaches, by name.
     pub(crate) fn ignored(&self) -> &[Ident] {
         &self.ignored
+    }
+
+    pub(crate) const fn build(&self) -> &Build {
+        &self.build
+    }
+
+    /// One scope per build these tests compile in, in first-seen order, so each is measured where
+    /// it exists rather than refused for matching nothing under `--all-features`.
+    pub(crate) fn by_build(&self) -> Vec<Self> {
+        let mut builds: Vec<Build> = Vec::new();
+        for build in self.tests.iter().map(AddedTest::build) {
+            if !builds.contains(&build) {
+                builds.push(build);
+            }
+        }
+        builds
+            .into_iter()
+            .map(|build| Self {
+                tests: self.tests.iter().filter(|one| one.build() == build).cloned().collect(),
+                silent: self.silent.clone(),
+                ignored: self.ignored.clone(),
+                build,
+            })
+            .collect()
     }
 
     /// The nextest filter expression that runs exactly these tests.
@@ -144,6 +172,7 @@ impl Scoped {
             tests,
             silent: Vec::new(),
             ignored: Vec::new(),
+            build: Build::All,
         }
     }
 
@@ -166,6 +195,7 @@ impl Scoped {
             tests: kept,
             silent: self.silent.clone(),
             ignored: self.ignored.clone(),
+            build: self.build.clone(),
         })
     }
 }
@@ -329,6 +359,7 @@ impl Scan {
                 // in neither of `super::coverage`'s numbers, so this list is the only thing that
                 // can name them, and a runnable neighbour is exactly when that used to be lost.
                 ignored,
+                build: Build::All,
             });
         }
         if ignored.is_empty() {

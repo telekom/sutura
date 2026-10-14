@@ -10,6 +10,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::isolation::Isolated;
+use super::names::CargoName;
 
 /// Run the test suite in `dir` with nextest, building into `target`.
 ///
@@ -53,7 +54,7 @@ use super::isolation::Isolated;
 ///
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
 /// and passing the cargo profile there would select a nextest profile that does not exist.
-pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree<'_>) -> (bool, String) {
+pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, build: &Build, tree: Tree<'_>) -> (bool, String) {
     // The removal comes FIRST and its failure is the run's failure: the run that would follow a
     // failed clean is exactly the one whose verdict cannot be trusted.
     let isolated = match Isolated::of(dir, target) {
@@ -64,7 +65,11 @@ pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree<'_>) 
     // version of this ran fine while removing nothing at all. A zero here on a directory the gate
     // has built in before is the tell that the removal has stopped reaching what the run reuses.
     println!("  {isolated}");
-    match nextest(&isolated, only, tree).output() {
+    let mut command = match *build {
+        Build::All => nextest(&isolated, only, tree),
+        Build::Default(ref package) => shipped(&isolated, only, tree, package.as_str()),
+    };
+    match command.output() {
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&o.stderr));
@@ -85,6 +90,17 @@ pub(super) enum Tree<'a> {
     /// path (`claim::tier`), whose credential this carries - empty when it did not start. A skip there would pass as a mutation
     /// the cell survived, so the requirement is FORCED and an absent tier fails loudly.
     Mutated(&'a [(String, String)]),
+}
+
+/// Which features a run compiles, chosen per test by `place::AddedTest::build`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Build {
+    /// `--workspace --all-features`, which compiles every cell except one gated on a feature being OFF.
+    All,
+    /// One package at its default features - `check-default-feature-tests`' own selection - the only
+    /// build here a `#[cfg(not(feature = ".."))]` cell exists in. A feature in the package's
+    /// `default` set excludes such a cell from this build too, and the run refuses on matching nothing.
+    Default(CargoName),
 }
 
 /// The nextest invocation for one run.
@@ -146,12 +162,23 @@ pub(super) enum Tree<'a> {
 /// measured here settles whether this should be an `env_clear` - which would also take
 /// `CARGO_TARGET_DIR` and the toolchain's own variables with it.
 pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree<'_>) -> Command {
+    run(isolated, only, tree, ["--workspace", "--all-features"])
+}
+
+/// [`nextest`] for [`Build::Default`]: `package` alone, at the features its manifest defaults to.
+fn shipped(isolated: &Isolated, only: &str, tree: Tree<'_>, package: &str) -> Command {
+    run(isolated, only, tree, ["--package", package])
+}
+
+fn run(isolated: &Isolated, only: &str, tree: Tree<'_>, selection: [&str; 2]) -> Command {
     let mut command = Command::new("cargo");
     command
         .current_dir(isolated.dir())
         .env("CARGO_TARGET_DIR", isolated.target())
         .env_remove("NEXTEST_PROFILE")
-        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile"])
+        .args(["nextest", "run"])
+        .args(selection)
+        .arg("--cargo-profile")
         .arg(isolated.profile())
         .args(["--no-fail-fast", "--status-level", "all", "-E", only]);
     match tree {

@@ -17,6 +17,8 @@
 //! ordinarily a graph over defaults and dependents - but **both of this gate's runs are
 //! `--all-features`** (`super::runner::nextest`, and the test below asks the built command for its
 //! arguments rather than trusting this sentence), so a feature that EXISTS in the table is enabled.
+//! `super::runner::Build::Default` is the one exception, and it runs only tests the diff named, so
+//! a module of pre-existing tests that build compiles never runs in it.
 //! That collapses the graph to a set difference: under `--all-features` the only way a
 //! `#[cfg(feature = ..)]` gate can flip from off to on is for the manifest to declare a name
 //! **in `[features]`** that it did not declare before.

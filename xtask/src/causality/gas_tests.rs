@@ -1,15 +1,13 @@
 //! The REAL-CARGO fixtures for `causality::run`'s claim dispatch, split out of `causality.rs` at the 1000-line cap.
 //!
-//! `claim::tests` drives `claim::run` with string-only fixtures; these build a tiny real crate and run `kill_cell`'s
-//! real `cargo test` against it, because the dispatch from `causality::run` into `claim::run` (and, after
-//! `github.com/telekom/sutura#954`, the COMPOSITE that also runs the ordinary proof over a range's undeclared additions)
-//! is a seam no string fixture reaches. `set_current_dir` is process-global, so each fixture asserts `NEXTEST` and
-//! runs alone.
+//! `claim::tests` drives `claim::run` with string-only fixtures; these build a tiny real crate and run `kill_cell`'s real
+//! `cargo test` against it, because the dispatch from `causality::run` into `claim::run` (and, after
+//! `github.com/telekom/sutura#954`, the COMPOSITE that also runs the ordinary proof over a range's undeclared additions) is
+//! a seam no string fixture reaches. `set_current_dir` is process-global, so each fixture asserts `NEXTEST` and runs alone.
 //!
-//! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch, reached
-//! over a `Separable::revert`-empty diff rather than an inseparable one. `#1025` added the fifth:
-//! `super::edited::touches` routing a file with NO added marker into `test_files` at all, over a
-//! diff whose only change is an added line inside a test that already existed.
+//! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch, reached over a
+//! `Separable::revert`-empty diff rather than an inseparable one. `#1025` added the fifth: `super::edited::touches` routing
+//! a file with NO added marker into `test_files` at all, over a diff that only adds a line inside an existing test.
 
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,6 +21,8 @@ static SEQ: AtomicUsize = AtomicUsize::new(0);
 mod deleted_tests;
 #[cfg(test)]
 mod endpoint_tests;
+#[cfg(test)]
+mod feature_off_tests;
 #[cfg(test)]
 mod merge_tests;
 

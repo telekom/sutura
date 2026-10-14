@@ -434,3 +434,14 @@ it as `ClickHouseError::LegUnderExecuteAs` before it sends anything. A leg runs 
 `user` of a `shared-service-user` source, or signed in with the caller's `delegation` token.
 **Limit.** The adapter refuses that leg after the mint, so the answer fails with the adapter's
 error and not with the `federation_not_executable` refusal.
+
+## Third amendment, 2026-10-14: causality measures a test that needs a feature off
+
+Decision 5 says *`just causality` builds with every feature*, so it runs no cell that needs the
+`sql` feature off. That holds for `just test` only now. `just causality` runs a test declared under
+`#[cfg(not(feature = ".."))]` in its package's default build, the build `just gates` runs, and that
+test must be red on base and green on HEAD there, as any other test must. **Limit.** Only that exact
+attribute on the test's own function selects the build. A test with another form of the condition
+stays in the all-features build, and a test whose feature is in the package's `default` set is out
+of both builds, so the run matches no test and the gate refuses. A `Claim-Cell:` kill run stays in
+the all-features build, so it does not reach a declared cell under that attribute.

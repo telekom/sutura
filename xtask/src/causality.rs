@@ -256,7 +256,7 @@ fn prove(
     let named: Vec<&str> = scoped.tests().iter().map(AddedTest::name).collect();
     let moved = already_there(root, base, &named, scoped.tests());
     report_moved(&moved);
-    let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
+    let (head_ok, head_out) = cargo_test(root, &shared_target, &only, scoped.build(), Tree::Provisioned);
     if !head_ok {
         return report_head_failure(&head_out, &only);
     }
@@ -333,7 +333,7 @@ fn reconstruct_and_run(
         return Verdict::Fail;
     }
 
-    let (base_ok, base_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
+    let (base_ok, base_out) = cargo_test(wt, target, scope.only, scoped.build(), Tree::Reconstructed);
     let outcome = classify_base(&base_out, base_ok, scoped.tests(), scope.moved, scope.reverted.attempt(false));
 
     if retry_with_held_back(&outcome, held) {
@@ -350,7 +350,7 @@ fn reconstruct_and_run(
             eprintln!("xtask test-causality: {e}");
             return Verdict::Fail;
         }
-        let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
+        let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, scoped.build(), Tree::Reconstructed);
         return report_base_scoped(
             &classify_base(
                 &retry_out,
@@ -810,6 +810,12 @@ fn separable_verdict(
                 working_tree,
                 base_tree,
             );
+            // ONE PROOF PER BUILD: a test compiled only without a feature is measured in its
+            // package's default build, and the worst verdict of the parts is the answer.
+            let proof = |part: &Scoped| {
+                let coverage = live.coverage(Coverage::of(part.tests(), files, working_tree));
+                prove(root, at, separable, part, &coverage, &reach, files, working_tree, exempt)
+            };
             if let Some(claim) = claim::Claim::of(&worktree::messages(root, at)) {
                 let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
                 let claim_verdict = claim::run(root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
@@ -822,25 +828,9 @@ fn separable_verdict(
                     // Every added test is a claim cell: the claim arm is the whole proof.
                     return claim_verdict;
                 };
-                let ordinary = prove(
-                    root,
-                    at,
-                    separable,
-                    &remaining,
-                    &live.coverage(Coverage::of(remaining.tests(), files, working_tree)),
-                    &reach,
-                    files,
-                    working_tree,
-                    exempt,
-                );
-                return match (claim_verdict, ordinary) {
-                    (Verdict::Fail, _) | (_, Verdict::Fail) => Verdict::Fail,
-                    (Verdict::Inconclusive, _) | (_, Verdict::Inconclusive) => Verdict::Inconclusive,
-                    _ => Verdict::Pass,
-                };
+                return remaining.by_build().iter().map(proof).fold(claim_verdict, Verdict::worst);
             }
-            let coverage = live.coverage(Coverage::of(scoped.tests(), files, working_tree));
-            prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree, exempt)
+            scoped.by_build().iter().map(proof).fold(Verdict::Pass, Verdict::worst)
         }
         Scan::Unreadable(files) => report_unreadable(&files),
         Scan::Enabled(refused) => report_enabled_tests(&refused),
