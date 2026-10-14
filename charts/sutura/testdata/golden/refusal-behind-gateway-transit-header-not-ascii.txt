@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.inbound.transit_header holds a character a header name cannot: after trimming and ASCII case folding sutura accepts lower-case letters, digits, `-` and `_` only, and refuses to start otherwise (InvalidInboundValue::NotPermitted)
+
+Use --debug flag to render out invalid YAML

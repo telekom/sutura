@@ -34,7 +34,9 @@ mod tests {
 
     use serde::Deserialize as _;
     use serde_norway::Value;
-    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment};
+    use sutura_config::{
+        Environment, InvalidAccessToken, InvalidInboundValue, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment,
+    };
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
     /// `SUTURA__*` variable.
@@ -258,6 +260,8 @@ mod tests {
     enum Binary {
         /// The binary refuses the same configuration, by a refusal this accepts.
         Refuses(fn(&NotFitToServe) -> bool),
+        /// The binary refuses it while reading the settings, by an error this accepts.
+        Fails(fn(&SettingsError) -> bool),
         /// The chart refuses a configuration the binary starts with, on purpose: the reason.
         Accepts(&'static str),
         /// The chart fails deriving a value from a limit, so no configuration reaches the binary.
@@ -265,14 +269,50 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 13] = [
+    const REFUSALS: [(&str, Binary); 16] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
         ),
         (
+            "access-token-padded",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::AccessToken {
+                        cause: InvalidAccessToken::Untrimmed
+                    }
+                )
+            }),
+        ),
+        (
+            "access-token-whitespace-only",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::AccessToken {
+                        cause: InvalidAccessToken::Untrimmed
+                    }
+                )
+            }),
+        ),
+        (
             "behind-gateway-authorization-with-access-token",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "behind-gateway-transit-header-not-ascii",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::InboundValue {
+                        cause: InvalidInboundValue::NotPermitted {
+                            key: "security.inbound.transit_header",
+                            ..
+                        }
+                    }
+                )
+            }),
         ),
         ("cpu-limit-unparseable", Binary::Derivation),
         (
@@ -380,14 +420,17 @@ mod tests {
                     SettingsError::NotFitToServe { refusals } if refusals.iter().any(held) => {}
                     other => wrong.push(format!("{name}: the binary refuses it another way: {other:?}")),
                 },
-                (Binary::Refuses(_), Ok(Ok(_))) => {
+                (Binary::Fails(held), Ok(Err(error))) if !held(error.reason()) => {
+                    wrong.push(format!("{name}: the binary refuses it another way: {:?}", error.reason()));
+                }
+                (Binary::Refuses(_) | Binary::Fails(_), Ok(Ok(_))) => {
                     wrong.push(format!("{name}: the chart refuses it and the binary starts with it"));
                 }
                 (Binary::Accepts(why), Ok(Err(error))) => wrong.push(format!(
                     "{name}: declared stricter than the binary ({why}), which refuses: {:?}",
                     error.reason()
                 )),
-                (Binary::Accepts(_) | Binary::Derivation, Ok(_)) => {}
+                (Binary::Accepts(_) | Binary::Derivation | Binary::Fails(_), Ok(_)) => {}
             }
         }
         assert!(

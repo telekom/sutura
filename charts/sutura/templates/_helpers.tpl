@@ -36,9 +36,9 @@ this fails the render rather than shipping a Deployment that crash-loops on the 
 The credential is an access token or an inbound identity (`security.inbound.mode`), and `direct`
 refuses an access token beside it, as does `behind-gateway` with a `transit_header` of
 `authorization`. Both are read the way the binary layers the two files: the environment file over
-`base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read. The header is compared as
-the binary folds it (ASCII case only), and a configured token with surrounding whitespace is left to
-the binary, which refuses it as untrimmed before it reaches either refusal.
+`base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read. A header with a character
+outside ASCII letters, digits, `-` and `_`, or a configured token with surrounding whitespace, is
+refused first as the binary does, so the sharing compare below sees only what the binary folds.
 */}}
 {{- define "sutura.requireOffHostPosture" -}}
 {{- if not .Values.environment -}}
@@ -53,14 +53,19 @@ the binary, which refuses it as untrimmed before it reaches either refusal.
 {{- $transit := dig "security" "inbound" "transit_header" (dig "security" "inbound" "transit_header" "" $base) $env | default "" | toString | trim -}}
 {{- $configToken := dig "security" "access_token" (dig "security" "access_token" "" $base) $env | default "" | toString -}}
 {{- $token := or .Values.security.accessToken.secretName $configToken -}}
-{{- $readToken := or .Values.security.accessToken.secretName (ternary $configToken "" (eq $configToken (trim $configToken))) -}}
+{{- if ne $configToken (trim $configToken) -}}
+{{ fail "security.access_token in config begins or ends with whitespace: sutura refuses to start with it, because no token can be read from it (SettingsError::AccessToken, InvalidAccessToken::Untrimmed) - remove the whitespace, or set the token from a Secret with security.accessToken.secretName" }}
+{{- end -}}
+{{- if and (eq $mode "behind-gateway") (not (regexMatch "^[A-Za-z0-9_-]*$" $transit)) -}}
+{{ fail "security.inbound.transit_header holds a character a header name cannot: after trimming and ASCII case folding sutura accepts lower-case letters, digits, `-` and `_` only, and refuses to start otherwise (InvalidInboundValue::NotPermitted)" }}
+{{- end -}}
 {{- if not (or $token $mode) -}}
 {{ fail "security.accessToken.secretName is required when config.base and config.environment set no security.inbound.mode: this chart's Service makes the pod reachable off-host, and sutura refuses to start there with neither security.access_token nor an inbound identity (Settings::refusals::AccessTokenRequired)" }}
 {{- end -}}
-{{- if and $readToken (eq $mode "direct") -}}
+{{- if and $token (eq $mode "direct") -}}
 {{ fail "security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway` with a transit_header other than `authorization`" }}
 {{- end -}}
-{{- if and $readToken (eq $mode "behind-gateway") (regexMatch "(?i)^authorization$" $transit) -}}
+{{- if and $token (eq $mode "behind-gateway") (eq (lower $transit) "authorization") -}}
 {{ fail "security.inbound.mode is `behind-gateway` with security.inbound.transit_header `authorization` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because the gateway's assertion and the access token are both read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or sign the gateway's assertion into a header of its own" }}
 {{- end -}}
 {{- if not .Values.security.metricsToken.secretName -}}

@@ -1,0 +1,23 @@
+# Mirrors the binary's refusal of a `transit_header` with a character outside lower-case letters,
+# digits, `-` and `_` after it trims and folds ASCII case (`InvalidInboundValue::NotPermitted`): U+0130
+# is not ASCII, so the binary does not read it as `authorization` and refuses it while reading the
+# settings.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  environment:
+    security:
+      inbound:
+        mode: behind-gateway
+        transit_header: "AUTHORİZATİON"
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]
