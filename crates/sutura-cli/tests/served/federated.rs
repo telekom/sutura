@@ -36,7 +36,7 @@ mod tests {
     fn put(text: &str, from: &str, to: &str) -> String {
         assert!(
             text.contains(from),
-            "examples/federated/conf/sutura.yaml no longer declares {from}"
+            "examples/federated/conf/base.yaml no longer declares {from}"
         );
         text.replace(from, to)
     }
@@ -82,7 +82,7 @@ mod tests {
         };
         let published =
             |variable: FixtureVariable| std::env::var(variable.name()).unwrap_or_else(|_| panic!("{variable} is not published"));
-        let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/federated/conf/sutura.yaml");
+        let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/federated/conf/base.yaml");
         let declared = std::fs::read_to_string(&conf).expect("the example's settings are readable");
         let replaced = [
             ("port: 8080", String::from("port: 0")),

@@ -14,7 +14,7 @@ The example is in
 
 | Path                  | Contents                                                              |
 | --------------------- | --------------------------------------------------------------------- |
-| `conf/sutura.yaml`    | The sutura settings                                                   |
+| `conf/base.yaml`      | The sutura settings                                                   |
 | `compose.yaml`        | Postgres with TLS, ClickHouse, a live DataHub, and the catalog loader |
 | `postgres/init.sql`   | The fact table `fct_subscription_monthly`                             |
 | `clickhouse/init.sql` | The dimension table `dim_customer`                                    |
@@ -26,7 +26,7 @@ The rows are the CSV files of the [single player](single-player.md) example. All
 ## The settings
 
 ```yaml
---8<-- "examples/federated/conf/sutura.yaml"
+--8<-- "examples/federated/conf/base.yaml"
 ```
 
 `platforms` maps the platform of each DataHub dataset to the source that serves it. The dataset
@@ -59,9 +59,28 @@ docker compose up -d --wait postgres clickhouse datahub
 docker compose run --rm federated-loader
 ```
 
-The files in `.local` are the files that `conf/sutura.yaml` reads from `/run/sutura`:
+The files in `.local` are the files that `conf/base.yaml` reads from `/run/sutura`:
 `datahub-token`, `postgres-password`, `postgres-ca.pem` and `clickhouse-password`. Every port of
 these services binds to `127.0.0.1` only.
+
+Start sutura in a second terminal. It stays in the foreground. `SUTURA_CONFIG_DIR` names the
+directory that holds `base.yaml`, and the container reads the files in `.local` as its own user. It
+uses the host network, as in the [single player](single-player.md) example:
+
+```sh
+export SUTURA_VERSION={{ sutura_version }}
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+  -v "$PWD/conf:/conf:ro" -v "$PWD/.local:/run/sutura:ro" -e SUTURA_CONFIG_DIR=/conf \
+  ghcr.io/telekom/sutura:$SUTURA_VERSION serve
+```
+
+Post the question:
+
+```sh
+curl -s -X POST http://127.0.0.1:8080/v1/query \
+  -H 'content-type: application/json' \
+  -d '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'
+```
 
 ## Related
 
