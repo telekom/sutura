@@ -229,6 +229,31 @@ the cross-resource venue can run under it. A fork's pull request cannot see an e
 secrets, which is one reason `bigquery-declared-principal` is `workflow_dispatch` only - the same
 `docs/adr/0017` rule the removed `bigquery-acceptance` job met with a skip.
 
+## Mode b (`google_login`): what is manual
+
+The stack grants the optional `google_login_user` account its BigQuery roles. The rest cannot be
+created by this stack: pulumi_gcp's only OAuth client resource, `iap.Client`, is IAP-owned and its
+API is shut down. Do these by hand, with your own values for the placeholders:
+
+1. **Google Cloud console, OAuth consent screen** (Google Auth Platform → Branding, Audience, Data
+   access) in `<project>`: audience **Internal** for one organisation; add the scope
+   `https://www.googleapis.com/auth/bigquery`.
+2. **Google Cloud console, Clients → Create client**: type **Web application**; authorised
+   redirect URI `https://<idp-host>/realms/<realm>/broker/<alias>/endpoint`. Keep the client ID and
+   secret.
+3. **Keycloak**: start it with `--features=identity-brokering-api:v2`. In `<realm>`, add an
+   identity provider of type **Google** with alias `<alias>`, the client ID and secret from step 2,
+   **Store tokens** on, the scope `openid email https://www.googleapis.com/auth/bigquery`,
+   **Request refresh token** (offline access) on, and **Hosted domain** `<your-domain>`.
+4. **Keycloak, client `sutura`**: confidential (client authentication on), **Allow retrieve
+   external tokens** on, with `<alias>` among the identity providers it may retrieve from.
+5. **The test user** signs in to `<realm>` through Google once, so the account is linked, and its
+   Google address goes into `google_login_user`.
+6. **sutura**: a `bigquery` source with `posture: impersonation-at-source` and
+   `google_login.token_endpoint: https://<idp-host>/realms/<realm>/broker/<alias>/token`,
+   `client_id: sutura`, `client_secret_file: <path>`, on a deployment with
+   `security.inbound.mode: direct` whose issuer is `<realm>`.
+
 ## Caveats
 
 - **Preview is green against pulumi_gcp 9.35.1** (`+14 to create`: the two API-enabling
