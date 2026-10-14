@@ -22,9 +22,9 @@ oracledb = { workspace = true, features = ["arrow"] }
 # The driver's answer arrives as Arrow batches; the domain reads the workspace's one Arrow major.
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
-# The packet-trace refusal every Oracle dial asks before it dials, shared with
-# `sutura-catalog-rdbms`'s Oracle reader: the variable is a process global.
-sutura-runtime = { workspace = true }
+# The dial - address, channel, bound, packet-trace refusal - shared with `sutura-catalog-rdbms`'s
+# Oracle reader, so the two cannot drift.
+sutura-oracle-connect = { workspace = true }
 thiserror = { workspace = true }
 # Serializes every call on the one connection - `clippy.toml` disallows `std::sync::Mutex`
 # regardless of whether the surrounding code is async, and this crate has no `tokio` runtime to

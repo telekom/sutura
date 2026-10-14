@@ -19,6 +19,7 @@ use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
+use sutura_app::question::QuestionMeter as _;
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::deadline::Deadline;
 
@@ -103,7 +104,7 @@ pub(crate) async fn run_sql(
         detail: crate::problem::Detail::of(&cause),
     })?;
 
-    let admission_wait = state.metrics().admission_started();
+    let admission_wait = sutura_app::question::AdmissionWait::start(state.metrics());
     let slot = state.admission().admit().await.map_err(|shed| {
         state.metrics().shed();
         super::query::refused(&shed)

@@ -1,6 +1,6 @@
 {{/*
-Naming, common labels, and the render-time guards that mirror `Settings::refusals` -
-`crates/sutura-config/src/settings.rs` - close enough to catch a broken values file before
+Naming, common labels, and the render-time guards that mirror `Settings::refusals` and
+`Settings::query_surface_refusals` - `crates/sutura-config/src/settings.rs` - close enough to catch a broken values file before
 `kubectl apply` does. These are a chart-side heuristic, not the binary's own check: the
 binary's refusal is the one that actually runs, and it sees the fully layered settings tree
 this chart cannot evaluate (a Secret's contents, an environment-specific override file).
@@ -39,6 +39,10 @@ refuses an access token beside it, as does `behind-gateway` with a `transit_head
 `base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read. A header with a character
 outside ASCII letters, digits, `-` and `_`, or a configured token with surrounding whitespace, is
 refused first as the binary does, so the sharing compare below sees only what the binary folds.
+
+With no inbound mode, `sutura serve` starts `/v1` only for a `single-user` deployment with no
+`impersonation-at-source` source (`Settings::query_surface_refusals`). Those two guards come last,
+so a values file that breaks an earlier rule still fails at that rule.
 */}}
 {{- define "sutura.requireOffHostPosture" -}}
 {{- if not .Values.environment -}}
@@ -77,6 +81,17 @@ refused first as the binary does, so the sharing compare below sees only what th
 {{- end -}}
 {{- if and .Values.tls.enabled (not .Values.tls.secretName) -}}
 {{ fail "tls.enabled requires tls.secretName (a kubernetes.io/tls Secret)" }}
+{{- end -}}
+{{- if not $mode -}}
+{{- $identity := dig "security" "identity" (dig "security" "identity" "" $base) $env | default "" | toString | trim -}}
+{{- if ne $identity "single-user" -}}
+{{ fail "config.base and config.environment set no security.inbound.mode and security.identity is not single-user: sutura serve refuses to start /v1 with no inbound identity unless one user's own credentials run every query (Settings::query_surface_refusals::QuerySurfaceWithoutInboundIdentity) - set security.identity: single-user with a reason in security.single_user_because, or declare security.inbound" }}
+{{- end -}}
+{{- range $alias, $source := mergeOverwrite (deepCopy (dig "sources" (dict) $base)) (dig "sources" (dict) $env) -}}
+{{- if eq (dig "posture" "" $source | toString | trim) "impersonation-at-source" -}}
+{{ fail (printf "sources.%s is impersonation-at-source and config.base and config.environment set no security.inbound.mode: sutura serve refuses to start /v1 over a source that runs each query as a verified caller when no inbound identity verifies one (Settings::query_surface_refusals::QuerySurfaceOverAnImpersonatingSource) - declare security.inbound, or give the source another posture" $alias) }}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

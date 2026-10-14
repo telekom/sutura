@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use sutura_app::Validated;
-use sutura_domain::model::SourceName;
+use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
 use sutura_domain::plan::{RowCeiling, RowCeilings};
@@ -13,7 +13,9 @@ use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{DataSystemUnderTest, a_caller, deadline, posture, shared_credential, source, version};
+use crate::adapters::{
+    ClickHouse, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture, shared_credential, source, version,
+};
 
 use super::corpus::{LOOKUP_SOURCE, derived, every_question, lookup_source};
 
@@ -172,16 +174,40 @@ pub(super) fn validating_on_two_engines(
 
 /// One data system of kind `W` holding one source's tables and nothing else.
 ///
-/// Opened through the registry's own [`DataSystemUnderTest::open_on`], so a side here is the same
-/// adapter, opened the same way, as the corpus cells. It asserts a non-empty table set: a data
+/// Opened through [`OpensFederated`], which is the registry's own [`DataSystemUnderTest::open_on`]
+/// except where an adapter's matrix load refuses the corpus's empty cell, so a side here is the same
+/// adapter as the corpus cells. It asserts a non-empty table set: a data
 /// system with no table attached would answer nothing and the failure would name the question.
 pub(super) fn opened_on<W>(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> W
 where
-    W: DataSystemUnderTest,
+    W: OpensFederated,
 {
     let attached = tables_on(data, name, pinned);
     assert!(!attached.is_empty(), "no model in the derived bundle sits on {name}");
-    W::open_on(name.clone(), attached)
+    W::open_federated_on(name.clone(), attached)
+}
+
+/// How a data system opens the federated corpus, whose one deliberately absent key must read as NULL.
+///
+/// Every registered data system implements it, or the two-fact walk does not build. Only
+/// `ClickHouse` overrides the default, because its golden-matrix load refuses an empty cell.
+pub(crate) trait OpensFederated: DataSystemUnderTest {
+    fn open_federated_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
+        Self::open_on(name, tables)
+    }
+}
+
+impl OpensFederated for sutura_exec_datafusion::DataFusionWarehouse {}
+impl OpensFederated for sutura_exec_duckdb::DuckDbWarehouse {}
+impl OpensFederated for sutura_exec_postgres::adbc::AdbcPostgres {}
+impl OpensFederated for sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {}
+impl OpensFederated for sutura_exec_oracle::OracleWarehouse {}
+impl OpensFederated for sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube> {}
+
+impl OpensFederated for ClickHouse {
+    fn open_federated_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
+        clickhouse_on(name, tables, Self::load_federated_csv)
+    }
 }
 
 /// The two-source registry, and whatever the bundle validated to. [`validating_on_one_source`]'s

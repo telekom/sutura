@@ -109,7 +109,7 @@ either without a trait object.
 
 ### Variants
 
-- `Postgres` - The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
+- `Postgres` - The Postgres documentation-schema reader.
 - `Oracle` - The Oracle documentation-schema reader, behind the `live-oracle` feature.
 
 ### Methods
@@ -628,9 +628,12 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
   driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
   source, not observed against a server - so up to one batch is in memory before a cap refuses.
-- **The connection is plaintext and stays on its declared loopback host.** `sutura-config`'s
-  `OracleCatalogConnection` refuses TLS and a non-loopback host, and a listener's redirect is
-  refused before authentication as `RdbmsError::RedirectRefused`.
+- **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
+  `OracleCatalogConnection` holds no plaintext channel, and `OracleLogin::verified`'s PEM
+  anchors replace the driver's public authorities; no client certificate is presented, and the
+  handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
+  bytes still cross the network, encrypted. A listener's redirect is refused before
+  authentication as `RdbmsError::RedirectRefused`.
 - **`SharedServiceUser`, not leg 2.** A catalog read has no caller to run as; it is one login
   under the user the deployment declared.
 
@@ -640,13 +643,21 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
 pub struct OracleLogin
 ```
 
-Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial.
+Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial, plaintext
+until `OracleLogin::verified`.
 
 #### Methods
 
 ```rust
 pub const fn new(host: String, port: u16, service_name: String, user: String, password: Secret) -> Self
 ```
+
+```rust
+pub fn verified(self, anchors_pem: String) -> Self
+```
+
+The same login over TLS, verified against `anchors_pem` and no other certificate, with
+`host` as the name the handshake verifies.
 
 #### Implements
 

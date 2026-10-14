@@ -231,19 +231,23 @@ impl InboundGate {
     /// `strip_prefix("Bearer ")` refused it - as *absent*, which is the wrong diagnostic on top of the
     /// wrong outcome. A client that sends the lower-case spelling is not a client presenting nothing.
     ///
-    /// The three failures are three variants rather than one, because they are three different things
-    /// for whoever is debugging: no header at all is a client nobody configured; a value with another
-    /// scheme is a client configured for a different service; and a header this HTTP implementation
-    /// will not hand back as a string is a value with bytes no scheme could carry.
+    /// Four failures, three variants, because they are different things for whoever is debugging:
+    /// no header at all is a client nobody configured (`Absent`); a header sent twice asks this gate
+    /// to choose which caller to believe (`Repeated`); and a value with another scheme is a client
+    /// configured for a different service (`NotABearerToken`). A header this HTTP implementation will
+    /// not hand back as a string carries bytes no scheme could, and reads as `Absent`.
     fn presented<'request>(&self, headers: &'request HeaderMap) -> Result<&'request str, TokenRejected> {
         let absent = || TokenRejected::Absent {
             location: self.header.clone(),
         };
-        let value = headers
-            .get(self.header.as_str())
-            .ok_or_else(absent)?
-            .to_str()
-            .map_err(|_not_a_string| absent())?;
+        let mut lines = headers.get_all(self.header.as_str()).iter();
+        let value = lines.next().ok_or_else(absent)?;
+        if lines.next().is_some() {
+            return Err(TokenRejected::Repeated {
+                location: self.header.clone(),
+            });
+        }
+        let value = value.to_str().map_err(|_not_a_string| absent())?;
         if !self.bearer_prefixed {
             return Ok(value);
         }

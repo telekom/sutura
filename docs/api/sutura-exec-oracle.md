@@ -103,7 +103,7 @@ Why this data system could not answer.
 - `PresentedDisagreesWithPosture`
 - `DeadlineSpent` - The deadline was already spent before this call ever reached the driver - see `refuse_if_spent` for why this is checked rather than forwarded.
 - `CallTimeout` - `Connection::set_call_timeout` itself refused the value.
-- `PacketTraceOn` - The driver's packet trace is switched on - see `sutura_runtime::oracle_trace::refuse`.
+- `PacketTraceOn` - The driver's packet trace is switched on - see `sutura_oracle_connect::oracle_trace::refuse`.
 
 ### Implements
 
@@ -142,49 +142,6 @@ publishes - it is the image's name for itself.
 ### Implements
 
 `Debug`, `Warehouse`
-
-## `enum Channel`
-
-```rust
-pub enum Channel<'pem>
-```
-
-How the connection to the listener is secured.
-
-### Variants
-
-- `Plaintext` - No transport security. A composition root reaches this only for a loopback host.
-- `Verified` - TLS, verified against these PEM certificates and no others: they replace the driver's bundled public certificate authorities rather than adding to them.
-
-### Implements
-
-`Clone`, `Copy`, `Debug`
-
-## `struct Dial`
-
-```rust
-pub struct Dial<'dial>
-```
-
-Where one connection goes and how it is secured: an EZCONNECT `host:port/service_name`.
-
-### Methods
-
-```rust
-pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel: Channel<'dial>) -> Self
-```
-
-A dial bounded by `DIAL_DEADLINE`.
-
-```rust
-pub const fn within(self, deadline: std::time::Duration) -> Self
-```
-
-The same dial with its TCP connect bounded by `deadline` instead.
-
-### Implements
-
-`Clone`, `Copy`, `Debug`
 
 ## `struct TokenSessions`
 
@@ -245,12 +202,13 @@ type, so this is the newtype rather than a second, string-only error shape.
 
 `Debug`, `Display`, `Error`
 
-## `constant DIAL_DEADLINE`
+## `use Channel`
 
-How long the TCP connect to the listener may take before the dial is refused.
+## `use DIAL_DEADLINE`
 
-The bound covers the connect only: a listener that accepts and then never answers is not bounded
-by it, because the driver reads its handshake with no timeout.
+## `use Dial`
+
+## `use oracle_trace`
 
 ## Module `fixture`
 

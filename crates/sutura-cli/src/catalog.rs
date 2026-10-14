@@ -491,13 +491,18 @@ fn open_one_rdbms_catalog(
                 &format!("catalogs.{}.connection.password_file", settings.name()),
                 connection.password_file(),
             )?;
+            let anchors_pem = crate::oracle::read_anchors(
+                &format!("catalogs.{}.connection.transport_anchors", settings.name()),
+                connection.transport_anchors(),
+            )?;
             let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
-                String::from(connection.host().as_str()),
+                String::from(connection.server_name().as_str()),
                 connection.port(),
                 String::from(connection.service_name().as_str()),
                 String::from(connection.user()),
                 password,
-            );
+            )
+            .verified(anchors_pem);
             sutura_catalog_rdbms::oracle_reader::OracleReader::new(
                 login,
                 &documentation_schema,
@@ -506,7 +511,7 @@ fn open_one_rdbms_catalog(
                 rdbms.max_dictionary_rows(),
                 rdbms.max_dictionary_bytes(),
             )
-            .map(AnyDictionaryReader::Oracle)
+            .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader)))
             .map_err(|cause| {
                 format!(
                     "`catalogs.{}` has an invalid dictionary reader setting: {cause}",

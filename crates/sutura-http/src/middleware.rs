@@ -313,10 +313,16 @@ pub async fn require_metrics_token(State(state): State<ServiceState>, request: R
 
 /// The bearer credential a request presented, if it did.
 ///
-/// NULL-less: an absent header and a header with no bearer scheme both read as `None`. RFC 9110
-/// §11.1 makes the scheme name case-insensitive, so `bearer abc` and `Bearer abc` are the same.
+/// NULL-less: an absent header, a header sent more than once and a header with no bearer scheme
+/// all read as `None`. RFC 9110 §11.1 makes the scheme name case-insensitive, so `bearer abc` and
+/// `Bearer abc` are the same.
 fn presented_token(request: &Request) -> Option<&str> {
-    let value = request.headers().get(AUTHORIZATION)?.to_str().ok()?;
+    let mut lines = request.headers().get_all(AUTHORIZATION).iter();
+    let value = lines.next()?;
+    if lines.next().is_some() {
+        return None;
+    }
+    let value = value.to_str().ok()?;
     let (scheme, credential) = value.split_once(' ')?;
     scheme.eq_ignore_ascii_case(BEARER).then_some(credential)
 }

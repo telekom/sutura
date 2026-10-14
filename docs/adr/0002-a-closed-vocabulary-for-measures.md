@@ -325,6 +325,16 @@ its number against a certified value; the third amendment's cells hold the combi
 catalog, not any deployment's figure. A ratio whose every term names the metric's own model is not
 cross-model, so its anchor still loads and is still checked at boot.
 
+## Fifth amendment, 2026-10-14: ClickHouse runs a leg
+
+The third amendment says `ClickHouse`, where its tier is up, declares no leg execution and is
+asserted refused as `FederationNotExecutable`. That no longer holds: ClickHouse declares
+`EXECUTES_LEGS`, and the differential compares it with the engines row for row where its tier is
+up. `Cube` is the one registered system that runs no leg, and no offline venue brings it up, so
+the refusal of a legless system is asserted by the capability gate's own cells in
+`crates/sutura-app/src/federated/tests.rs`, not by the two-fact cell. The second amendment of
+`20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md` records the decision.
+
 ## What does not change
 
 Every guarantee the earlier record listed still has the same mechanism behind it. These are the ones

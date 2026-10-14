@@ -1,0 +1,13 @@
+# `multi-user` and no `security.inbound.mode`: no verified caller exists to run each query as, so
+# `sutura serve` refuses to start `/v1` (`NotFitToServe::QuerySurfaceWithoutInboundIdentity`).
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+config:
+  base:
+    security:
+      identity: multi-user

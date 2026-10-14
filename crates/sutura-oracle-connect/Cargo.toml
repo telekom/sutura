@@ -1,0 +1,19 @@
+[package]
+name = "sutura-oracle-connect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The Oracle connector: the EZCONNECT address, its TLS posture, the dial bound and the driver configuration."
+
+# NOT `sutura-sql`: a metadata reader dials through this crate, and a catalog adapter renders nothing
+# (`xtask/src/boundaries/edges.rs` forbids the edge for this crate and for every catalog adapter).
+[dependencies]
+oracledb = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

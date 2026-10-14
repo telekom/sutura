@@ -368,6 +368,15 @@ pub(crate) const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         instead: "render in `sutura-exec-postgres`, over the connection this crate opens",
         edges: Edges::Every,
     },
+    // The connector the catalog's Oracle reader dials through, for the reason the row above gives.
+    ForbiddenEdge {
+        from: "sutura-oracle-connect",
+        forbidden: "sutura-sql",
+        why: "a metadata reader dials through this connector, so the dialect layer in its tree is the \
+              dialect layer in every catalog adapter that reuses it - the class rule the entries above hold",
+        instead: "render in `sutura-exec-oracle`, over the configuration this crate builds",
+        edges: Edges::Every,
+    },
     // `github.com/telekom/sutura#705` review finding 1: the crate's own doc claimed "no dependency
     // on a crypto provider" while its manifest named `rustls` - and this workspace's `rustls` entry
     // pins `features = ["ring", "tls12"]`, so that edge was `ring` under a different name. The

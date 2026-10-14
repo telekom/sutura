@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): config.base and config.environment set no security.inbound.mode and security.identity is not single-user: sutura serve refuses to start /v1 with no inbound identity unless one user's own credentials run every query (Settings::query_surface_refusals::QuerySurfaceWithoutInboundIdentity) - set security.identity: single-user with a reason in security.single_user_because, or declare security.inbound
+
+Use --debug flag to render out invalid YAML

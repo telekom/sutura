@@ -112,6 +112,11 @@ pub enum TokenRejected {
     /// itself is not rendered: it is caller text.
     #[error("the value in {location} does not carry the `Bearer` scheme")]
     NotABearerToken { location: String },
+    /// The header this deployment reads was sent more than once.
+    ///
+    /// Reading either line is choosing which caller to believe, so none is read.
+    #[error("more than one {location} line was presented, so none of them is read")]
+    Repeated { location: String },
     #[error("the presented token is longer than {limit} bytes")]
     TooLong { limit: usize },
     /// The header is not a JWT header, or names no key.

@@ -1741,7 +1741,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2332,9 +2332,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.48.0"
+version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0f8fee8c926415c58d6ae43a08523a26faccb2323f5e6b644fe7dd4ef6b82"
+checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console",
  "globset",
@@ -3357,7 +3357,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3952,7 +3952,7 @@ dependencies = [
  "sutura-adbc-postgres",
  "sutura-dev",
  "sutura-domain",
- "sutura-runtime",
+ "sutura-oracle-connect",
  "sutura-semantic",
  "thiserror 2.0.21",
 ]
@@ -4168,7 +4168,7 @@ dependencies = [
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
- "sutura-runtime",
+ "sutura-oracle-connect",
  "sutura-sql",
  "thiserror 2.0.21",
 ]
@@ -4259,6 +4259,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-oracle-connect"
+version = "0.8.0"
+dependencies = [
+ "oracledb",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sutura-runtime"
 version = "0.8.0"
 dependencies = [
@@ -4296,6 +4304,7 @@ dependencies = [
 name = "sutura-tls"
 version = "0.8.0"
 dependencies = [
+ "base64 0.23.1",
  "rcgen",
  "rustls-native-certs",
  "rustls-pki-types",
@@ -4350,10 +4359,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5084,7 +5093,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

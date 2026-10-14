@@ -45,6 +45,10 @@ pub(crate) const ADBC: &str = "sutura-adbc";
 /// catalog adapter depends on, would also be that catalog adapter's edge.
 pub(crate) const POSTGRES_ADBC: &str = "sutura-adbc-postgres";
 
+/// `sutura-oracle-connect` gets the same row a fifth time, for [`POSTGRES_ADBC`]'s reason: the
+/// Oracle connector both the exec adapter and a metadata reader dial through.
+pub(crate) const ORACLE_CONNECT: &str = "sutura-oracle-connect";
+
 /// A walk of one watched crate's normal tree.
 type Walk = fn(&serde_json::Value) -> Result<Report, String>;
 
@@ -58,7 +62,7 @@ pub(crate) struct Row {
 }
 
 /// Every crate this rule watches, in the order `check-boundaries` reports them.
-pub(crate) const ROWS: [Row; 4] = [
+pub(crate) const ROWS: [Row; 5] = [
     Row {
         watched: SHARED_CLIENT,
         what: "the shared HTTP client",
@@ -82,6 +86,12 @@ pub(crate) const ROWS: [Row; 4] = [
         what: "the shared PostgreSQL ADBC connector",
         check: check_postgres_adbc,
         explain: explain_postgres_adbc,
+    },
+    Row {
+        watched: ORACLE_CONNECT,
+        what: "the shared Oracle connector",
+        check: check_oracle_connect,
+        explain: explain_oracle_connect,
     },
 ];
 
@@ -149,6 +159,11 @@ pub(crate) fn check_postgres_adbc(meta: &serde_json::Value) -> Result<Report, St
     check_named(meta, POSTGRES_ADBC)
 }
 
+/// The same check as [`check`], over [`ORACLE_CONNECT`]'s normal-dependency tree instead.
+pub(crate) fn check_oracle_connect(meta: &serde_json::Value) -> Result<Report, String> {
+    check_named(meta, ORACLE_CONNECT)
+}
+
 /// The argument, printed once, the same shape every sibling half in this gate prints.
 pub(crate) fn explain() {
     eprintln!("  Why: this crate exists so two catalog HTTP readers of the SAME adapter class share");
@@ -184,6 +199,16 @@ pub(crate) fn explain_postgres_adbc() {
     eprintln!("  source through one connection string and one refusal set without becoming each");
     eprintln!("  other's library - it joins no `adapters::CLASSES` prefix, so nothing else in this");
     eprintln!("  gate can see an edge FROM it.");
+    eprintln!("  Do:  a type both a consumer and this crate genuinely need belongs in `sutura-domain`,");
+    eprintln!("  the same answer `sutura-tls`'s own header gives.");
+}
+
+/// The same argument as [`explain`], for [`ORACLE_CONNECT`]'s own reason to exist.
+pub(crate) fn explain_oracle_connect() {
+    eprintln!("  Why: this crate exists so the Oracle exec adapter and a metadata reader dial a");
+    eprintln!("  listener through one address, one TLS posture and one dial bound without becoming");
+    eprintln!("  each other's library - it joins no `adapters::CLASSES` prefix, so nothing else in");
+    eprintln!("  this gate can see an edge FROM it.");
     eprintln!("  Do:  a type both a consumer and this crate genuinely need belongs in `sutura-domain`,");
     eprintln!("  the same answer `sutura-tls`'s own header gives.");
 }

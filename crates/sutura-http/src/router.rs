@@ -723,11 +723,15 @@ fn agent_subtree(
             state_registered,
         });
     }
+    // This state's own series, so `/mcp` counts its questions where `/v1` counts its own.
+    let meter: Arc<dyn sutura_app::question::QuestionMeter> = Arc::new(state.metrics().clone());
     let mount = mount.ungoverned().layered(|router| {
-        router.route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::capability::establish_asked,
-        ))
+        router
+            .route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::capability::establish_asked,
+            ))
+            .route_layer(axum::Extension(meter))
     });
     let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
     let mount = mount

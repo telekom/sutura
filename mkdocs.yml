@@ -271,6 +271,7 @@ nav:
           - sutura-exec-cube: api/sutura-exec-cube.md
           - sutura-adbc: api/sutura-adbc.md
           - sutura-adbc-postgres: api/sutura-adbc-postgres.md
+          - sutura-oracle-connect: api/sutura-oracle-connect.md
           - sutura-tls: api/sutura-tls.md
           - sutura-http-client: api/sutura-http-client.md
           - sutura-bounded-read: api/sutura-bounded-read.md

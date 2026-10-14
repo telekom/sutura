@@ -29,7 +29,9 @@
 //! the engine's own operators and nothing else, and a gauge an operator would alert on as process
 //! memory is worse than no gauge. Nothing here closes that gap.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use sutura_app::question::{QuestionEnd, QuestionMeter};
 
 use sutura_runtime::metrics::{Counter, Gauge, Histogram, Label, LabeledCounter, LabeledGauge, RegistryBuilder, label};
 
@@ -155,6 +157,20 @@ impl QuestionOutcome {
         }
     }
 
+    /// An outcome as the port reports it. The codes of a failure are `Failure::code`'s own, so the
+    /// agent surface spells no second vocabulary for what `/v1` already counts.
+    fn of(end: QuestionEnd) -> Self {
+        match end {
+            QuestionEnd::Answered { rows } => Self::answered(rows),
+            QuestionEnd::Refused { code } => Self::refused(code),
+            QuestionEnd::AtCapacity => Self::failed(&Failure::AtCapacity { retry_after_seconds: 0 }),
+            QuestionEnd::TimedOut => Self::failed(&Failure::Timeout),
+            QuestionEnd::DataSystemUnavailable => Self::failed(&Failure::Unavailable),
+            QuestionEnd::IdentityUnavailable => Self::failed(&Failure::IdentityUnavailable),
+            QuestionEnd::Internal => Self::internal(),
+        }
+    }
+
     pub(crate) const fn answered(rows: usize) -> Self {
         Self {
             code: ANSWER,
@@ -163,9 +179,10 @@ impl QuestionOutcome {
         }
     }
 
-    /// `code` is [`crate::wire::RefusalBody::code`] - the domain's own `RefusalReason::code`,
-    /// read back off the rendered wire body rather than re-derived from the reason, so this
-    /// series cannot name a code the wire body disagrees with.
+    /// `code` is the domain's own `RefusalReason::code`. On `/v1` it is
+    /// [`crate::wire::RefusalBody::code`], read back off the rendered wire body rather than
+    /// re-derived from the reason, so this series cannot name a code that body disagrees with; on
+    /// `/mcp` it is the reason's own `code()`.
     ///
     /// Every code but `budget_exhausted` counts under the generic `refused` bucket of
     /// `sutura_questions_total`, and spend is the one refusal a deployment needs to watch approach
@@ -275,27 +292,8 @@ impl Metrics {
         self.slots_in_use.adjust(1);
         SlotGuard(self.slots_in_use.clone())
     }
-    /// Starts observing how long an admission attempt waits.
-    ///
-    /// The returned guard observes on drop, so success, shedding and cancellation by the outer
-    /// request timeout all terminate one observation. It borrows the histogram and allocates
-    /// nothing.
-    pub(crate) fn admission_started(&self) -> AdmissionWait<'_> {
-        AdmissionWait {
-            histogram: &self.wait,
-            started: Instant::now(),
-        }
-    }
-
-    /// Records a shed: a slot not granted, distinct from a fault.
-    ///
-    /// Counts only the admission event. The outer completion layer records the question outcome and
-    /// duration from the response extension, as it does for every other terminal response.
-    pub fn shed(&self) {
-        self.shed.inc();
-    }
-
-    /// Records one completed matched `POST /v1/query` response.
+    /// Records one question's end: a completed matched `POST /v1/query` response, or one reported
+    /// by a transport through [`QuestionMeter::completed`].
     ///
     /// Code and duration move together here, so no terminal path can update one without the other.
     /// The histogram deliberately carries no outcome label.
@@ -347,16 +345,21 @@ impl Drop for SlotGuard {
     }
 }
 
-/// One admission attempt, observed however the awaiting future terminates.
-#[must_use]
-pub(crate) struct AdmissionWait<'metrics> {
-    histogram: &'metrics Histogram,
-    started: Instant,
-}
+/// The question series, counted through the port both transports report to.
+impl QuestionMeter for Metrics {
+    fn waited(&self, waited: Duration) {
+        self.wait.observe(waited.as_secs_f64());
+    }
 
-impl Drop for AdmissionWait<'_> {
-    fn drop(&mut self) {
-        self.histogram.observe(self.started.elapsed().as_secs_f64());
+    /// A slot not granted, distinct from a fault.
+    ///
+    /// Counts only the admission event. The question's end and duration arrive through `completed`.
+    fn shed(&self) {
+        self.shed.inc();
+    }
+
+    fn completed(&self, end: QuestionEnd, elapsed: Duration) {
+        self.completed_question(Some(QuestionOutcome::of(end)), elapsed);
     }
 }
 

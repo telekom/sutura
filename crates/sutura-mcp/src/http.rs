@@ -156,7 +156,9 @@ where
                 operator_instructions.clone(),
             )
             .listing_physical_schema(list_physical_schema)
-            .row_ceilings(row_ceilings))
+            .row_ceilings(row_ceilings)
+            // Stateless mode builds this per request, inside the request's own span.
+            .within_request(tracing::Span::current()))
         },
         Arc::new(LocalSessionManager::default()),
         config(max_body),
