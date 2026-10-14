@@ -161,7 +161,7 @@ impl DelegationDeclared {
     ) -> Result<Self, super::InvalidSourceRegistry> {
         let key = |field| HopKey::new(list, position, field);
         if raw.token_endpoint.contains('@') {
-            return Err(super::InvalidSourceRegistry::CredentialsInUrl {
+            return Err(super::InvalidSourceRegistry::HopCredentialsInUrl {
                 alias: alias.clone(),
                 hop: key("token_endpoint"),
             });

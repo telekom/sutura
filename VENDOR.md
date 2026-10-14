@@ -82,7 +82,7 @@ four release triples. It is pinned at the release tag `go/v1.13.0`
 (repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase
 `main` past that pin.
 
-Four source-level adaptations, recorded here so nothing is silent:
+Five source-level adaptations, recorded here so nothing is silent:
 
 - **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.1`) above what
   this nixpkgs pins (`go_1_27 = 1.27.0`). `nix/bigquery-adbc-drivers.nix` relaxes the floor
@@ -99,6 +99,20 @@ Four source-level adaptations, recorded here so nothing is silent:
   build on a host that can run its target; a cross build that cannot skips it. Upstream issue:
   [`adbc-drivers/bigquery#329`](https://github.com/adbc-drivers/bigquery/issues/329). Drop it
   when upstream maps the same reasons.
+- **Two options for a caller's own Google credential.** `nix/bigquery-adbc-caller-credentials.patch`
+  adds the `bigquery.auth_type` value `access_token` with `bigquery.auth.access_token`, a bare OAuth
+  2.0 access token the driver sends as it is and never refreshes, and `bigquery.impersonate.subject`,
+  which the driver copies into `impersonate.CredentialsConfig.Subject` for domain-wide delegation.
+  Unpatched, every arm that authenticates holds a long-lived secret or calls a token endpoint
+  itself, and the impersonation config has no subject. An empty token is refused, a token is
+  refused unless `bigquery.auth_type` selects it (every other arm would drop it silently), a token
+  beside any impersonation option is refused (impersonation would swap it for the deployment's own
+  credential), and a subject without a target principal is refused. The patch adds
+  `token_options_test.go`, which the build's check phase runs on a host that can run its target.
+  Nothing in sutura sets these options yet.
+  Upstream issue:
+  [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
+  upstream ships both options.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation

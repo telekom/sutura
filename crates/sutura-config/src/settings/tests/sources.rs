@@ -252,6 +252,31 @@ fn a_workload_identity_impersonate_map_is_refused_as_an_unknown_key() {
     );
 }
 
+#[test]
+fn an_unknown_key_in_either_new_block_is_refused() {
+    let bigquery = "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\n\
+                    sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+                    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n";
+    for (block, key) in [
+        (
+            "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
+             client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n      \
+             audience: \"pool-client-id\"\n",
+            "audience",
+        ),
+        (
+            "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n      \
+             scope: \"https://www.googleapis.com/auth/bigquery\"\n",
+            "scope",
+        ),
+    ] {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!("{bigquery}{block}"));
+        let error = Settings::load(&sources).expect_err("an unknown key is refused");
+        let rendered = format!("{:?}", core::error::Error::source(&error));
+        assert!(rendered.contains("unknown field") && rendered.contains(key), "{rendered}");
+    }
+}
+
 /// A multi-user deployment whose SECOND shared source is unacknowledged does not start. No other
 /// cell here fails if the check stops after the first source it walks; a
 /// federated answer reads two or three sources (`telekom/sutura#780`), and the acknowledgement is

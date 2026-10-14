@@ -1333,8 +1333,9 @@ legitimate one.
 
 Every source this deployment declares, keyed by the alias a model's `source:` names.
 
-A newtype over the map rather than the map, so `Self::parse` is the only way one comes into
-existence and the duplicate-alias refusal cannot be skipped by building the map directly.
+A newtype over the map rather than the map, so `Self::parse_declared` is the only way one
+comes into existence and the duplicate-alias refusal cannot be skipped by building the map
+directly.
 
 **May be empty, and that is not a refusal here.** A deployment configuring no source is one that
 has not said where its data is; what refuses it is the composition root, which finds the catalog
@@ -5640,6 +5641,15 @@ that treated the absence as permission is a bug the type should not be able to h
 #### Methods
 
 ```rust
+pub const fn caller_identity(&self) -> Option<&CallerIdentity>
+```
+
+How this `impersonation-at-source` source runs its caller, if it declared a block.
+
+`None` on every non-impersonating source - the parse refuses a block there - and on an
+impersonating `clickhouse`, `oracle` or `cube` source, which runs its caller by its own keys.
+
+```rust
 pub const fn identity(&self) -> Option<&SourceIdentity>
 ```
 
@@ -5677,11 +5687,8 @@ The posture this source was declared with, if it is one a deployment may be serv
 pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig>
 ```
 
-The token-exchange setup this `impersonation-at-source` source declared.
-
-`Some` exactly when the source is impersonating: the parse refuses an impersonating entry with
-none, and refuses a non-impersonating entry with one, so an accessor's shape and a deployment's
-posture cannot disagree about which sources exchange a subject's token.
+The token-exchange setup this source declared, when its caller identity is
+`workload_identity`.
 
 #### Implements
 
@@ -5763,10 +5770,13 @@ convenience, and nothing needs to clone a startup refusal.
 - `TlsServerName` - A `verified` source's `host` is not a name TLS can verify.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `UnixSocket` - A declared `unix_socket` is not one absolute directory.
-- `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
+- `NoCallerIdentityMode` - An `impersonation-at-source` source declared no caller-identity block.
 
-  A source that executes as the asking subject has to say WHICH pool federates that subject -
-  there is nothing this build could guess, and a per-caller identity has to come out of a
+  A source that executes as the asking subject has to say HOW it reaches the data system as that
+  subject: `workload_identity` (the pool that federates the subject), or on a `bigquery` source
+  `google_login` (the subject's own Google login, brokered by the identity provider) or
+  `domain_delegation` (a delegating service account acting as the subject's verified address).
+  There is nothing this build could guess, and a per-caller identity has to come out of a
   declaration rather than a default that pretends one exists.
 
   **Corrected: `audience` is load-bearing again.** A round of this record said it "is read by
@@ -5779,11 +5789,14 @@ convenience, and nothing needs to clone a startup refusal.
   token is the caller's own pool principal, and the data system's grants on it decide what the
   caller may read. There is no `scope` key either: the credential document has no `scopes`
   member, so one would reach nothing.
+- `CallerIdentityModesConflict` - More than one caller-identity block on one source: a source runs its callers one way.
+- `IdentityModeNotForKind` - A `google_login` or `domain_delegation` block on a source that is not `bigquery`, which nothing would read.
+- `DomainDelegation` - The declared `domain_delegation` block is not usable.
 - `ImpersonateRemoved` - The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their verified subject, so a configuration still declaring a map is refused rather than read as if it still chose who runs as whom.
 - `Delegation` - An `oracle`, `clickhouse` or `cube` source's `delegation` is missing, misplaced, or declared over a plaintext channel.
 - `CubeEndpointCredentials` - A `cube` source's `endpoint` carries an `@`.
 - `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
-- `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
+- `IdentityModeNotImpersonating` - A caller-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
   declaration that does nothing is a configuration nobody can see.
@@ -5820,8 +5833,9 @@ pub struct SourceRegistry
 
 Every source this deployment declares, keyed by the alias a model's `source:` names.
 
-A newtype over the map rather than the map, so `Self::parse` is the only way one comes into
-existence and the duplicate-alias refusal cannot be skipped by building the map directly.
+A newtype over the map rather than the map, so `Self::parse_declared` is the only way one
+comes into existence and the duplicate-alias refusal cannot be skipped by building the map
+directly.
 
 **May be empty, and that is not a refusal here.** A deployment configuring no source is one that
 has not said where its data is; what refuses it is the composition root, which finds the catalog
@@ -5858,6 +5872,139 @@ Did this deployment declare any source at all?
 #### Implements
 
 `Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
+### Module `caller_identity`
+
+Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
+Which one of three blocks says how an `impersonation-at-source` source runs its caller.
+
+- `workload_identity`: the caller's own assertion is federated to the caller's own pool principal.
+- `google_login` (`bigquery` only): the caller's own Google login, which the identity provider
+  brokered and returns through its Identity Brokering API v2.
+- `domain_delegation` (`bigquery` only): a delegating service account acts as the caller's
+  verified address. The deployment vouches for the caller here, not the caller's own credential.
+
+Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
+This build runs `workload_identity` only: `Settings::refusals` refuses to serve a source that
+declares either other block, so a block that nothing reads does not load as if it did.
+the architecture decision records the decision.
+
+#### `enum CallerIdentity`
+
+```rust
+pub enum CallerIdentity
+```
+
+How an `impersonation-at-source` source runs its caller - the one block it declared.
+
+##### Variants
+
+- `WorkloadIdentity` - The caller's own pool principal.
+- `GoogleLogin` - The caller's own Google login, brokered by the identity provider. Not served by this build.
+- `DomainDelegation` - A delegating service account acting as the caller's verified address. Not served by this build.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct GoogleLogin`
+
+```rust
+pub struct GoogleLogin
+```
+
+A `google_login` block.
+
+**Held as written, like `super::workload_identity::DelegationDeclared`**: the crate that
+sends the request parses the endpoint and the client ID. An `@` in the endpoint is refused here,
+because the startup log prints this tree first. Only the path to the secret is here.
+
+##### Methods
+
+```rust
+pub fn client_id(&self) -> &str
+```
+
+```rust
+pub fn client_secret_file(&self) -> &Path
+```
+
+```rust
+pub fn token_endpoint(&self) -> &str
+```
+
+The identity provider's broker token endpoint for its Google identity provider.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct DomainDelegation`
+
+```rust
+pub struct DomainDelegation
+```
+
+A `domain_delegation` block.
+
+##### Methods
+
+```rust
+pub const fn delegating_account(&self) -> &DelegatingAccount
+```
+
+The service account an administrator authorized for domain-wide delegation.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct DelegatingAccount`
+
+```rust
+pub struct DelegatingAccount
+```
+
+A user-managed service account's address: `<account>@<project>.iam.gserviceaccount.com`, each
+half lowercase letters, digits and hyphens.
+
+Parsed here where it is declared; the adapter that sends it holds its own copy, for the reason
+`super::placement::BillingProject` is checked twice.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(written: &str) -> Result<Self, InvalidDelegatingAccount>
+```
+
+Parses a declared address.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `enum InvalidDelegatingAccount`
+
+```rust
+pub enum InvalidDelegatingAccount
+```
+
+Why a declared `delegating_account` is not a service-account address. The value is never quoted:
+it carries a project id.
+
+##### Variants
+
+- `Empty` - Nothing was written.
+- `Character` - A character outside lowercase letters, digits, `-`, `.` and `@`.
+- `Shape` - Not `<account>@<project>.iam.gserviceaccount.com`.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### Module `placement`
 
