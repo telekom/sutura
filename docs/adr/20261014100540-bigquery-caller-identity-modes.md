@@ -111,3 +111,24 @@ record above does not hold.
   degrades to `identity_unavailable`: still a refusal, never an answer.
 - **A `google_login` source needs a `direct` inbound deployment**, for the reason a delegation
   does: the broker request sends the caller's own inbound token, which only `direct` verifies.
+
+## Second amendment, 2026-10-14: how mode c reads the address and runs the job
+
+**Status of the amendment: accepted** (issue #1439). Mode c is built, with these decisions the
+record above does not hold.
+
+- **The address is parsed and never normalised.** sutura keeps `email` as written: at most 254
+  bytes of printable ASCII, one `@` between a non-empty local part and a non-empty domain. No case
+  fold, no alias and no trimming, so the account a query runs as is the one the identity provider
+  named. A value that does not parse, or an `email_verified` that is not the JSON boolean `true`,
+  gives no address. The token itself still verifies: the claim is read only by a
+  `domain_delegation` source.
+- **No address, no query.** A caller without a verified address is refused at a
+  `domain_delegation` source. The `sub` and the caller's token are never used in its place.
+- **One function sets the three options of a job together**: the delegating account as the
+  impersonation target, the `bigquery` scope, and the address as the subject. No auth type is set,
+  so the base credential is the deployment's own application default credentials, which need
+  `iam.serviceAccounts.signJwt` on the delegating account. sutura's configuration holds no key, but
+  the deployment holds a credential that can act as any user in the domain for that scope.
+- **Only a `domain_delegation` source accepts a principal switch.** At every other BigQuery source a
+  principal is still refused with `NoPrincipalSwitch`.

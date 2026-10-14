@@ -7,9 +7,6 @@
 //!   verified address. The deployment vouches for the caller here, not the caller's own credential.
 //!
 //! Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-//! This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
-//! source that declares `domain_delegation`, so a block that nothing reads does not load as if it
-//! did.
 //! `docs/adr/20261014100540-bigquery-caller-identity-modes.md` records the decision.
 
 use std::path::{Path, PathBuf};
@@ -37,19 +34,8 @@ pub enum CallerIdentity {
     WorkloadIdentity(WorkloadIdentityConfig),
     /// The caller's own Google login, brokered by the identity provider.
     GoogleLogin(GoogleLogin),
-    /// A delegating service account acting as the caller's verified address. Not served by this
-    /// build.
+    /// A delegating service account acting as the caller's verified address.
     DomainDelegation(DomainDelegation),
-}
-
-impl CallerIdentity {
-    /// The block of a mode this build does not serve - see `NotFitToServe::CallerIdentityModeNotBuilt`.
-    pub(crate) const fn not_built(&self) -> Option<&'static str> {
-        match *self {
-            Self::WorkloadIdentity(_) | Self::GoogleLogin(_) => None,
-            Self::DomainDelegation(_) => Some(DOMAIN_DELEGATION),
-        }
-    }
 }
 
 /// A `google_login` block.
@@ -562,27 +548,11 @@ mod tests {
     fn a_google_login_source_boots_on_a_direct_deployment() {
         let settings = Settings::load(&direct_overlay_with(LOGIN_YAML)).expect("a google_login source is served");
         assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
-        let error = Settings::load(&direct_overlay_with(DELEGATION_YAML)).expect_err("domain_delegation is not built");
-        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-            panic!("expected a boot refusal, got {error:?}");
-        };
-        assert_eq!(
-            *refusals,
-            vec![NotFitToServe::CallerIdentityModeNotBuilt {
-                alias: warehouse_alias(),
-                block: "domain_delegation",
-            }]
-        );
     }
 
     #[test]
-    fn a_domain_delegation_source_is_refused_at_boot_as_not_built() {
-        assert_eq!(
-            refused_at_boot(DELEGATION_YAML),
-            vec![NotFitToServe::CallerIdentityModeNotBuilt {
-                alias: warehouse_alias(),
-                block: "domain_delegation",
-            }]
-        );
+    fn a_domain_delegation_source_boots_on_a_direct_deployment() {
+        let settings = Settings::load(&direct_overlay_with(DELEGATION_YAML)).expect("a domain_delegation source is served");
+        assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
     }
 }

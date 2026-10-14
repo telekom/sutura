@@ -36,12 +36,16 @@ use secrecy::{ExposeSecret as _, SecretString};
 /// `crate::federation`, because it is the only reader of the unmasked `SubjectKey` and that read
 /// stays inside the module that owns it: `SubjectKey::feed` is `pub(super)`, so no other module of
 /// this crate can reach the full value at all.
+mod address;
 mod compute_context;
+mod context;
 mod credential;
 mod delegation;
 mod principal;
 
+pub use crate::identity::address::{InvalidAddress, VerifiedAddress};
 pub use crate::identity::compute_context::ComputeContext;
+pub use crate::identity::context::RequestContext;
 pub use crate::identity::credential::{
     Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
@@ -50,8 +54,7 @@ pub use crate::identity::delegation::{
     Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, RequestedAudience, UnusableAudience,
 };
 pub use crate::identity::principal::{
-    Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId,
-    SubjectKey, TaskId,
+    Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, Subject, SubjectId, SubjectKey, TaskId,
 };
 
 /// An opaque secret that nothing can render.

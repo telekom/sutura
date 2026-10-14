@@ -300,6 +300,8 @@ pub struct VerifiedCaller {
     /// lifetime to use. `exp` is in `required_spec_claims`, so a `VerifiedCaller` always has one and
     /// this is neither an `Option` nor an `Expiry` - the type that can say *never*.
     expires: u64,
+    /// The address the issuer verified, read by a `domain_delegation` source alone.
+    address: Option<sutura_domain::identity::VerifiedAddress>,
 }
 
 impl VerifiedCaller {
@@ -327,7 +329,21 @@ impl VerifiedCaller {
             groups,
             assertion,
             expires,
+            address: None,
         }
+    }
+
+    /// The same caller, with the address [`crate::inbound::token::TokenValidator::verify`] read.
+    pub(crate) fn addressed(mut self, address: Option<sutura_domain::identity::VerifiedAddress>) -> Self {
+        self.address = address;
+        self
+    }
+
+    /// The address the issuer verified for this caller, if it did.
+    #[inline]
+    #[must_use]
+    pub const fn address(&self) -> Option<&sutura_domain::identity::VerifiedAddress> {
+        self.address.as_ref()
     }
 
     /// Who this call is attributed to.

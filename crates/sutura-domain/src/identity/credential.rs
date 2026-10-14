@@ -55,7 +55,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::identity::principal::{RequestContext, Subject, parse_principal_id};
+use crate::identity::RequestContext;
+use crate::identity::principal::{Subject, parse_principal_id};
 use crate::identity::{InvalidPrincipalId, Secret};
 use crate::model::SourceName;
 use crate::source::{SharedIdentityDeclared, SourcePosture};
@@ -109,6 +110,13 @@ impl TryFrom<String> for PrincipalName {
 
     fn try_from(raw: String) -> Result<Self, Self::Error> {
         Self::parse(raw)
+    }
+}
+
+/// A verified address is a principal name as written: its parse accepts a subset of this one's.
+impl From<&crate::identity::VerifiedAddress> for PrincipalName {
+    fn from(address: &crate::identity::VerifiedAddress) -> Self {
+        Self(String::from(address.as_str()))
     }
 }
 

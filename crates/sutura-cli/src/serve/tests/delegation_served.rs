@@ -72,6 +72,8 @@ enum Seen {
     Transport,
     /// A subject's own credential.
     Subject { assertion: String },
+    /// A verified address, through domain-wide delegation.
+    Address { address: String },
 }
 
 /// Never reached by a caller: the transport records the job and declines it.
@@ -94,6 +96,9 @@ impl Recording {
                 let assertion = String::from(assertion.expose_secret());
                 Seen::Subject { assertion }
             }
+            JobIdentity::AsAddress { address } => Seen::Address {
+                address: String::from(address.as_str()),
+            },
         };
         self.0.send(seen).expect("the cell holds the receiving end");
     }

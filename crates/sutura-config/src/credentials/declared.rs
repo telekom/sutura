@@ -47,7 +47,7 @@
 //! refuses the assertion or a principal with no grant surfaces on the FIRST QUESTION by that
 //! subject, never at boot.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted, Presented,
@@ -90,7 +90,7 @@ pub enum DeclaredPrincipalsUnusable {
 /// **The credential is the verified assertion itself**, or, for a federating source declared with
 /// a [`Delegation`], or any authenticating source, the token that delegation returned for that assertion.
 ///
-/// **All four maps, because one plan may read one of each and a broker is per answer rather than
+/// **All five, because one plan may read one of each and a broker is per answer rather than
 /// per source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
 #[derive(Debug, Clone, Default)]
 pub struct DeclaredPrincipalBroker {
@@ -101,6 +101,8 @@ pub struct DeclaredPrincipalBroker {
     /// token they sign in with.
     switching: BTreeMap<SourceName, Switching>,
     authenticating: BTreeMap<SourceName, Delegation>,
+    /// Each source that runs a caller as the address their identity provider verified.
+    addressing: BTreeSet<SourceName>,
 }
 
 impl DeclaredPrincipalBroker {
@@ -164,6 +166,15 @@ impl DeclaredPrincipalBroker {
     ///
     /// Read by this crate's own suite, where the assertion that matters is that a source declared
     /// impersonating with no entry is ABSENT rather than mapped to something.
+    /// Declares one `domain_delegation` source, presented each caller's verified address as the
+    /// principal the source runs as. A caller with no verified address is refused: the deployment
+    /// vouches for the address, so there is no other identity to fall back to.
+    #[must_use]
+    pub fn addressing(mut self, at: SourceName) -> Self {
+        let _newly_declared = self.addressing.insert(at);
+        self
+    }
+
     #[must_use]
     pub fn count(&self) -> usize {
         self.shared
@@ -171,6 +182,7 @@ impl DeclaredPrincipalBroker {
             .saturating_add(self.federating.len())
             .saturating_add(self.switching.len())
             .saturating_add(self.authenticating.len())
+            .saturating_add(self.addressing.len())
     }
 }
 
@@ -187,6 +199,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 && !self.federating.contains_key(source)
                 && !self.switching.contains_key(source)
                 && !self.authenticating.contains_key(source)
+                && !self.addressing.contains(source)
             {
                 return Ok(Minted::Refused { source: source.clone() });
             }
@@ -221,6 +234,14 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                     },
                 ));
                 deadlines.push(Expiry::NothingExpires);
+                continue;
+            }
+            if self.addressing.contains(source) {
+                let (Some(_), Some(address)) = (key, context.address()) else {
+                    return Ok(Minted::Refused { source: source.clone() });
+                };
+                drop(presented.insert(source.clone(), Presented::SubjectPrincipal { name: address.into() }));
+                deadlines.push(assertion_expires.unwrap_or(Expiry::NothingExpires));
                 continue;
             }
             // **Every verified caller, and the token their assertion is exchanged for with no

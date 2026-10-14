@@ -3147,6 +3147,17 @@ secret comes into existence.
 
 `Clone`, `Debug`
 
+### `use InvalidAddress`
+
+Why a claimed address is not one. The value is never quoted: it names a person.
+
+### `use VerifiedAddress`
+
+An address the identity provider marked verified, as it wrote it.
+
+The transport reads `email` into one only when `email_verified` is `true`. `Debug` does not
+print the value: it names a person.
+
 ### `use ComputeContext`
 
 An opaque, stable discriminator for *which caller, on which data system* a federated leg runs as.
@@ -3165,6 +3176,35 @@ for one caller's repeated scans of one source, unequal for two callers or two so
 serializable, for that module's stated reason - a type that can be read off the wire is a caller
 stating its own identity - and a compute context is derived from a verified subject. It reaches a
 remote as plan text, which is the adapter's business, not a wire shape this type owns.
+
+### `use RequestContext`
+
+What a request carries besides the question.
+
+Two fields: who the call is attributed to, and - where the transport established one - the
+caller's own credential assertion. The second is what lets a `crate::identity::CredentialBroker`
+that exchanges a token have the caller's token to exchange: the architecture decision sketched a
+`Caller { subject, assertion }` for exactly this, and the architecture decision's open Decision 3 is why the
+assertion field was absent until a broker existed that performs an exchange. It is an `Option`
+because the two shapes that reach this value are genuinely different: a deployment's own identity,
+which has no credential, and a verified caller, whose transport retained the token it verified.
+`None` is "there is no per-caller credential to exchange", not an oversight.
+
+Everything a question is answered *for* rather than *about* belongs here, so the credential an
+execution leg will need and the deadline it will carry have a place to arrive that is not a
+widened `crate::query::Query`. The tool surface stays a question and nothing else.
+
+**Here rather than in `sutura-app`.** The application is where a context enters the service, but
+the domain is what names it: a `CredentialBroker` port declared here takes the caller, and a port
+in the interior cannot speak in a type owned by an adapter or by the service above it.
+
+Not `Deserialize`, for the reason the chain is not: a request context assembled from the request
+body is the confused deputy this whole module refuses.
+
+**Not `PartialEq`/`Eq`, and the `Secret` is why.** This type now holds credential material, and
+`crate::identity::Secret` implements no comparison, because `==` on credential material is a
+timing oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and
+`Clone` survive because `Secret` implements both (redacting and value-preserving respectively).
 
 ### `use Agreed`
 
@@ -3591,35 +3631,6 @@ use sutura_domain::identity::{PrincipalChain, Subject};
 let chain = PrincipalChain::of(Subject::TheDeploymentItself);
 assert!(chain.actors().is_none(), "nothing established an actor");
 ```
-
-### `use RequestContext`
-
-What a request carries besides the question.
-
-Two fields: who the call is attributed to, and - where the transport established one - the
-caller's own credential assertion. The second is what lets a `crate::identity::CredentialBroker`
-that exchanges a token have the caller's token to exchange: the architecture decision sketched a
-`Caller { subject, assertion }` for exactly this, and the architecture decision's open Decision 3 is why the
-assertion field was absent until a broker existed that performs an exchange. It is an `Option`
-because the two shapes that reach this value are genuinely different: a deployment's own identity,
-which has no credential, and a verified caller, whose transport retained the token it verified.
-`None` is "there is no per-caller credential to exchange", not an oversight.
-
-Everything a question is answered *for* rather than *about* belongs here, so the credential an
-execution leg will need and the deadline it will carry have a place to arrive that is not a
-widened `crate::query::Query`. The tool surface stays a question and nothing else.
-
-**Here rather than in `sutura-app`.** The application is where a context enters the service, but
-the domain is what names it: a `CredentialBroker` port declared here takes the caller, and a port
-in the interior cannot speak in a type owned by an adapter or by the service above it.
-
-Not `Deserialize`, for the reason the chain is not: a request context assembled from the request
-body is the confused deputy this whole module refuses.
-
-**Not `PartialEq`/`Eq`, and the `Secret` is why.** This type now holds credential material, and
-`crate::identity::Secret` implements no comparison, because `==` on credential material is a
-timing oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and
-`Clone` survive because `Secret` implements both (redacting and value-preserving respectively).
 
 ### `use Subject`
 

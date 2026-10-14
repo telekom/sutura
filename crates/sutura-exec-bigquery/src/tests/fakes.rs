@@ -170,6 +170,7 @@ impl Recording {
             // adapter forwarded. Production code never reads it as text.
             subject: match request.identity() {
                 JobIdentity::AsSubject { assertion } => Some(String::from(assertion.expose_secret())),
+                JobIdentity::AsAddress { address } => Some(String::from(address.as_str())),
                 JobIdentity::Transport => None,
             },
             deadline: request.deadline(),

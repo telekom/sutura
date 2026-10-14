@@ -190,11 +190,11 @@ fn build_bigquery(
         Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(_)) => {
             sutura_exec_bigquery::adbc::Impersonation::GoogleLogin
         }
-        // `Settings::refusals` refuses to serve it; answered rather than unwrapped.
-        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(_)) => {
-            return Err(format!(
-                "`sources.{source}.domain_delegation` is a mode this build does not run"
-            ));
+        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(delegation)) => {
+            sutura_exec_bigquery::adbc::Impersonation::DomainDelegation(
+                sutura_exec_bigquery::adbc::DelegatingAccount::parse(delegation.delegating_account().as_str())
+                    .map_err(|cause| format!("`sources.{source}.domain_delegation.delegating_account` is not usable: {cause}"))?,
+            )
         }
     };
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(

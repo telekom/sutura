@@ -48,7 +48,7 @@ mod identity;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
-pub use identity::Impersonation;
+pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
@@ -737,6 +737,10 @@ impl JobTransport for AdbcBigQuery {
     /// the OUTCOME one layer up, where `sutura_app::preflight` turns this
     /// answer into the verdict `serve::boot` acts on. The second is the direction that matters to a
     /// deployment: it is the one that would change if this constant were ever right to be `true`.
+    fn delegates_by_address(&self) -> bool {
+        matches!(self.impersonation, Impersonation::DomainDelegation(_))
+    }
+
     fn listing_was_refused(&self, _error: &Self::Error) -> bool {
         false
     }

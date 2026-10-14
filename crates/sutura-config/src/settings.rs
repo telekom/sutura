@@ -529,13 +529,6 @@ impl Settings {
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
         refusals.extend(delegation::refusals(self));
-        refusals.extend(self.sources.each().filter_map(|(alias, source)| {
-            let block = source.caller_identity()?.not_built()?;
-            Some(NotFitToServe::CallerIdentityModeNotBuilt {
-                alias: alias.clone(),
-                block,
-            })
-        }));
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));

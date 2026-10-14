@@ -97,11 +97,17 @@ fn federating(
     source: &sutura_config::ConfiguredSource,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
-    if let Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(login)) = source.caller_identity() {
-        return Ok(broker.federating(
-            alias.clone(),
-            Some(google_login(&format!("sources.{alias}.google_login"), login, outbound)?),
-        ));
+    match source.caller_identity() {
+        Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(login)) => {
+            return Ok(broker.federating(
+                alias.clone(),
+                Some(google_login(&format!("sources.{alias}.google_login"), login, outbound)?),
+            ));
+        }
+        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(_)) => {
+            return Ok(broker.addressing(alias.clone()));
+        }
+        Some(sutura_config::sources::caller_identity::CallerIdentity::WorkloadIdentity(_)) | None => {}
     }
     let Some(workload) = source.workload_identity() else {
         return Ok(broker);

@@ -21,7 +21,7 @@
 use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::Secret;
+use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
@@ -103,6 +103,13 @@ pub enum JobIdentity<'job> {
     AsSubject {
         /// What the pool verifies.
         assertion: &'job Secret,
+    },
+    /// The address the asking subject's identity provider verified, for a transport that runs it
+    /// through domain-wide delegation: the DEPLOYMENT vouches for it, and Google never sees the
+    /// subject's own credential. Built only where [`JobTransport::delegates_by_address`] is `true`.
+    AsAddress {
+        /// The Google account the job runs as.
+        address: &'job PrincipalName,
     },
 }
 
@@ -748,6 +755,15 @@ pub trait JobTransport {
     /// Defaulted to `false`, which is the answer a fake gives unless a test is about this split, and
     /// which is the direction that keeps a deployment serving.
     fn listing_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Does this transport run a job as a verified ADDRESS, through domain-wide delegation?
+    ///
+    /// The one place a principal switch is accepted: `BigQueryWarehouse` refuses
+    /// `Presented::SubjectPrincipal` with `BigQueryError::NoPrincipalSwitch` unless this is `true`.
+    /// Defaulted to `false`, so a transport that declares nothing keeps the refusal.
+    fn delegates_by_address(&self) -> bool {
         false
     }
 
