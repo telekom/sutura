@@ -265,7 +265,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 10] = [
+    const REFUSALS: [(&str, Binary); 13] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -291,7 +291,10 @@ mod tests {
             "environment-not-exact",
             Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
         ),
+        ("image-variant-capitalised", Binary::Derivation),
+        ("image-variant-padded", Binary::Derivation),
         ("image-variant-unknown", Binary::Derivation),
+        ("image-variant-upper-case", Binary::Derivation),
         ("memory-limit-unparseable", Binary::Derivation),
         (
             "metrics-token-missing",
