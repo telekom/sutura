@@ -141,7 +141,8 @@ fn declared_inputs(manifest: &str) -> Option<Vec<String>> {
 }
 
 /// The two fields of an input a reviewer reads in a bump, as written on one line. A value on a
-/// block scalar (`default: |`) reads as empty: a changed block is not seen here.
+/// block scalar (`default: |`) reads as its indicator (`|`), not its text: a changed block is not
+/// seen here.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Input {
     required: Option<String>,
@@ -422,7 +423,7 @@ pub(crate) fn run_moved_pins(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{Manifests, declared_inputs, refresh};
+    use super::{Input, Manifests, declared_inputs, input_fields, refresh};
     use std::collections::{BTreeMap, BTreeSet};
 
     /// A trimmed real shape: a scalar default, a multi-line `description: |`, a required flag,
@@ -475,6 +476,7 @@ mod tests {
     const REPO: &str = "owner/repo";
     const OLD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const NEW: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const OLDER: &str = "cccccccccccccccccccccccccccccccccccccccc";
 
     /// The manifests a fixture answers with, keyed `<owner>/<repo>@<sha>`, and how often it was asked.
     struct Fake {
@@ -691,6 +693,102 @@ mod tests {
             done.report,
             vec![format!("fresh/act: new at {NEW:.12}"), String::from("  + one")]
         );
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kills `issha-len`, `issha-hex`.
+    #[test]
+    fn a_short_hex_or_non_hex_ref_is_not_a_sha() {
+        let fake = fake(&[]);
+        let pinned: BTreeSet<String> = [
+            String::from("fresh/act@abc1234"),
+            format!("fresh/act@{}", "g".repeat(40)),
+            format!("{REPO}@{OLD}"),
+        ]
+        .into_iter()
+        .collect();
+        let result = refresh(&record_for_old(), &pinned, &fake);
+        assert!(
+            matches!(result, Ok(None)),
+            "neither a short hex ref nor 40 non-hex characters is a sha"
+        );
+        assert_eq!(fake.calls.get(), 0);
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kill `field-latch`.
+    #[test]
+    fn a_deeper_line_in_a_description_block_is_not_a_field() {
+        let manifest = "inputs:\n  one:\n    required: true\n    default: x\n    description: |\n      default: deeper\n      required: false\nruns:\n  using: node24\n";
+        assert_eq!(
+            input_fields(manifest),
+            Some(vec![(
+                String::from("one"),
+                Input {
+                    required: Some(String::from("true")),
+                    default: Some(String::from("x")),
+                }
+            )])
+        );
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kills `unset-required`, `unset-default`.
+    #[test]
+    fn an_input_that_gains_or_loses_its_fields_is_named_with_unset() {
+        let bare = "inputs:\n  one:\n    description: Words.\nruns:\n  using: node24\n";
+        let set = manifest_text(&[("one", "true", "x")]);
+        let gained = refreshed(bare, &set).expect("fetches answer").expect("a pin moved");
+        assert_eq!(
+            gained.report,
+            vec![
+                format!("{REPO}: {OLD:.12} -> {NEW:.12}"),
+                String::from("  ~ one: required <unset> -> true"),
+                String::from("  ~ one: default <unset> -> x"),
+            ]
+        );
+        let lost = refreshed(&set, bare).expect("fetches answer").expect("a pin moved");
+        assert_eq!(
+            lost.report,
+            vec![
+                format!("{REPO}: {OLD:.12} -> {NEW:.12}"),
+                String::from("  ~ one: required true -> <unset>"),
+                String::from("  ~ one: default x -> <unset>"),
+            ]
+        );
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kill `blank-arm`.
+    #[test]
+    fn two_stale_entries_of_one_action_leave_one_blank_separator() {
+        let record = format!("# header\n\n{REPO}@{OLD}\n  one\n\n{REPO}@{OLDER}\n  one\n\nz/last@{OLD}\n  end\n");
+        let manifest = manifest_text(&[("one", "true", "x")]);
+        let fake = fake(&[
+            (&format!("{REPO}@{OLD}"), manifest.clone()),
+            (&format!("{REPO}@{OLDER}"), manifest.clone()),
+            (&format!("{REPO}@{NEW}"), manifest),
+        ]);
+        let pinned = pins(&[NEW]).into_iter().chain([format!("z/last@{OLD}")]).collect();
+        let done = refresh(&record, &pinned, &fake)
+            .expect("fetches answer")
+            .expect("a pin moved");
+        assert_eq!(
+            done.record,
+            format!("# header\n\n{REPO}@{NEW}\n  one\n\nz/last@{OLD}\n  end\n")
+        );
+    }
+
+    /// Not measured by causality: shares a file with its code; held by kill `block-end`.
+    #[test]
+    fn an_entry_ends_at_a_column_zero_line_with_no_blank_after_it() {
+        let record = format!("{REPO}@{OLD}\n  one\n# next\nz/last@{OLD}\n  end\n");
+        let manifest = manifest_text(&[("one", "true", "x")]);
+        let fake = fake(&[
+            (&format!("{REPO}@{OLD}"), manifest.clone()),
+            (&format!("{REPO}@{NEW}"), manifest),
+        ]);
+        let pinned = pins(&[NEW]).into_iter().chain([format!("z/last@{OLD}")]).collect();
+        let done = refresh(&record, &pinned, &fake)
+            .expect("fetches answer")
+            .expect("a pin moved");
+        assert_eq!(done.record, format!("{REPO}@{NEW}\n  one\n# next\nz/last@{OLD}\n  end\n"));
     }
 
     /// Not measured by causality: shares a file with its code; held by kill `strict`.
