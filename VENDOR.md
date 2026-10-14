@@ -108,7 +108,9 @@ Five source-level adaptations, recorded here so nothing is silent:
   option is refused (impersonation would swap it for the deployment's own credential), and a subject
   without a target principal is refused. The patch adds `token_options_test.go`, which the build's
   check phase runs on a host that can run its target. Nothing in sutura sets these options yet.
-  Upstream issue: UPSTREAM-ISSUE-URL. Drop it when upstream ships both options.
+  Upstream issue:
+  [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
+  upstream ships both options.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
