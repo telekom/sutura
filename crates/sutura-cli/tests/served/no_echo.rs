@@ -36,14 +36,17 @@ const RUN: usize = 12;
 /// A `trace` event as the bunyan formatter writes its level.
 const TRACE_LEVEL: &str = r#""level":10"#;
 
-/// Fails by name if `lines` holds no `trace` event, or if any of `secrets` appears, [`RUN`]
-/// characters in a row, in a reply or a line. Names, so a failure does not print the secret.
-pub(crate) fn assert_none_echoed(secrets: &[(&str, &str)], replies: &[&Reply], lines: &[String]) {
+/// The name of each of `secrets` that appears, [`RUN`] characters in a row, in a reply or a line;
+/// names, so a failure does not print the secret. Fails if `lines` holds no `trace` event.
+///
+/// Returned rather than asserted, so the cell holds its own refusal and a mutation fails the cell at
+/// its own assertion.
+pub(crate) fn echoed(secrets: &[(&'static str, &str)], replies: &[&Reply], lines: &[String]) -> Vec<&'static str> {
     assert!(
         lines.iter().any(|line| line.contains(TRACE_LEVEL)),
         "no `trace` line was captured, so the capture is not a record of everything logged"
     );
-    let echoed: Vec<&str> = secrets
+    secrets
         .iter()
         .filter(|&&(_, secret)| {
             (0..=secret.len().saturating_sub(RUN))
@@ -56,8 +59,7 @@ pub(crate) fn assert_none_echoed(secrets: &[(&str, &str)], replies: &[&Reply], l
                 })
         })
         .map(|&(name, _)| name)
-        .collect();
-    assert!(echoed.is_empty(), "a credential was sent back or logged: {echoed:?}");
+        .collect()
 }
 
 /// A catalog reader's bearer `token`, sent to a fake that answers `accepted` and then to one that
@@ -66,7 +68,12 @@ pub(crate) fn assert_none_echoed(secrets: &[(&str, &str)], replies: &[&Reply], l
 ///
 /// `settings` declares the deployment over the fake it is given, reading `token` from its token
 /// file. Each fake must have been sent `token` as a bearer, or the absence below proves nothing.
-pub(crate) fn assert_bearer_held_out(case: &str, token: &str, accepted: Vec<Scripted>, settings: impl Fn(&FakeServer) -> String) {
+pub(crate) fn bearer_echoed(
+    case: &str,
+    token: &str,
+    accepted: Vec<Scripted>,
+    settings: impl Fn(&FakeServer) -> String,
+) -> Vec<&'static str> {
     let accepting = FakeServer::start(accepted);
     let mut running = start_configured_with_environment(case, &settings(&accepting), None, &TRACE, &[]);
     let listing = running.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
@@ -92,7 +99,7 @@ pub(crate) fn assert_bearer_held_out(case: &str, token: &str, accepted: Vec<Scri
             "the {fake} fake was never sent the token, so its absence proves nothing: {sent:?}"
         );
     }
-    assert_none_echoed(&[("the catalog token", token)], &[&listing], &lines);
+    echoed(&[("the catalog token", token)], &[&listing], &lines)
 }
 
 /// The payload and signature of a signed token: the part no log has a reason to carry, unlike the
@@ -132,11 +139,12 @@ fn a_deployment_token_reaches_no_reply_and_no_log_line_of_a_started_binary() {
         refused.status,
         listing.status
     );
-    assert_none_echoed(
+    let leaked = echoed(
         &[("the deployment token", DEPLOYMENT), ("the refused token", REFUSED)],
         &[&accepted, &refused, &listing],
         &lines,
     );
+    assert!(leaked.is_empty(), "a credential was sent back or logged: {leaked:?}");
 }
 
 #[test]
@@ -179,7 +187,7 @@ fn a_caller_token_reaches_no_reply_and_no_log_line_of_a_started_binary() {
         expired.status,
         stranger.status
     );
-    assert_none_echoed(
+    let leaked = echoed(
         &[
             ("the accepted token", signed_part(&accepted_token)),
             ("the expired token", signed_part(&expired_token)),
@@ -188,4 +196,5 @@ fn a_caller_token_reaches_no_reply_and_no_log_line_of_a_started_binary() {
         &[&accepted, &expired, &stranger],
         &lines,
     );
+    assert!(leaked.is_empty(), "a credential was sent back or logged: {leaked:?}");
 }

@@ -14,7 +14,7 @@ use sutura_catalog_cube::fixture::META;
 use sutura_http_client::test_support::Scripted;
 
 use crate::harness::{LOOPBACK, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside};
-use crate::no_echo::assert_bearer_held_out;
+use crate::no_echo::bearer_echoed;
 
 const CANARY: &str = "5d27e8b1f90a4c63b7e0d9a2";
 
@@ -50,7 +50,7 @@ impl Drop for TokenDir {
 fn a_cube_catalog_token_is_held_out_of_every_reply_and_log_line_accepted_or_refused() {
     let case = "cube-catalog-no-echo";
     let token = TokenDir::holding(case);
-    assert_bearer_held_out(case, CANARY, vec![meta(), meta()], |cube| {
+    let leaked = bearer_echoed(case, CANARY, vec![meta(), meta()], |cube| {
         let (endpoint, file) = (cube.endpoint(), token.file());
         format!(
             "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: \"{TOKEN}\"\n\
@@ -62,4 +62,5 @@ fn a_cube_catalog_token_is_held_out_of_every_reply_and_log_line_accepted_or_refu
              posture: \"shared-service-user\"\n"
         )
     });
+    assert!(leaked.is_empty(), "the cube token was sent back or logged: {leaked:?}");
 }

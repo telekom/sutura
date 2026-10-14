@@ -495,6 +495,7 @@ mod tests {
         std::fs::write(data.token_file(), format!("{CANARY}\n")).expect("the token file is writable");
         let mut answers = happy_path_answers();
         answers.extend(happy_path_answers());
-        crate::no_echo::assert_bearer_held_out(case, CANARY, answers, |server| settings(server, &data));
+        let leaked = crate::no_echo::bearer_echoed(case, CANARY, answers, |server| settings(server, &data));
+        assert!(leaked.is_empty(), "the catalog token was sent back or logged: {leaked:?}");
     }
 }
