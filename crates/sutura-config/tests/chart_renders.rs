@@ -356,6 +356,12 @@ mod tests {
                     "{name}: declared stricter than the binary ({why}), which refuses: {:?}",
                     error.reason()
                 )),
+                (Binary::Accepts(why), Ok(Ok(settings))) if !settings.agent_surface_refusals().is_empty() => {
+                    wrong.push(format!(
+                        "{name}: declared as one the binary accepts ({why}), and `sutura serve` refuses it: {:?}",
+                        settings.agent_surface_refusals()
+                    ));
+                }
                 (Binary::Accepts(_) | Binary::Derivation, Ok(_)) => {}
             }
         }
