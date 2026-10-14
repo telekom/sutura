@@ -1,14 +1,16 @@
 //! The kill worktree's own tier, over real cargo: a fixture workspace whose `dev/src/provisioned.rs`
 //! fails with the requirement's sentence unless the worktree publishes an endpoint matching the
 //! credential the run carries - the two halves `claim::tier` supplies. A fake tier script for the
-//! arm's own branches, and the real `sutura-postgres-tier` for one cell.
+//! arm's own branches, and the real `sutura-postgres-tier` for one cell. Below them, string cells for
+//! which failure the `NoTier` guard reads.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::probe::{cell, reader};
 use super::tier::{TierError, command, credentials};
-use super::{Caller, Claim};
+use super::{Caller, Cause, Claim, attest};
 use crate::Verdict;
 use crate::causality::diff::commit_additions;
 use crate::causality::scoped::{Scan, Scoped};
@@ -20,6 +22,9 @@ const SPARES: &str = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n++
 /// Publishes an endpoint in its working directory and the matching credential; logs each step.
 const WORKS: &str = "case \"$1\" in\n  start) mkdir -p .sutura-dev && echo fixture-token > .sutura-dev/endpoints.json ;;\n  credentials) echo export SUTURA_POSTGRES_TIER_PASSWORD=fixture-token ;;\nesac\n";
 const FAILS: &str = "[ \"$1\" != start ]\n";
+/// Hands out the credential but publishes no endpoint in its working directory.
+const PUBLISHES_NOTHING: &str =
+    "case \"$1\" in\n  credentials) echo export SUTURA_POSTGRES_TIER_PASSWORD=fixture-token ;;\nesac\n";
 
 /// A temp dir holding a fixture repo at `repo/` and the fake tier at `tier`, logging to `tier.log`.
 struct Fixture(PathBuf);
@@ -202,4 +207,47 @@ fn a_credential_outside_the_tiers_namespace_is_refused_without_its_value() {
     assert!(!refused.to_string().contains("s3cret"), "{refused}");
     let parsed = credentials("export SUTURA_POSTGRES_TIER_PASSWORD=a=b\n").unwrap();
     assert_eq!(parsed, [(String::from("SUTURA_POSTGRES_TIER_PASSWORD"), String::from("a=b"))]);
+}
+
+#[test]
+fn the_kill_worktree_reads_only_its_own_tiers_endpoint() {
+    // The root publishes an endpoint the kill tier's credential matches; the kill worktree must
+    // not see it, so its cell still ends at the lookup.
+    let fixture = Fixture::new(KILLS, PUBLISHES_NOTHING);
+    std::fs::create_dir_all(fixture.repo().join(".sutura-dev")).unwrap();
+    std::fs::write(fixture.repo().join(".sutura-dev/endpoints.json"), "fixture-token\n").unwrap();
+    let (verdict, _) = fixture.run();
+    assert_eq!(verdict, Verdict::Inconclusive);
+}
+
+#[test]
+fn a_cell_that_failed_outside_the_tier_lookup_is_not_a_tier_cell() {
+    let text = format!(
+        "        FAIL [   0.021s] (1/1) sutura-cli::bin/sutura audit::tests::the_added_one\n\
+         thread 'audit::tests::the_added_one' panicked at crates/x/src/lib.rs:1:1:\n\
+         a helper failed\n\
+         thread 'audit::tests::the_added_one' panicked at dev/src/provisioned.rs:413:40:\n\
+         {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let refused = attest(false, &text, "the_added_one", &cell(), &reader());
+    assert!(matches!(refused, Err(Cause::NotByAssertion { .. })), "{refused:?}");
+}
+
+#[test]
+fn another_tests_tier_panic_is_not_the_cells_own() {
+    let text = format!(
+        "        FAIL [   0.021s] (1/2) sutura-cli::bin/sutura audit::tests::the_added_one\n\
+         thread 'audit::tests::the_added_one' panicked at dev/src/provisioned.rs:200:5:\n\
+         a malformed endpoint\n\
+         \n\
+         \x20       FAIL [   0.021s] (2/2) sutura-cli::bin/sutura audit::tests::another_one\n\
+         thread 'audit::tests::another_one' panicked at dev/src/provisioned.rs:413:40:\n\
+         {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let refused = attest(false, &text, "the_added_one", &cell(), &reader());
+    assert!(matches!(refused, Err(Cause::NotByAssertion { .. })), "{refused:?}");
 }

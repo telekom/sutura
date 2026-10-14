@@ -1294,12 +1294,16 @@
         # `checks.nextest` built minutes earlier in the same CI job - 9m48s of the last run's
         # 12m16s was exactly that. See `nix/cargo-env.nix`, including the directory name it has
         # to agree with `xtask/src/causality.rs` about.
+        #
+        # Both tiers come up through `nix/with-tier.sh`, the file `just causality` sources, so the
+        # head and base runs reach one tier under one requirement in every venue. `cargo` runs in a
+        # subshell and NOT `exec`'d, so the EXIT trap `sutura_tier_up` armed stops what it started.
         apps.causality = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
             # The gate shells out to nextest, its falsifier test runs the pinned jscpd, and the claim
             # arm starts the kill worktree's own Postgres tier.
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:${clickhouseTier.tier}/bin:$PATH"
             # The driver `checks.nextest` names: a tier with none fails every Postgres claim cell in
             # its setup, before the cell's own assertion - measured on #1286's first CI run.
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
@@ -1309,7 +1313,11 @@
             # this app used to inline the script and three of the five consumers relied on it
             # having done so first. `nix/cargo-env.nix` owns it now, one owner for all five.
             ${cargoWarmStart}
-            exec cargo run -q --profile ci -p xtask -- test-causality "$@"
+            . ${./nix/with-tier.sh}
+            sutura_tier_up || exit 1
+            (
+              exec cargo run -q --profile ci -p xtask -- test-causality "$@"
+            )
           '');
         };
 

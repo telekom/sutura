@@ -179,6 +179,7 @@ fn evaluate_verdict(outcome: &BaseOutcome, output: &str, retried: bool, moved: &
             eprintln!("provision what those tests need, or fix them, and ask again.");
             Verdict::Fail
         }
+        BaseOutcome::NeverReachedItsTier { ref failed } => no_tier_verdict(failed, measured),
         BaseOutcome::NotRun => {
             if retried {
                 println!("xtask test-causality: INCONCLUSIVE - the coherent base tree ran none of the added tests");
@@ -274,6 +275,20 @@ fn evaluate_verdict(outcome: &BaseOutcome, output: &str, retried: bool, moved: &
             Verdict::Inconclusive
         }
     }
+}
+
+/// The verdict for a base run red in the tier lookup: INCONCLUSIVE, since no test reached its assert.
+fn no_tier_verdict(failed: &[String], measured: &str) -> Verdict {
+    println!("  base: red in the tier lookup, not at an assertion");
+    for one in failed {
+        println!("    no tier:   {one}");
+    }
+    println!();
+    println!("xtask test-causality: INCONCLUSIVE - the base run never reached its tier.");
+    println!("It keeps the head run's requirement, and the tier those tests need was absent");
+    println!("in the base worktree - a test that never ran is not evidence about behaviour.");
+    println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
+    Verdict::Inconclusive
 }
 
 /// The verdict for a red run whose SIBLING added test passed on base.

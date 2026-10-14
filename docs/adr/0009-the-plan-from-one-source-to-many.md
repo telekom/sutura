@@ -1113,3 +1113,21 @@ stays at 30 seconds.
 - **The bench.** The committed bench has no distinct-key case. The two distinct-key rows come from an
   uncommitted local copy of the bench that adds the two metric files from the differential corpus.
 - **A loaded host.** The wall-clock figures are an envelope, not a default.
+
+## Tenth amendment, 2026-10-14: the causality gate's base worktree shares the root's tier
+
+Decision 4 puts one tier instance in each worktree and the discovery file inside that worktree.
+This amendment adds one exception. The causality gate measures a change in two runs: HEAD in the
+root, and base in a worktree that the gate makes under `target/`. Before the base run, the gate
+copies the root's discovery file into that worktree, so that both runs reach the root's tier.
+
+- **A copy, not a link.** A `forget` in the base worktree does not remove the root's entry, and
+  the copy goes when the gate removes the worktree. Lock files stay at the root.
+- **Only the base run.** The claim arm's kill worktree starts its own tier and gets no copy.
+- **The requirement goes with the file.** The base run keeps the head run's
+  `SUTURA_DEV_REQUIRE_TIER`. Without the copy, the base run removed it, so each tier-backed cell
+  skipped on base and a causal change to one could never be proven.
+- **An absent tier is not a proof.** A base cell that fails in the tier lookup is INCONCLUSIVE,
+  not red on base. An added test that passed on base still fails the run.
+- **The limit.** HEAD runs first and base runs second against one tier. A cell that is not
+  idempotent against tier state can be green on HEAD and red on base for a state reason.
