@@ -213,7 +213,13 @@ where
         let _ignored = stream.set_read_timeout(Some(Duration::from_secs(10)));
         let Some(mut stream) = open(stream) else { return };
         let mut read = [0_u8; 8192];
-        let _ignored = stream.read(&mut read);
+        let count = stream.read(&mut read).unwrap_or(0);
+        // A CONNECT whose connect data overflows it sends that data as the next packet, which a TLS
+        // session hands over as a read of its own rather than in this one.
+        let at = |index| field(&read, index);
+        if read.get(4) == Some(&1) && at(24) + at(26) > at(0) && count <= at(0) {
+            let _ignored = stream.read(&mut read);
+        }
         let _ignored = stream.write_all(&packet(2, &accept()));
         let _ignored = stream.flush();
         let mut after = Vec::new();
@@ -295,6 +301,15 @@ fn packet(packet_type: u8, body: &[u8]) -> Vec<u8> {
     }
     packet.extend(body);
     packet
+}
+
+/// The two-byte field at `index`, or 0 past the end.
+#[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
+fn field(packet: &[u8], index: usize) -> usize {
+    packet
+        .get(index..index + 2)
+        .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+        .map_or(0, |bytes| usize::from(u16::from_be_bytes(bytes)))
 }
 
 #[expect(clippy::big_endian_bytes, reason = "a TNS header is in network byte order")]
