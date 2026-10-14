@@ -224,6 +224,15 @@ pub enum InvalidCatalogSettings {
         #[source]
         cause: InvalidDataHubPlatform,
     },
+    /// Two `platforms:` keys that read as one platform once trimmed, so the second would silently replace
+    /// the first.
+    #[error("`catalogs.{name}.platforms` writes the platform `{platform}` twice, as {first:?} and {second:?} - keep one")]
+    DuplicatePlatform {
+        name: SourceName,
+        platform: DataHubPlatform,
+        first: String,
+        second: String,
+    },
     /// `platforms` was written with no entry, which would read as the default and so declares nothing.
     #[error("`catalogs.{name}.platforms` is empty - remove the key for the default, or map a platform to a source")]
     EmptyPlatforms { name: SourceName },

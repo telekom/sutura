@@ -119,35 +119,43 @@ fn parse_platforms(catalog: &SourceName, raw: &RawCatalog, sources: &SourceRegis
     if written.is_empty() {
         return Err(refuse(InvalidCatalogSettings::EmptyPlatforms { name: catalog.clone() }));
     }
-    written
-        .iter()
-        .map(|(key, value)| {
-            let platform = DataHubPlatform::parse(key).map_err(|cause| {
-                refuse(InvalidCatalogSettings::InvalidPlatform {
+    let mut platforms = Platforms::new();
+    let mut spelled: BTreeMap<DataHubPlatform, &str> = BTreeMap::new();
+    for (key, value) in written {
+        let platform = DataHubPlatform::parse(key).map_err(|cause| {
+            refuse(InvalidCatalogSettings::InvalidPlatform {
+                name: catalog.clone(),
+                platform: key.clone(),
+                cause,
+            })
+        })?;
+        if let Some(first) = spelled.insert(platform.clone(), key) {
+            return Err(refuse(InvalidCatalogSettings::DuplicatePlatform {
+                name: catalog.clone(),
+                platform,
+                first: first.to_owned(),
+                second: key.clone(),
+            }));
+        }
+        let Some(source_alias) = value else {
+            return Err(refuse(InvalidCatalogSettings::PlatformWithoutSource {
+                name: catalog.clone(),
+                platform,
+            }));
+        };
+        let alias = SourceName::parse(source_alias)
+            .ok()
+            .filter(|alias| sources.get(alias).is_some())
+            .ok_or_else(|| {
+                refuse(InvalidCatalogSettings::UnknownPlatformSource {
                     name: catalog.clone(),
-                    platform: key.clone(),
-                    cause,
+                    platform: platform.clone(),
+                    source_alias: source_alias.clone(),
                 })
             })?;
-            let Some(source_alias) = value else {
-                return Err(refuse(InvalidCatalogSettings::PlatformWithoutSource {
-                    name: catalog.clone(),
-                    platform,
-                }));
-            };
-            SourceName::parse(source_alias)
-                .ok()
-                .filter(|alias| sources.get(alias).is_some())
-                .map(|alias| (platform.clone(), alias))
-                .ok_or_else(|| {
-                    refuse(InvalidCatalogSettings::UnknownPlatformSource {
-                        name: catalog.clone(),
-                        platform,
-                        source_alias: source_alias.clone(),
-                    })
-                })
-        })
-        .collect()
+        platforms.insert(platform, alias);
+    }
+    Ok(platforms)
 }
 
 /// Refuses an rdbms-only key on a catalog of another kind. The raw shape knows these keys, so

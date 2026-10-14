@@ -6,6 +6,7 @@
 //! The cells read the settings only through what the base tree already exports - the refusal's
 //! `Debug` and `Display`, the catalog's `Debug` - so they build there and fail on its behaviour.
 
+use crate::catalog::InvalidCatalogSettings;
 use crate::settings::{Environment, Settings, SettingsError, SettingsLoadError, Sources};
 
 /// A `datahub` catalog mapping the `postgres` platform to `source`, over one declared `files` source
@@ -29,24 +30,30 @@ fn a_platform_mapped_to_a_declared_source_loads() {
     assert!(shown.contains("billing"), "{shown}");
 }
 
-/// The refusal `Settings::load` gives `overlay`, with `platforms` written as `platforms_yaml`.
+/// The refusal `Settings::load` gives `overlay`, with `platforms` written as `platforms_yaml` and the
+/// sources `billing` and `ledger` declared.
 fn refusal(platforms_yaml: &str) -> SettingsLoadError {
     let overlay = format!(
         "security:\n  identity: single-user\n  single_user_because: a test\n\
          catalogs:\n  - name: catalog\n    kind: datahub\n    dir: catalog\n    data_dir: data\n    version: test-1\n    \
          endpoint: https://datahub.example\n    token_file: /nowhere/token\n    metric_property: m\n    {platforms_yaml}\n\
-         sources:\n  billing:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n"
+         sources:\n  billing:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n  ledger:\n    kind: files\n    data_dir: /srv/ledger\n    posture: shared-service-user\n"
     );
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
         .expect_err("a platforms key that declares nothing is refused")
 }
 
-/// The catalog refusal inside `error`, as its variant and fields print.
-fn cause(error: &SettingsLoadError) -> String {
+/// The catalog refusal inside `error`.
+fn catalog_cause(error: &SettingsLoadError) -> &InvalidCatalogSettings {
     let SettingsError::Catalog { cause } = error.reason() else {
         panic!("expected a catalog refusal, got {error:?}");
     };
-    format!("{cause:?}")
+    cause
+}
+
+/// The catalog refusal inside `error`, as its variant and fields print.
+fn cause(error: &SettingsLoadError) -> String {
+    format!("{:?}", catalog_cause(error))
 }
 
 #[test]
@@ -68,7 +75,17 @@ fn a_platform_name_that_is_empty_or_holds_whitespace_is_refused_naming_it() {
     for key in ["\"\"", "\"  \"", "\"two words\""] {
         let error = refusal(&format!("platforms:\n      {key}: billing"));
         assert!(cause(&error).starts_with("InvalidPlatform"), "{key}: {error:?}");
+        let shown = catalog_cause(&error).to_string();
+        assert!(shown.contains(key.trim_matches('"')), "{key}: {shown}");
     }
+}
+
+#[test]
+fn two_platform_keys_equal_once_trimmed_are_refused_naming_both_spellings() {
+    let error = refusal("platforms:\n      postgres: billing\n      \"postgres \": ledger");
+    assert!(cause(&error).starts_with("DuplicatePlatform"), "{error:?}");
+    let shown = catalog_cause(&error).to_string();
+    assert!(shown.contains("\"postgres\"") && shown.contains("\"postgres \""), "{shown}");
 }
 
 #[test]

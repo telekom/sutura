@@ -1811,6 +1811,7 @@ Why a catalog configuration is not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
 - `UnknownPlatformSource` - A `catalog.kind: datahub` entry maps a platform to a source nobody declared under `sources:`.
 - `InvalidPlatform` - A `platforms:` key that is no platform name.
+- `DuplicatePlatform` - Two `platforms:` keys that read as one platform once trimmed, so the second would silently replace the first.
 - `EmptyPlatforms` - `platforms` was written with no entry, which would read as the default and so declares nothing.
 - `PlatformWithoutSource` - A platform was written with no source.
 - `PlatformsOnOtherKind` - A catalog of another kind wrote `platforms`, a key nothing would read.
