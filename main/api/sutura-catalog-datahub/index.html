@@ -1870,6 +1870,8 @@
       
         
       
+        
+      
     
     
     
@@ -1995,6 +1997,34 @@
     
   
     Metrics layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/federated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federated
   
 
     
@@ -3521,8 +3551,8 @@ it skips on forks and the merge queue, and its seeds carry no per-field <code>de
 <code>isPartOfKey</code> - and <code>tests/provisioned/golden.rs</code>, which reads the golden catalog back through
 this reader in <code>ci-datahub-tier</code> (no secret; minus its named <code>NOT_CARRIED</code> rows; evidence only
 of a run of it). The platform is read from each
-served URN; the composition root maps only <code>bigquery</code>, so any other platform is refused by name
-at load (<code>DataHubError::UnknownPlatform</code>). The <em>Built and not wired</em> register in
+served URN; the composition root maps <code>catalogs[].platforms</code> (the single <code>bigquery</code> platform when
+none is written), so any unmapped platform is refused by name at load (<code>DataHubError::UnknownPlatform</code>). The <em>Built and not wired</em> register in
 <code>.agents/skills/sutura/query-surface/SKILL.md</code> keeps those limits; it no longer records "no
 composition root".</p>
 <p><strong>What that register no longer says is that the cost is unmeasured.</strong> The architecture decision's

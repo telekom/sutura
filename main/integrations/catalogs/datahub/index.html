@@ -1993,6 +1993,8 @@
       
         
       
+        
+      
     
     
     
@@ -2118,6 +2120,34 @@
     
   
     Metrics layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../examples/federated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federated
   
 
     
@@ -3677,6 +3707,12 @@ and these keys. It requires <code>dir</code> and <code>data_dir</code>, but does
 <td>The qualified name of the structured property that holds the metric document.</td>
 </tr>
 <tr>
+<td><code>platforms</code></td>
+<td>map</td>
+<td>none</td>
+<td>Each DataHub platform, mapped to the <code>sources:</code> alias that serves its datasets. An alias that <code>sources:</code> does not declare, an empty map, a platform with no source, and a platform name that is empty or holds whitespace all stop startup.</td>
+</tr>
+<tr>
 <td><code>deadline_seconds</code></td>
 <td>integer</td>
 <td><code>30</code></td>
@@ -3750,8 +3786,10 @@ catalog <code>name</code> is also the name of the BigQuery source that the model
 </tr>
 </tbody>
 </table>
-<p>Every model must be on the <code>bigquery</code> platform. sutura binds those models to the source whose
-alias is the catalog <code>name</code>.</p>
+<p>A model is bound to the source that <code>platforms</code> maps its platform to. Without <code>platforms</code>, every
+model must be on the <code>bigquery</code> platform, and sutura binds it to the source whose alias is the
+catalog <code>name</code>. A model on a platform that is not mapped is refused at load, by name.
+The <a href="../../../examples/federated/">federated</a> example maps <code>postgres</code> and <code>clickhouse</code>.</p>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
 <p>The reader sends the token from <code>token_file</code> on every request. It is one token for every caller,
 because sutura loads a catalog without a caller's identity.</p>
