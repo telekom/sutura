@@ -455,7 +455,7 @@ fn a_trusted_proxy_block_covering_every_address_starts_with_its_opt_in() {
 }
 
 /// One load, so a cell's own `expect` is where a refusal of a value it relies on surfaces.
-fn load(overlay: String) -> Result<Settings, crate::settings::SettingsLoadError> {
+fn load_inbound_overlay(overlay: String) -> Result<Settings, crate::settings::SettingsLoadError> {
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
 }
 
@@ -468,14 +468,15 @@ fn a_transit_audience_may_be_a_path_and_is_never_cleartext() {
             GATEWAY_INBOUND.replace("https://sutura.example.com", audience)
         )
     };
-    let settings = load(gateway("/hub/My-MCP/v1")).expect("a path audience starts");
+    let settings = load_inbound_overlay(gateway("/hub/My-MCP/v1")).expect("a path audience starts");
     let inbound = settings.security().inbound().expect("the declaration is there");
     assert_eq!(
         inbound.requirement().audience().as_str(),
         "/hub/My-MCP/v1",
         "stored as written"
     );
-    let refused = load(gateway("http://sutura.example.com/hub")).expect_err("a cleartext audience does not start");
+    let refused =
+        load_inbound_overlay(gateway("http://sutura.example.com/hub")).expect_err("a cleartext audience does not start");
     assert!(
         matches!(
             *refused.reason(),
@@ -488,15 +489,20 @@ fn a_transit_audience_may_be_a_path_and_is_never_cleartext() {
         "{refused:?}"
     );
     for value in ["//h/x", "/hub?x=1", "/hub#x", "/hub%2", "/hub x", "hub/x"] {
-        assert!(load(gateway(value)).is_err(), "{value:?} is not an absolute path");
+        assert!(
+            load_inbound_overlay(gateway(value)).is_err(),
+            "{value:?} is not an absolute path"
+        );
     }
 }
 
 #[test]
 fn granted_scopes_is_read_behind_a_gateway_and_refused_in_direct() {
     const GRANT: &str = "    granted_scopes: [\"sutura:metrics.ask\"]\n";
-    let _settings = load(format!("security:\n{GATEWAY_INBOUND}{GRANT}")).expect("a grant behind a gateway starts");
-    let refused = load(format!("security:\n{DIRECT_INBOUND}{GRANT}")).expect_err("a grant in `direct` does not start");
+    let _settings =
+        load_inbound_overlay(format!("security:\n{GATEWAY_INBOUND}{GRANT}")).expect("a grant behind a gateway starts");
+    let refused =
+        load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}{GRANT}")).expect_err("a grant in `direct` does not start");
     let rendered = refused.reason().to_string();
     assert!(
         rendered.contains("`security.inbound.granted_scopes`") && rendered.contains("`behind-gateway`"),
@@ -506,7 +512,7 @@ fn granted_scopes_is_read_behind_a_gateway_and_refused_in_direct() {
 
 #[test]
 fn a_grant_of_sutura_sql_run_does_not_start() {
-    let refused = load(format!(
+    let refused = load_inbound_overlay(format!(
         "security:\n{GATEWAY_INBOUND}    granted_scopes: [\"sutura:metrics.ask\", \"sutura:sql.run\"]\n"
     ))
     .expect_err("granting raw SQL by configuration does not start");
@@ -520,10 +526,11 @@ fn a_grant_of_sutura_sql_run_does_not_start() {
 #[test]
 fn a_direct_audience_is_its_own_key_and_never_cleartext() {
     const CLIENT: &str = "6f1c2c84-3b1e-4c8a-9d2e-5a0b7e9f1d23";
-    let settings = load(format!("security:\n{DIRECT_INBOUND}    audience: \"{CLIENT}\"\n")).expect("a client-id audience starts");
+    let settings = load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}    audience: \"{CLIENT}\"\n"))
+        .expect("a client-id audience starts");
     let inbound = settings.security().inbound().expect("the declaration is there");
     assert_eq!(inbound.requirement().audience().as_str(), CLIENT);
-    let refused = load(format!(
+    let refused = load_inbound_overlay(format!(
         "security:\n{DIRECT_INBOUND}    audience: \"http://sutura.example.com\"\n"
     ))
     .expect_err("a cleartext audience does not start");
@@ -538,7 +545,7 @@ fn a_direct_audience_is_its_own_key_and_never_cleartext() {
         ),
         "{refused:?}"
     );
-    let rendered = load(format!("security:\n{GATEWAY_INBOUND}    audience: \"{CLIENT}\"\n"))
+    let rendered = load_inbound_overlay(format!("security:\n{GATEWAY_INBOUND}    audience: \"{CLIENT}\"\n"))
         .expect_err("a gateway's audience is `transit_audience`")
         .reason()
         .to_string();
@@ -547,17 +554,17 @@ fn a_direct_audience_is_its_own_key_and_never_cleartext() {
 
 #[test]
 fn extra_scope_claims_name_only_scp_and_roles() {
-    let _settings = load(format!(
+    let _settings = load_inbound_overlay(format!(
         "security:\n{DIRECT_INBOUND}    extra_scope_claims: [\"scp\", \"roles\"]\n"
     ))
     .expect("scp and roles start");
-    let refused = load(format!("security:\n{DIRECT_INBOUND}    extra_scope_claims: [\"groups\"]\n"))
+    let refused = load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}    extra_scope_claims: [\"groups\"]\n"))
         .expect_err("a claim outside the closed set does not start");
     let SettingsError::InboundValue { ref cause } = *refused.reason() else {
         panic!("{refused:?}");
     };
     assert!(cause.to_string().contains("scp, roles"), "{cause}");
-    let rendered = load(format!("security:\n{GATEWAY_INBOUND}    extra_scope_claims: [\"scp\"]\n"))
+    let rendered = load_inbound_overlay(format!("security:\n{GATEWAY_INBOUND}    extra_scope_claims: [\"scp\"]\n"))
         .expect_err("a gateway reads no extra claim")
         .reason()
         .to_string();
