@@ -1947,6 +1947,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#microsoft-entra-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Microsoft Entra ID
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#clickhouse-token-checker" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3634,6 +3645,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#microsoft-entra-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Microsoft Entra ID
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#clickhouse-token-checker" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3724,7 +3746,19 @@ authenticates the deployment, and every question runs with the access of the dep
 <td><code>resource</code></td>
 <td><code>https</code> URI</td>
 <td>required</td>
-<td>The value that <code>aud</code> must equal exactly</td>
+<td>The identifier that sutura publishes. <code>aud</code> must equal it exactly, unless <code>audience</code> is set</td>
+</tr>
+<tr>
+<td><code>audience</code></td>
+<td>string</td>
+<td>none</td>
+<td>The value that <code>aud</code> must equal exactly instead: an <code>https</code> URI, or a client ID of letters, digits, <code>-</code>, <code>.</code> and <code>_</code></td>
+</tr>
+<tr>
+<td><code>extra_scope_claims</code></td>
+<td>list</td>
+<td>none</td>
+<td>More claims that grant scopes, beside <code>scope</code>: <code>scp</code>, <code>roles</code>, or both</td>
 </tr>
 <tr>
 <td><code>authorization_server</code></td>
@@ -3790,9 +3824,15 @@ authenticates the deployment, and every question runs with the access of the dep
 </tr>
 <tr>
 <td><code>transit_audience</code></td>
-<td><code>https</code> URI</td>
+<td>string</td>
 <td>required</td>
-<td>The audience that the assertion must carry</td>
+<td>The <code>aud</code> of the assertion: an <code>https</code> URI or a path that starts with one <code>/</code></td>
+</tr>
+<tr>
+<td><code>granted_scopes</code></td>
+<td>list</td>
+<td>none</td>
+<td>The scopes of an assertion that has no <code>scope</code> claim</td>
 </tr>
 <tr>
 <td><code>key_set_file</code></td>
@@ -3899,7 +3939,30 @@ after the file holds the new key before the gateway signs with it.</p>
 </tr>
 </tbody>
 </table>
-<p>A verified caller without one of these scopes gets <code>403 insufficient_scope</code>.</p>
+<p>A verified caller without one of these scopes gets <code>403 insufficient_scope</code>. A scope that names
+none of these grants nothing.</p>
+<p>In <code>direct</code>, <code>extra_scope_claims</code> also reads <code>scp</code> and <code>roles</code>. Each is a space-delimited string or
+a list of strings. sutura adds their scopes to the scopes of <code>scope</code>. When the setting is not set,
+sutura reads only <code>scope</code>.</p>
+<p>Behind a gateway, <code>granted_scopes</code> gives scopes to an assertion that has no <code>scope</code> claim. All
+subjects that the gateway signs an assertion for without <code>scope</code> get these scopes, so sutura writes
+them to the start-up log at <code>WARN</code>. An assertion with a <code>scope</code> claim, also an empty one, gets only
+the scopes of that claim. <code>granted_scopes</code> cannot hold <code>sutura:sql.run</code>.</p>
+<h2 id="microsoft-entra-id">Microsoft Entra ID<a class="headerlink" href="#microsoft-entra-id" title="Permanent link">&para;</a></h2>
+<p>An Entra access token has <code>typ: JWT</code> and the application ID of your API in <code>aud</code>. Set:</p>
+<ul>
+<li><code>authorization_server</code>: <code>https://login.microsoftonline.com/&lt;tenant&gt;/v2.0</code>.</li>
+<li><code>key_set_file</code>: a copy of <code>https://login.microsoftonline.com/&lt;tenant&gt;/discovery/v2.0/keys</code>. Entra
+  rotates its keys, so refresh the file on a schedule.</li>
+<li><code>token_type: any</code> and <code>accept_any_token_type: true</code>.</li>
+<li><code>audience</code>: the application ID of the API.</li>
+<li><code>extra_scope_claims: [scp, roles]</code>: <code>scp</code> holds the delegated scopes of a user, and <code>roles</code> holds
+  the app roles assigned to the caller, an application or a user.</li>
+</ul>
+<p>In the app registration of the API, set <code>accessTokenAcceptedVersion</code> to <code>2</code>. A version 1 token has
+a different issuer, and sutura refuses it. Register the API separately from every client: with
+<code>extra_scope_claims</code> set, a token must name its client in <code>azp</code>, and the client must differ from the
+API.</p>
 <h2 id="clickhouse-token-checker">ClickHouse token checker<a class="headerlink" href="#clickhouse-token-checker" title="Permanent link">&para;</a></h2>
 <p>A <a href="../data-systems/clickhouse/#token-sign-in">ClickHouse source with token sign-in</a> needs a token
 checker that you run. Keycloak cannot answer the request of ClickHouse itself: ClickHouse sends

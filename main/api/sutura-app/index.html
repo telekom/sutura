@@ -4022,7 +4022,9 @@ deterministic.</p>
 <li><code>Permitted::every_capability</code> - nothing established a caller identity, so there is no verified
   claim to narrow by. A single-player deployment, and the agent surface over standard input and
   output.</li>
-<li><code>Permitted::granted_by</code> - a verified token's scopes decide, and <strong>only</strong> they do.</li>
+<li><code>Permitted::granted_by</code> - a verified token's scopes decide, and <strong>only</strong> they do. Behind a
+  gateway that declares <code>security.inbound.granted_scopes</code>, an assertion with no <code>scope</code> claim
+  arrives here carrying that grant; one that states a <code>scope</code> carries only its own.</li>
 </ul>
 <h1 id="it-fails-closed-and-the-consequence-is-named-rather-than-softened">It fails closed, and the consequence is named rather than softened<a class="headerlink" href="#it-fails-closed-and-the-consequence-is-named-rather-than-softened" title="Permanent link">&para;</a></h1>
 <p>A verified caller whose token names no capability scope is permitted <strong>nothing</strong>: it sees no tools
@@ -5083,7 +5085,9 @@ the architecture decision - and this is defence in depth rather than the control
 <li><code>Permitted::every_capability</code> - nothing established a caller identity, so there is no verified
   claim to narrow by. A single-player deployment, and the agent surface over standard input and
   output.</li>
-<li><code>Permitted::granted_by</code> - a verified token's scopes decide, and <strong>only</strong> they do.</li>
+<li><code>Permitted::granted_by</code> - a verified token's scopes decide, and <strong>only</strong> they do. Behind a
+  gateway that declares <code>security.inbound.granted_scopes</code>, an assertion with no <code>scope</code> claim
+  arrives here carrying that grant; one that states a <code>scope</code> carries only its own.</li>
 </ul>
 <h1 id="it-fails-closed-and-the-consequence-is-named-rather-than-softened_1">It fails closed, and the consequence is named rather than softened<a class="headerlink" href="#it-fails-closed-and-the-consequence-is-named-rather-than-softened_1" title="Permanent link">&para;</a></h1>
 <p>A verified caller whose token names no capability scope is permitted <strong>nothing</strong>: it sees no tools
