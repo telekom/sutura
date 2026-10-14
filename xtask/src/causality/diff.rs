@@ -89,9 +89,10 @@ impl fmt::Display for DiffError {
     }
 }
 
-/// The output format both readers pin, so the user's git config cannot change what [`parse`]
-/// reads: every hunk as text, no external diff or textconv filter, and the `a/` and `b/` prefixes.
-const PINNED: [&str; 8] = [
+/// The output format both readers pin, so these git config keys cannot change what [`parse`]
+/// reads: every hunk as text, no external diff or textconv filter, the `a/` and `b/` prefixes, no
+/// colour, and a rename printed as a deletion and an addition.
+const PINNED: [&str; 9] = [
     "diff",
     "--text",
     "--no-ext-diff",
@@ -100,6 +101,7 @@ const PINNED: [&str; 8] = [
     "--dst-prefix=b/",
     "--unified=0",
     "--no-color",
+    "--no-renames",
 ];
 
 /// `git diff` of `revs` in `dir`, in the [`PINNED`] format, with paths printed unquoted.

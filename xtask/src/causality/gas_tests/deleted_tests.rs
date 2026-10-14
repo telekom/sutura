@@ -105,6 +105,24 @@ fn a_deleted_test_file_with_another_unpinned_header_is_refused() {
     );
 }
 
+/// The added tests are red on base, so only the refusal of the `+++` header fails the head.
+#[test]
+fn an_added_test_file_with_an_unpinned_header_is_refused() {
+    let base = [("src/lib.rs", "pub fn f() -> u8 { 0 }\n")];
+    assert_eq!(
+        committed_tree("fix: f is 1\n", &base, &[("src/lib.rs", LIB), ("tests/q\"s.rs", PINS)]),
+        Verdict::Fail
+    );
+}
+
+#[test]
+fn a_test_file_renamed_out_of_the_build_needs_a_trailer_naming_each_test() {
+    assert_eq!(
+        trailer_ladder("tests/pins.rs", &[("tests/pins.off", PINS)]),
+        (Verdict::Fail, Verdict::Fail, Verdict::Pass)
+    );
+}
+
 /// A fresh repository with a `tests/` directory and a commit identity.
 fn scratch_repo(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("sutura-causality-{tag}-{}", std::process::id()));
@@ -147,6 +165,7 @@ fn both_diff_readers_list_a_commit_the_same_under_a_user_git_config() {
         ("diff.conv.textconv", "false"),
         ("diff.noprefix", "true"),
         ("core.quotePath", "true"),
+        ("color.diff", "always"),
     ] {
         git(&dir, &["config", key, value]);
     }
