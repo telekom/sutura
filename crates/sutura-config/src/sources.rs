@@ -581,8 +581,9 @@ pub enum InvalidSourceRegistry {
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
 ///
-/// A newtype over the map rather than the map, so [`Self::parse`] is the only way one comes into
-/// existence and the duplicate-alias refusal cannot be skipped by building the map directly.
+/// A newtype over the map rather than the map, so [`Self::parse_declared`] is the only way one
+/// comes into existence and the duplicate-alias refusal cannot be skipped by building the map
+/// directly.
 ///
 /// **May be empty, and that is not a refusal here.** A deployment configuring no source is one that
 /// has not said where its data is; what refuses it is the composition root, which finds the catalog
@@ -709,9 +710,9 @@ impl SourceRegistry {
 
 /// Reads one entry, given the alias it was written under.
 ///
-/// Split out of [`SourceRegistry::parse`] so each half stays under the complexity threshold, and
-/// because the two halves are two questions: the loop asks *which sources are there*, and this asks
-/// *what does one of them say*.
+/// Split out of [`SourceRegistry::parse_declared`] so each half stays under the complexity
+/// threshold, and because the two halves are two questions: the loop asks *which sources are
+/// there*, and this asks *what does one of them say*.
 fn parse_entry(
     alias: &SourceName,
     entry: &RawSourceEntry<'_>,
