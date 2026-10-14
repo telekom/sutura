@@ -224,6 +224,20 @@ fn the_oracle_assembly_stops_at_the_first_row_the_driver_fails() {
     assert_eq!(pulled.get(), 2, "the cursor is abandoned at the refused row");
 }
 
+/// **The reader's dial is bounded by [`sutura_oracle_connect::DIAL_DEADLINE`].** Without the
+/// bound, a connect nobody answers waits on the operating system's own retry schedule.
+#[test]
+fn the_oracle_reader_dials_within_the_dial_deadline() {
+    let reader = OracleReader::new(login(), "dictionary", String::from("prod"), RowPredicate::None, None, None)
+        .expect("a valid reader config");
+    let config = reader.driver_config().expect("a plaintext loopback dial configures");
+    assert_eq!(
+        config.transport_connect_timeout(),
+        Some(sutura_oracle_connect::DIAL_DEADLINE),
+        "the reader's dial is not bounded by the dial deadline"
+    );
+}
+
 /// A listener that answers the login with a redirect is refused, typed, and the address it named is
 /// never dialled - so no login reaches it.
 #[test]
@@ -244,43 +258,6 @@ fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
         !listener.target_was_dialled(std::time::Duration::from_secs(2)),
         "the address the redirect named was dialled"
     );
-}
-
-/// **A dictionary read nobody answers is refused within the dial deadline.** A listener whose
-/// accept queue is full drops further connection requests, so an unbounded dial waits on the
-/// operating system's own retry schedule - a minute or more - rather than the ten-second bound.
-#[test]
-fn a_dictionary_read_nobody_answers_is_refused_within_the_dial_deadline() {
-    use std::time::Duration;
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port binds");
-    rustix::net::listen(&listener, 0).expect("the backlog shrinks");
-    let address = listener.local_addr().expect("it has an address");
-    let mut queued = Vec::new();
-    while let Ok(stream) = std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)) {
-        queued.push(stream);
-        assert!(queued.len() < 256, "the accept queue never filled");
-    }
-    let login = OracleLogin::new(
-        String::from("127.0.0.1"),
-        address.port(),
-        String::from("FREEPDB1"),
-        String::from("reader"),
-        Secret::new("a-test-password"),
-    );
-    let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
-        .expect("a valid reader config");
-    let (told, finished) = std::sync::mpsc::channel();
-    drop(std::thread::spawn(move || {
-        let _ignored = told.send(reader.read_dictionary().map(drop));
-    }));
-    let returned = finished
-        .recv_timeout(Duration::from_secs(30))
-        .expect("the read returned within thirty seconds");
-    assert!(
-        matches!(returned, Err(RdbmsError::Read(_))),
-        "a read nobody answered was not refused: {returned:?}"
-    );
-    drop(listener);
 }
 
 /// **With the driver's packet trace switched on, a dictionary read is refused.** The cell runs

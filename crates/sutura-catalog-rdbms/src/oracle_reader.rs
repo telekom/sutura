@@ -146,19 +146,26 @@ impl OracleReader {
         binds
     }
 
-    /// Opens the read's session, refused before it dials while the driver's packet trace is on.
-    fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
+    /// The driver's configuration for the read's dial, with no credential, refused while the
+    /// driver's packet trace is on.
+    fn driver_config(&self) -> Result<oracledb::Config, RdbmsError> {
         let login = &self.login;
         let channel = login
             .anchors_pem
             .as_deref()
             .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
-        let config = Dial::new(&login.host, login.port, &login.service_name, channel)
+        Dial::new(&login.host, login.port, &login.service_name, channel)
             .config()
             .map_err(|refused| match refused {
                 DialError::PacketTraceOn(on) => RdbmsError::Read(Box::new(on)),
                 DialError::TrustAnchors(cause) | DialError::Address(cause) => read_err(cause),
-            })?;
+            })
+    }
+
+    /// Opens the read's session, refused before it dials while the driver's packet trace is on.
+    fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
+        let config = self.driver_config()?;
+        let login = &self.login;
         #[expect(
             clippy::disallowed_methods,
             reason = "the password's destination is the connection handshake, which is the one place the \
