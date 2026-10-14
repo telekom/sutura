@@ -29,3 +29,22 @@ docker compose run --rm loader
 
 The loader writes a DataHub token for sutura to `.local/datahub-token`. Give sutura that file as
 `/run/sutura/datahub-token`. Both settings files read DataHub at `http://127.0.0.1:8081`.
+
+Start sutura with one settings file. sutura reads `base.yaml` in `SUTURA_CONFIG_DIR`, so copy the
+file you chose to that name:
+
+```sh
+mkdir -p .local/conf
+cp conf/impersonation-at-source.yaml .local/conf/base.yaml
+SUTURA_CONFIG_DIR="$PWD/.local/conf" sutura serve
+```
+
+Ask the example question as `alice`. `$TOKEN` is her access token from the `sutura` client of the
+realm (password grant, user and password `alice`):
+
+```sh
+curl -s -X POST http://127.0.0.1:8080/v1/query \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}'
+```
