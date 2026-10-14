@@ -1,0 +1,18 @@
+diff --git a/xtask/src/causality/base/tier.rs b/xtask/src/causality/base/tier.rs
+--- a/xtask/src/causality/base/tier.rs
++++ b/xtask/src/causality/base/tier.rs
+@@ -9,6 +9,14 @@
+ /// is a path literal, so moving that panic out of `dev/src/provisioned.rs` makes a tier failure read
+ /// as an ordinary one again - loud in both arms.
+ pub(in crate::causality) fn never_reached_its_tier(text: &str, failed: &[String]) -> bool {
++    if text.contains(sutura_dev::requirement::REQUIRED)
++        && text.lines().any(|line| {
++            line.split_once(" panicked at ")
++                .is_some_and(|(_, site)| site.starts_with("dev/src/provisioned.rs:"))
++        })
++    {
++        return true;
++    }
+     let lines: Vec<&str> = text.lines().map(str::trim_start).collect();
+     failed.iter().filter_map(|one| one.rsplit(' ').next()).any(|test| {
+         let own = format!("thread '{test}'");
