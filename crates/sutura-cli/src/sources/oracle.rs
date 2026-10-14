@@ -74,7 +74,7 @@ mod tests {
             "warehouse",
             "    kind: oracle\n    host: \"127.0.0.1\"\n    port: 1521\n    service_name: \"FREEPDB1\"\n    \
              user: \"sutura\"\n    password_file: \"/nonexistent/sutura-cli-test-oracle-pass\"\n    \
-             transport_mode: \"plaintext\"\n",
+             transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-cli-test-oracle-ca.pem\"\n",
             "shared-service-user",
         )
     }

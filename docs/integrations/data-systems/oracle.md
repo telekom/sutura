@@ -24,13 +24,13 @@ and these keys:
 
 | Key                               | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host`                            | string        | required         | The listener host. With `plaintext`, a loopback IP address, such as `127.0.0.1`; with `verified`, a valid DNS name or an IP address                                                      |
-| `port`                            | integer       | required         | The listener port. Oracle uses `1521`                                                                                                                                                    |
+| `host`                            | string        | required         | The listener host: a valid DNS name or an IP address, the name the TLS handshake verifies                                                                                                |
+| `port`                            | integer       | required         | The TCPS listener port, often `2484`                                                                                                                                                     |
 | `service_name`                    | string        | required         | The service name: letters, digits, `_` and `.`                                                                                                                                           |
 | `user`                            | string        | required         | The user that sutura connects as                                                                                                                                                         |
 | `password_file`                   | absolute path | required         | A file that holds the password. sutura reads it at startup                                                                                                                               |
-| `transport_mode`                  | string        | required         | `plaintext` or `verified`. `mutual` is refused                                                                                                                                           |
-| `transport_anchors`               | absolute path | none             | For `verified`: a PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused                                                                     |
+| `transport_mode`                  | string        | required         | `verified`. `plaintext` and `mutual` are refused                                                                                                                                         |
+| `transport_anchors`               | absolute path | required         | A PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused                                                                                     |
 | `delegation`                      | list          | none             | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value                                                        |
 | `delegation[].token_endpoint`     | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                 |
 | `delegation[].client_id`          | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                 |
@@ -90,11 +90,12 @@ sources:
   warehouse:
     kind: "oracle"
     host: "127.0.0.1"
-    port: 1521
+    port: 2484
     service_name: "FREEPDB1"
     user: "sutura"
     password_file: "/run/secrets/oracle-password"
-    transport_mode: "plaintext"
+    transport_mode: "verified"
+    transport_anchors: "/run/secrets/oracle-ca.pem"
     posture: "shared-service-user"
     acknowledged_because: "one read-only Oracle user for every caller"
 ```

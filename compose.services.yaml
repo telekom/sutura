@@ -638,25 +638,21 @@ services:
       retries: 60
       start_period: 30s
 
-  # The Oracle data source (`github.com/telekom/sutura#127`). `sutura_dev::scope::SERVICES` names
-  # `oracle`, this publishes 1521 ephemerally, and `xtask dev-up --with oracle` reads back whatever
-  # it landed on.
+  # The Oracle data source (`github.com/telekom/sutura#127`). `sutura_dev::scope::SERVICES` names `oracle`,
+  # this publishes 2484 ephemerally, and `xtask dev-up --with oracle` reads back whatever it landed on.
   oracle:
     # CI venue: compose only.
     # Because: Oracle Database is not packaged in `nixpkgs` and could not honestly be - it is
     #   proprietary, unlike `postgresql_18` - so there is no `nix/oracle-tier.nix` this could take
     #   the shape of. A `checks.*` derivation has no docker socket and no network, so there is
     #   nothing there for it to bring up.
-    # Converges: the `oracle-tier` CI job (`ci.yml`), through `nix run .#oracle-acceptance`, which
-    #   runs the `#[ignore]`d acceptance cell and `sutura-catalog-rdbms`'s live dictionary cells
-    #   against this service. A green `just validate`
-    #   says nothing about a live Oracle: its nix sandbox has no docker socket. NO golden-matrix
-    #   cell reaches it either: `DataSystemUnderTest for OracleWarehouse` answers `available()`
-    #   FALSE unconditionally, under a named exemption, and `crates/sutura-app/tests/adapters/
-    #   adapters.rs` carries the two reasons beside the `impl` - `SUTURA_DEV_REQUIRE_TIER` is per PROCESS rather than per
-    #   service, and no CSV-fixture importer exists for this adapter. The render cells in
-    #   `crates/sutura-app/tests/golden/dialects.rs` are its suite coverage; the acceptance cell is
-    #   its only executed coverage.
+    # Converges: the `oracle-tier` CI job (`ci.yml`), via `nix run .#oracle-acceptance`: the
+    #   `#[ignore]`d acceptance cell and `sutura-catalog-rdbms`'s live dictionary cells. A green
+    #   `just validate` says nothing about a live Oracle (its nix sandbox has no docker socket), nor
+    #   does any golden-matrix cell: `DataSystemUnderTest for OracleWarehouse` answers `available()`
+    #   FALSE under a named exemption, reasons beside the `impl` in `crates/sutura-app/tests/adapters/adapters.rs`
+    #   (`SUTURA_DEV_REQUIRE_TIER` is per PROCESS, not per service; no CSV-fixture importer exists for
+    #   this adapter). The render cells in `crates/sutura-app/tests/golden/dialects.rs` are its suite coverage.
     # `-faststart`: the database is pre-built in the image rather than created on first boot, which
     # is the difference between a usable job and a slow one for a tier that comes up on every run.
     # PINNED BY DIGEST, unlike every other service here (by tag), by owner decision (#127): a
@@ -670,8 +666,12 @@ services:
       ORACLE_PASSWORD: *fixture-password
       APP_USER: *fixture-user
       APP_USER_PASSWORD: *fixture-password
+    # TCPS only (#1425): `nix/oracle-tier-tls.sh` writes the wallet, `nix/oracle-tier-tcps.sh` serves 2484 over it.
+    volumes:
+      - ./target/oracle-tier-tls/wallet:/opt/oracle/tls:ro
+      - ./nix/oracle-tier-tcps.sh:/container-entrypoint-startdb.d/tcps.sh:ro
     ports:
-      - 1521
+      - 2484
     healthcheck:
       # The image's own documented probe - it ships `healthcheck.sh` for exactly this.
       test: ["CMD", "healthcheck.sh"]

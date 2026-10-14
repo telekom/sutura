@@ -1,4 +1,6 @@
+use std::net::TcpStream;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use sutura_domain::identity::Secret;
 
@@ -30,7 +32,15 @@ fn equals(column: &str) -> RowPredicate {
 #[test]
 fn the_oracle_reader_refuses_a_schema_or_predicate_column_that_is_not_an_identifier() {
     let reader = |schema: &str, predicate: RowPredicate| {
-        OracleReader::new(login(), schema, String::from("prod"), predicate, None, None).map(drop)
+        OracleReader::new(
+            login().verified(String::new()),
+            schema,
+            String::from("prod"),
+            predicate,
+            None,
+            None,
+        )
+        .map(drop)
     };
     assert_eq!(
         reader("dictionary\"; DROP USER app; --", RowPredicate::None),
@@ -72,7 +82,15 @@ fn a_primary_key_flag_is_evidence_only_as_zero_or_one() {
 #[test]
 fn the_reader_binds_the_environment_and_the_equals_value_in_placeholder_order() {
     let reader = |predicate: RowPredicate| {
-        OracleReader::new(login(), "dictionary", String::from("prod"), predicate, None, None).expect("a valid reader")
+        OracleReader::new(
+            login().verified(String::new()),
+            "dictionary",
+            String::from("prod"),
+            predicate,
+            None,
+            None,
+        )
+        .expect("a valid reader")
     };
     assert_eq!(reader(equals("state")).binds(), ["prod", "live'; DROP TABLE t; --"]);
     assert_eq!(reader(RowPredicate::IsNotNull(String::from("state"))).binds(), ["prod"]);
@@ -91,7 +109,15 @@ fn cap(value: u64) -> NonZeroU64 {
 #[test]
 fn the_oracle_reader_holds_the_declared_caps_or_the_documented_defaults() {
     let reader = |rows, bytes| {
-        OracleReader::new(login(), "dictionary", String::from("prod"), RowPredicate::None, rows, bytes).expect("a valid reader")
+        OracleReader::new(
+            login().verified(String::new()),
+            "dictionary",
+            String::from("prod"),
+            RowPredicate::None,
+            rows,
+            bytes,
+        )
+        .expect("a valid reader")
     };
     assert_eq!(
         reader(Some(cap(500)), Some(cap(64_000))).bounds(),
@@ -224,18 +250,53 @@ fn the_oracle_assembly_stops_at_the_first_row_the_driver_fails() {
     assert_eq!(pulled.get(), 2, "the cursor is abandoned at the refused row");
 }
 
+/// A leaf for `127.0.0.1`, self-signed, so the PEM of the leaf is the anchor that admits it.
+fn issue() -> (rcgen::Certificate, rcgen::KeyPair) {
+    let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+    let key = rcgen::KeyPair::generate().expect("a key pair generates");
+    let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
+    (certificate, key)
+}
+
+/// The TLS session the fake listener speaks TNS inside.
+type Tls = rustls::StreamOwned<rustls::ServerConnection, TcpStream>;
+
+/// Opens TLS presenting `certificate` on a connection the fake listener accepted, so it speaks TNS
+/// inside it.
+fn tls(certificate: &rcgen::Certificate, key: &rcgen::KeyPair) -> impl FnOnce(TcpStream) -> Option<Tls> + Send + 'static {
+    let key = rustls::pki_types::PrivateKeyDer::try_from(key.serialize_der()).expect("a generated key is a private key");
+    let config = Arc::new(
+        rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("the default protocol versions are safe")
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate.der().clone()], key)
+            .expect("a generated chain and its own key are a pair"),
+    );
+    move |mut stream| {
+        let mut server = rustls::ServerConnection::new(config).ok()?;
+        while server.is_handshaking() {
+            let _io = server.complete_io(&mut stream).ok()?;
+        }
+        Some(rustls::StreamOwned::new(server, stream))
+    }
+}
+
 /// A listener that answers the login with a redirect is refused, typed, and the address it named is
 /// never dialled - so no login reaches it.
 #[test]
 fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
-    let listener = sutura_dev::tns_listener::RedirectingListener::start().expect("the fake listener binds");
+    let (certificate, key) = issue();
+    let listener =
+        sutura_dev::tns_listener::RedirectingListener::start_over(tls(&certificate, &key)).expect("the fake listener binds");
     let login = OracleLogin::new(
         String::from("127.0.0.1"),
         listener.port(),
         String::from("FREEPDB1"),
         String::from("reader"),
         Secret::new("a-test-password"),
-    );
+    )
+    .verified(certificate.pem());
     let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
         .expect("a valid reader config");
     let error = reader.read_dictionary().expect_err("a redirecting listener is refused");
@@ -263,7 +324,8 @@ fn with_the_packet_trace_switched_on_a_dictionary_read_is_refused() {
             String::from("FREEPDB1"),
             String::from("reader"),
             Secret::new("a-test-password"),
-        );
+        )
+        .verified(String::new());
         let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
             .expect("a valid reader config");
         let refused = reader

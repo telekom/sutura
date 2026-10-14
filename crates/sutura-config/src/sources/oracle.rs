@@ -9,26 +9,23 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{
-    HostName, InvalidDelegation, NoOracleChannel, OracleChannel, OracleServiceName, SourcePlacement,
-};
+use crate::sources::placement::{HostName, NoOracleChannel, OracleChannel, OracleServiceName, SourcePlacement};
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
 ///
 /// **Every value the driver's connection needs is declared and nothing else is accepted**: the
 /// listener's host and port, the service name it resolves, the user and the file its password is
-/// read from. `transport_mode` is required, so the channel is a word an operator wrote rather than
-/// a default: `plaintext`, which the parent's remote-plaintext rule confines to a loopback `host`,
-/// or `verified` with `transport_anchors` naming a PEM bundle - the only anchors the server is
-/// verified against.
+/// read from. `transport_mode` is required and must be `verified`, with `transport_anchors` naming a
+/// PEM bundle - the only anchors the server is verified against. `plaintext` is refused for every
+/// host: to a loopback one as [`InvalidSourceRegistry::OraclePlaintext`], to any other by the
+/// parent's remote-plaintext rule.
 ///
 /// The connection stays on that host: a listener's redirect is refused before authentication, held
 /// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
 ///
 /// An `impersonation-at-source` entry also declares the `delegation` each caller's verified token is
-/// exchanged through for the token that opens their session, and must be `verified`: a token is
-/// never sent over `plaintext`.
+/// exchanged through for the token that opens their session.
 ///
 /// # Why `mutual` and `transport_anchors: system` are refused
 ///
@@ -42,8 +39,8 @@ use sutura_domain::model::SourceName;
 /// A key that belongs to another kind; a missing `host`, `port`, `service_name`, `user`,
 /// `password_file` or `transport_mode`; a `host` that is not a usable host; a relative
 /// `password_file`; a transport declaration that is not usable, `mutual`, or `verified` against the
-/// host store; a non-loopback host declared `plaintext`; and a `delegation` that is missing on an
-/// impersonating entry, written on any other, unusable, or declared over `plaintext`.
+/// host store; `plaintext` on any host; and a `delegation` that is missing on an impersonating entry,
+/// written on any other, or unusable.
 pub(super) fn parse_placement(
     alias: &SourceName,
     kind: SourceKind,
@@ -98,13 +95,9 @@ pub(super) fn parse_placement(
             alias: alias.clone(),
             cause,
         },
+        NoOracleChannel::Plaintext => InvalidSourceRegistry::OraclePlaintext { alias: alias.clone() },
     })?;
-    let delegation = super::parse_delegation(
-        alias,
-        kind,
-        entry,
-        matches!(channel, OracleChannel::Plaintext).then_some(InvalidDelegation::Plaintext),
-    )?;
+    let delegation = super::parse_delegation(alias, kind, entry, None)?;
     Ok(SourcePlacement::Oracle {
         host,
         port,
@@ -149,8 +142,8 @@ mod tests {
             .expect("a declared single-user mode parses")
     }
 
-    /// An `oracle` entry with every key that kind is opened with, on a loopback literal so the
-    /// plaintext declaration is one this kind may make. A test changes one field at a time.
+    /// An `oracle` entry with every key that kind is opened with, `verified` against a declared
+    /// bundle. A test changes one field at a time.
     fn oracle(written: &str) -> RawSourceEntry<'_> {
         RawSourceEntry {
             written,
@@ -173,8 +166,8 @@ mod tests {
             database_file: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/oracle-password"),
-            transport_mode: Some("plaintext"),
-            transport_anchors: None,
+            transport_mode: Some("verified"),
+            transport_anchors: Some("/etc/sutura/ca.pem"),
             client_certificate: None,
             client_key: None,
             impersonate: false,
@@ -199,7 +192,7 @@ mod tests {
                 channel,
                 delegation,
             } => {
-                assert_eq!(*channel, placement::OracleChannel::Plaintext);
+                assert_eq!(channel.anchors(), std::path::Path::new("/etc/sutura/ca.pem"));
                 assert!(delegation.is_empty(), "a shared source declares no delegation");
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 1521);
@@ -226,15 +219,11 @@ mod tests {
         let placement::SourcePlacement::Oracle { channel, .. } = configured.placement() else {
             panic!("expected an oracle placement, got {:?}", configured.placement());
         };
+        assert_eq!(channel.anchors(), std::path::Path::new("/etc/sutura/ca.pem"));
         assert_eq!(
-            *channel,
-            placement::OracleChannel::Verified {
-                anchors: std::path::PathBuf::from("/etc/sutura/ca.pem"),
-                server_name: placement::TlsServerName::parse(
-                    &placement::HostName::parse("db.example.com").expect("a host name parses")
-                )
-                .expect("a DNS name is a TLS server name"),
-            }
+            *channel.server_name(),
+            placement::TlsServerName::parse(&placement::HostName::parse("db.example.com").expect("a host name parses"))
+                .expect("a DNS name is a TLS server name")
         );
     }
 
@@ -291,6 +280,8 @@ mod tests {
     fn a_remote_oracle_host_without_tls_is_a_startup_refusal_naming_the_key() {
         let remote = RawSourceEntry {
             host: Some("db.example.com"),
+            transport_mode: Some("plaintext"),
+            transport_anchors: None,
             ..oracle("warehouse")
         };
         let error = SourceRegistry::parse(&[remote], Some(&single_user())).expect_err("a remote plaintext source is refused");
@@ -299,6 +290,23 @@ mod tests {
             "{error}"
         );
         assert!(error.to_string().contains("transport_mode"), "{error}");
+    }
+
+    /// **No `oracle` source is read over `plaintext`**, a loopback one included: the refusal
+    /// names the source and no placement is built.
+    #[test]
+    fn a_loopback_oracle_source_declaring_plaintext_is_a_startup_refusal() {
+        let loopback = RawSourceEntry {
+            transport_mode: Some("plaintext"),
+            transport_anchors: None,
+            ..oracle("warehouse")
+        };
+        let error = SourceRegistry::parse(&[loopback], Some(&single_user())).expect_err("a plaintext source is refused");
+        assert!(
+            matches!(error, InvalidSourceRegistry::OraclePlaintext { ref alias } if alias.as_str() == "warehouse"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("sources.warehouse.transport_mode"), "{error}");
     }
 
     #[test]
@@ -550,7 +558,7 @@ mod tests {
     }
 
     /// **Each way `delegation` is refused**: missing or empty on an impersonating entry, written on a
-    /// shared one, over `plaintext`, and beside a `workload_identity` block.
+    /// shared one, and beside a `workload_identity` block.
     #[test]
     fn an_oracle_delegation_is_refused_unless_an_impersonating_verified_source_declares_it() {
         use placement::InvalidDelegation;
@@ -571,15 +579,6 @@ mod tests {
                     ..oracle("warehouse")
                 },
                 InvalidDelegation::NotImpersonating,
-            ),
-            (
-                RawSourceEntry {
-                    host: Some("127.0.0.1"),
-                    transport_mode: Some("plaintext"),
-                    transport_anchors: None,
-                    ..impersonating(&one)
-                },
-                InvalidDelegation::Plaintext,
             ),
         ];
         for (entry, expected) in cases {

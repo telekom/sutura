@@ -55,8 +55,8 @@ use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
-/// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial, plaintext
-/// until [`OracleLogin::verified`].
+/// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial. No reader takes
+/// it until [`OracleLogin::verified`] names the anchors the listener is verified against.
 #[derive(Debug, Clone)]
 pub struct OracleLogin {
     host: String,
@@ -64,7 +64,14 @@ pub struct OracleLogin {
     service_name: String,
     user: String,
     password: Secret,
-    anchors_pem: Option<String>,
+}
+
+/// An [`OracleLogin`] over TLS, verified against `anchors_pem` and no other certificate, with the
+/// login's host as the name the handshake verifies - the only login an [`OracleReader`] takes.
+#[derive(Debug, Clone)]
+pub struct VerifiedOracleLogin {
+    login: OracleLogin,
+    anchors_pem: String,
 }
 
 impl OracleLogin {
@@ -82,17 +89,15 @@ impl OracleLogin {
             service_name,
             user,
             password,
-            anchors_pem: None,
         }
     }
 
-    /// The same login over TLS, verified against `anchors_pem` and no other certificate, with
-    /// `host` as the name the handshake verifies.
+    /// The same login over TLS, verified against `anchors_pem` and no other certificate.
     #[must_use]
-    pub fn verified(self, anchors_pem: String) -> Self {
-        Self {
-            anchors_pem: Some(anchors_pem),
-            ..self
+    pub const fn verified(self, anchors_pem: String) -> VerifiedOracleLogin {
+        VerifiedOracleLogin {
+            login: self,
+            anchors_pem,
         }
     }
 }
@@ -100,7 +105,7 @@ impl OracleLogin {
 /// A live [`DictionaryReader`] over an Oracle documentation schema.
 #[derive(Debug, Clone)]
 pub struct OracleReader {
-    login: OracleLogin,
+    login: VerifiedOracleLogin,
     statement: String,
     environment: String,
     predicate: RowPredicate,
@@ -115,7 +120,7 @@ impl OracleReader {
     ///
     /// The documentation schema or the predicate column is not an identifier.
     pub fn new(
-        login: OracleLogin,
+        login: VerifiedOracleLogin,
         documentation_schema: &str,
         environment: String,
         predicate: RowPredicate,
@@ -149,11 +154,8 @@ impl OracleReader {
     /// The driver's configuration for the read's dial, with no credential, refused while the
     /// driver's packet trace is on.
     fn driver_config(&self) -> Result<oracledb::Config, RdbmsError> {
-        let login = &self.login;
-        let channel = login
-            .anchors_pem
-            .as_deref()
-            .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
+        let VerifiedOracleLogin { login, anchors_pem } = &self.login;
+        let channel = Channel::Verified { anchors_pem };
         Dial::new(&login.host, login.port, &login.service_name, channel)
             .config()
             .map_err(|refused| match refused {
@@ -165,7 +167,7 @@ impl OracleReader {
     /// Opens the read's session, refused before it dials while the driver's packet trace is on.
     fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
         let config = self.driver_config()?;
-        let login = &self.login;
+        let login = &self.login.login;
         #[expect(
             clippy::disallowed_methods,
             reason = "the password's destination is the connection handshake, which is the one place the \
@@ -293,6 +295,13 @@ mod dial_bound {
     use super::{OracleLogin, OracleReader};
     use crate::postgres_reader::RowPredicate;
 
+    /// A self-signed certificate's PEM: anchors the driver accepts.
+    fn anchor() -> String {
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+        params.self_signed(&key).expect("a self-signed leaf signs").pem()
+    }
+
     /// **The reader's dial is bounded by [`sutura_oracle_connect::DIAL_DEADLINE`].** Without the
     /// bound, a connect nobody answers waits on the operating system's own retry schedule.
     #[test]
@@ -303,10 +312,11 @@ mod dial_bound {
             String::from("FREEPDB1"),
             String::from("reader"),
             Secret::new("a-test-password"),
-        );
+        )
+        .verified(anchor());
         let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
             .expect("a valid reader config");
-        let config = reader.driver_config().expect("a plaintext loopback dial configures");
+        let config = reader.driver_config().expect("a verified loopback dial configures");
         assert_eq!(
             config.transport_connect_timeout(),
             Some(sutura_oracle_connect::DIAL_DEADLINE),

@@ -225,9 +225,10 @@ pub const SERVICES: &[Service] = &[
         // whose only venue, ever, is this compose file.
         //
         // OFF unless asked for: it is a full database server, and a tier that started it on every
-        // `just dev-up` would pay for it on every run for the one adapter that reads it.
+        // `just dev-up` would pay for it on every run for the one adapter that reads it. The port
+        // is its TCPS listener; nothing publishes the plaintext one.
         name: "oracle",
-        container_port: 1521,
+        container_port: 2484,
         profile: Some("oracle"),
     },
     Service {
