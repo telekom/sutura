@@ -1,8 +1,9 @@
 //! `github.com/telekom/sutura#1239`: a red base run is judged per ADDED test, so a green sibling
 //! is named and a moved, parametrised-red or never-launched one is not.
 
-use super::{BaseOutcome, Moved, Reverted, classify_base, reported_per_test};
-use crate::causality::fixtures::scoped;
+use super::{BaseOutcome, Moved, Reverted, classify_base, report_base, reported_per_test};
+use crate::Verdict;
+use crate::causality::fixtures::{named, scoped};
 
 #[test]
 fn a_green_sibling_is_not_hidden_by_a_red_added_test() {
@@ -57,6 +58,92 @@ fn only_a_new_test_that_passed_whole_is_a_green_sibling() {
         classify_base(mixed, false, &cases, &Moved::Nothing, &Reverted::Behaviour),
         BaseOutcome::RedByAssertion {
             failed: vec![String::from("pa tests::renders::case_2")]
+        }
+    );
+}
+
+#[test]
+fn a_base_run_that_never_reached_its_tier_is_not_a_proof() {
+    // The base run keeps the head run's requirement, so a cell whose tier is absent there panics
+    // in the lookup: red, and about nothing the diff changed.
+    let text = format!(
+        "        FAIL [   0.021s] (1/1) pa tests::t\n\
+         thread 'tests::t' panicked at dev/src/provisioned.rs:413:41:\n\
+         {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
+    let outcome = classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour);
+    assert_eq!(
+        report_base(&outcome, &text, false, &named(1), &Moved::Nothing, &Reverted::Behaviour),
+        Verdict::Inconclusive,
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_tier_panic_nested_in_a_message_is_not_the_tests_own_site() {
+    // Measured: a cell whose message printed a tier-absent fixture read as a tier panic, and that
+    // made the whole base run INCONCLUSIVE. Its own panic is the assertion, so it is red by one.
+    let text = format!(
+        "        FAIL [   0.070s] (1/1) pa tests::outer\n\
+         \x20   thread 'tests::outer' (7) panicked at pa/src/lib.rs:9:5:\n\
+         \x20   the base run said:\n\
+         \x20           FAIL [   0.021s] (1/1) pa tests::t\n\
+         \x20   thread 'tests::t' panicked at dev/src/provisioned.rs:413:41:\n\
+         \x20   {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["outer"]);
+    assert_eq!(
+        classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour),
+        BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::outer")]
+        }
+    );
+}
+
+#[test]
+fn a_green_sibling_is_judged_before_the_tier_read() {
+    let text = format!(
+        "        FAIL [   0.021s] (1/2) pa tests::t\n\
+         \x20   thread 'tests::t' (9) panicked at dev/src/provisioned.rs:413:41:\n\
+         \x20   {}: no `postgres` endpoint\n\
+         \n\
+         \x20       PASS [   0.010s] (2/2) pa tests::pin\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["t", "pin"]);
+    let outcome = classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour);
+    assert_eq!(
+        report_base(&outcome, &text, false, &named(2), &Moved::Nothing, &Reverted::Behaviour),
+        Verdict::Fail,
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_tier_site_without_the_requirement_under_it_is_an_ordinary_red() {
+    // The requirement counts only in the test's own message, which ends at the first blank line.
+    let text = format!(
+        "        FAIL [   0.021s] (1/2) pa tests::t\n\
+         \x20   thread 'tests::t' (9) panicked at dev/src/provisioned.rs:200:5:\n\
+         \x20   a malformed endpoint\n\
+         \n\
+         \x20       FAIL [   0.021s] (2/2) pa tests::elsewhere\n\
+         \x20   thread 'tests::elsewhere' (10) panicked at dev/src/provisioned.rs:413:41:\n\
+         \x20   {}: no `postgres` endpoint\n\
+         error: test run failed\n",
+        sutura_dev::requirement::REQUIRED
+    );
+    let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
+    assert_eq!(
+        classify_base(&text, false, &under_test, &Moved::Nothing, &Reverted::Behaviour),
+        BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::t")]
         }
     );
 }
