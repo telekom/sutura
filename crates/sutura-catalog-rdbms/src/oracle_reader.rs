@@ -324,3 +324,72 @@ mod dial_bound {
         );
     }
 }
+
+#[cfg(test)]
+mod redirect {
+    use std::net::TcpStream;
+    use std::sync::Arc;
+
+    use sutura_domain::identity::Secret;
+
+    use super::{OracleLogin, OracleReader};
+    use crate::postgres_reader::RowPredicate;
+    use crate::{DictionaryReader as _, RdbmsError};
+
+    /// A leaf for `127.0.0.1`, self-signed, so the PEM of the leaf is the anchor that admits it.
+    fn issue() -> (rcgen::Certificate, rcgen::KeyPair) {
+        let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
+        (certificate, key)
+    }
+
+    /// The TLS session the fake listener speaks TNS inside.
+    type Tls = rustls::StreamOwned<rustls::ServerConnection, TcpStream>;
+
+    /// Opens TLS presenting `certificate` on a connection the fake listener accepted, so it speaks TNS
+    /// inside it.
+    fn tls(certificate: &rcgen::Certificate, key: &rcgen::KeyPair) -> impl FnOnce(TcpStream) -> Option<Tls> + Send + 'static {
+        let key = rustls::pki_types::PrivateKeyDer::try_from(key.serialize_der()).expect("a generated key is a private key");
+        let config = Arc::new(
+            rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("the default protocol versions are safe")
+                .with_no_client_auth()
+                .with_single_cert(vec![certificate.der().clone()], key)
+                .expect("a generated chain and its own key are a pair"),
+        );
+        move |mut stream| {
+            let mut server = rustls::ServerConnection::new(config).ok()?;
+            while server.is_handshaking() {
+                let _io = server.complete_io(&mut stream).ok()?;
+            }
+            Some(rustls::StreamOwned::new(server, stream))
+        }
+    }
+
+    /// A listener that answers the login with a redirect is refused, typed, and the address it named is
+    /// never dialled - so no login reaches it.
+    #[test]
+    fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
+        let (certificate, key) = issue();
+        let listener =
+            sutura_dev::tns_listener::RedirectingListener::start_over(tls(&certificate, &key)).expect("the fake listener binds");
+        let login = OracleLogin::new(
+            String::from("127.0.0.1"),
+            listener.port(),
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        )
+        .verified(certificate.pem());
+        let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
+            .expect("a valid reader config");
+        let error = reader.read_dictionary().expect_err("a redirecting listener is refused");
+        assert!(matches!(error, RdbmsError::RedirectRefused), "{error:?}");
+        assert!(
+            !listener.target_was_dialled(std::time::Duration::from_secs(2)),
+            "the address the redirect named was dialled"
+        );
+    }
+}

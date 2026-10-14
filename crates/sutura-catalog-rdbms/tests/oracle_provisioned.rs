@@ -235,6 +235,19 @@ mod oracle_provisioned {
         );
     }
 
+    /// A self-signed authority the tier never saw; its key was discarded when it was made.
+    const STRANGER_CA: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIBRTCB7KADAgECAgkA2NTm5+12gREwCgYIKoZIzj0EAwIwHTEbMBkGA1UEAwwS
+c3V0dXJhLXN0cmFuZ2VyLWNhMCAXDTI2MTAxNDE0NTU1MloYDzIxMjYwOTIwMTQ1
+NTUyWjAdMRswGQYDVQQDDBJzdXR1cmEtc3RyYW5nZXItY2EwWTATBgcqhkjOPQIB
+BggqhkjOPQMBBwNCAAQXLzSXb8DG93B1pWvhF7xneThJzueK5DiCzvW+/oTxDmwE
+arLuMsZct+MCZKdv6RpGa4OAShwU3WjeJ29RiV23oxMwETAPBgNVHRMBAf8EBTAD
+AQH/MAoGCCqGSM49BAMCA0gAMEUCIQDVByH8k0aI1g2tTRSubS2UnrQu1Bl5yGgI
+JEcF0XIa1gIgE3M4ixRwgpQcNQDe5W2BUZWG+7HGdQFw5Mz/20QHKgU=
+-----END CERTIFICATE-----
+";
+
     /// **The tier's dictionary is read over TCPS, verified against the tier's authority and no
     /// other.** Under `SUTURA_ORACLE_TIER_CA` the server itself answers; the same login anchored on
     /// a certificate the tier never saw is refused before the server says anything. It reads a
@@ -252,14 +265,8 @@ mod oracle_provisioned {
             "the server answered over the session its own authority verified: {answered:?}"
         );
 
-        let key = rcgen::KeyPair::generate().expect("a key pair generates");
-        let stranger = rcgen::CertificateParams::new([String::from("127.0.0.1")])
-            .expect("an IP name parameterizes")
-            .self_signed(&key)
-            .expect("a self-signed certificate signs")
-            .pem();
         let refused = tier
-            .reader_anchored(stranger, "no_such_schema", None, None)
+            .reader_anchored(String::from(STRANGER_CA), "no_such_schema", None, None)
             .read_dictionary()
             .expect_err("a listener another authority signed is refused");
         assert!(

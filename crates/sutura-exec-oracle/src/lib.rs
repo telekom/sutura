@@ -366,8 +366,8 @@ impl OracleWarehouse {
     }
 
     /// A connection config's host/port/credential for the fixture tier - the counterpart of
-    /// `sutura_exec_postgres::adbc::Conninfo` - over TLS verified against `anchors_pem`, the
-    /// tier's own certificate authority. `service_name` is fixed at
+    /// `sutura_exec_postgres::adbc::Conninfo` - over TLS verified against the credential's anchors,
+    /// the tier's own certificate authority. `service_name` is fixed at
     /// `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
     /// publishes - it is the image's name for itself.
     #[cfg(feature = "fixtures")]
@@ -381,14 +381,20 @@ impl OracleWarehouse {
         posture: sutura_domain::source::SourcePosture,
         host: &str,
         port: u16,
-        anchors_pem: &str,
         credential: &fixture::FixtureCredential,
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         Self::connect(
             source,
             posture,
-            Dial::new(host, port, "FREEPDB1", Channel::Verified { anchors_pem }),
+            Dial::new(
+                host,
+                port,
+                "FREEPDB1",
+                Channel::Verified {
+                    anchors_pem: credential.anchors_pem(),
+                },
+            ),
             credential.user(),
             credential.password().expose_secret(),
             result_budget,

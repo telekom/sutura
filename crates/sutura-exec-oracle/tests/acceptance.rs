@@ -58,7 +58,6 @@ mod acceptance {
             corpus::posture(),
             endpoint.host(),
             endpoint.port(),
-            &anchors,
             &fixture,
             budget,
         )
@@ -123,7 +122,6 @@ mod acceptance {
             corpus::posture(),
             endpoint.host(),
             endpoint.port(),
-            &anchors,
             &fixture,
             budget,
         )

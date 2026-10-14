@@ -1,4 +1,4 @@
-//! The fixture tier's credential: **configured, or refused by name.**
+//! The fixture tier's credential and certificate authority: **configured, or refused by name.**
 //!
 //! Behind the default-off `fixtures` feature - `sutura-exec-postgres::fixture`'s own reason, one
 //! size smaller: nothing a release publishes links this crate at all (see the workspace manifest's
@@ -30,7 +30,13 @@ pub enum UnconfiguredFixture {
     /// this, and read as a credential it is a login attempt as the empty user.
     #[error("{0} is set to an empty value, which is not a credential.")]
     Blank(&'static str),
+    /// The variable names a file this process cannot read.
+    #[error("{0} names a file that cannot be read: {1}")]
+    Unreadable(&'static str, std::io::ErrorKind),
 }
+
+/// The variable naming the PEM file of the tier's own certificate authority.
+const TIER_CA: &str = "SUTURA_ORACLE_TIER_CA";
 
 /// The fixture tier's credential.
 ///
@@ -41,12 +47,24 @@ pub enum UnconfiguredFixture {
 pub struct FixtureCredential {
     user: String,
     password: Secret,
+    anchors_pem: String,
 }
 
 impl FixtureCredential {
-    /// This process's credential, as `compose.services.yaml`'s anchors export it.
+    /// This process's credential, as `compose.services.yaml`'s anchors export it, and the tier's
+    /// certificate authority read from the file `SUTURA_ORACLE_TIER_CA` names.
     pub fn from_env() -> Result<Self, UnconfiguredFixture> {
-        Self::parse(|name| std::env::var(name).ok())
+        let anchors = std::env::var(TIER_CA)
+            .ok()
+            .map(|path| std::fs::read_to_string(path).map_err(|cause| UnconfiguredFixture::Unreadable(TIER_CA, cause.kind())))
+            .transpose()?;
+        Self::parse(|name| {
+            if name == TIER_CA {
+                anchors.clone()
+            } else {
+                std::env::var(name).ok()
+            }
+        })
     }
 
     /// The parse, over a LOOKUP rather than over the process environment - `std::env::set_var` is
@@ -61,6 +79,7 @@ impl FixtureCredential {
         Ok(Self {
             user: present("SUTURA_DEV_USER")?,
             password: Secret::new(present("SUTURA_DEV_PASSWORD")?),
+            anchors_pem: present(TIER_CA)?,
         })
     }
 
@@ -74,6 +93,12 @@ impl FixtureCredential {
     #[inline]
     pub(crate) const fn password(&self) -> &Secret {
         &self.password
+    }
+
+    /// The PEM the fixture connection verifies the tier's server against, and nothing else.
+    #[inline]
+    pub(crate) fn anchors_pem(&self) -> &str {
+        &self.anchors_pem
     }
 }
 
