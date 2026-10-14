@@ -58,8 +58,8 @@ it skips on forks and the merge queue, and its seeds carry no per-field `descrip
 `isPartOfKey` - and `tests/provisioned/golden.rs`, which reads the golden catalog back through
 this reader in `ci-datahub-tier` (no secret; minus its named `NOT_CARRIED` rows; evidence only
 of a run of it). The platform is read from each
-served URN; the composition root maps only `bigquery`, so any other platform is refused by name
-at load (`DataHubError::UnknownPlatform`). The *Built and not wired* register in
+served URN; the composition root maps `catalogs[].platforms` (the single `bigquery` platform when
+none is written), so any unmapped platform is refused by name at load (`DataHubError::UnknownPlatform`). The *Built and not wired* register in
 `.agents/skills/sutura/query-surface/SKILL.md` keeps those limits; it no longer records "no
 composition root".
 

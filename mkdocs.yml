@@ -244,6 +244,7 @@ nav:
       - Single player: examples/single-player.md
       - Multi player: examples/multi-player.md
       - Metrics layer: examples/metrics-layer.md
+      - Federated: examples/federated.md
       - The local chat demo: demo.md
   - 📚 Reference:
       - Configuration: configuration.md
