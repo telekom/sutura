@@ -224,20 +224,6 @@ fn the_oracle_assembly_stops_at_the_first_row_the_driver_fails() {
     assert_eq!(pulled.get(), 2, "the cursor is abandoned at the refused row");
 }
 
-/// **The reader's dial is bounded by [`sutura_oracle_connect::DIAL_DEADLINE`].** Without the
-/// bound, a connect nobody answers waits on the operating system's own retry schedule.
-#[test]
-fn the_oracle_reader_dials_within_the_dial_deadline() {
-    let reader = OracleReader::new(login(), "dictionary", String::from("prod"), RowPredicate::None, None, None)
-        .expect("a valid reader config");
-    let config = reader.driver_config().expect("a plaintext loopback dial configures");
-    assert_eq!(
-        config.transport_connect_timeout(),
-        Some(sutura_oracle_connect::DIAL_DEADLINE),
-        "the reader's dial is not bounded by the dial deadline"
-    );
-}
-
 /// A listener that answers the login with a redirect is refused, typed, and the address it named is
 /// never dialled - so no login reaches it.
 #[test]

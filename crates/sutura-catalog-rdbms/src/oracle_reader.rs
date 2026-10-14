@@ -285,3 +285,32 @@ struct DriverError(oracledb::Error);
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod dial_bound {
+    use sutura_domain::identity::Secret;
+
+    use super::{OracleLogin, OracleReader};
+    use crate::postgres_reader::RowPredicate;
+
+    /// **The reader's dial is bounded by [`sutura_oracle_connect::DIAL_DEADLINE`].** Without the
+    /// bound, a connect nobody answers waits on the operating system's own retry schedule.
+    #[test]
+    fn the_oracle_reader_dials_within_the_dial_deadline() {
+        let login = OracleLogin::new(
+            String::from("127.0.0.1"),
+            1521,
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        );
+        let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
+            .expect("a valid reader config");
+        let config = reader.driver_config().expect("a plaintext loopback dial configures");
+        assert_eq!(
+            config.transport_connect_timeout(),
+            Some(sutura_oracle_connect::DIAL_DEADLINE),
+            "the reader's dial is not bounded by the dial deadline"
+        );
+    }
+}
