@@ -91,14 +91,17 @@ buildGoModule {
   '' + ''
     runHook postBuild
   '';
-  # The test `bigquery-adbc-forbidden.patch` adds for its 403 reason table. A build whose host
+  # The tests `bigquery-adbc-forbidden.patch` adds for its 403 reason table and
+  # `bigquery-adbc-caller-credentials.patch` adds for its two options. A build whose host
   # cannot run its target skips the check phase, and this with it. The test resolves into its own
   # module cache: the modules only `_test.go` files import stay out of the licence record below.
   # The whole phase is replaced because the default one loops over `getGoDirs`, which only the
   # default `buildPhase` defines.
+  # `TestAccessToken` serves a fake BigQuery endpoint on loopback.
+  __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    GOMODCACHE=$TMPDIR/test-modcache go test -run '^TestForbidden$' .
+    GOMODCACHE=$TMPDIR/test-modcache go test -v -run '^(TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused)$' .
     runHook postCheck
   '';
   installPhase = ''
