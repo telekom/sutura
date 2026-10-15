@@ -347,10 +347,31 @@ pub enum InvalidSourceRegistry {
         key: &'static str,
         path: PathBuf,
     },
+    /// A delegation hop's path is relative, so it resolves against the process working directory.
+    ///
+    /// [`Self::RelativePath`] for a value of a list: it names the hop's position, because with two
+    /// hops the field alone does not say which one to correct.
+    #[error(
+        "`sources.{alias}.{hop}` is `{}`, which is relative and resolves against this process's \
+         working directory - a different directory on every host. Write an absolute path",
+        path.display()
+    )]
+    RelativeHopPath {
+        alias: SourceName,
+        hop: workload_identity::HopKey,
+        path: PathBuf,
+    },
     /// A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load,
     /// before the startup log prints the resolved settings, and never quoted back.
     #[error("`sources.{alias}.{key}` carries an `@` - credentials in the URL are refused")]
     CredentialsInUrl { alias: SourceName, key: &'static str },
+    /// A delegation hop's URL carries an `@` - [`Self::CredentialsInUrl`] for a value of a list,
+    /// naming the hop's position.
+    #[error("`sources.{alias}.{hop}` carries an `@` - credentials in the URL are refused")]
+    HopCredentialsInUrl {
+        alias: SourceName,
+        hop: workload_identity::HopKey,
+    },
     /// A delegation whose last hop is `broker-token`: that token is for the next identity provider,
     /// so no hop exchanges it for the data system.
     #[error("`sources.{alias}.{key}` ends in a `broker-token` hop - add the hop that exchanges its token for the data system")]
@@ -556,6 +577,14 @@ pub enum InvalidSourceRegistry {
          `transport_mode: mutual` with a `client_certificate`/`client_key` pair"
     )]
     RemoteWithoutTls { alias: SourceName, host: String },
+    /// An `oracle` source declared `plaintext`, on any host, in a build with the `oracle` feature:
+    /// its driver's channel is verified TLS only.
+    #[error(
+        "`sources.{alias}` is `kind: oracle` and `sources.{alias}.transport_mode` is `plaintext` - an Oracle \
+         source is read over verified TLS only. Write `transport_mode: verified` with `transport_anchors` \
+         naming a PEM bundle"
+    )]
+    OraclePlaintext { alias: SourceName },
     /// A `verified` or `mutual` transport declared on a `unix_socket` dial.
     ///
     /// A parse-time refusal rather than the connect-time one the driver would otherwise give: the
@@ -830,13 +859,9 @@ fn parse_workload_identity(
         }
         Some(declared) => declared
             .iter()
-            .map(|hop| {
-                workload_identity::DelegationDeclared::of(
-                    alias,
-                    hop,
-                    "workload_identity.delegation.token_endpoint",
-                    "workload_identity.delegation.client_secret_file",
-                )
+            .enumerate()
+            .map(|(position, hop)| {
+                workload_identity::DelegationDeclared::of(alias, hop, "workload_identity.delegation", position)
             })
             .collect::<Result<_, _>>()?,
     };

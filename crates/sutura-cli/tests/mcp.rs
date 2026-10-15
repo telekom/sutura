@@ -121,3 +121,11 @@ mod rdbms;
 #[cfg(feature = "cube")]
 #[path = "mcp/cube.rs"]
 mod cube;
+
+// A source password over stdio, held out of every reply and line of standard error (#1398); it
+// loads the example into the provisioned Postgres tier, so it takes the `postgres` feature.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "postgres")]
+#[path = "mcp/source_password.rs"]
+mod source_password;

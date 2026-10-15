@@ -783,6 +783,43 @@ fn a_workload_identity_delegation_declares_its_hops_in_order() {
     assert_eq!(hops, vec![("sutura-app", TokenExchange), ("pool-client-id", OnBehalfOf)]);
 }
 
+/// Both refusals one hop can earn name the hop's position, so with two hops the second is the one
+/// the message points at.
+#[test]
+fn a_workload_identity_delegation_refusal_names_the_position_of_the_hop() {
+    use super::workload_identity::DelegationGrant::TokenExchange;
+    let relative = crate::raw::RawDelegation {
+        client_secret_file: String::from("run/secrets/idp"),
+        ..hop("pool-client-id", TokenExchange)
+    };
+    let refused = SourceRegistry::parse(
+        &[delegating(vec![hop("sutura-app", TokenExchange), relative])],
+        Some(&single_user()),
+    )
+    .expect_err("a relative client secret file is refused");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("`sources.warehouse.workload_identity.delegation[1].client_secret_file` is"),
+        "{refused}"
+    );
+    let userinfo = crate::raw::RawDelegation {
+        token_endpoint: String::from("https://svc@idp.example.com/token"),
+        ..hop("pool-client-id", TokenExchange)
+    };
+    let refused = SourceRegistry::parse(
+        &[delegating(vec![hop("sutura-app", TokenExchange), userinfo])],
+        Some(&single_user()),
+    )
+    .expect_err("a token endpoint with userinfo is refused");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("`sources.warehouse.workload_identity.delegation[1].token_endpoint` carries an `@`"),
+        "{refused}"
+    );
+}
+
 #[test]
 fn an_empty_workload_identity_delegation_is_refused_naming_the_key() {
     let error = SourceRegistry::parse(&[delegating(Vec::new())], Some(&single_user()))

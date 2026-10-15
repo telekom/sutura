@@ -519,6 +519,31 @@ fn an_unreadable_client_secret_file_does_not_boot() {
 
 #[test]
 #[cfg(feature = "bigquery")]
+fn a_refusal_over_the_second_delegation_hop_names_its_position() {
+    // Two hops: the first is readable, the second is not - the refusal has to say which one, since
+    // `client_secret_file` alone is on both.
+    let secret = SecretFileGuard::create("a_refusal_over_the_second_delegation_hop_names_its_position");
+    let endpoint = "https://idp.example.com/token";
+    let missing = delegation_block(endpoint, std::path::Path::new("/nonexistent/sutura-idp-secret"));
+    let hops = format!(
+        "{}{}",
+        delegation_block(endpoint, secret.path()),
+        missing.replacen("      delegation:\n", "", 1)
+    );
+    let error = super::super::broker::build_broker(
+        &direct_registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with(&hops))),
+        None,
+    )
+    .map(drop)
+    .expect_err("an unreadable second client secret file must not boot");
+    assert!(
+        error.contains("`sources.warehouse.workload_identity.delegation[1].client_secret_file`"),
+        "{error}"
+    );
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
 fn a_whitespace_only_client_secret_file_does_not_boot() {
     // `echo > file` or a truncated secret is refused by the read every secret file shares, naming
     // the key, rather than trimmed to an empty credential and sent to the identity provider.
@@ -528,7 +553,7 @@ fn a_whitespace_only_client_secret_file_does_not_boot() {
         .map(drop)
         .expect_err("a whitespace-only client secret must not boot");
     assert!(
-        error.contains("`sources.warehouse.workload_identity.delegation.client_secret_file` is empty"),
+        error.contains("`sources.warehouse.workload_identity.delegation[0].client_secret_file` is empty"),
         "{error}"
     );
 }

@@ -105,6 +105,13 @@ pub enum InvalidReaderConfig {
     PredicateColumn,
     #[error("a default dictionary bound is zero")]
     DefaultBound,
+    /// An Oracle login's anchors hold no certificate, or one the driver cannot verify a server
+    /// against; the driver's own reason.
+    #[error("the declared trust anchors are not usable certificates: {0}")]
+    TrustAnchors(String),
+    /// The driver cannot parse the reader's address.
+    #[error("the driver cannot parse the reader's address: {0}")]
+    Address(String),
 }
 
 /// A live-row predicate rendered into the dictionary query and bound as parameters.

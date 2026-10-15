@@ -65,7 +65,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | No `security.inbound` and a source with `impersonation-at-source`                                               | Declare `security.inbound`                                                                  |
 | A `security.inbound` block with no `mode`                                                                       | Write `direct` or `behind-gateway`                                                          |
 | `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families           | Name algorithms of one asymmetric key family                                                |
-| A `security.inbound.key_set_file` that is unreadable or not a JWK set                                           | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
+| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                    | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
 | A key set with no key of the kind that `security.inbound.algorithms` needs                                      | Add a key of that kind, or change the algorithms                                            |
 | `behind-gateway` with no `security.inbound.transit_token_type`                                                  | Write the `typ` of the gateway, or `any`                                                    |
 | `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`     | Use a value in range, or accept the long lifetime by name                                   |
@@ -165,14 +165,15 @@ caller identity and grants every tool the deployment turns on. `runtime.max_conc
 
 ### The raw SQL tool
 
-`tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`.
-A call to `/v1/sql/run` gets `403` with `code: tool_not_enabled`. A `run_sql` call over `/mcp` or `sutura mcp` gets
-the JSON-RPC error `-32601` with the message `` `run_sql` is not enabled on this deployment. The operator turns it on
-with `tools.run_sql.enabled`. ``. This holds for every caller, with or without the scope. When it is on, the caller
-needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with `code: insufficient_scope`, and `/mcp` gets
-`-32601` with a message that names the scope. The tool answers only where the deployment has one source. The row
-cap of a certified answer applies, and every call writes an audit record. The page of the data system says what
-bounds a statement: [Postgres](integrations/data-systems/postgres.md), [DuckDB](integrations/data-systems/duckdb.md).
+`tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`. A
+call to `/v1/sql/run` gets `403` with `code: tool_not_enabled` and a detail that names `tools.run_sql.enabled`. A
+`run_sql` call over `/mcp` or `sutura mcp` gets the JSON-RPC error `-32601` with the message `` `run_sql` is not enabled
+on this deployment. The operator turns it on with `tools.run_sql.enabled`. ``. This holds for every caller, with or
+without the scope. When it is on, the caller needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with
+`code: insufficient_scope`, and `/mcp` gets `-32601` with a message that names the scope. The tool answers only where
+the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record. The
+page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
+[DuckDB](integrations/data-systems/duckdb.md).
 
 ## Endpoints
 

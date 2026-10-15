@@ -36,6 +36,10 @@ use core::fmt;
 
 use crate::text::first_invisible;
 
+mod request;
+
+pub use self::request::{ClientClaim, ClientClaims, OAuthClient, RequestContext};
+
 /// The longest principal identifier accepted.
 ///
 /// Wide enough for an issuer-qualified OIDC `sub` - a URL plus an opaque identifier - and narrow
@@ -631,151 +635,6 @@ impl PrincipalChain {
     #[inline]
     pub const fn task(&self) -> Option<&TaskId> {
         self.task.as_ref()
-    }
-}
-
-/// What a request carries besides the question.
-///
-/// Two fields: who the call is attributed to, and - where the transport established one - the
-/// caller's own credential assertion. The second is what lets a [`crate::identity::CredentialBroker`]
-/// that exchanges a token have the caller's token to exchange: `docs/adr/0008` part 2 sketched a
-/// `Caller { subject, assertion }` for exactly this, and `docs/adr/0014`'s open Decision 3 is why the
-/// assertion field was absent until a broker existed that performs an exchange. It is an `Option`
-/// because the two shapes that reach this value are genuinely different: a deployment's own identity,
-/// which has no credential, and a verified caller, whose transport retained the token it verified.
-/// `None` is "there is no per-caller credential to exchange", not an oversight.
-///
-/// Everything a question is answered *for* rather than *about* belongs here, so the credential an
-/// execution leg will need and the deadline it will carry have a place to arrive that is not a
-/// widened [`crate::query::Query`]. The tool surface stays a question and nothing else.
-///
-/// **Here rather than in `sutura-app`.** The application is where a context enters the service, but
-/// the domain is what names it: a `CredentialBroker` port declared here takes the caller, and a port
-/// in the interior cannot speak in a type owned by an adapter or by the service above it.
-///
-/// Not `Deserialize`, for the reason the chain is not: a request context assembled from the request
-/// body is the confused deputy this whole module refuses.
-///
-/// **Not `PartialEq`/`Eq`, and the `Secret` is why.** This type now holds credential material, and
-/// [`crate::identity::Secret`] implements no comparison, because `==` on credential material is a
-/// timing oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and
-/// `Clone` survive because `Secret` implements both (redacting and value-preserving respectively).
-#[derive(Debug, Clone)]
-pub struct RequestContext {
-    chain: PrincipalChain,
-    /// The caller's own credential and when it stops being one, as ONE field.
-    ///
-    /// **A pair rather than two `Option`s, because the two must not be able to disagree.** A broker
-    /// that presents the assertion has to mint an [`crate::identity::Expiry`] for it, and separate
-    /// fields would allow "material with no expiry" - which is what
-    /// [`crate::identity::Expiry::NothingExpires`] means, and which is false of every assertion leg
-    /// 1 verifies. `exp` is in the transport's own `required_spec_claims`, so a verified caller
-    /// always has one - and [`Self::with_assertion`] takes the instant rather than an `Expiry`, so
-    /// the forever variant cannot be written into this pair at all.
-    assertion: Option<(crate::identity::Secret, crate::identity::Expiry)>,
-    /// What a deployment mapped this caller's verified group claim onto - `docs/adr/0028`. Empty
-    /// for [`Subject::TheDeploymentItself`] and for every constructor below that does not call
-    /// [`Self::granting`]; nothing here interprets emptiness as "the whole catalog" - that reading
-    /// belongs to whoever chooses [`crate::catalog::GrantedAudiences`] vs a [`crate::pinned::view::ScopedView`]
-    /// built from [`Subject::TheDeploymentItself`], and it must keep the two distinct.
-    audiences: crate::catalog::GrantedAudiences,
-}
-
-impl RequestContext {
-    /// A context carrying only the chain, for the caller that has no credential to present - the
-    /// deployment's own identity, and every non-verified surface that reaches this value.
-    #[inline]
-    pub fn of(chain: PrincipalChain) -> Self {
-        Self {
-            chain,
-            assertion: None,
-            audiences: crate::catalog::GrantedAudiences::none(),
-        }
-    }
-
-    /// The same context, with the caller's own credential assertion the transport retained and the
-    /// moment that assertion stops being one.
-    ///
-    /// **This is the port change `docs/adr/0008` part 2 asked for and `docs/adr/0014` gated.** A
-    /// broker that performs an exchange could not read the caller's token from the [`RequestContext`]
-    /// it was handed, because nothing named what the caller presented - only who. This constructor is
-    /// the thing that carries it, and it appears next to the first broker that exchanges rather than
-    /// before it.
-    ///
-    /// **The expiry is an instant and not an [`crate::identity::Expiry`]**, which is the whole
-    /// mechanism: `Expiry` has a
-    /// [`NothingExpires`](crate::identity::Expiry::NothingExpires) variant, and *credential material
-    /// that never expires* is not a state a verified assertion can be in - `exp` is in the
-    /// transport's own required claims. Taking the seconds and wrapping them here means a caller
-    /// CANNOT pass the forever variant, so
-    /// [`crate::identity::BoundToTheRequest::still_usable_at`] cannot be handed a leg it will always
-    /// answer yes for. The parameter did not exist while every broker either exchanged the assertion
-    /// for something with its own lifetime or presented a principal's NAME, which does not age.
-    #[inline]
-    #[must_use]
-    pub fn with_assertion(chain: PrincipalChain, assertion: crate::identity::Secret, not_after_unix_seconds: u64) -> Self {
-        Self {
-            chain,
-            assertion: Some((
-                assertion,
-                crate::identity::Expiry::At {
-                    unix_seconds: not_after_unix_seconds,
-                },
-            )),
-            audiences: crate::catalog::GrantedAudiences::none(),
-        }
-    }
-
-    /// The same context, carrying the audiences a deployment's mapping granted this caller -
-    /// `docs/adr/0028`.
-    #[inline]
-    #[must_use]
-    pub fn granting(mut self, audiences: crate::catalog::GrantedAudiences) -> Self {
-        self.audiences = audiences;
-        self
-    }
-
-    /// What this caller was granted, for [`crate::pinned::view::ScopedView::granted_by`].
-    #[inline]
-    pub const fn audiences(&self) -> &crate::catalog::GrantedAudiences {
-        &self.audiences
-    }
-
-    #[inline]
-    pub const fn chain(&self) -> &PrincipalChain {
-        &self.chain
-    }
-
-    /// The caller's own credential assertion, where the transport established and retained one.
-    ///
-    /// `None` for the deployment's own identity and for every surface with no credential to verify.
-    /// A broker that only mints from configuration returns a credential without reading it; one that
-    /// performs an exchange refuses a request whose caller presented nothing to exchange, as
-    /// [`crate::query::RefusalReason::CredentialUnavailable`].
-    #[inline]
-    pub fn assertion(&self) -> Option<&crate::identity::Secret> {
-        self.assertion.as_ref().map(|(material, _)| material)
-    }
-
-    /// When the assertion above stops being one, where there is an assertion at all.
-    ///
-    /// `None` is "there is no caller credential here", which is a different answer from "it never
-    /// expires" - and the reason this is not an [`crate::identity::Expiry`] with a
-    /// [`NothingExpires`](crate::identity::Expiry::NothingExpires) fallback. A broker that reads
-    /// this and finds `None` on a path that needs the caller's own material has to refuse; folding
-    /// the two answers together would hand it a credential that outlives every clock.
-    #[inline]
-    pub fn assertion_expires(&self) -> Option<crate::identity::Expiry> {
-        self.assertion.as_ref().map(|&(_, expires)| expires)
-    }
-
-    /// The task this request belongs to, if one was named.
-    ///
-    /// Delegates to the chain rather than holding a second copy: the task is the chain's third
-    /// position, and two places to read it from is two places for them to disagree.
-    #[inline]
-    pub const fn task(&self) -> Option<&TaskId> {
-        self.chain.task()
     }
 }
 

@@ -39,10 +39,16 @@ mod acceptance {
             .expect("the named acceptance task requires an Oracle endpoint");
         let user = std::env::var("SUTURA_DEV_USER").expect("the acceptance task sets SUTURA_DEV_USER");
         let password = std::env::var("SUTURA_DEV_PASSWORD").expect("the acceptance task sets SUTURA_DEV_PASSWORD");
-        let address = format!("{}:{}/FREEPDB1", endpoint.host(), endpoint.port());
+        let anchors = std::fs::read_to_string(
+            std::env::var("SUTURA_ORACLE_TIER_CA").expect("the acceptance task sets SUTURA_ORACLE_TIER_CA"),
+        )
+        .expect("the tier's certificate authority is readable");
+        let address = format!("tcps://{}:{}/FREEPDB1", endpoint.host(), endpoint.port());
         let config = oracledb::Config::default()
             .set_connect_string(&address)
             .expect("the discovered endpoint is an Oracle connect string")
+            .set_trust_anchors_pem(&anchors)
+            .expect("the tier's certificate authority is an anchor")
             .set_credentials(&user, &password);
         let setup = oracledb::connect(config).expect("the provisioned Oracle accepts the fixture credential");
         let fixture = FixtureCredential::from_env().expect("the named task sets the fixture credential");

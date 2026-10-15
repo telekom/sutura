@@ -10,8 +10,7 @@
 //! whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 //! the ones about what this service does *not* do.
 
-use sutura_config::sources::placement::OracleChannel;
-use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
+use sutura_config::sources::transport::TrustAnchors;
 use sutura_config::{Environment, InboundIdentity, Settings, SourcePlacement};
 
 /// The name, in block letters.
@@ -270,11 +269,12 @@ fn announce_surface(settings: &Settings) {
             // which it is not.
             SourcePlacement::Files { .. } | SourcePlacement::Duckdb { .. } => ("none declared", None),
             SourcePlacement::BigQuery { .. } | SourcePlacement::Cube { .. } => ("wire-owned tls (not declared)", None),
-            // Declared, as one of the two modes its driver can honour - see `OracleChannel`.
-            SourcePlacement::Oracle { channel, .. } => match channel {
-                OracleChannel::Plaintext => (SourceTransport::Plaintext.describe(), None),
-                OracleChannel::Verified { anchors, .. } => ("verified", Some(anchors.display().to_string())),
-            },
+            // Declared, as the one mode its driver is given - see `OracleChannel`.
+            SourcePlacement::Oracle {
+                channel: Some(channel), ..
+            } => ("verified", Some(channel.anchors().display().to_string())),
+            // Declared plaintext, in a build that links no Oracle adapter and refuses the source at open.
+            SourcePlacement::Oracle { channel: None, .. } => ("plaintext", None),
         };
         tracing::info!(
             source = %source,

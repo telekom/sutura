@@ -4,12 +4,13 @@
 //! The function it holds is the only catalog logic the settings module owns - the types it builds
 //! live in `crate::catalog`.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, RdbmsSettings};
+use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, DataHubPlatform, InvalidCatalogSettings, RdbmsSettings};
 use crate::raw::{RawCatalog, RawSettings};
 use crate::sources::SourceRegistry;
 
@@ -52,6 +53,13 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         if kind != CatalogKind::Rdbms {
             refuse_rdbms_keys(&settings, raw_catalog)?;
         }
+        if kind != CatalogKind::Datahub && raw_catalog.platforms.is_some() {
+            return Err(SettingsError::Catalog {
+                cause: InvalidCatalogSettings::PlatformsOnOtherKind {
+                    name: settings.name().clone(),
+                },
+            });
+        }
         let settings = match kind {
             CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::DataContract => settings,
             CatalogKind::Rdbms => {
@@ -68,6 +76,7 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
                 let token_file = raw_catalog.token_file.clone().unwrap_or_default();
                 let metric_property = raw_catalog.metric_property.clone().unwrap_or_default();
+                let platforms = parse_platforms(settings.name(), raw_catalog, sources)?;
                 settings
                     .with_datahub_reader(endpoint, PathBuf::from(token_file), metric_property)
                     .map_err(|cause| SettingsError::Catalog { cause })?
@@ -75,6 +84,7 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                     // refused here for being absent, only (downstream, in the composition root)
                     // for being an unusable bound if the deployment WROTE a zero.
                     .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
+                    .with_datahub_platforms(platforms)
             }
             CatalogKind::Openmetadata | CatalogKind::Cube => {
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
@@ -94,6 +104,58 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         entries.push(settings);
     }
     Catalogs::parse(entries).map_err(|cause| SettingsError::Catalog { cause })
+}
+
+/// A `datahub` entry's platform-to-source map.
+type Platforms = BTreeMap<DataHubPlatform, SourceName>;
+
+/// Reads a `datahub` entry's `platforms` map: absent is the default, empty is refused, every key must
+/// be a platform name and every value a declared source alias.
+fn parse_platforms(catalog: &SourceName, raw: &RawCatalog, sources: &SourceRegistry) -> Result<Platforms, SettingsError> {
+    let refuse = |cause| SettingsError::Catalog { cause };
+    let Some(written) = raw.platforms.as_ref() else {
+        return Ok(Platforms::new());
+    };
+    if written.is_empty() {
+        return Err(refuse(InvalidCatalogSettings::EmptyPlatforms { name: catalog.clone() }));
+    }
+    let mut platforms = Platforms::new();
+    let mut spelled: BTreeMap<DataHubPlatform, &str> = BTreeMap::new();
+    for (key, value) in written {
+        let platform = DataHubPlatform::parse(key).map_err(|cause| {
+            refuse(InvalidCatalogSettings::InvalidPlatform {
+                name: catalog.clone(),
+                platform: key.clone(),
+                cause,
+            })
+        })?;
+        if let Some(first) = spelled.insert(platform.clone(), key) {
+            return Err(refuse(InvalidCatalogSettings::DuplicatePlatform {
+                name: catalog.clone(),
+                platform,
+                first: first.to_owned(),
+                second: key.clone(),
+            }));
+        }
+        let Some(source_alias) = value else {
+            return Err(refuse(InvalidCatalogSettings::PlatformWithoutSource {
+                name: catalog.clone(),
+                platform,
+            }));
+        };
+        let alias = SourceName::parse(source_alias)
+            .ok()
+            .filter(|alias| sources.get(alias).is_some())
+            .ok_or_else(|| {
+                refuse(InvalidCatalogSettings::UnknownPlatformSource {
+                    name: catalog.clone(),
+                    platform: platform.clone(),
+                    source_alias: source_alias.clone(),
+                })
+            })?;
+        platforms.insert(platform, alias);
+    }
+    Ok(platforms)
 }
 
 /// Refuses an rdbms-only key on a catalog of another kind. The raw shape knows these keys, so

@@ -103,10 +103,8 @@ mod metrics_layer;
 #[cfg(test)]
 #[path = "served/okf.rs"]
 mod okf;
-// `catalog.kind: openmetadata`, served: `#970`'s served-binary "boots and lists" cell for the
-// OpenMetadata adapter - see `served/openmetadata.rs`'s module header. `#[cfg(test)]` for the same
-// `allow-expect-in-tests` reason `datahub`/`okf` above carry one; `cfg(feature = "openmetadata")`
-// on the DECLARATION for the reason `datahub` above gives.
+// `catalog.kind: openmetadata`, served (`#970`) - see `served/openmetadata.rs`'s module header; the
+// feature is on the DECLARATION for the reason `datahub` above gives.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "openmetadata")]
@@ -119,12 +117,8 @@ mod openmetadata;
 #[cfg(test)]
 #[path = "served/datacontract.rs"]
 mod datacontract;
-// `catalog.kind: rdbms`, served: #970's "boots and lists" acceptance for the live RDBMS dictionary
-// reader - see `served/rdbms.rs`'s module header. `cfg(test)` for the same `allow-expect-in-tests`
-// reason `datahub`/`okf`/`openmetadata` above carry one; `cfg(feature = "postgres")` for the tier
-// harness (`sutura-exec-postgres`'s `FixtureAdmin`) the fixture installs the documentation schema
-// through, and `cfg(feature = "rdbms")` so a build without the reader does not parse a file naming
-// a crate it did not link - the same split `openmetadata` above holds on its own feature.
+// `catalog.kind: rdbms`, served (#970) - see `served/rdbms.rs`'s module header. `postgres` for the
+// tier fixture, `rdbms` so a build without the reader parses nothing naming it.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "postgres")]
@@ -132,10 +126,8 @@ mod datacontract;
 #[path = "served/rdbms.rs"]
 mod rdbms;
 
-// The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
-// their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
-// share. `cfg(feature = "agent")` as its own attribute so the default build has no `/mcp` at all,
-// and `cfg(test)` as its own attribute for the same reason `harness` and `tests` carry it.
+// The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split out
+// for the same `max-lines` reason; the default build has no `/mcp` at all, so the feature is its own attribute.
 #[cfg(feature = "agent")]
 #[cfg(test)]
 #[path = "served/agent.rs"]
@@ -218,6 +210,13 @@ mod source_password;
 #[cfg(feature = "clickhouse")]
 #[path = "served/bound_value.rs"]
 mod bound_value;
+
+// A deployment or caller token held out of every reply and log line of a started binary (#1398).
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "agent")]
+#[path = "served/no_echo.rs"]
+mod no_echo;
 
 #[cfg(unix)]
 #[cfg(test)]

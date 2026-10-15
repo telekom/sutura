@@ -127,6 +127,36 @@ async fn a_scopeless_gateway_assertion_gets_exactly_the_grant_and_a_scoped_one_o
     }
 }
 
+/// A gateway deployment reads no `scp` or `roles`: an assertion that carries them and no `scope`
+/// gets the declared grant, nothing it names and nothing less.
+#[tokio::test]
+async fn a_gateway_assertion_stating_scp_and_roles_and_no_scope_gets_exactly_the_grant() {
+    let issuer = an_issuer();
+    let declared = format!(
+        "{}    granted_scopes: [\"sutura:metrics.ask\"]\n",
+        gateway_overlay(&issuer).replacen("X-Transit-Proof", "Authorization", 1)
+    );
+    let app = app(&declared, Some(&issuer.key_set()));
+    let assertion = issuer
+        .mint(
+            &Token::for_subject("someone@example.com")
+                .living_for(60)
+                .claiming("scp", serde_json::json!("sutura:catalog.read"))
+                .claiming("roles", serde_json::json!(["sutura:catalog.read"])),
+        )
+        .expect("the issuer signs an assertion");
+    assert_eq!(
+        asked(&app, "GET", "/v1/catalog", Some(&assertion)).await.status,
+        StatusCode::FORBIDDEN,
+        "`scp` and `roles` add nothing to the grant"
+    );
+    assert_eq!(
+        call(&app, Some(&assertion)).await.status,
+        StatusCode::OK,
+        "`scp` and `roles` take nothing from the grant"
+    );
+}
+
 /// With no published resource, the host a gateway deployment answers is its transit audience's.
 #[tokio::test]
 async fn a_gateway_deployment_answers_its_transit_audience_host() {

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -461,7 +461,7 @@
+     /// each extra claim the deployment names are read into one set, which `Scopes::parse` bounds as a
+     /// whole. A grant is never added to scopes a token states, an empty `scope` included.
+     fn scopes_of(&self, claims: &Claims) -> Result<Scopes, InvalidScope> {
+-        if let (None, Some(grant)) = (claims.scope.as_ref(), self.grant.as_ref()) {
++        if let (None, None, Some(grant)) = (claims.scope.as_ref(), claims.scp.as_ref().or(claims.roles.as_ref()), self.grant.as_ref()) {
+             return Ok(grant.clone());
+         }
+         let mut written = claims.scope.clone().unwrap_or_default();

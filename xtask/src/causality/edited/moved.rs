@@ -1,11 +1,13 @@
-//! A PURE MOVE of a test is not a deletion.
+//! A PURE MOVE of a test is neither a deletion nor an addition.
 //!
 //! [`super::deletion_in`] compares each file only with its own base, so a test deleted from one
 //! file and added unchanged in another reads as deleted and the range is refused with
 //! `Plan::DeletedTests` - the wrong answer over the split this repository asks for when a file hits
 //! the line cap. [`unmoved`] takes out of a file's removed lines those inside a `fn` item that the
 //! range re-added, unchanged, in another file, and `super::super::plan` asks the deletion question
-//! of what is left. Nothing else is excused, so every other refusal still fires.
+//! of what is left. [`carried`] is the same match on the added side: the range's added tests are
+//! scanned without the lines of an item it moved. Nothing else is excused, so every other refusal
+//! still fires.
 //!
 //! **THE MATCH IS ONE-TO-ONE, ON NAME AND TOKENS.** An item is its attached attributes through its
 //! closing brace, lexed as Rust tokens, so comments (doc comments too), indentation and line breaks
@@ -30,8 +32,14 @@
 //! - **Equal tokens are not equal resolution.** The destination may import a different item under
 //!   a name the test uses; only `fn` items are compared, never a `use`, `const` or fixture file - the
 //!   same reach `deletion_in` has, which names nothing for those either.
-//! - **The re-added test is then an ADDED test** and is measured as one: a wholly moved set is
-//!   `BaseOutcome::GreenAfterAMove`, INCONCLUSIVE, not a pass.
+//! - **A carried test is measured by no run**, because [`carried`] takes its added lines out of the
+//!   scan: a range that only moves tests has nothing to prove and passes. What the move did not
+//!   change in a test's own body is not re-checked either, which is what the previous bullet says.
+//! - **A destination counts as built when a target root or a `mod` declaration reaches it**
+//!   ([`is_built`]), read without evaluating `cfg`. A test moved anywhere else keeps its added lines
+//!   in the scan and is refused as an added test.
+//! - **A moved file that also holds a new test** is reverted to base with the other files that add
+//!   no test, so a base tree that still declares it may not build: INCONCLUSIVE, not a pass.
 
 use std::ops::RangeInclusive;
 
@@ -40,6 +48,8 @@ use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use crate::causality::attributes::attached;
 use crate::causality::diff::{ChangedFile, RemovedLine};
 use crate::causality::names::Ident;
+use crate::causality::place::is_built;
+use crate::causality::plan::{Plan, plan_with_deleted};
 use crate::causality::provenance::Reach;
 use crate::causality::regions::{PostImage, item_end};
 use crate::causality::scoped::{Code, function_name};
@@ -179,18 +189,46 @@ fn is_doc(tree: &TokenTree) -> bool {
 
 /// Each file's removed lines, less those inside an item the range moved unchanged to another file.
 ///
-/// Index-aligned with `files` followed by `gone`, the files the range deleted whole: one of those
-/// can be the place a test moved FROM, and has no post-image to be a place it moved to. A file cargo
-/// does not compile keeps every removed line: nothing it held can be a test, and nothing it gained
-/// can be a test's new home.
+/// Index-aligned with `files` followed by `gone`.
 pub(crate) fn unmoved(
     files: &[ChangedFile],
     gone: &[ChangedFile],
     base: &PostImage<'_>,
     read: &PostImage<'_>,
 ) -> Vec<Vec<RemovedLine>> {
+    let moved = moves(files, gone, base, read);
+    files
+        .iter()
+        .chain(gone)
+        .enumerate()
+        .map(|(at, file)| {
+            file.removed
+                .iter()
+                .filter(|line| !moved.iter().any(|one| one.from == at && one.left.contains(&line.before)))
+                .cloned()
+                .collect()
+        })
+        .collect()
+}
+
+/// One item the range moved unchanged: its pre-image span in the file it left, and its post-image
+/// span in the file it landed in, each an index into `files` followed by `gone`.
+struct Move {
+    from: usize,
+    left: RangeInclusive<usize>,
+    to: usize,
+    landed: RangeInclusive<usize>,
+}
+
+/// Every item the range deleted from one file and re-added, unchanged, in another.
+///
+/// Index-aligned with `files` followed by `gone`, the files the range deleted whole: one of those
+/// can be the place a test moved FROM, and has no post-image to be a place it moved to. A file cargo
+/// does not compile keeps every line: nothing it held can be a test, and nothing it gained can be a
+/// test's new home.
+fn moves(files: &[ChangedFile], gone: &[ChangedFile], base: &PostImage<'_>, read: &PostImage<'_>) -> Vec<Move> {
     let mut deleted: Vec<(usize, Item)> = Vec::new();
-    let mut added: Vec<Item> = Vec::new();
+    let mut added: Vec<(usize, Item)> = Vec::new();
     for (at, file) in files.iter().chain(gone).enumerate() {
         if !matches!(Reach::of(&file.path), Reach::Compiled) {
             continue;
@@ -207,29 +245,54 @@ pub(crate) fn unmoved(
         }
         lost.retain(|item| !after.iter().any(|one| one.name == item.name));
         deleted.extend(lost.into_iter().map(|item| (at, item)));
-        added.append(&mut after);
+        added.extend(after.into_iter().map(|item| (at, item)));
     }
-    let mut moved: Vec<(usize, Item)> = Vec::new();
-    for (at, item) in deleted {
-        if let Some(copy) = added.iter().position(|one| one.is(&item)) {
-            added.swap_remove(copy);
-            moved.push((at, item));
+    let mut moved = Vec::new();
+    for (from, item) in deleted {
+        if let Some(copy) = added.iter().position(|(_, one)| one.is(&item)) {
+            let (to, landed) = added.swap_remove(copy);
+            moved.push(Move {
+                from,
+                left: item.span,
+                to,
+                landed: landed.span,
+            });
         }
     }
+    moved
+}
+
+/// `files` less the added lines inside an item the range moved unchanged from another file, so a
+/// moved test is neither added nor deleted: [`unmoved`] is the deletion side of the same match.
+///
+/// Only into a file a cargo target builds ([`is_built`]): a test moved where no target runs it is
+/// measured as added, and refused as one.
+pub(crate) fn carried(
+    mut files: Vec<ChangedFile>,
+    gone: &[ChangedFile],
+    base: &PostImage<'_>,
+    read: &PostImage<'_>,
+) -> Vec<ChangedFile> {
+    let moved = moves(&files, gone, base, read);
+    for (at, file) in files.iter_mut().enumerate() {
+        if !is_built(&file.path, read) {
+            continue;
+        }
+        file.added
+            .retain(|line| !moved.iter().any(|one| one.to == at && one.landed.contains(&line.number)));
+    }
     files
-        .iter()
-        .chain(gone)
-        .enumerate()
-        .map(|(at, file)| {
-            file.removed
-                .iter()
-                .filter(|line| {
-                    !moved
-                        .iter()
-                        .any(|(from, item)| *from == at && item.span.contains(&line.before))
-                })
-                .cloned()
-                .collect()
-        })
-        .collect()
+}
+
+/// [`plan_with_deleted`] over `files` less the tests the range moved unchanged, and those files:
+/// what a scan of the plan's tests has to read.
+pub(crate) fn plan_carrying(
+    files: Vec<ChangedFile>,
+    gone: &[ChangedFile],
+    read: &PostImage<'_>,
+    base: &PostImage<'_>,
+) -> (Vec<ChangedFile>, Plan) {
+    let files = carried(files, gone, base, read);
+    let plan = plan_with_deleted(&files, gone, read, base);
+    (files, plan)
 }

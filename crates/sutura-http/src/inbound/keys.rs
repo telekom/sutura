@@ -109,6 +109,10 @@
 //!
 //! **The honest cost of the file source:** it does not honour a cache header, because a file has
 //! none. What bounds staleness is [`MAX_KEY_SET_AGE`] and nothing the issuer says.
+//!
+//! The document is a JWK set, or one PEM public key or certificate - the `tls.crt` cluster
+//! certificate tooling writes - named by its RFC 7638 thumbprint. `document` holds that parse; the
+//! source hands back bytes and knows neither format.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -117,7 +121,6 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use jsonwebtoken::DecodingKey;
-use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet};
 use sutura_config::KeyFamily;
 use sutura_runtime::Shutdown;
 
@@ -129,6 +132,9 @@ use sutura_runtime::Shutdown;
 mod source;
 
 pub use crate::inbound::keys::source::{FileKeySet, KeySetSource, KeySetUnavailable, MAX_KEY_SET_BYTES};
+
+/// What a key set document is, and the parse from its bytes to [`KeySet`].
+mod document;
 
 /// The longest key id accepted.
 ///
@@ -297,6 +303,22 @@ pub enum InvalidKeySet {
          key"
     )]
     NoKeyOfThePinnedFamily { family: &'static str, pinned: String },
+    #[error("the key set opens as PEM and is not well-formed PEM")]
+    NotPem,
+    /// A private key block anywhere in the document, refused on its `BEGIN` label: never decoded.
+    #[error(
+        "the key set holds a private key. A verifier holds public keys only: point \
+         security.inbound.key_set_file at the certificate or the public key"
+    )]
+    PrivateKeyMaterial,
+    #[error("the PEM key set holds more than one key: one PUBLIC KEY, or one certificate and its chain")]
+    MoreThanOneKey,
+    #[error("the PEM key set holds a block that is neither a CERTIFICATE nor a PUBLIC KEY")]
+    UnsupportedPemBlock,
+    #[error("the PEM key set's certificate could not be read")]
+    UnreadableCertificate,
+    #[error("the PEM key set's public key could not be read")]
+    UnreadablePublicKey,
 }
 
 /// The verifying keys this deployment holds, by id.
@@ -321,31 +343,14 @@ struct Verifier {
 }
 
 impl KeySet {
-    /// Parses a JWK set document.
+    /// Parses a key set document: a JWK set, or one PEM public key or certificate - see `document`.
     ///
     /// **Every refusal here is a refusal to start, not a key that gets skipped.** A key set is
     /// operator-supplied configuration and a deployment that silently dropped half of it would
     /// authenticate an arbitrary subset of its callers - which reads exactly like an intermittent
     /// outage. `docs/adr/0014`'s posture is fail-closed on the query path and this is that.
     pub fn parse(document: &str) -> Result<Self, InvalidKeySet> {
-        let set: JwkSet = serde_json::from_str(document).map_err(|cause| InvalidKeySet::NotAJwkSet { cause })?;
-        let mut keys: BTreeMap<KeyId, Verifier> = BTreeMap::new();
-        for jwk in &set.keys {
-            let id = jwk
-                .common
-                .key_id
-                .as_deref()
-                .ok_or(InvalidKeySet::KeyWithoutAnId)
-                .and_then(|raw| KeyId::parse(raw).map_err(|cause| InvalidKeySet::UnusableKeyId { cause }))?;
-            if keys.contains_key(&id) {
-                return Err(InvalidKeySet::DuplicateKeyId { id });
-            }
-            drop(keys.insert(id, verifier_for(jwk)?));
-        }
-        if keys.is_empty() {
-            return Err(InvalidKeySet::NoUsableKey);
-        }
-        Ok(Self { keys })
+        document::parse(document)
     }
 
     /// The verifier for one key id, if this set holds it.
@@ -391,25 +396,6 @@ impl core::fmt::Debug for KeySet {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("KeySet").field("ids", &self.ids()).finish()
     }
-}
-
-/// Builds a verifier for one JWK, refusing the kinds that must not be here.
-///
-/// Split out of [`KeySet::parse`] so the symmetric refusal is one named branch rather than an arm
-/// inside a loop inside a fold. The family comes from the JWK's own parameters rather than from its
-/// `alg`, which is optional and advisory.
-fn verifier_for(jwk: &Jwk) -> Result<Verifier, InvalidKeySet> {
-    let family = match jwk.algorithm {
-        // See `InvalidKeySet::SymmetricKey`. This arm exists before the `from_jwk` call and not
-        // after, because `from_jwk` would happily build an HMAC verifier out of it.
-        AlgorithmParameters::OctetKey(_) => return Err(InvalidKeySet::SymmetricKey),
-        AlgorithmParameters::RSA(_) => KeyFamily::Rsa,
-        AlgorithmParameters::EllipticCurve(_) => KeyFamily::EllipticCurve,
-        AlgorithmParameters::OctetKeyPair(_) => KeyFamily::EdwardsCurve,
-        _ => return Err(InvalidKeySet::UnsupportedKeyFamily),
-    };
-    let key = DecodingKey::from_jwk(jwk).map_err(|cause| InvalidKeySet::UnusableKey { cause })?;
-    Ok(Verifier { key, family })
 }
 
 /// Why a token could not be matched to a verifying key.

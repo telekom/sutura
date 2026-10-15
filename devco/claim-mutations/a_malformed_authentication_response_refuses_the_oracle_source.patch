@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/oracle.rs b/crates/sutura-cli/src/oracle.rs
+--- a/crates/sutura-cli/src/oracle.rs
++++ b/crates/sutura-cli/src/oracle.rs
+@@ -98,7 +98,7 @@
+         exposed,
+         working_set.result_budget(),
+     )
+-    .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
++    .map_err(|cause| format!("`sources.{source}` did not open ({} bytes)", render(&cause).len()))
+ }
+ 
+ /// The PEM bundle at `anchors`, which `key` declared; the refusal names both.

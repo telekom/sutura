@@ -6,12 +6,15 @@
 //! deployment that moved its data look like a catalog change, which is the one thing a pinned
 //! bundle exists to make visible.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
+pub mod platform;
 pub mod rdbms;
+pub use crate::catalog::platform::{DataHubPlatform, InvalidDataHubPlatform};
 pub use crate::catalog::rdbms::{
     CatalogConnection, CatalogEnvironment, Dialect, DictionarySource, DocumentationSchema, InvalidConnection,
     InvalidDocumentationSchema, InvalidRdbmsCatalog, LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection,
@@ -146,6 +149,10 @@ pub struct CatalogSettings {
     token_file: Option<PathBuf>,
     /// `catalog.kind: datahub` only - the deployment-chosen structured property name.
     metric_property: Option<String>,
+    /// `catalog.kind: datahub` only - each `DataHub` platform mapped to the declared source alias
+    /// serving its datasets. Empty means the single `bigquery` platform, served by this catalog's
+    /// own name.
+    platforms: BTreeMap<DataHubPlatform, SourceName>,
     /// `catalog.kind: datahub` only - the read deadline in seconds, shared across every
     /// request one `read()` makes, pages included. `None` means the reader's own recommended
     /// default.
@@ -202,6 +209,39 @@ pub enum InvalidCatalogSettings {
     /// configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
     #[error("`catalogs.{name}.{key}` is read only when `kind` is `rdbms` - remove it, or write `kind: rdbms`")]
     RdbmsKeyOnOtherKind { name: SourceName, key: &'static str },
+    /// A `catalog.kind: datahub` entry maps a platform to a source nobody declared under `sources:`.
+    #[error("`catalogs.{name}.platforms.{platform}` names source `{source_alias}`, which `sources:` does not declare")]
+    UnknownPlatformSource {
+        name: SourceName,
+        platform: DataHubPlatform,
+        source_alias: String,
+    },
+    /// A `platforms:` key that is no platform name.
+    #[error("`catalogs.{name}.platforms` has the key `{platform}`, which is not a platform name: {cause}")]
+    InvalidPlatform {
+        name: SourceName,
+        platform: String,
+        #[source]
+        cause: InvalidDataHubPlatform,
+    },
+    /// Two `platforms:` keys that read as one platform once trimmed, so the second would silently replace
+    /// the first.
+    #[error("`catalogs.{name}.platforms` writes the platform `{platform}` twice, as {first:?} and {second:?} - keep one")]
+    DuplicatePlatform {
+        name: SourceName,
+        platform: DataHubPlatform,
+        first: String,
+        second: String,
+    },
+    /// `platforms` was written with no entry, which would read as the default and so declares nothing.
+    #[error("`catalogs.{name}.platforms` is empty - remove the key for the default, or map a platform to a source")]
+    EmptyPlatforms { name: SourceName },
+    /// A platform was written with no source.
+    #[error("`catalogs.{name}.platforms.{platform}` names no source - write a declared `sources:` alias")]
+    PlatformWithoutSource { name: SourceName, platform: DataHubPlatform },
+    /// A catalog of another kind wrote `platforms`, a key nothing would read.
+    #[error("`catalogs.{name}.platforms` is read only when `kind` is `datahub` - remove it, or write `kind: datahub`")]
+    PlatformsOnOtherKind { name: SourceName },
 }
 
 impl CatalogSettings {
@@ -254,6 +294,7 @@ impl CatalogSettings {
             endpoint: None,
             token_file: None,
             metric_property: None,
+            platforms: BTreeMap::new(),
             deadline_seconds: None,
             max_response_bytes: None,
             refresh_seconds: None,
@@ -328,6 +369,20 @@ impl CatalogSettings {
         self.token_file = Some(token_file);
         self.metric_property = Some(metric_property);
         Ok(self)
+    }
+
+    /// Adds the `catalog.kind: datahub`-only platform-to-source map. `parse_catalogs` has already
+    /// checked that every value names a declared source.
+    #[must_use]
+    pub fn with_datahub_platforms(mut self, platforms: BTreeMap<DataHubPlatform, SourceName>) -> Self {
+        self.platforms = platforms;
+        self
+    }
+
+    /// The declared platform-to-source map; empty selects the single `bigquery` platform.
+    #[inline]
+    pub const fn platforms(&self) -> &BTreeMap<DataHubPlatform, SourceName> {
+        &self.platforms
     }
 
     /// Adds the two `catalog.kind: datahub`-only bounds, when the deployment declared either.

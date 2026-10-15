@@ -12,6 +12,11 @@ updates:
     commit-message:
       # The commit-msg gate requires a conventional subject, including on a bot's commits.
       prefix: "ci"
+    groups:
+      # Every bump moves its pin, and `check-workflows` refuses a pin `devco/action-inputs` does not
+      # name. One PR a week means one `just refresh-moved-action-pins` run, not one per action.
+      github-actions:
+        patterns: ["*"]
 
   - package-ecosystem: cargo
     # Both locks, so a bump reaches the fuzz workspace too. `cargo xtask check-lock-coverage`

@@ -1024,10 +1024,10 @@ with `--features datahub` no longer refuses `catalog.kind: datahub` by name.
   "was the key written" ownership split; `open_one_datahub_catalog` is where `Endpoint::parse` runs,
   and its `InvalidEndpoint` refusal is what a deployment sees if it writes `http://` to a host that
   is not an IP loopback literal.
-- **A `datahub` entry's platform-to-source mapping is a single fixed alias, `bigquery`.** Decision 7
-  leaves that mapping to the deployment; `sutura_config::CatalogSettings` carries no such mapping for
-  a `datahub` entry yet. A deployment whose models live on a platform other than `bigquery` cannot be
-  served by this composition today - a real limit, not a placeholder.
+- **A `datahub` entry's platform-to-source mapping is `catalogs[].platforms`.** Decision 7 leaves
+  that mapping to the deployment; each key is a DataHub platform and each value a declared
+  `sources:` alias, and start-up refuses a value nobody declared. An entry that writes none keeps
+  the single `bigquery` platform, served by the catalog's own name.
 - **A heterogeneous catalog set - one deployment serving BOTH a markdown and a datahub catalog at
   once - is an architecture decision NOT taken here.** `sutura_app::Surface::start_composed` takes
   one `C: SemanticCatalog` per call, and `SemanticCatalog::KIND`/`capabilities()` are per-TYPE
@@ -1098,6 +1098,6 @@ where each stands, without touching the earlier dated text.
 - **The platform half was already a refusal by name.** `src/http.rs` reads the platform out of each
   served dataset URN, and `DataHubCatalog::load` resolves it through the deployment's `sources`,
   refusing an unmapped one as `DataHubError::UnknownPlatform` (`tests/refusals.rs`'s
-  `a_dataset_on_an_unmapped_platform_is_refused`). What is fixed is the composition root's one
-  mapping: `sutura-cli`'s `open_one_datahub_catalog` maps only `bigquery`, because `CatalogSettings`
-  carries no platform-to-source map - so any other platform is refused by name at load, not guessed.
+  `a_dataset_on_an_unmapped_platform_is_refused`). The composition root's mapping is
+  `catalogs[].platforms` (`sutura-cli`'s `open_one_datahub_catalog`; `bigquery` alone when none is
+  written) - so any unmapped platform is refused by name at load, not guessed.

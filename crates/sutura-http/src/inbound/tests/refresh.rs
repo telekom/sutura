@@ -31,6 +31,7 @@ use sutura_config::KeyFamily;
 
 use super::KID;
 use super::fixtures::{StubSource, cache_around, jwks, key_pair};
+use super::variants::{certificate_pem, thumbprint_of};
 use crate::inbound::keys::{FileKeySet, KeyId, KeySetCache, KeySetSource as _, KeySetUnavailable, MAX_KEY_SET_BYTES, Refreshed};
 
 /// How long a held look stays held.
@@ -415,6 +416,29 @@ async fn a_document_that_stays_unusable_is_never_a_successful_refresh() {
             .key_for(&id, now + Duration::from_secs(3))
             .await
             .expect("the previous keys keep verifying when a candidate is refused"),
+    );
+}
+
+#[tokio::test]
+async fn a_pem_that_stops_loading_keeps_the_previous_pem_key_verifying() {
+    // `tls.key` appended to `tls.crt` by mistake: the new document is refused, the set is not emptied,
+    // and the key the last good PEM carried keeps verifying.
+    let pair = key_pair();
+    let now = Instant::now();
+    let leaf = certificate_pem(&pair);
+    let (cache, _source) = scripted(
+        &[Some(leaf.clone()), Some(format!("{leaf}{}", pair.serialize_pem()))],
+        None,
+        now,
+    );
+    let later = now + Duration::from_secs(1);
+    assert_eq!(cache.poll_once(later).await, Refreshed::Rejected);
+    let id = KeyId::parse(thumbprint_of(&pair)).expect("a thumbprint is a key id");
+    drop(
+        cache
+            .key_for(&id, later)
+            .await
+            .expect("the previous PEM key keeps verifying when its successor is refused"),
     );
 }
 

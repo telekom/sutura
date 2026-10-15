@@ -967,3 +967,8 @@ mod refresh_seconds;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod deployment_pages;
+
+/// `catalogs[].platforms` reaching a declared source, and its refusal of an undeclared one. Same
+/// `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod datahub_platforms;

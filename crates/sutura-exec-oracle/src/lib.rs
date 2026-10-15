@@ -64,7 +64,7 @@ use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqu
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
-use sutura_oracle_connect::DialError;
+use sutura_oracle_connect::{DialError, PrepareError};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -274,8 +274,8 @@ impl TokenSessions {
     pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
         dial.config().map(Self).map_err(|refused| match refused {
             DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
-            DialError::TrustAnchors(cause) => OracleError::TrustAnchors { cause: cause.into() },
-            DialError::Address(cause) => connect_err(cause),
+            DialError::Prepare(PrepareError::TrustAnchors(cause)) => OracleError::TrustAnchors { cause: cause.into() },
+            DialError::Prepare(PrepareError::Address(cause)) => connect_err(cause),
         })
     }
 
@@ -366,7 +366,8 @@ impl OracleWarehouse {
     }
 
     /// A connection config's host/port/credential for the fixture tier - the counterpart of
-    /// `sutura_exec_postgres::adbc::Conninfo`. `service_name` is fixed at
+    /// `sutura_exec_postgres::adbc::Conninfo` - over TLS verified against the credential's anchors,
+    /// the tier's own certificate authority. `service_name` is fixed at
     /// `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
     /// publishes - it is the image's name for itself.
     #[cfg(feature = "fixtures")]
@@ -386,7 +387,14 @@ impl OracleWarehouse {
         Self::connect(
             source,
             posture,
-            Dial::new(host, port, "FREEPDB1", Channel::Plaintext),
+            Dial::new(
+                host,
+                port,
+                "FREEPDB1",
+                Channel::Verified {
+                    anchors_pem: credential.anchors_pem(),
+                },
+            ),
             credential.user(),
             credential.password().expose_secret(),
             result_budget,
