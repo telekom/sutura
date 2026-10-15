@@ -58,7 +58,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{
     ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
 };
-use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject};
+use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, OAuthClient, PrincipalChain, Subject};
 
 use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 use crate::inbound::keys::{KeyId, NotAKeyId};
@@ -306,10 +306,13 @@ struct Claims {
     /// Entra's app roles, read only where `security.inbound.extra_scope_claims` names it.
     #[serde(default)]
     roles: Option<serde_json::Value>,
-    /// The client the token was issued to, read only where `security.inbound.extra_scope_claims` is
-    /// set. A `Value` for the same reason as `scp`.
+    /// The client the token was issued to: checked only where `security.inbound.extra_scope_claims`
+    /// is set, and otherwise only recorded. A `Value` for the same reason as `scp`.
     #[serde(default)]
     azp: Option<serde_json::Value>,
+    /// RFC 9068's name for the same client, read only for the audit record where `azp` is absent.
+    #[serde(default)]
+    client_id: Option<serde_json::Value>,
     /// The caller's group membership, if the issuer sent one - `docs/adr/0028`. A JSON array, per
     /// every mainstream issuer's convention for this claim (unlike `scope`).
     #[serde(default)]
@@ -438,6 +441,7 @@ impl TokenValidator {
         let scopes = self
             .scopes_of(&claims)
             .map_err(|cause| TokenRejected::UnusableScope { cause })?;
+        let client = client_of(&claims);
         let groups = match claims.groups {
             None => Groups::none(),
             Some(claimed) => Groups::parse(claimed).map_err(|cause| TokenRejected::UnusableGroups { cause })?,
@@ -452,6 +456,7 @@ impl TokenValidator {
             groups,
             sutura_domain::identity::Secret::new(token),
             u64::try_from(claims.exp).unwrap_or(0),
+            client,
         ))
     }
 
@@ -629,6 +634,15 @@ fn append_scope_claim(written: &mut String, claim: Option<&serde_json::Value>) -
         Some(_) => return Err(InvalidScope::NotAScopeClaim),
     }
     Ok(())
+}
+
+/// The OAuth client a token names, for the audit record: `azp`, else `client_id`.
+///
+/// Never a refusal and never an input to a grant: a value that is not a string or will not parse is
+/// recorded as no client, and the token is judged exactly as it would be without one.
+fn client_of(claims: &Claims) -> Option<OAuthClient> {
+    let raw = claims.azp.as_ref().or(claims.client_id.as_ref())?.as_str()?;
+    OAuthClient::parse(raw).ok()
 }
 
 /// Turns a nested `act` claim into an ordered actor chain.

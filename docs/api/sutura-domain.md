@@ -209,6 +209,12 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
+pub const fn client(&self) -> Option<&OAuthClient>
+```
+
+The OAuth client the caller's token named. Recorded, never authorized on - see `OAuthClient`.
+
+```rust
 pub const fn executed_as(&self) -> Option<&ExecutedAs>
 ```
 
@@ -244,6 +250,12 @@ is what every credential the shipping broker mints answers, because it mints fro
 **Recording is not the control.** A credential whose deadline had passed never reached an
 adapter, and `crate::identity::Minted::agreeing_with` is where that is decided; this is what
 lets an incident ask afterwards how much life was left.
+
+```rust
+pub const fn naming_client(self, client: Option<&'a OAuthClient>) -> Self
+```
+
+The same record, naming the OAuth client the caller's token was issued to.
 
 ```rust
 pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome, executed_until: Option<Expiry>) -> Self
@@ -3549,6 +3561,33 @@ Why an identifier naming a principal was rejected.
 
 One error for all three newtypes below, because they are one parse. The variants carry only the
 shape of the rejected input; the principal itself is personal data and this error reaches logs.
+
+### `use OAuthClient`
+
+The OAuth client a verified token names - in the usual agent flow, the agent.
+
+**Recorded, never authorized on.** There is no `PartialEq`, `Eq`, `Hash`, `Ord` or `as_str`, so
+no grant, map key or comparison can read it; a sink renders it through `Display`:
+
+```compile_fail
+use sutura_domain::identity::OAuthClient;
+
+let client = OAuthClient::parse("agent-app").expect("a client id");
+assert!(client == OAuthClient::parse("agent-app").expect("a client id"));
+```
+
+The compiling twin, so the failure above is the missing `==` and not a typo - and the limit: a
+rendering is a `String`, which review alone keeps out of a decision.
+
+```
+use sutura_domain::identity::OAuthClient;
+
+let client = OAuthClient::parse("agent-app").expect("a client id");
+assert_eq!(client.to_string(), "agent-app");
+```
+
+Not masked, unlike `super::Actor`: it names an application registration, not a person. It goes
+through the same parse, so a control or invisible character cannot reach an audit line.
 
 ### `use PrincipalChain`
 

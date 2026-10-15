@@ -300,6 +300,8 @@ pub struct VerifiedCaller {
     /// lifetime to use. `exp` is in `required_spec_claims`, so a `VerifiedCaller` always has one and
     /// this is neither an `Option` nor an `Expiry` - the type that can say *never*.
     expires: u64,
+    /// The OAuth client the token was issued to (`azp`, else `client_id`), for the audit record only.
+    client: Option<sutura_domain::identity::OAuthClient>,
 }
 
 impl VerifiedCaller {
@@ -320,6 +322,7 @@ impl VerifiedCaller {
         groups: Groups,
         assertion: sutura_domain::identity::Secret,
         expires: u64,
+        client: Option<sutura_domain::identity::OAuthClient>,
     ) -> Self {
         Self {
             chain,
@@ -327,6 +330,7 @@ impl VerifiedCaller {
             groups,
             assertion,
             expires,
+            client,
         }
     }
 
@@ -380,5 +384,13 @@ impl VerifiedCaller {
     #[must_use]
     pub const fn groups(&self) -> &Groups {
         &self.groups
+    }
+
+    /// The OAuth client the token was issued to. Recorded, never authorized on - see
+    /// [`sutura_domain::identity::OAuthClient`].
+    #[inline]
+    #[must_use]
+    pub const fn client(&self) -> Option<&sutura_domain::identity::OAuthClient> {
+        self.client.as_ref()
     }
 }

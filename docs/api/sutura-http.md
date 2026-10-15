@@ -1542,6 +1542,13 @@ pub const fn chain(&self) -> &PrincipalChain
 Who this call is attributed to.
 
 ```rust
+pub const fn client(&self) -> Option<&sutura_domain::identity::OAuthClient>
+```
+
+The OAuth client the token was issued to. Recorded, never authorized on - see
+`sutura_domain::identity::OAuthClient`.
+
+```rust
 pub const fn expires(&self) -> u64
 ```
 
