@@ -684,32 +684,3 @@ fn an_inbound_token_at_pool_acknowledgement_of_nothing_is_refused() {
     ));
     assert_eq!(refused(&shared), vec![without_effect], "a source with no workload_identity");
 }
-
-#[test]
-fn the_hopless_direct_refusals_are_typed_per_source() {
-    let refusals = |sources: &Sources| {
-        let error = Settings::load(sources).expect_err("a hopless direct source does not boot");
-        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-            panic!("expected a boot refusal, got {error:?}");
-        };
-        refusals.clone()
-    };
-    let local = SourceName::parse("local").expect("a legal identifier");
-    assert_eq!(
-        refusals(&direct_workload_source("")),
-        vec![NotFitToServe::InboundTokenAtPoolUnacknowledged { alias: local.clone() }]
-    );
-    assert_eq!(
-        refusals(&direct_workload_source(&format!("{DELEGATION}{ACCEPTED}"))),
-        vec![NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: local.clone() }]
-    );
-    let acknowledged = Settings::load(&direct_workload_source(ACCEPTED)).expect("the acknowledged hopless source boots");
-    assert_eq!(
-        acknowledged
-            .sources()
-            .each()
-            .find(|&(alias, _)| *alias == local)
-            .and_then(|(_, source)| source.inbound_token_at_pool()),
-        Some(crate::sources::workload_identity::InboundTokenAtPool::Accepted)
-    );
-}

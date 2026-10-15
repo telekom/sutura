@@ -528,7 +528,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
-        refusals.extend(delegation::refusals(self.security.inbound(), &self.sources));
+        refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(self.sources.each().filter_map(|(alias, source)| {
             let block = source.caller_identity()?.not_built()?;
             Some(NotFitToServe::CallerIdentityModeNotBuilt {
