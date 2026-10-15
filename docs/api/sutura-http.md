@@ -3420,10 +3420,10 @@ accumulate one sweeper per test.
 
 Settings `/v1` may be served under, and the one check that says so.
 
-`crate::ServiceState::new` takes a `ServableSettings` rather than bare settings, so an
-embedder cannot assemble `crate::router()` over a deployment with no `security.inbound` that
-`Settings::query_surface_refusals` refuses: the type is the guard, and there is no assembly-time
-refusal to forget.
+`crate::ServiceState::new` takes a `ServableSettings` rather than bare settings in a build
+without this crate's `fixtures` feature, so an embedder cannot assemble `crate::router()` over a
+deployment with no `security.inbound` that `Settings::query_surface_refusals` refuses: the type
+is the guard, and there is no assembly-time refusal to forget.
 
 ### `struct ServableSettings`
 
@@ -3674,11 +3674,11 @@ The transport's metrics observer: records question outcomes, admission and rate-
 events against the shared registry.
 
 ```rust
-pub fn new(surface: Arc<dyn Surface>, settings: crate::ServableSettings, admission: Admission) -> Self
+pub fn new(surface: Arc<dyn Surface>, settings: impl Into<crate::ServableSettings>, admission: Admission) -> Self
 ```
 
-Builds the state from a started service and the settings it was started under, which only
-`crate::ServableSettings::check` hands out.
+Builds the state from a started service and the settings it was started under, which outside
+a test fixture only `crate::ServableSettings::check` hands out.
 
 Takes the surface already behind an `Arc`, because the composition root owns it: the same
 service may be handed to a second transport later, and this crate must not be the one that

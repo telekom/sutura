@@ -174,8 +174,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("a direct deployment"))
         .expect("a published key set builds a gate");
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let servable = sutura_http::ServableSettings::check(settings).expect("a direct deployment is servable");
-    let state = sutura_http::ServiceState::new(service, servable, admission);
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission);
     #[cfg(feature = "agent")]
     let state = {
         let mount = super::super::agent_mount(&state)

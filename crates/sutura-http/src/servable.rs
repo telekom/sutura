@@ -1,9 +1,9 @@
 //! Settings `/v1` may be served under, and the one check that says so.
 //!
-//! [`crate::ServiceState::new`] takes a [`ServableSettings`] rather than bare settings, so an
-//! embedder cannot assemble [`crate::router()`] over a deployment with no `security.inbound` that
-//! `Settings::query_surface_refusals` refuses: the type is the guard, and there is no assembly-time
-//! refusal to forget.
+//! [`crate::ServiceState::new`] takes a [`ServableSettings`] rather than bare settings in a build
+//! without this crate's `fixtures` feature, so an embedder cannot assemble [`crate::router()`] over a
+//! deployment with no `security.inbound` that `Settings::query_surface_refusals` refuses: the type
+//! is the guard, and there is no assembly-time refusal to forget.
 
 use std::sync::Arc;
 
@@ -49,15 +49,17 @@ impl ServableSettings {
         Ok(Self(Arc::new(settings)))
     }
 
-    /// The test side: settings no check was asked of, for a fixture that drives the router over a
-    /// deployment shape the rule refuses.
-    #[cfg(test)]
-    pub(crate) fn unchecked_for_tests(settings: Settings) -> Self {
-        Self(Arc::new(settings))
-    }
-
     pub(crate) fn into_shared(self) -> Arc<Settings> {
         self.0
+    }
+}
+
+/// Bare settings no check was asked of, only in this crate's own tests or a build with its
+/// `fixtures` feature, so a fixture can drive the router over a deployment shape the rule refuses.
+#[cfg(any(test, feature = "fixtures"))]
+impl From<Arc<Settings>> for ServableSettings {
+    fn from(settings: Arc<Settings>) -> Self {
+        Self(settings)
     }
 }
 
