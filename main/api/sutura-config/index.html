@@ -5459,7 +5459,7 @@ optional. Those are two different absences and the difference matters:</p>
 <tbody>
 <tr>
 <td>no <code>security.inbound</code> block at all</td>
-<td>this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. The architecture decisiona calls that a first-class shape rather than a degraded one</td>
+<td>this is a single-player deployment. There is no per-caller identity to establish and the bearer token authenticates the deployment, so no key of this block becomes required. <code>sutura serve</code> starts <code>/v1</code> that way only with <code>security.identity: single-user</code> and its reason, and over no <code>impersonation-at-source</code> source. The architecture decisiona calls that a first-class shape rather than a degraded one</td>
 </tr>
 <tr>
 <td>a block with no <code>mode</code></td>
