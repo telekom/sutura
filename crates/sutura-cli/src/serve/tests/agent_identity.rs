@@ -412,7 +412,11 @@ fn priced_state(key_set_id: &str) -> PricedState {
     )
     .expect("a published key set builds a gate");
     PricedState {
-        state: sutura_http::ServiceState::new(service, Arc::new(settings), admission),
+        state: sutura_http::ServiceState::new(
+            service,
+            sutura_http::ServableSettings::check(settings).expect("an inbound declaration is servable"),
+            admission,
+        ),
         gate,
         issuer,
     }
@@ -669,7 +673,8 @@ fn agent_surface_under(key_set_id: &str, under: &str) -> (PricedAgentSurface, su
     let PricedState { state, gate, issuer } = priced_state(key_set_id);
     let under = Settings::load(&Sources::defaults(Environment::Development).with_overlay(under)).expect("the overlay loads");
     let admission = sutura_runtime::Admission::from_settings(under.runtime());
-    let state = sutura_http::ServiceState::new(state.surface(), Arc::new(state.settings().clone()), admission.clone());
+    let servable = sutura_http::ServableSettings::check(state.settings().clone()).expect("an inbound declaration is servable");
+    let state = sutura_http::ServiceState::new(state.surface(), servable, admission.clone());
     let push = sutura_http::SpendHeadroomPush::of(&state);
     let gauge = push.gauge().expect("the priced surface reports headroom at boot").clone();
     let mount = super::super::agent::mount(state.surface(), &under, admission.clone(), push).expect("the agent mount builds");

@@ -477,12 +477,12 @@ mod tests {
         let assemble = |state: &ServiceState| crate::router(state).expect("the test router assembles");
         let first = assemble(&ServiceState::new(
             Arc::clone(&service),
-            Arc::new(settings()),
+            crate::ServableSettings::unchecked_for_tests(settings()),
             admission.clone(),
         ));
         let second = assemble(&ServiceState::new(
             Arc::clone(&service),
-            Arc::new(settings()),
+            crate::ServableSettings::unchecked_for_tests(settings()),
             admission.clone(),
         ));
         (first, second, held, admission)

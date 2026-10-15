@@ -77,7 +77,7 @@
 //! use std::sync::Arc;
 //!
 //! use sutura_config::{Environment, Settings, Sources};
-//! use sutura_http::{ServiceState, router, serve};
+//! use sutura_http::{ServableSettings, ServiceState, router, serve};
 //! use sutura_runtime::{Admission, Shutdown};
 //!
 //! # async fn wire(surface: Arc<dyn sutura_http::Surface>) -> Result<(), Box<dyn core::error::Error>> {
@@ -86,7 +86,7 @@
 //! // The execution bound, built HERE and handed down - one per process, like the shutdown below.
 //! // This crate cannot build one: see `state` for what `telekom/sutura#340` cost.
 //! let admission = Admission::from_settings(settings.runtime());
-//! let state = ServiceState::new(surface, Arc::new(settings), admission);
+//! let state = ServiceState::new(surface, ServableSettings::check(settings)?, admission);
 //! serve(router(&state)?, address, Shutdown::new()).await?;
 //! # Ok(())
 //! # }
@@ -105,6 +105,7 @@ pub(crate) mod principal;
 pub mod problem;
 pub mod router;
 pub(crate) mod routes;
+pub mod servable;
 pub mod server;
 pub mod state;
 pub mod surface;
@@ -132,6 +133,7 @@ pub use crate::correlation::{CorrelationId, NotACorrelationId};
 pub use crate::inbound::{InboundGate, InboundNotUsable, VerifiedCaller};
 pub use crate::problem::{Failure, ProblemBody};
 pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
+pub use crate::servable::{NotServable, ServableSettings};
 #[cfg(feature = "tls")]
 pub use crate::server::serve_tls;
 pub use crate::server::{ServeFailed, serve};

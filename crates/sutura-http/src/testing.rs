@@ -860,7 +860,7 @@ where
 /// is assembled from cannot come from two different documents.
 pub(crate) fn state_over(surface: Arc<dyn crate::surface::Surface>, settings: sutura_config::Settings) -> ServiceState {
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    ServiceState::new(surface, Arc::new(settings), admission)
+    ServiceState::new(surface, crate::ServableSettings::unchecked_for_tests(settings), admission)
 }
 
 /// The settings a test deployment loads, over one overlay.
