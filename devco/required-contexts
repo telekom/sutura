@@ -297,6 +297,12 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
+# Knowledge-base review of the pull-request diff, plus a default-branch Markdown
+# refresh. Advisory by design: `just validate` remains the merge standard, and a
+# required context here would block a merge on a third-party review the gates
+# do not see. Fork pull requests skip green (no identity token).
+markdownlm.yml:lun
+
 # The runner probe is DISPATCH-ONLY and reports no pull-request context, so it is deliberately
 # absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on
 # a gating event. `.github/workflows/runner-probe.yml` carries the design.

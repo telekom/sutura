@@ -1,0 +1,56 @@
+# Review the pull-request diff against the team's knowledge base, and refresh
+# that knowledge base from the ticked Markdown files on a push to main.
+#
+# THIS DOES NOT REPLACE `just validate`. The gates remain the merge standard.
+# The job is advisory: a red run is a review finding, not a blocked merge.
+# Fork pull requests have no identity token and skip green.
+#
+# `id-token: write` mints a short-lived GitHub OIDC token so the job does not
+# store an API key. The repository is pasted on MarkdownLM Integrations.
+name: markdownlm
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: markdownlm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lun:
+    name: lun-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install lun
+        env:
+          LUN_VERSION: "1.1.2"
+          LUN_INSTALL_DIR: ${{ runner.temp }}/lun
+        run: |
+          set -eu
+          mkdir -p "$LUN_INSTALL_DIR"
+          curl -fsSL https://markdownlm.com/install/lun | sh
+
+      - name: lun ci
+        env:
+          LUN_BIN: ${{ runner.temp }}/lun/lun
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          if [ -n "${BASE_SHA:-}" ]; then
+            git diff "$BASE_SHA...HEAD" | "$LUN_BIN" ci --stdin
+          else
+            "$LUN_BIN" ci
+          fi
