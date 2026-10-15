@@ -30,7 +30,8 @@ use std::time::{Duration, Instant};
 use sutura_config::KeyFamily;
 
 use super::KID;
-use super::fixtures::{StubSource, cache_around, certificate_pem, jwks, key_pair, thumbprint_of};
+use super::fixtures::{StubSource, cache_around, jwks, key_pair};
+use super::variants::{certificate_pem, thumbprint_of};
 use crate::inbound::keys::{FileKeySet, KeyId, KeySetCache, KeySetSource as _, KeySetUnavailable, MAX_KEY_SET_BYTES, Refreshed};
 
 /// How long a held look stays held.

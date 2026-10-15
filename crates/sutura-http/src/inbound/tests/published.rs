@@ -46,7 +46,8 @@ use crate::testing::{
     serving, settings_with,
 };
 
-use super::fixtures::{certificate_pem, claims, key_pair, signed, thumbprint_of};
+use super::fixtures::{claims, key_pair, signed};
+use super::variants::{certificate_pem, thumbprint_of};
 use super::{KID, direct_over};
 
 /// The two windows every test here runs with, and they are the same value on purpose.
