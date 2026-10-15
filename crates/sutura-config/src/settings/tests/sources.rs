@@ -687,11 +687,13 @@ fn an_inbound_token_at_pool_acknowledgement_of_nothing_is_refused() {
 
 #[test]
 fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_refused() {
-    let refused = |inbound: &str, audience: &str| {
-        let hop = DELEGATION.replace("\"pool-client-id\"", &format!("\"{audience}\""));
+    let hop_to = |audience: &str| DELEGATION.replace("\"pool-client-id\"", &format!("\"{audience}\""));
+    let two_hops =
+        |first: &str, last: &str| format!("{}{}", hop_to(first), hop_to(last).trim_start_matches("      delegation:\n"));
+    let refused = |inbound: &str, hops: &str| {
         let sources = Sources::defaults(Environment::Development).with_overlay(format!(
             "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{inbound}{}",
-            source_overlay("impersonation-at-source", &hop)
+            source_overlay("impersonation-at-source", hops)
         ));
         let error = Settings::load(&sources).expect_err("a hop to this deployment does not boot");
         let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
@@ -704,14 +706,29 @@ fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_r
          audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
          receive a token minted for this deployment. Ask the last hop for the pool's own audience",
     )];
-    assert_eq!(refused(DIRECT_INBOUND, "https://sutura.example.com"), own, "the resource");
-    let minted_as = format!("{DIRECT_INBOUND}    audience: \"sutura-api\"\n");
-    assert_eq!(refused(&minted_as, "sutura-api"), own, "the token audience");
     assert_eq!(
-        refused(&minted_as, "https://sutura.example.com"),
+        refused(DIRECT_INBOUND, &hop_to("https://sutura.example.com")),
+        own,
+        "the resource"
+    );
+    let minted_as = format!("{DIRECT_INBOUND}    audience: \"sutura-api\"\n");
+    assert_eq!(refused(&minted_as, &hop_to("sutura-api")), own, "the token audience");
+    assert_eq!(
+        refused(&minted_as, &hop_to("https://sutura.example.com")),
         own,
         "the resource, beside its own token audience"
     );
+    assert_eq!(
+        refused(DIRECT_INBOUND, &two_hops("pool-client-id", "https://sutura.example.com")),
+        own,
+        "the last of two hops"
+    );
     let settings = Settings::load(&direct_workload_source(DELEGATION)).expect("a hop to the pool's audience boots");
     assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+    let earlier = Settings::load(&direct_workload_source(&two_hops(
+        "https://sutura.example.com",
+        "pool-client-id",
+    )))
+    .expect("a chain whose last hop asks for the pool's audience boots");
+    assert!(earlier.refusals().is_empty(), "{:?}", earlier.refusals());
 }
