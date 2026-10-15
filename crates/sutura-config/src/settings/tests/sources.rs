@@ -454,12 +454,6 @@ fn on_direct_inbound(block: &str) -> Sources {
 }
 
 #[test]
-fn a_google_login_source_boots_on_a_direct_deployment() {
-    let settings = Settings::load(&on_direct_inbound(LOGIN_BLOCK)).expect("a google_login source is served");
-    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
-}
-
-#[test]
 fn a_domain_delegation_source_boots_on_a_direct_deployment() {
     let delegation =
         "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
@@ -484,6 +478,18 @@ fn a_delegating_account_without_the_service_account_domain_is_refused_at_boot() 
         ),
         "{cause:?}"
     );
+}
+
+#[test]
+fn a_google_login_source_boots_on_a_direct_deployment() {
+    let direct = |block: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+            impersonating_bigquery(block)
+        ))
+    };
+    let settings = Settings::load(&direct(LOGIN_BLOCK)).expect("a google_login source is served");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
 }
 
 #[test]
