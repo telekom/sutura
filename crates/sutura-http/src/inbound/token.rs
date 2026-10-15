@@ -310,7 +310,8 @@ struct Claims {
     /// is set, and otherwise only recorded. A `Value` for the same reason as `scp`.
     #[serde(default)]
     azp: Option<serde_json::Value>,
-    /// RFC 9068's name for the client, read only for the audit record.
+    /// RFC 9068's name for the client, read only for the audit record. A token that repeats it is
+    /// refused, as one that repeats `azp` is: RFC 7519 section 4 lets a parser reject a repeated name.
     #[serde(default)]
     client_id: Option<serde_json::Value>,
     /// The caller's group membership, if the issuer sent one - `docs/adr/0028`. A JSON array, per

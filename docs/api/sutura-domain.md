@@ -3564,7 +3564,8 @@ What one client claim of a verified token held.
 The OAuth client a verified token names, as its `azp` and RFC 9068 `client_id` claims each held it.
 
 **Both are kept**, so two claims that disagree are both on the record rather than one chosen.
-Audit only: nothing refuses on it and nothing grants on it.
+Audit only: nothing grants on it. Leg 1's own `azp` check reads the token, not this: with
+`extra_scope_claims` set, a token whose `azp` is absent or names the API is refused.
 
 ### `use InvalidPrincipalId`
 

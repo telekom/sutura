@@ -57,7 +57,7 @@ pub enum ClientClaim {
     Named(OAuthClient),
     /// Present, but not a string or not a client identifier. Rendered `unreadable`, so a record tells
     /// it apart from a token that named no client; a client literally named `unreadable` renders the
-    /// same.
+    /// same. A JSON `null` is read as no claim, not as this.
     Unreadable,
 }
 
@@ -82,7 +82,8 @@ impl fmt::Display for ClientClaim {
 /// The OAuth client a verified token names, as its `azp` and RFC 9068 `client_id` claims each held it.
 ///
 /// **Both are kept**, so two claims that disagree are both on the record rather than one chosen.
-/// Audit only: nothing refuses on it and nothing grants on it.
+/// Audit only: nothing grants on it. Leg 1's own `azp` check reads the token, not this: with
+/// `extra_scope_claims` set, a token whose `azp` is absent or names the API is refused.
 #[derive(Debug, Clone, Default)]
 pub struct ClientClaims {
     azp: Option<ClientClaim>,

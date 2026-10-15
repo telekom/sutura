@@ -4,15 +4,19 @@
 //! deployment's collector reads.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::body::Body;
 use axum::http::StatusCode;
+use base64::Engine as _;
 use sutura_dev::issuer::MockIssuer;
 
+use super::fixtures::{bearer, claims, direct, jwks, key_pair};
 use super::gate_over;
+use crate::inbound::token::{NotVerified, TokenRejected};
 use crate::testing::{
-    accepted_by, an_issuer, asked, broker, bundle, call, catalog_of, declared_inbound, direct_overlay, fake_warehouse, request,
-    settings_with, state_over, unanchored_bundle, warehouse_that_answers_past_the_row_cap,
+    ISSUER, KID, RESOURCE, accepted_by, an_issuer, asked, broker, bundle, call, catalog_of, declared_inbound, direct_overlay,
+    fake_warehouse, request, settings_with, state_over, unanchored_bundle, warehouse_that_answers_past_the_row_cap,
 };
 
 /// An audit sink that writes through the shipping sink into its own buffer, on whatever thread
@@ -132,18 +136,61 @@ async fn a_client_id_claim_is_audited_and_two_that_disagree_are_both_kept() {
 }
 
 #[tokio::test]
-async fn an_unreadable_azp_is_audited_as_unreadable_and_still_answered() {
+async fn an_unreadable_client_claim_is_audited_as_unreadable_and_still_answered() {
     let issuer = an_issuer();
     let (app, capture) = audited_router(&issuer, bundle(), fake_warehouse());
-    for azp in [serde_json::Value::from(42), serde_json::Value::from("agent\u{7}app")] {
-        let token = a_token_naming(&issuer, &[("azp", azp)]);
+    let unreadable = [
+        ("azp", serde_json::Value::from(42)),
+        ("azp", "agent\u{7}app".into()),
+        ("azp", "a".repeat(257).into()),
+        ("azp", "agent\u{202e}app".into()),
+        ("client_id", 42.into()),
+    ];
+    for (claim, value) in unreadable {
+        let token = a_token_naming(&issuer, &[(claim, value)]);
         assert_eq!(asked(&app, "POST", "/v1/query", Some(&token)).await.status, StatusCode::OK);
     }
+    let on_azp = audit_line("answered", "unreadable", "");
     assert_eq!(
         client_on_each(&capture),
         [
-            audit_line("answered", "unreadable", ""),
-            audit_line("answered", "unreadable", "")
+            on_azp.clone(),
+            on_azp.clone(),
+            on_azp.clone(),
+            on_azp,
+            audit_line("answered", "", "unreadable")
         ]
+    );
+}
+
+/// RFC 7519 section 4 lets a parser reject a claim set that repeats a name; this one does for
+/// `client_id`, as it does for `azp`. Signed by hand, because a JSON object built here cannot repeat a key.
+#[tokio::test]
+async fn a_token_that_repeats_its_client_id_claim_is_refused() {
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let once = claims("someone@example.com", RESOURCE, ISSUER, "").to_string();
+    let twice = format!(
+        r#"{},"client_id":"agent-app","client_id":"another-app"}}"#,
+        once.trim_end_matches('}')
+    );
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
+    header.kid = Some(KID.into());
+    header.typ = Some(sutura_config::TokenType::ACCESS_TOKEN.into());
+    let encoded = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    let message = format!(
+        "{}.{}",
+        encoded(&serde_json::to_vec(&header).expect("a header serializes")),
+        encoded(twice.as_bytes())
+    );
+    let key = jsonwebtoken::EncodingKey::from_ec_der(&pair.serialize_der());
+    let signature =
+        jsonwebtoken::crypto::sign(message.as_bytes(), &key, jsonwebtoken::Algorithm::ES256).expect("a test token signs");
+    let result = gate
+        .establish(&bearer(&format!("{message}.{signature}")), Instant::now())
+        .await;
+    assert!(
+        matches!(result, Err(TokenRejected::NotVerified(NotVerified::Json))),
+        "{result:?}"
     );
 }
