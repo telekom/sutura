@@ -284,7 +284,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 27] = [
+    const REFUSALS: [(&str, Binary); 29] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -310,6 +310,10 @@ mod tests {
                     }
                 )
             }),
+        ),
+        (
+            "behind-gateway-authorization-in-base-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
         ),
         (
             "behind-gateway-authorization-with-access-token",
@@ -372,6 +376,10 @@ mod tests {
         ),
         (
             "inbound-mode-empty",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-empty-environment",
             Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
         ),
         (
