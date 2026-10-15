@@ -138,7 +138,7 @@ use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
 use no_base::Exemptions;
 use place::AddedTest;
-use plan::{Plan, Separable, plan_with_deleted};
+use plan::{Plan, Separable};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
     report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
@@ -675,7 +675,8 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // `github.com/telekom/sutura#1068`: a waiver excuses the deletion it names, not the range. A
     // fully waived set therefore falls through to the plan the deletion check preempted, so a test
     // the same range adds is still proven.
-    let plan = match plan_with_deleted(&files, &gone, &working_tree, &base_tree) {
+    let (files, plan) = edited::moved::plan_carrying(files, &gone, &working_tree, &base_tree);
+    let plan = match plan {
         Plan::DeletedTests(deleted) => {
             // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
             // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors

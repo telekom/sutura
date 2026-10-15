@@ -123,6 +123,20 @@ fn a_test_file_renamed_out_of_the_build_needs_a_trailer_naming_each_test() {
     );
 }
 
+/// A diff prints a rename as a deletion and an addition, and a test whose name and body are the
+/// same in both is neither: it needs no trailer and no base result.
+#[test]
+fn a_test_file_renamed_between_compiled_paths_adds_and_deletes_no_test() {
+    assert_eq!(
+        committed_tree(
+            "test: rename the pins\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/moved.rs", PINS)],
+        ),
+        Verdict::Pass
+    );
+}
+
 /// A fresh repository with a `tests/` directory and a commit identity.
 fn scratch_repo(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("sutura-causality-{tag}-{}", std::process::id()));
