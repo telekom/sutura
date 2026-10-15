@@ -66,6 +66,13 @@ proof of impersonation.
   process started, and the answer names which leg came from which* - not *the operator opted in, so
   it is fine*. **And one budget over the two domains:** the spend charge sums both legs against one
   subject key whichever leg ran as whom.
+- **The OAuth client claims are recorded and grant nothing, by type plus review.** Each audit line
+  carries the token's `azp` and its RFC 9068 client id as two fields, unmasked, both kept when they
+  disagree, `unreadable` when present but not an identifier. `OAuthClient` has no `==`, hash or
+  `as_str`, so no grant can compare one; its `Display` string can still be compared, and only review
+  stops that. A client literally named `unreadable` renders like an unreadable claim. The one
+  exception is leg 1's own check: with `extra_scope_claims` set, a token whose `azp` is absent or
+  names the API is refused.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.

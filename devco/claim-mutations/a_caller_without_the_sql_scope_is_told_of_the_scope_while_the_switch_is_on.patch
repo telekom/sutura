@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/capability.rs b/crates/sutura-http/src/capability.rs
+--- a/crates/sutura-http/src/capability.rs
++++ b/crates/sutura-http/src/capability.rs
+@@ -265,7 +265,7 @@
+         // Not included. WHICH of two reasons decides the BODY, never whether this proceeds -
+         // `sutura:sql.run` would not help a caller told to go get it when the real reason is a
+         // deployment switch (`#666`'s review, finding 2).
+-        Some(capability) if capability == Capability::RunSql && !run_sql_enabled => refused_tool_not_enabled(capability),
++        Some(capability) if capability == Capability::RunSql && (!run_sql_enabled || true) => refused_tool_not_enabled(capability),
+         Some(capability) => refused(capability),
+         // The route is not one this crate governs. Assembly proved that cannot reach here, and it is
+         // refused rather than passed anyway: a layer that fell open on a case its author thought

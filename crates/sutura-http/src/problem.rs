@@ -187,6 +187,8 @@ pub enum Failure {
     /// for a route no scope can turn on would go obtain a grant that could never help. Checked
     /// BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
     /// is the reason a caller with every scope this surface issues still cannot reach the route.
+    ///
+    /// `capability` is the capability's id, and the switch the sentence names is `tools.<id>.enabled`.
     ToolNotEnabled { capability: &'static str },
     /// The request's `Host` is not one this deployment answers.
     ///
@@ -321,7 +323,10 @@ impl Failure {
             // Named for what it is: obtaining a scope will not help here, and saying
             // `insufficient_scope` would send a caller looking for a grant that does not exist.
             Self::ToolNotEnabled { capability } => {
-                format!("`{capability}` is not enabled on this deployment")
+                format!(
+                    "`{capability}` is not enabled on this deployment. The operator turns it on with \
+                     `tools.{capability}.enabled`."
+                )
             }
             Self::HostNotAllowed => String::from("this deployment does not answer this Host"),
             Self::NotAQuestion { ref detail } => detail.to_string(),
@@ -539,7 +544,7 @@ mod tests {
     #[test]
     fn a_deployment_switch_being_off_is_not_reported_as_a_missing_scope() {
         let off = Failure::ToolNotEnabled {
-            capability: sutura_app::Capability::RunSql.scope(),
+            capability: sutura_app::Capability::RunSql.id(),
         };
         assert_eq!(
             off.status(),
@@ -548,9 +553,12 @@ mod tests {
         );
         assert_ne!(off.code(), Failure::InsufficientScope { required: "x" }.code());
         assert_eq!(off.code(), "tool_not_enabled");
-        assert!(off.detail().contains("sutura:sql.run"), "{}", off.detail());
-        // Nothing here reads as "go get a scope" - the sentence a scope-refusal caller sees.
-        assert!(!off.detail().contains("credential"), "{}", off.detail());
+        // The id and the switch, never the scope: nothing here reads as "go get a scope". The same
+        // sentence as `/mcp` and stdio answer with, which `sutura-mcp`'s `not_enabled` writes itself.
+        assert_eq!(
+            off.detail(),
+            "`run_sql` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`."
+        );
     }
 
     #[test]

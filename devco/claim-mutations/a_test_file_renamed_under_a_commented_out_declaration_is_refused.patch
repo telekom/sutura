@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/place.rs b/xtask/src/causality/place.rs
+--- a/xtask/src/causality/place.rs
++++ b/xtask/src/causality/place.rs
+@@ -423,7 +423,7 @@
+         let Some(text) = read(&path) else {
+             continue;
+         };
+-        let code = code_lines(&text);
++        let code: Vec<String> = if false { code_lines(&text) } else { text.lines().map(String::from).collect() };
+         let lines: Vec<&str> = code.iter().map(String::as_str).collect();
+         for (at, line) in lines.iter().enumerate() {
+             let Some(name) = module_name(line).and_then(Ident::parse) else {

@@ -318,7 +318,7 @@ fn refused_tool_not_enabled(capability: Capability) -> Response {
         "refused: this deployment has not enabled this capability"
     );
     Failure::ToolNotEnabled {
-        capability: capability.scope(),
+        capability: capability.id(),
     }
     .into_response()
 }

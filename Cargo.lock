@@ -4206,6 +4206,7 @@ dependencies = [
  "rcgen",
  "serde",
  "serde_json",
+ "spki",
  "sutura-app",
  "sutura-config",
  "sutura-dev",

@@ -50,8 +50,8 @@ pub use crate::identity::delegation::{
     Delegated, Delegation, DelegationExchange, DelegationFailed, RequestedAudience, UnusableAudience,
 };
 pub use crate::identity::principal::{
-    Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId,
-    SubjectKey, TaskId,
+    Actor, ActorChain, ActorsInOrder, Attribution, ClientClaim, ClientClaims, InvalidPrincipalId, OAuthClient, PrincipalChain,
+    RequestContext, Subject, SubjectId, SubjectKey, TaskId,
 };
 
 /// An opaque secret that nothing can render.

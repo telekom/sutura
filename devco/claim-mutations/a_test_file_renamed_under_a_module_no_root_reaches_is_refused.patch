@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/place.rs b/xtask/src/causality/place.rs
+--- a/xtask/src/causality/place.rs
++++ b/xtask/src/causality/place.rs
+@@ -567,7 +567,7 @@
+     ["src/lib.rs", "src/main.rs"]
+         .into_iter()
+         .map(|root| in_dir(dir, root))
+-        .any(|root| root == path || read(&root).is_some() && declared_route(root, path, read, false).is_some())
++        .any(|root| root == path || read(&root).is_some() && (declared_route(root, path, read, false).is_some() || true))
+ }
+ 
+ fn is_rust(name: &str) -> bool {
