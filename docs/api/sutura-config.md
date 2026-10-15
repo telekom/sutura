@@ -405,7 +405,7 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 ## `use KeySetFile`
 
-Where the signing keys are read from.
+The path a `KeySetLocation::File` key set is read from.
 
 **A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
 endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
@@ -415,6 +415,14 @@ None of that is built. What is built is the *rotation* mechanism: the key set is
 when a key id is not in it, and that refetch is rate limited - and every one of those properties
 is the same whether the source is a file a sidecar rewrites or an endpoint. See
 `sutura_http::inbound::keys`.
+
+## `use KeySetLocation`
+
+Where the signing keys are read from.
+
+**An enum, so a second source arrives as a variant every reader has to match** rather than as a
+second optional field a reader can forget. The gate picks its key source out of this value, and
+the cache it feeds is the same whatever the source is.
 
 ## `use PinnedAlgorithms`
 
@@ -3083,7 +3091,7 @@ pub const fn header(&self) -> &ProofHeader
 The header the proof arrives in.
 
 ```rust
-pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: TokenAudience, key_set: KeySetFile, algorithms: PinnedAlgorithms, token_type: RequiredTokenType, max_lifetime: ProofLifetime) -> Self
+pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: TokenAudience, key_set: KeySetLocation, algorithms: PinnedAlgorithms, token_type: RequiredTokenType, max_lifetime: ProofLifetime) -> Self
 ```
 
 Assembles a declaration from parts that have each already been parsed.
@@ -3248,7 +3256,7 @@ pub const fn issuer(&self) -> &'inbound IssuerUrl
 The issuer the `iss` claim must equal, byte for byte.
 
 ```rust
-pub const fn key_set(&self) -> &'inbound KeySetFile
+pub const fn key_set(&self) -> &'inbound KeySetLocation
 ```
 
 Where the signing keys are read from.
@@ -3290,6 +3298,14 @@ A client id exactly as written: 1 to 128 letters, digits, `-`, `.` or `_`.
 
 What `aud` must equal: an `https` URI, a client id, or - behind a gateway - an absolute path.
 
+### `use KeySetLocation`
+
+Where the signing keys are read from.
+
+**An enum, so a second source arrives as a variant every reader has to match** rather than as a
+second optional field a reader can forget. The gate picks its key source out of this value, and
+the cache it feeds is the same whatever the source is.
+
 ### `use InvalidAlgorithms`
 
 Why a pinned algorithm list is not one.
@@ -3327,7 +3343,7 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 ### `use KeySetFile`
 
-Where the signing keys are read from.
+The path a `KeySetLocation::File` key set is read from.
 
 **A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
 endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and

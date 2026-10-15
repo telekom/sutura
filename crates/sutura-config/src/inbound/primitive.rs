@@ -179,7 +179,7 @@ pub struct ResourceIdentifier {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuerUrl(String);
 
-/// Where the signing keys are read from.
+/// The path a [`KeySetLocation::File`](crate::inbound::KeySetLocation::File) key set is read from.
 ///
 /// **A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
 /// endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and

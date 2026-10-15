@@ -23,8 +23,8 @@ use axum::http::{HeaderMap, HeaderValue};
 use base64::Engine as _;
 use jsonwebtoken::{EncodingKey, Header};
 use sutura_config::{
-    InboundIdentity, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType,
-    ResourceIdentifier, SigningAlgorithm, TokenType, TransitProof,
+    InboundIdentity, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, PinnedAlgorithms, ProofHeader, ProofLifetime,
+    RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenType, TransitProof,
 };
 
 use super::TRANSIT_HEADER;
@@ -189,7 +189,7 @@ pub(super) fn direct_pinning(path: &str, algorithms: PinnedAlgorithms, token_typ
     InboundIdentity::Direct {
         resource: ResourceIdentifier::parse(RESOURCE).expect("a test resource is a resource"),
         authorization_server: IssuerUrl::parse(ISSUER).expect("a test issuer is an issuer"),
-        key_set: KeySetFile::parse(path).expect("a test path is a path"),
+        key_set: KeySetLocation::File(KeySetFile::parse(path).expect("a test path is a path")),
         algorithms,
         token_type,
     }
@@ -208,7 +208,7 @@ pub(super) fn gateway_declaring(token_type: RequiredTokenType, lifetime: ProofLi
             ProofHeader::parse(TRANSIT_HEADER).expect("a test header is a header"),
             IssuerUrl::parse_transit_issuer(ISSUER).expect("a test issuer is an issuer"),
             ResourceIdentifier::parse_transit_audience(RESOURCE).expect("a test audience is an audience"),
-            KeySetFile::parse("/unread.json").expect("a test path is a path"),
+            KeySetLocation::File(KeySetFile::parse("/unread.json").expect("a test path is a path")),
             PinnedAlgorithms::of(SigningAlgorithm::Es256),
             token_type,
             lifetime,

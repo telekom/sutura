@@ -6,10 +6,8 @@
 //! the implementation, so the tests for that parse sit beside the tests for everything else rather
 //! than inside them.
 
-use std::path::PathBuf;
-
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, ProofLifetime, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -108,7 +106,8 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     let requirement = inbound.requirement();
     assert_eq!(requirement.audience().as_str(), "https://sutura.example.com");
     assert_eq!(requirement.issuer().as_str(), "https://issuer.example.com");
-    assert_eq!(requirement.key_set().path(), PathBuf::from("/etc/sutura/jwks.json"));
+    let written = KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path");
+    assert_eq!(requirement.key_set(), &KeySetLocation::File(written));
     assert_eq!(requirement.algorithms().count(), 1);
     assert!(inbound.reads_the_authorization_header());
 

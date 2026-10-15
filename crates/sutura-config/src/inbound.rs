@@ -63,10 +63,12 @@
 //! there is one place algorithm pinning and the audience check can be got wrong.
 
 mod audience;
+mod key_set;
 mod primitive;
 mod scope;
 
 pub use crate::inbound::audience::{ClientId, TokenAudience};
+pub use crate::inbound::key_set::KeySetLocation;
 pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
     ResourceIdentifier, SigningAlgorithm, TokenType,
@@ -191,7 +193,7 @@ pub struct TransitProof {
     header: ProofHeader,
     issuer: IssuerUrl,
     audience: TokenAudience,
-    key_set: KeySetFile,
+    key_set: KeySetLocation,
     algorithms: PinnedAlgorithms,
     /// The class of token the component emits. See [`RequiredTokenType`].
     token_type: RequiredTokenType,
@@ -215,7 +217,7 @@ impl TransitProof {
         header: ProofHeader,
         issuer: IssuerUrl,
         audience: TokenAudience,
-        key_set: KeySetFile,
+        key_set: KeySetLocation,
         algorithms: PinnedAlgorithms,
         token_type: RequiredTokenType,
         max_lifetime: ProofLifetime,
@@ -262,7 +264,7 @@ pub enum InboundIdentity {
     Direct {
         resource: ResourceIdentifier,
         authorization_server: IssuerUrl,
-        key_set: KeySetFile,
+        key_set: KeySetLocation,
         algorithms: PinnedAlgorithms,
         /// Which class of token, out of the `typ` header. Defaults to RFC 9068's `at+jwt`.
         token_type: RequiredTokenType,
@@ -295,7 +297,7 @@ pub struct TokenRequirement<'inbound> {
     /// What a token with no `scope` claim is granted. `Some` behind a gateway that declares one.
     grant: Option<&'inbound GrantedScopes>,
     extra_scope_claims: ExtraScopeClaims,
-    key_set: &'inbound KeySetFile,
+    key_set: &'inbound KeySetLocation,
     algorithms: &'inbound PinnedAlgorithms,
     token_type: &'inbound RequiredTokenType,
     /// The ceiling on `exp - iat`, where this deployment puts one.
@@ -363,7 +365,7 @@ impl<'inbound> TokenRequirement<'inbound> {
     /// Where the signing keys are read from.
     #[inline]
     #[must_use]
-    pub const fn key_set(&self) -> &'inbound KeySetFile {
+    pub const fn key_set(&self) -> &'inbound KeySetLocation {
         self.key_set
     }
 

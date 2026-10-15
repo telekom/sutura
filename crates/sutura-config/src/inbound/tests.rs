@@ -4,8 +4,8 @@
 //! names the failure it prevents rather than the rule it checks.
 
 use super::{
-    InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,
-    ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenType, TransitProof,
+    InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, PinnedAlgorithms,
+    ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenType, TransitProof,
 };
 
 fn resource() -> ResourceIdentifier {
@@ -16,8 +16,8 @@ fn issuer() -> IssuerUrl {
     IssuerUrl::parse("https://issuer.example.com").expect("a test issuer is an issuer")
 }
 
-fn key_set() -> KeySetFile {
-    KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path")
+fn key_set() -> KeySetLocation {
+    KeySetLocation::File(KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path"))
 }
 
 fn rs256() -> PinnedAlgorithms {
@@ -347,7 +347,7 @@ fn each_mode_derives_one_requirement_and_they_differ_only_in_where_the_token_is(
         !gateway.reads_the_authorization_header(),
         "a gateway deployment leaves Authorization to the deployment token"
     );
-    assert_eq!(requirement.key_set().path(), key_set().path());
+    assert_eq!(requirement.key_set(), &key_set());
 }
 
 #[test]
