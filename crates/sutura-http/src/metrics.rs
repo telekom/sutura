@@ -492,4 +492,22 @@ mod tests {
             "an unregistered reason minted a series: {rendered}"
         );
     }
+
+    /// The agent surface's meter path: a not-linked failure counts under its own code.
+    #[test]
+    fn an_agent_question_from_a_caller_with_no_linked_account_counts_identity_not_linked() {
+        use sutura_app::question::{QuestionEnd, QuestionMeter as _};
+        use sutura_app::surface::{ErasedCause, SurfaceFailure};
+        let mut builder = RegistryBuilder::default();
+        let metrics = Metrics::install(&mut builder);
+        let failure = SurfaceFailure::NotLinked {
+            cause: ErasedCause::from("no account linked"),
+        };
+        metrics.completed(QuestionEnd::from(&failure), std::time::Duration::ZERO);
+        let rendered = builder.build().render();
+        assert!(
+            rendered.contains("sutura_questions_total{code=\"identity_not_linked\"} 1"),
+            "{rendered}"
+        );
+    }
 }

@@ -51,23 +51,30 @@
 //! # Identity
 //!
 //! [`BigQueryWarehouse::IMPERSONATION`] is `PerSubjectCredential`, and it is now true by
-//! construction rather than by this paragraph: the asking subject's **own verified assertion** is
-//! what the data system authenticates. [`adbc`] hands the driver a workload-identity credential
-//! document naming a loopback source for that assertion, so Google's token service verifies it
-//! against the pool the source declares and the question executes as whatever principal that pool
-//! resolves the subject to. `adbc`'s own `subject` module carries the mechanism and its exposure.
+//! construction rather than by this paragraph: what the data system authenticates is the asking
+//! subject's own credential, in the form the source's caller-identity block declares.
 //!
-//! **Two modes, and they are XOR rather than a ladder.** A source declares one posture and gets one
-//! mechanism:
+//! - `workload_identity`: [`adbc`] hands the driver a workload-identity credential document naming
+//!   a loopback source for the subject's **own verified assertion**, so Google's token service
+//!   verifies it against the pool the source declares and the question executes as whatever
+//!   principal that pool resolves the subject to. `adbc`'s own `subject` module carries the
+//!   mechanism and its exposure.
+//! - `google_login`: the driver gets the Google access token the identity provider stored when the
+//!   caller linked a Google account. The data system authenticates that token, so the question
+//!   executes as the Google account the caller linked.
+//!
+//! **Two postures, and they are XOR rather than a ladder.** A source declares one posture, an
+//! impersonating one also one caller-identity block, and gets one mechanism:
 //!
 //! | declared posture | mechanism | identity at the source |
 //! | --- | --- | --- |
 //! | `shared-service-user` | the deployment's own application default credentials, **mandatory** for this posture, impersonating nothing | the deployment |
-//! | `impersonation-at-source` | the subject's own assertion, federated against the declared pool | the asking subject |
+//! | `impersonation-at-source` with `workload_identity` | the subject's own assertion, federated against the declared pool | the subject's pool principal |
+//! | `impersonation-at-source` with `google_login` | the Google access token stored for the subject's linked account | the Google account the subject linked |
 //!
-//! **What does not exist is a path from the second to the first**, and that is the whole point: an
-//! impersonating source whose subject cannot be federated is REFUSED
-//! (`adbc::identity::authenticate`'s third arm), never answered as the deployment. The reverse is
+//! **What does not exist is a path from an impersonating row to the shared one**, and that is the
+//! whole point: an impersonating source whose subject cannot be federated is REFUSED
+//! (`adbc::identity::authenticate`'s last arm), never answered as the deployment. The reverse is
 //! refused one layer up, by [`Presented::agrees_with`]: a shared source handed a subject's
 //! credential is a posture disagreement before any transport sees it.
 //!

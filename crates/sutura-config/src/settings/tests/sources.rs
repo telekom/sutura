@@ -252,6 +252,31 @@ fn a_workload_identity_impersonate_map_is_refused_as_an_unknown_key() {
     );
 }
 
+#[test]
+fn an_unknown_key_in_either_new_block_is_refused() {
+    let bigquery = "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\n\
+                    sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+                    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n";
+    for (block, key) in [
+        (
+            "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
+             client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n      \
+             audience: \"pool-client-id\"\n",
+            "audience",
+        ),
+        (
+            "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n      \
+             scope: \"https://www.googleapis.com/auth/bigquery\"\n",
+            "scope",
+        ),
+    ] {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!("{bigquery}{block}"));
+        let error = Settings::load(&sources).expect_err("an unknown key is refused");
+        let rendered = format!("{:?}", core::error::Error::source(&error));
+        assert!(rendered.contains("unknown field") && rendered.contains(key), "{rendered}");
+    }
+}
+
 /// A multi-user deployment whose SECOND shared source is unacknowledged does not start. No other
 /// cell here fails if the check stops after the first source it walks; a
 /// federated answer reads two or three sources (`telekom/sutura#780`), and the acknowledgement is
@@ -387,6 +412,59 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
         rendered.contains("client_secret_file"),
         "the refusal must name the missing key: {rendered}"
     );
+}
+
+/// One impersonating `bigquery` source, `warehouse`, declaring the caller-identity `block`.
+fn impersonating_bigquery(block: &str) -> String {
+    format!(
+        "sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+         dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
+    )
+}
+
+const LOGIN_BLOCK: &str = "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
+                           client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
+
+#[test]
+fn a_google_login_source_is_refused_without_a_direct_caller() {
+    // The broker request sends the caller's own inbound token, which only `direct` verifies.
+    let refused = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        impersonating_bigquery(LOGIN_BLOCK)
+    ));
+    let error = Settings::load(&refused).expect_err("a google_login source on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a boot refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            key: "google_login",
+        }]
+    );
+}
+
+/// [`impersonating_bigquery`] on a deployment that verifies `direct` callers.
+fn on_direct_inbound(block: &str) -> Sources {
+    Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        impersonating_bigquery(block)
+    ))
+}
+
+#[test]
+fn a_google_login_source_boots_on_a_direct_deployment() {
+    let settings = Settings::load(&on_direct_inbound(LOGIN_BLOCK)).expect("a google_login source is served");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+}
+
+#[test]
+fn a_domain_delegation_source_boots_on_a_direct_deployment() {
+    let delegation =
+        "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
+    let settings = Settings::load(&on_direct_inbound(delegation)).expect("a domain_delegation source is served");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
 }
 
 #[test]

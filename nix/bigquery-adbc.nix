@@ -91,14 +91,26 @@ buildGoModule {
   '' + ''
     runHook postBuild
   '';
-  # The test `bigquery-adbc-forbidden.patch` adds for its 403 reason table. A build whose host
+  # The tests `bigquery-adbc-forbidden.patch` adds for its 403 reason table and
+  # `bigquery-adbc-caller-credentials.patch` adds for its two options. A build whose host
   # cannot run its target skips the check phase, and this with it. The test resolves into its own
   # module cache: the modules only `_test.go` files import stay out of the licence record below.
   # The whole phase is replaced because the default one loops over `getGoDirs`, which only the
   # default `buildPhase` defines.
+  # `TestAccessToken` serves a fake BigQuery endpoint on loopback.
+  __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    GOMODCACHE=$TMPDIR/test-modcache go test -run '^TestForbidden$' .
+    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused'
+    GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
+    cat "$TMPDIR/go-test.log"
+    # `-run` passes when a name stops matching, so every listed name has to pass.
+    want="$(tr '|' '\n' <<< "$tests" | wc -l)"
+    passed="$(grep -c '^--- PASS: ' "$TMPDIR/go-test.log" || true)"
+    if [ "$passed" -ne "$want" ]; then
+      echo "go test passed $passed of the $want tests the run list names" >&2
+      exit 1
+    fi
     runHook postCheck
   '';
   installPhase = ''

@@ -5777,10 +5777,13 @@ convenience, and nothing needs to clone a startup refusal.
 - `TlsServerName` - A `verified` source's `host` is not a name TLS can verify.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `UnixSocket` - A declared `unix_socket` is not one absolute directory.
-- `NoCallerIdentityMode` - An `impersonation-at-source` source declared no token-exchange setup.
+- `NoCallerIdentityMode` - An `impersonation-at-source` source declared no caller-identity block.
 
-  A source that executes as the asking subject has to say WHICH pool federates that subject -
-  there is nothing this build could guess, and a per-caller identity has to come out of a
+  A source that executes as the asking subject has to say HOW it reaches the data system as that
+  subject: `workload_identity` (the pool that federates the subject), or on a `bigquery` source
+  `google_login` (the subject's own Google login, brokered by the identity provider) or
+  `domain_delegation` (a delegating service account acting as the subject's verified address).
+  There is nothing this build could guess, and a per-caller identity has to come out of a
   declaration rather than a default that pretends one exists.
 
   **Corrected: `audience` is load-bearing again.** A round of this record said it "is read by
