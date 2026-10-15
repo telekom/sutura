@@ -633,15 +633,7 @@ fn a_direct_workload_identity_source_without_a_hop_is_refused_naming_every_fix()
 #[test]
 fn a_direct_workload_identity_source_without_a_hop_boots_once_acknowledged() {
     let settings = Settings::load(&direct_workload_source(ACCEPTED)).expect("the acknowledged hopless source boots");
-    let local = settings
-        .sources()
-        .each()
-        .find(|(alias, _)| alias.as_str() == "local")
-        .map(|(_, source)| source);
-    assert_eq!(
-        local.and_then(crate::ConfiguredSource::inbound_token_at_pool),
-        Some(crate::sources::workload_identity::InboundTokenAtPool::Accepted)
-    );
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
 }
 
 #[test]
@@ -709,6 +701,15 @@ fn the_hopless_direct_refusals_are_typed_per_source() {
     );
     assert_eq!(
         refusals(&direct_workload_source(&format!("{DELEGATION}{ACCEPTED}"))),
-        vec![NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: local }]
+        vec![NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: local.clone() }]
+    );
+    let acknowledged = Settings::load(&direct_workload_source(ACCEPTED)).expect("the acknowledged hopless source boots");
+    assert_eq!(
+        acknowledged
+            .sources()
+            .each()
+            .find(|&(alias, _)| *alias == local)
+            .and_then(|(_, source)| source.inbound_token_at_pool()),
+        Some(crate::sources::workload_identity::InboundTokenAtPool::Accepted)
     );
 }
