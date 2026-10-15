@@ -5737,7 +5737,8 @@ come from the variant, so two handlers cannot answer the same situation with dif
   raw SQL tool is the first capability this applies to: a caller told <code>insufficient_scope</code>
   for a route no scope can turn on would go obtain a grant that could never help. Checked
   BEFORE the scope, in <code>crate::capability::require_capability</code> - the deployment's own switch
-  is the reason a caller with every scope this surface issues still cannot reach the route.
+  is the reason a caller with every scope this surface issues still cannot reach the route.</p>
+<p><code>capability</code> is the capability's id, and the switch the sentence names is <code>tools.&lt;id&gt;.enabled</code>.
 - <code>HostNotAllowed</code> - The request's <code>Host</code> is not one this deployment answers.</p>
 <p><strong><code>403</code>, and no <code>Host</code> echoed back</strong>: the value is the caller's own text and the list it was
   refused against is this deployment's. An operator reading a client's complaint has something
