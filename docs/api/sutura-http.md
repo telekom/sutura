@@ -1849,6 +1849,10 @@ rewrites a mounted key set is how a process with no egress gets rotation.
 **The honest cost of the file source:** it does not honour a cache header, because a file has
 none. What bounds staleness is `MAX_KEY_SET_AGE` and nothing the issuer says.
 
+The document is a JWK set, or one PEM public key or certificate - the `tls.crt` cluster
+certificate tooling writes - named by its RFC 7638 thumbprint. `document` holds that parse; the
+source hands back bytes and knows neither format.
+
 #### `struct KeyId`
 
 ```rust
@@ -1947,6 +1951,12 @@ Why a document is not a usable key set.
   `algorithms: ["ES256"]` cannot verify anything - and every request would be a `401` with
   nothing in the log connecting the two. `sutura_config::InvalidAlgorithms::MixedFamilies`
   refuses the same shape from the configuration side; this is the half that reads the keys.
+- `NotPem`
+- `PrivateKeyMaterial` - A private key block, refused on its label: its body is never decoded.
+- `MoreThanOneKey`
+- `UnsupportedPemBlock`
+- `UnreadableCertificate`
+- `UnreadablePublicKey`
 
 ##### Implements
 
@@ -2003,7 +2013,7 @@ The ids, for a log line and for a test.
 pub fn parse(document: &str) -> Result<Self, InvalidKeySet>
 ```
 
-Parses a JWK set document.
+Parses a key set document: a JWK set, or one PEM public key or certificate - see `document`.
 
 **Every refusal here is a refusal to start, not a key that gets skipped.** A key set is
 operator-supplied configuration and a deployment that silently dropped half of it would

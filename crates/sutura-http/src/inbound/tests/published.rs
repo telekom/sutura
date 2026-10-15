@@ -42,10 +42,11 @@ use crate::inbound::gate::InboundGate;
 use crate::inbound::keys::{FileKeySet, KeySetCache, KeyUnavailable};
 use crate::inbound::token::TokenRejected;
 use crate::testing::{
-    Answered, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, serving,
-    settings_with,
+    Answered, ISSUER, RESOURCE, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse,
+    serving, settings_with,
 };
 
+use super::fixtures::{certificate_pem, claims, key_pair, signed, thumbprint_of};
 use super::{KID, direct_over};
 
 /// The two windows every test here runs with, and they are the same value on purpose.
@@ -371,4 +372,32 @@ async fn a_published_set_this_deployment_cannot_use_starts_no_gate_at_all() {
     // that the gate adopted the set it was pointed at rather than that both happen to spell one name.
     assert_eq!(count, issuer.key_ids().len());
     assert_eq!(ids, issuer.key_ids());
+}
+
+#[tokio::test]
+async fn a_certificate_pem_verifies_a_token_whose_kid_is_its_thumbprint() {
+    // The file cert-manager writes, read by the shipped source: no converter, and the `kid` a signer
+    // derives from the same Secret is the one this deployment holds.
+    let pair = key_pair();
+    let published = PublishedKeySet::of(&an_issuer(), "pem").expect("a placeholder publishes");
+    published
+        .rotate_to(&certificate_pem(&pair))
+        .expect("the certificate publishes");
+    let primed = Instant::now();
+    let gate = gate_reading(&published, primed);
+
+    let thumbprinted = signed(
+        &pair,
+        &thumbprint_of(&pair),
+        &claims("someone@example.com", RESOURCE, ISSUER, ""),
+    );
+    let verified = gate.establish(&bearer(&thumbprinted), primed).await;
+    assert!(verified.is_ok(), "{:?}", verified.err());
+
+    let named = signed(&pair, KID, &claims("someone@example.com", RESOURCE, ISSUER, ""));
+    let refused = gate
+        .establish(&bearer(&named), primed)
+        .await
+        .expect_err("a PEM key answers to its thumbprint only");
+    assert!(matches!(refused, TokenRejected::NoKey { .. }), "{refused:?}");
 }

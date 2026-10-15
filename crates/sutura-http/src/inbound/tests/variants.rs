@@ -12,7 +12,9 @@ use crate::inbound::token::TokenRejected;
 use crate::testing::{ISSUER, KID, RESOURCE};
 
 use super::audience::{CLIENT_ID, entra_declared};
-use super::fixtures::{bearer, claims, direct, gate_over, jwks, key_pair, signed, signed_as};
+use super::fixtures::{
+    bearer, certificate_pem, claims, direct, gate_over, jwks, key_pair, pem_block, signed, signed_as, thumbprint_of,
+};
 
 // --------------------------------------------- TokenRejected through establish ----
 
@@ -311,4 +313,125 @@ fn a_key_set_with_undecodable_key_material_is_refused_at_load() {
         matches!(refused, InvalidKeySet::UnusableKey { .. }),
         "expected UnusableKey, got {refused:?}"
     );
+}
+
+// ------------------------------------------------------- InvalidKeySet from a PEM ----
+
+/// RFC 7638 section 3.1's example RSA key, as the `PUBLIC KEY` block an operator would hold.
+const RFC_7638_EXAMPLE: &str = "-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0vx7agoebGcQSuuPiLJX
+ZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tS
+oc/BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ/2W+5JsGY4Hc5n9yBXArwl93lqt
+7/RN5w6Cf0h4QyQ5v+65YGjQR0/FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0
+zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt+bFTWhAI4vMQFh6WeZu0f
+M4lFd2NcRwr3XPksINHaQ+G/xBniIqbw0Ls1jF44+csFCur+kEgU8awapJzKnqDK
+gwIDAQAB
+-----END PUBLIC KEY-----
+";
+
+/// The ids a document's key set holds, as strings.
+fn pem_ids(document: &str) -> Vec<String> {
+    KeySet::parse(document)
+        .expect("a PEM with one key is a key set")
+        .ids()
+        .into_iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// The thumbprint is the RFC's own, read off the RFC's own example rather than off this library.
+#[test]
+fn a_pem_key_id_is_the_rfc_7638_thumbprint_of_its_key() {
+    assert_eq!(pem_ids(RFC_7638_EXAMPLE), ["NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs"]);
+}
+
+/// A `PUBLIC KEY` on each curve the issuer fixtures generate is named by the thumbprint of its JWK.
+#[test]
+fn a_pem_public_key_on_every_supported_curve_is_named_by_its_thumbprint() {
+    for algorithm in [
+        &rcgen::PKCS_ECDSA_P256_SHA256,
+        &rcgen::PKCS_ECDSA_P384_SHA384,
+        &rcgen::PKCS_ED25519,
+    ] {
+        let pair = rcgen::KeyPair::generate_for(algorithm).expect("a test key pair generates");
+        assert_eq!(pem_ids(&pair.public_key_pem()), [thumbprint_of(&pair)], "{algorithm:?}");
+    }
+}
+
+/// The certificates after the leaf are its chain: skipped, never a key.
+#[test]
+fn a_certificate_chain_yields_only_the_leaf_key() {
+    let (leaf, issuer) = (key_pair(), key_pair());
+    let chain = format!("{}{}", certificate_pem(&leaf), certificate_pem(&issuer));
+    assert_eq!(pem_ids(&chain), [thumbprint_of(&leaf)]);
+}
+
+/// A private key block is refused wherever it sits, including after a usable leaf.
+#[test]
+fn a_pem_holding_a_private_key_is_refused_as_private_key_material() {
+    let pair = key_pair();
+    for document in [
+        pair.serialize_pem(),
+        format!("{}{}", certificate_pem(&pair), pair.serialize_pem()),
+        pem_block("EC PRIVATE KEY", b"never decoded"),
+    ] {
+        let refused = KeySet::parse(&document).expect_err("a private key is not a key set");
+        assert!(matches!(refused, InvalidKeySet::PrivateKeyMaterial), "{refused:?}");
+    }
+}
+
+/// One signing key per file: a second `PUBLIC KEY`, or a `PUBLIC KEY` beside a certificate in either
+/// order, is refused.
+#[test]
+fn a_second_key_in_a_pem_is_refused() {
+    let (first, second) = (key_pair(), key_pair());
+    for document in [
+        format!("{}{}", first.public_key_pem(), second.public_key_pem()),
+        format!("{}{}", first.public_key_pem(), certificate_pem(&second)),
+        format!("{}{}", certificate_pem(&first), second.public_key_pem()),
+    ] {
+        let refused = KeySet::parse(&document).expect_err("two keys in one PEM are not a key set");
+        assert!(matches!(refused, InvalidKeySet::MoreThanOneKey), "{refused:?}");
+    }
+}
+
+#[test]
+fn a_pem_block_that_is_neither_a_certificate_nor_a_public_key_is_refused() {
+    let refused = KeySet::parse(&pem_block("X509 CRL", b"a revocation list")).expect_err("a CRL carries no key");
+    assert!(matches!(refused, InvalidKeySet::UnsupportedPemBlock), "{refused:?}");
+}
+
+#[test]
+fn malformed_pem_armour_is_refused_as_not_pem() {
+    let key = key_pair().public_key_pem();
+    for document in [
+        key.replace("-----END PUBLIC KEY-----\n", ""),
+        format!("{key}a line outside any block\n"),
+        key.replace("-----END PUBLIC KEY-----", "-----BEGIN PUBLIC KEY-----"),
+        String::from("-----BEGIN PUBLIC KEY-----\n!!!!\n-----END PUBLIC KEY-----\n"),
+    ] {
+        let refused = KeySet::parse(&document).expect_err("malformed armour is not a key set");
+        assert!(matches!(refused, InvalidKeySet::NotPem), "{document}: {refused:?}");
+    }
+}
+
+#[test]
+fn a_certificate_that_does_not_parse_is_refused() {
+    let refused = KeySet::parse(&pem_block("CERTIFICATE", b"not DER")).expect_err("noise is not a certificate");
+    assert!(matches!(refused, InvalidKeySet::UnreadableCertificate), "{refused:?}");
+}
+
+/// A public key that does not parse, and a P-256 point under the P-384 curve name - which the library
+/// alone would read as a P-256 key by its length.
+#[test]
+fn a_public_key_that_does_not_parse_or_disagrees_with_its_curve_is_refused() {
+    let mut mislabelled = vec![
+        0x30, 0x56, 0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22,
+        0x03, 0x42, 0x00,
+    ];
+    mislabelled.extend_from_slice(key_pair().public_key_raw());
+    for document in [pem_block("PUBLIC KEY", b"not DER"), pem_block("PUBLIC KEY", &mislabelled)] {
+        let refused = KeySet::parse(&document).expect_err("an unreadable public key is not a key set");
+        assert!(matches!(refused, InvalidKeySet::UnreadablePublicKey), "{refused:?}");
+    }
 }

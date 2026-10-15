@@ -65,6 +65,29 @@ pub(super) fn jwk(kid: &str, pair: &rcgen::KeyPair) -> String {
     format!(r#"{{"kty":"EC","crv":"{curve}","use":"sig","alg":"{algorithm}","kid":"{kid}","x":"{x}","y":"{y}"}}"#)
 }
 
+/// The key pair's self-signed certificate as PEM, the shape cert-manager writes to `tls.crt`.
+pub(super) fn certificate_pem(pair: &rcgen::KeyPair) -> String {
+    rcgen::CertificateParams::new(vec![String::from("sutura.example.com")])
+        .expect("a test name is a subject alternative name")
+        .self_signed(pair)
+        .expect("a self-signed test certificate signs")
+        .pem()
+}
+
+/// The key pair's RFC 7638 SHA-256 thumbprint, taken from its JWK and not from any PEM.
+pub(super) fn thumbprint_of(pair: &rcgen::KeyPair) -> String {
+    serde_json::from_str::<jsonwebtoken::jwk::Jwk>(&jwk("unnamed", pair))
+        .expect("a test JWK is a JWK")
+        .thumbprint(jsonwebtoken::jwk::ThumbprintHash::SHA256)
+        .expect("a test JWK has a thumbprint")
+}
+
+/// `der` armoured under `label`, for a PEM block no generator writes.
+pub(super) fn pem_block(label: &str, der: &[u8]) -> String {
+    let body = base64::engine::general_purpose::STANDARD.encode(der);
+    format!("-----BEGIN {label}-----\n{body}\n-----END {label}-----\n")
+}
+
 /// The two key set documents a deployment must refuse: one of the wrong FAMILY, and one holding a
 /// shared secret.
 ///
