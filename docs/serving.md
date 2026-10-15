@@ -65,7 +65,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | No `security.inbound` and a source with `impersonation-at-source`                                               | Declare `security.inbound`                                                                  |
 | A `security.inbound` block with no `mode`                                                                       | Write `direct` or `behind-gateway`                                                          |
 | `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families           | Name algorithms of one asymmetric key family                                                |
-| A `security.inbound.key_set_file` that is unreadable or not a JWK set                                           | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
+| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                    | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
 | A key set with no key of the kind that `security.inbound.algorithms` needs                                      | Add a key of that kind, or change the algorithms                                            |
 | `behind-gateway` with no `security.inbound.transit_token_type`                                                  | Write the `typ` of the gateway, or `any`                                                    |
 | `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`     | Use a value in range, or accept the long lifetime by name                                   |
