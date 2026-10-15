@@ -125,13 +125,6 @@ mod declared_principal {
         )
     }
 
-    /// The identity a question runs as when this source is asked with `assertion`.
-    ///
-    /// **`SubjectToken` and not `SubjectPrincipal`**, which is not a spelling choice: this adapter
-    /// refuses the principal shape (`BigQueryError::NoPrincipalSwitch`), so a cell that built one
-    /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
-    /// document, and the transport puts it behind a workload-identity credential document for the
-    /// driver to federate.
     /// The identity provider's half of the delegation hop, behind its port: it takes the caller's
     /// inbound token and answers the token the job minted for that same subject with the pool's
     /// audience. It refuses an audience other than the pool's and an inbound token it was not given.
@@ -185,6 +178,13 @@ mod declared_principal {
         executed_as(exchanged.into_token().expose_secret())
     }
 
+    /// The identity a question runs as when this source is asked with `assertion`.
+    ///
+    /// **`SubjectToken` and not `SubjectPrincipal`**, which is not a spelling choice: this adapter
+    /// refuses the principal shape (`BigQueryError::NoPrincipalSwitch`), so a cell that built one
+    /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
+    /// document, and the transport puts it behind a workload-identity credential document for the
+    /// driver to federate.
     fn executed_as(assertion: &str) -> String {
         let warehouse = opened();
         let presented = Presented::SubjectToken {
@@ -255,10 +255,6 @@ mod declared_principal {
         }
     }
 
-    /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the first hosted cell
-    /// with every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with
-    /// the rule's message. **The limit:** the fakes name nothing, so without the guard the child runs on
-    /// to a failure of its own, and it is the rule's message that is then absent.
     #[test]
     #[ignore = "needs a real BigQuery project, the driver .so, and an inbound token minted for another audience"]
     fn an_inbound_token_presented_without_the_hop_is_refused_at_the_pool() {
@@ -272,6 +268,10 @@ mod declared_principal {
         );
     }
 
+    /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the first hosted cell
+    /// with every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with
+    /// the rule's message. **The limit:** the fakes name nothing, so without the guard the child runs on
+    /// to a failure of its own, and it is the rule's message that is then absent.
     #[test]
     fn a_declared_principal_cell_is_refused_outside_ci() {
         let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
