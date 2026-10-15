@@ -103,8 +103,8 @@ mod tests {
     fn a_deployment_that_declares_inbound_identity_is_servable_without_the_rule() {
         let declared = "security:\n  identity: \"multi-user\"\n  inbound:\n    mode: \"behind-gateway\"\n    \
                         transit_header: \"X-Transit-Proof\"\n    transit_issuer: \"https://issuer.example.com\"\n    \
-                        transit_audience: \"sutura\"\n    key_set_file: \"/unread.json\"\n    algorithms: [\"ES256\"]\n    \
-                        transit_token_type: \"at+jwt\"\n";
+                        transit_audience: \"https://sutura.example.com\"\n    key_set_file: \"/unread.json\"\n    \
+                        algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n";
         ServableSettings::check(settings_with(declared)).expect("an inbound declaration is servable");
     }
 }
