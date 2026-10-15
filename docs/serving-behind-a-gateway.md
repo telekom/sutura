@@ -51,8 +51,9 @@ signs with that key. A PEM file holds one key, so it cannot hold the old key and
 The chart mounts the key set from a Secret and sets `security.inbound.key_set_file` to the mounted file. Update the
 Secret to rotate. Kubernetes writes the new content into the mounted file after a short delay.
 
-For a cert-manager `Certificate`, set `security.inbound.keySetSecretName` to its `secretName` and
-`security.inbound.keySetSecretKey` to `tls.crt`.
+The chart mounts only the `security.inbound.keySetSecretKey` entry of the Secret. Keep the gateway's own Secret in the
+gateway's namespace, and copy only its certificate or public key into a Secret of sutura's own, for example with
+trust-manager or a copy job.
 
 `security.inbound.mode` in `config.environment` is enough for the chart: it asks for no access token then.
 

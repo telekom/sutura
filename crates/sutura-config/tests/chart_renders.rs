@@ -242,6 +242,36 @@ mod tests {
         );
     }
 
+    /// The key set volume projects the one entry `SUTURA__SECURITY__INBOUND__KEY_SET_FILE` names, so
+    /// no other entry of the Secret reaches the pod.
+    #[test]
+    fn the_key_set_volume_projects_only_the_key_set_entry() {
+        let mut checked = Vec::new();
+        for path in goldens() {
+            let docs = documents(&std::fs::read_to_string(&path).expect("a readable golden"));
+            let pod = &of_kind(&docs, "Deployment")["spec"]["template"]["spec"];
+            let Some(volume) = pod["volumes"]
+                .as_sequence()
+                .and_then(|volumes| volumes.iter().find(|volume| volume["name"].as_str() == Some("inbound-keys")))
+            else {
+                continue;
+            };
+            let file = pod["containers"][0]["env"]
+                .as_sequence()
+                .and_then(|env| {
+                    env.iter()
+                        .find(|entry| entry["name"].as_str() == Some("SUTURA__SECURITY__INBOUND__KEY_SET_FILE"))
+                })
+                .and_then(|entry| entry["value"].as_str())
+                .and_then(|value| value.strip_prefix("/etc/sutura/inbound-keys/"))
+                .unwrap_or_else(|| panic!("{}: the key set file is under the mount", path.display()));
+            let only: Value = serde_norway::from_str(&format!("[{{key: {file}, path: {file}}}]")).expect("a YAML list");
+            assert_eq!(volume["secret"]["items"], only, "{}", path.display());
+            checked.push(path);
+        }
+        assert!(!checked.is_empty(), "no golden mounts a key set");
+    }
+
     #[test]
     fn every_chart_render_is_a_configuration_the_binary_starts_with() {
         let goldens = goldens();
