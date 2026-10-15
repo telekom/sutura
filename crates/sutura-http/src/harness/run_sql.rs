@@ -31,6 +31,7 @@ async fn a_default_deployment_refuses_run_sql_as_not_enabled_rather_than_as_a_mi
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body.contains(r#""code":"tool_not_enabled""#), "{body}");
+    assert!(body.contains("`tools.run_sql.enabled`"), "{body}");
     // NOT the scope-refusal code: obtaining `sutura:sql.run` would not help here, and the body must
     // not tell a caller to go get it.
     assert!(!body.contains("insufficient_scope"), "{body}");
