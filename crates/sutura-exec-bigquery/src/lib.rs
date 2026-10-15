@@ -609,15 +609,18 @@ where
     type Error = BigQueryError<T::Error>;
 
     /// **The variant's own name is what this mechanism is, which it was not for two rounds.** The
-    /// asking subject's own verified assertion is what reaches the data system: [`Self::job_identity`]
-    /// maps [`Presented::SubjectToken`] onto [`JobIdentity::AsSubject`], and [`adbc`] federates it
-    /// through an `external_account` credential document so Google's token service verifies it. A
-    /// per-subject credential, presented per subject - so `PerSubjectCredential` is the accurate
-    /// value and not merely the only workable one.
+    /// asking subject's own credential is what reaches the data system: [`Self::job_identity`]
+    /// maps [`Presented::SubjectToken`] onto [`JobIdentity::AsSubject`], and [`adbc`] either
+    /// federates the verified assertion through an `external_account` credential document so
+    /// Google's token service verifies it, or, for a `google_login` source, sends the Google access
+    /// token the identity provider stored for the subject's linked account. A per-subject
+    /// credential, presented per subject - so `PerSubjectCredential` is the accurate value and not
+    /// merely the only workable one.
     ///
-    /// **The token Google's token service returns IS the subject's own federated principal**, so
-    /// two subjects reach the dataset as two principals, and the dataset's grants and row policies
-    /// on each decide what that subject reads. There is no second hop to a declared account.
+    /// **The token the job carries IS the subject's own principal** - the federated pool principal,
+    /// or the linked Google account - so two subjects reach the dataset as two principals, and the
+    /// dataset's grants and row policies on each decide what that subject reads. There is no second
+    /// hop to a declared account.
     ///
     /// **Corrected**: a round of this doc said "nothing a subject possesses arrives, only a
     /// principal the deployment becomes on that subject's behalf", which described the deleted
