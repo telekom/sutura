@@ -1,0 +1,78 @@
+# The services of the federated example: Postgres with TLS (the fact table), ClickHouse (the
+# customer dimension) and a live DataHub, the last from the metrics-layer example. Run
+# ./setup.sh first. Every port binds 127.0.0.1 only: the passwords below are for a
+# local demo and must never be reachable from another host. Both tables load the CSV files of
+# ../single-player/data.
+include:
+  - path: ../metrics-layer/compose.yaml
+    project_directory: ../metrics-layer
+    env_file: .env
+
+services:
+  # Generates a throwaway CA and a server certificate for 127.0.0.1, then starts Postgres with TLS.
+  # The CA is written to .local/postgres-ca.pem for sutura's `transport_anchors`.
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sutura
+      POSTGRES_PASSWORD: ${FEDERATED_PASSWORD:?run ./setup.sh first}
+      POSTGRES_DB: federated
+    command:
+      - sh
+      - -ec
+      - |
+        apk add --no-cache openssl >/dev/null
+        mkdir -p /tls && cd /tls
+        openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=example-ca -keyout ca.key -out ca.pem
+        openssl req -newkey rsa:2048 -nodes -subj /CN=localhost -keyout server.key -out server.csr
+        printf 'subjectAltName=IP:127.0.0.1,DNS:localhost\nbasicConstraints=CA:FALSE\n' > extensions
+        openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 -extfile extensions -out server.crt
+        chown postgres server.key && chmod 600 server.key
+        cp ca.pem /out/postgres-ca.pem
+        exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tls/server.key
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../single-player/data:/data:ro
+      - ./.local:/out
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sutura -d federated"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.7-alpine
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${FEDERATED_PASSWORD:?run ./setup.sh first}
+    ports:
+      - 127.0.0.1:8123:8123
+    volumes:
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../single-player/data/dim_customer.csv:/var/lib/clickhouse/user_files/dim_customer.csv:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  # Writes the two datasets, their relationship and the certified metric `recurring_revenue` into
+  # DataHub, and a DataHub token for sutura to .local/datahub-token. Exits when DataHub has indexed
+  # them.
+  federated-loader:
+    image: python:3.13-alpine
+    entrypoint: ["python", "/loader/load.py"]
+    depends_on:
+      datahub:
+        condition: service_healthy
+    environment:
+      DATAHUB_GMS_URL: http://datahub-gms:8080
+      DATAHUB_TOKEN_SIGNING_KEY: ${DATAHUB_TOKEN_SIGNING_KEY:?run ./setup.sh first}
+    volumes:
+      - ./loader:/loader:ro
+      - ../metrics-layer/loader:/metrics-layer:ro
+      - ./.local:/out

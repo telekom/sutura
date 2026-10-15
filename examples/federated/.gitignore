@@ -1,0 +1,3 @@
+# Generated on this machine by the services and the loader. Never commit them.
+.env
+.local/

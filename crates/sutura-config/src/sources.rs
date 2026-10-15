@@ -40,6 +40,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
+use crate::sources::caller_identity::{CallerIdentity, CallerIdentityBlocks, InvalidDelegatingAccount};
 use crate::sources::placement::{
     BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, InvalidSocketDirectory,
     SourcePlacement,
@@ -52,6 +53,8 @@ use sutura_domain::source::{
     VerificationIdentity,
 };
 
+/// Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
+pub mod caller_identity;
 /// The `clickhouse` entry's own keys, read and refused.
 ///
 /// **Its own file because `cargo xtask max-lines` fails at 1000 lines rather than warning**, and
@@ -208,7 +211,7 @@ impl SourceKind {
 pub struct ConfiguredSource {
     placement: SourcePlacement,
     identity: Option<SourceIdentity>,
-    workload_identity: Option<WorkloadIdentityConfig>,
+    caller_identity: Option<CallerIdentity>,
 }
 
 impl ConfiguredSource {
@@ -250,15 +253,25 @@ impl ConfiguredSource {
         self.identity.as_ref().map(SourceIdentity::posture)
     }
 
-    /// The token-exchange setup this `impersonation-at-source` source declared.
+    /// How this `impersonation-at-source` source runs its caller, if it declared a block.
     ///
-    /// `Some` exactly when the source is impersonating: the parse refuses an impersonating entry with
-    /// none, and refuses a non-impersonating entry with one, so an accessor's shape and a deployment's
-    /// posture cannot disagree about which sources exchange a subject's token.
+    /// `None` on every non-impersonating source - the parse refuses a block there - and on an
+    /// impersonating `clickhouse`, `oracle` or `cube` source, which runs its caller by its own keys.
+    #[inline]
+    #[must_use]
+    pub const fn caller_identity(&self) -> Option<&CallerIdentity> {
+        self.caller_identity.as_ref()
+    }
+
+    /// The token-exchange setup this source declared, when its caller identity is
+    /// `workload_identity`.
     #[inline]
     #[must_use]
     pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig> {
-        self.workload_identity.as_ref()
+        match self.caller_identity {
+            Some(CallerIdentity::WorkloadIdentity(ref config)) => Some(config),
+            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_)) | None => None,
+        }
     }
 }
 
@@ -433,10 +446,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidSocketDirectory,
     },
-    /// An `impersonation-at-source` source declared no token-exchange setup.
+    /// An `impersonation-at-source` source declared no caller-identity block.
     ///
-    /// A source that executes as the asking subject has to say WHICH pool federates that subject -
-    /// there is nothing this build could guess, and a per-caller identity has to come out of a
+    /// A source that executes as the asking subject has to say HOW it reaches the data system as that
+    /// subject: `workload_identity` (the pool that federates the subject), or on a `bigquery` source
+    /// `google_login` (the subject's own Google login, brokered by the identity provider) or
+    /// `domain_delegation` (a delegating service account acting as the subject's verified address).
+    /// There is nothing this build could guess, and a per-caller identity has to come out of a
     /// declaration rather than a default that pretends one exists.
     ///
     /// **Corrected: `audience` is load-bearing again.** A round of this record said it "is read by
@@ -450,9 +466,28 @@ pub enum InvalidSourceRegistry {
     /// caller may read. There is no `scope` key either: the credential document has no `scopes`
     /// member, so one would reach nothing.
     #[error(
-        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against"
+        "`sources.{alias}` is `impersonation-at-source` and declares no caller-identity block - write \
+         `workload_identity`, or on a `bigquery` source `google_login` or `domain_delegation`"
     )]
-    MissingWorkloadIdentity { alias: SourceName },
+    NoCallerIdentityMode { alias: SourceName },
+    /// More than one caller-identity block on one source: a source runs its callers one way.
+    #[error("`sources.{alias}` declares both `{first}` and `{second}` - keep exactly one")]
+    CallerIdentityModesConflict {
+        alias: SourceName,
+        first: &'static str,
+        second: &'static str,
+    },
+    /// A `google_login` or `domain_delegation` block on a source that is not `bigquery`, which
+    /// nothing would read.
+    #[error("`sources.{alias}.{block}` is read only on a `bigquery` source - remove the block")]
+    IdentityModeNotForKind { alias: SourceName, block: &'static str },
+    /// The declared `domain_delegation` block is not usable.
+    #[error("`sources.{alias}.domain_delegation.delegating_account` is not usable")]
+    DomainDelegation {
+        alias: SourceName,
+        #[source]
+        cause: InvalidDelegatingAccount,
+    },
     /// The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their
     /// verified subject, so a configuration still declaring a map is refused rather than read as if it
     /// still chose who runs as whom.
@@ -479,14 +514,15 @@ pub enum InvalidSourceRegistry {
          database decides what that caller may read - remove the key"
     )]
     SubjectsRemoved { alias: SourceName },
-    /// A workload-identity block was declared on a source that is not impersonating.
+    /// A caller-identity block was declared on a source that is not impersonating.
     ///
     /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
     /// declaration that does nothing is a configuration nobody can see.
     #[error(
-        "`sources.{alias}` declares `workload_identity` and is not `impersonation-at-source`, so no request will be exchanged against it - remove the block, or write the posture you meant"
+        "`sources.{alias}` declares `{block}` and is not `impersonation-at-source`, so no request \
+         runs as its caller - remove the block, or write the posture you meant"
     )]
-    WorkloadIdentityNotImpersonating { alias: SourceName },
+    IdentityModeNotImpersonating { alias: SourceName, block: &'static str },
     /// The declared workload-identity value is not usable.
     #[error("`sources.{alias}.workload_identity` is not usable")]
     WorkloadIdentity {
@@ -556,8 +592,9 @@ pub enum InvalidSourceRegistry {
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
 ///
-/// A newtype over the map rather than the map, so [`Self::parse`] is the only way one comes into
-/// existence and the duplicate-alias refusal cannot be skipped by building the map directly.
+/// A newtype over the map rather than the map, so [`Self::parse_declared`] is the only way one
+/// comes into existence and the duplicate-alias refusal cannot be skipped by building the map
+/// directly.
 ///
 /// **May be empty, and that is not a refusal here.** A deployment configuring no source is one that
 /// has not said where its data is; what refuses it is the composition root, which finds the catalog
@@ -573,7 +610,7 @@ pub struct SourceRegistry {
 ///
 /// `pub(crate)`, with `pub(crate)` fields, for the reason `crate::raw`'s shapes are private: it is the
 /// *unparsed* form, so a public one would be a second door into [`SourceRegistry`] that skips nothing
-/// and proves nothing. That makes [`SourceRegistry::parse`] crate-visible too - `Settings::parse` is
+/// and proves nothing. That makes [`SourceRegistry::parse_declared`] crate-visible too - `Settings::parse` is
 /// the only caller, which is what makes the refusals unskippable.
 #[derive(Debug, Clone)]
 pub(crate) struct RawSourceEntry<'raw> {
@@ -622,12 +659,17 @@ impl SourceRegistry {
     /// Deriving the mode from the postures instead is unsound in exactly the configuration that most
     /// needs the check: a genuinely multi-tenant deployment whose sources are all shared would derive
     /// to single-user and be exempted from the acknowledgement it most needs.
-    pub(crate) fn parse(
-        entries: &[RawSourceEntry<'_>],
+    ///
+    /// Each entry travels with its [`CallerIdentityBlocks`].
+    pub(crate) fn parse_declared<'entry, 'raw>(
+        entries: impl IntoIterator<Item = (&'entry RawSourceEntry<'raw>, CallerIdentityBlocks<'raw>)>,
         mode: Option<&DeploymentIdentity>,
-    ) -> Result<Self, InvalidSourceRegistry> {
+    ) -> Result<Self, InvalidSourceRegistry>
+    where
+        'raw: 'entry,
+    {
         let mut by_alias: BTreeMap<SourceName, ConfiguredSource> = BTreeMap::new();
-        for entry in entries {
+        for (entry, blocks) in entries {
             let alias = SourceName::parse(entry.written).map_err(|cause| InvalidSourceRegistry::Alias {
                 written: String::from(entry.written),
                 cause,
@@ -638,10 +680,19 @@ impl SourceRegistry {
                     written: String::from(entry.written),
                 });
             }
-            let configured = parse_entry(&alias, entry, mode)?;
+            let configured = parse_entry(&alias, entry, blocks, mode)?;
             drop(by_alias.insert(alias, configured));
         }
         Ok(Self { by_alias })
+    }
+
+    /// [`Self::parse_declared`] with no `google_login` or `domain_delegation` block on any entry.
+    #[cfg(test)]
+    pub(crate) fn parse(
+        entries: &[RawSourceEntry<'_>],
+        mode: Option<&DeploymentIdentity>,
+    ) -> Result<Self, InvalidSourceRegistry> {
+        Self::parse_declared(entries.iter().map(|entry| (entry, CallerIdentityBlocks::default())), mode)
     }
 
     /// The source declared under `alias`, if there is one.
@@ -670,12 +721,13 @@ impl SourceRegistry {
 
 /// Reads one entry, given the alias it was written under.
 ///
-/// Split out of [`SourceRegistry::parse`] so each half stays under the complexity threshold, and
-/// because the two halves are two questions: the loop asks *which sources are there*, and this asks
-/// *what does one of them say*.
+/// Split out of [`SourceRegistry::parse_declared`] so each half stays under the complexity
+/// threshold, and because the two halves are two questions: the loop asks *which sources are
+/// there*, and this asks *what does one of them say*.
 fn parse_entry(
     alias: &SourceName,
     entry: &RawSourceEntry<'_>,
+    blocks: CallerIdentityBlocks<'_>,
     mode: Option<&DeploymentIdentity>,
 ) -> Result<ConfiguredSource, InvalidSourceRegistry> {
     let kind = SourceKind::parse(entry.kind).map_err(|cause| InvalidSourceRegistry::Kind {
@@ -746,61 +798,57 @@ fn parse_entry(
             .and_then(|raw| raw.delegation.as_deref()?.last())
             .map(|hop| hop.grant),
     )?;
-    // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
-    // impersonating shape, and only it. An impersonating entry must name the provider its
-    // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
-    let workload_identity = match entry.workload_identity.as_ref() {
-        // A `clickhouse` source runs each caller as their verified subject; an `oracle` or `cube`
-        // source declares its `delegation` instead - see their placements.
-        None if matches!(entry.posture.trim(), "impersonation-at-source")
-            && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle | SourceKind::Cube) =>
-        {
-            return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
-        }
-        None => None,
-        Some(_) if !matches!(entry.posture.trim(), "impersonation-at-source") => {
-            return Err(InvalidSourceRegistry::WorkloadIdentityNotImpersonating { alias: alias.clone() });
-        }
-        Some(raw) => {
-            let config = WorkloadIdentityConfig::parse_with_expectations(
-                &raw.audience,
-                raw.expected_issuer.as_deref(),
-                raw.expected_audience.as_deref(),
-            )
-            .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
-                alias: alias.clone(),
-                cause,
-            })?;
-            let hops = match raw.delegation.as_deref() {
-                None => Vec::new(),
-                Some([]) => {
-                    return Err(InvalidSourceRegistry::WorkloadIdentity {
-                        alias: alias.clone(),
-                        cause: InvalidWorkloadIdentity::Empty {
-                            what: "`delegation` list",
-                        },
-                    });
-                }
-                Some(declared) => declared
-                    .iter()
-                    .map(|hop| {
-                        workload_identity::DelegationDeclared::of(
-                            alias,
-                            hop,
-                            "workload_identity.delegation.token_endpoint",
-                            "workload_identity.delegation.client_secret_file",
-                        )
-                    })
-                    .collect::<Result<_, _>>()?,
-            };
-            Some(config.with_delegation(hops))
-        }
-    };
+    let caller_identity = caller_identity::declared(
+        alias,
+        kind,
+        matches!(entry.posture.trim(), "impersonation-at-source"),
+        entry.workload_identity.as_ref(),
+        blocks,
+    )?;
     Ok(ConfiguredSource {
         placement,
         identity,
-        workload_identity,
+        caller_identity,
     })
+}
+
+/// Reads a `workload_identity` block and its delegation hops.
+fn parse_workload_identity(
+    alias: &SourceName,
+    raw: &crate::raw::RawWorkloadIdentity,
+) -> Result<WorkloadIdentityConfig, InvalidSourceRegistry> {
+    let config = WorkloadIdentityConfig::parse_with_expectations(
+        &raw.audience,
+        raw.expected_issuer.as_deref(),
+        raw.expected_audience.as_deref(),
+    )
+    .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
+        alias: alias.clone(),
+        cause,
+    })?;
+    let hops = match raw.delegation.as_deref() {
+        None => Vec::new(),
+        Some([]) => {
+            return Err(InvalidSourceRegistry::WorkloadIdentity {
+                alias: alias.clone(),
+                cause: InvalidWorkloadIdentity::Empty {
+                    what: "`delegation` list",
+                },
+            });
+        }
+        Some(declared) => declared
+            .iter()
+            .map(|hop| {
+                workload_identity::DelegationDeclared::of(
+                    alias,
+                    hop,
+                    "workload_identity.delegation.token_endpoint",
+                    "workload_identity.delegation.client_secret_file",
+                )
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    Ok(config.with_delegation(hops))
 }
 
 #[cfg(test)]

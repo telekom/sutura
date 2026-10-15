@@ -214,6 +214,19 @@ pub enum NotFitToServe {
         /// `workload_identity.delegation` on `bigquery`, `delegation` on `oracle`.
         key: &'static str,
     },
+    /// A source declares a caller-identity mode this build does not run.
+    ///
+    /// The block parses, so a configuration written for the mode is checked at load; serving it
+    /// would load keys that nothing reads.
+    #[error(
+        "`sources.{alias}.{block}` is a caller-identity mode this build does not run yet - declare \
+         `workload_identity` instead, or remove the source"
+    )]
+    CallerIdentityModeNotBuilt {
+        alias: SourceName,
+        /// `google_login` or `domain_delegation`.
+        block: &'static str,
+    },
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
     /// `shared-service-user`.
     ///

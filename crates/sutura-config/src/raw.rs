@@ -135,6 +135,13 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
+    /// The caller's own Google login, brokered by the identity provider - see
+    /// `crate::sources::caller_identity`.
+    #[serde(default)]
+    pub(crate) google_login: Option<RawGoogleLogin>,
+    /// Domain-wide delegation through one service account - see `crate::sources::caller_identity`.
+    #[serde(default)]
+    pub(crate) domain_delegation: Option<RawDomainDelegation>,
     /// The removed `clickhouse` subject map, read only so that a configuration still declaring it is
     /// refused naming the key rather than as an unknown one.
     #[serde(default)]
@@ -219,6 +226,24 @@ pub(crate) struct RawWorkloadIdentity {
     pub(crate) delegation: Option<Vec<RawDelegation>>,
 }
 
+/// One source's `google_login` block, as read. `client_secret_file` is a PATH. No `audience` key:
+/// a Google access token is opaque, so nothing could compare one.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawGoogleLogin {
+    pub(crate) token_endpoint: String,
+    pub(crate) client_id: String,
+    pub(crate) client_secret_file: String,
+}
+
+/// One source's `domain_delegation` block, as read. No `scope` key: `jobs.insert` accepts the
+/// `bigquery` scope and not `bigquery.readonly`, so it is a constant rather than a choice.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDomainDelegation {
+    pub(crate) delegating_account: String,
+}
+
 /// A `delegation` key written with no value (`delegation:` or `delegation: null`) reads as an empty
 /// list rather than as an absent key, so it is refused as the empty list is.
 fn null_as_empty<'de, D>(deserializer: D) -> Result<Hops, D::Error>
@@ -226,6 +251,21 @@ where
     D: serde::Deserializer<'de>,
 {
     <Hops as serde::Deserialize>::deserialize(deserializer).map(|hops| Some(hops.unwrap_or_default()))
+}
+
+/// A `datahub` entry's `platforms` as written: each platform name to its source alias, which may be null.
+pub(crate) type RawPlatformMap = BTreeMap<String, Option<String>>;
+
+/// A `platforms` key, absent or as written.
+pub(crate) type RawPlatforms = Option<RawPlatformMap>;
+
+/// A `platforms` key written with no value reads as an empty map rather than as an absent key, so it
+/// is refused as the empty map is.
+fn null_platforms_as_empty<'de, D>(deserializer: D) -> Result<RawPlatforms, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <RawPlatforms as serde::Deserialize>::deserialize(deserializer).map(|written| Some(written.unwrap_or_default()))
 }
 
 /// A `delegation` key, absent or as read.
@@ -568,6 +608,12 @@ pub(crate) struct RawCatalog {
     /// decision 7's *not ours to say*, so there is no default and no adapter-chosen constant.
     #[serde(default)]
     pub(crate) metric_property: Option<String>,
+    /// `catalog.kind: datahub` only: each `DataHub` platform name mapped to the declared `sources:`
+    /// alias that serves its datasets. Absent selects the single `bigquery` platform served by this
+    /// catalog's own name; written empty, null or with a null value it is refused, and
+    /// `parse_catalogs` refuses the key on any other kind.
+    #[serde(default, deserialize_with = "null_platforms_as_empty")]
+    pub(crate) platforms: RawPlatforms,
     /// `catalog.kind: datahub`/`openmetadata`'s read deadline, in seconds, shared across the
     /// requests one `read()` makes. Absent means the reader's own recommended default - the
     /// matching adapter crate's `DEFAULT_TIMEOUT_SECONDS` - which `sutura-config` cannot name (it

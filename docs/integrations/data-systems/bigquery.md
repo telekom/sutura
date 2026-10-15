@@ -31,7 +31,8 @@ and these keys:
 | `dataset`          | string  | required | The dataset where unqualified table names resolve. It must be in `billing_project` |
 | `max_bytes_billed` | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                          |
 
-`impersonation-at-source` needs a `workload_identity` block:
+`impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
+`domain_delegation`. sutura runs only `workload_identity`, with these keys:
 
 | Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -48,6 +49,16 @@ next hop exchanges the token from the hop before it. The token from the last hop
 the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `delegation`, sutura
 sends the caller's verified token to the pool as it is. Do not write `expected_issuer` or
 `expected_audience`: sutura refuses to start with them.
+
+sutura reads and checks the `google_login` and `domain_delegation` blocks, and then refuses to
+start with either of them:
+
+| Key                                    | Type          | Meaning                                                            |
+| -------------------------------------- | ------------- | ------------------------------------------------------------------ |
+| `google_login.token_endpoint`          | URL           | The broker token endpoint of the identity provider. No `@`         |
+| `google_login.client_id`               | string        | The client ID that sutura uses at the identity provider            |
+| `google_login.client_secret_file`      | absolute path | A file that holds the client secret                                |
+| `domain_delegation.delegating_account` | string        | The service account: `<account>@<project>.iam.gserviceaccount.com` |
 
 The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
 build can select the feature:

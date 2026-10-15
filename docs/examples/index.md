@@ -9,9 +9,10 @@ Each example is a directory in
 [`examples/`](https://github.com/telekom/sutura/tree/main/examples) with a catalog, data and the
 configuration to serve it.
 
-| Example                           | Metadata         | Data            | Identity                                    |
-| --------------------------------- | ---------------- | --------------- | ------------------------------------------- |
-| [Single player](single-player.md) | Markdown catalog | Local CSV files | One user, shared service user               |
-| [Multi player](multi-player.md)   | DataHub          | BigQuery        | Keycloak users, each caller's own principal |
-| [Metrics layer](metrics-layer.md) | DataHub          | Cube            | Keycloak users, each caller's own token     |
-| [The local chat demo](../demo.md) | Markdown catalog | Local CSV files | One user, a chat client over MCP            |
+| Example                           | Metadata         | Data                 | Identity                                    |
+| --------------------------------- | ---------------- | -------------------- | ------------------------------------------- |
+| [Single player](single-player.md) | Markdown catalog | Local CSV files      | One user, shared service user               |
+| [Multi player](multi-player.md)   | DataHub          | BigQuery             | Keycloak users, each caller's own principal |
+| [Metrics layer](metrics-layer.md) | DataHub          | Cube                 | Keycloak users, each caller's own token     |
+| [Federated](federated.md)         | DataHub          | Postgres, ClickHouse | One user, shared service user               |
+| [The local chat demo](../demo.md) | Markdown catalog | Local CSV files      | One user, a chat client over MCP            |

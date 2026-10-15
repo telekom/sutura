@@ -772,6 +772,12 @@ worktrees:
 clean-branches *args:
     cargo run -q -p xtask -- clean-branches {{ args }}
 
+# Fetches each moved pin's manifest at its new sha (network, a developer tool, never a gate), refiles it in
+# devco/action-inputs in place of the stale entry and prints the input change - names, required, default.
+# Run on the weekly Dependabot github-actions PR, then read the printed input change before you commit it.
+refresh-moved-action-pins:
+    cargo run -q -p xtask -- refresh-moved-action-pins
+
 # What is present, what is missing, what would fail.
 doctor:
     cargo run -q -p sutura-dev -- doctor

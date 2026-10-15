@@ -14,9 +14,9 @@
 //!
 //! # The source mapping this test exercises, and why the data is `files`-backed
 //!
-//! `open_one_datahub_catalog` (`crates/sutura-cli/src/catalog.rs`) fixes the `dataPlatform` -> source
-//! alias mapping to the single literal `"bigquery"`, answered by the CATALOG's OWN declared name -
-//! the same convention `sutura_catalog_datahub::fixture::over_fixture_source` uses. So this
+//! `open_one_datahub_catalog` (`crates/sutura-cli/src/catalog.rs`) maps `catalogs[].platforms`, and
+//! an entry that writes none maps the single literal `"bigquery"`, answered by the CATALOG's OWN
+//! declared name - the same convention `sutura_catalog_datahub::fixture::over_fixture_source` uses. So this
 //! deployment's `sources:` entry is named IDENTICALLY to its `catalogs:` entry (`"metrics"`, below),
 //! and its `kind` is `files`: nothing here needs a real `BigQuery`, because the mapping only cares that
 //! the NAME matches, not that the engine behind it is the platform `DataHub`'s dataset aspects claim.
@@ -54,6 +54,11 @@
 //! the unconditional refusal it replaced - RED, the deployment never boots, `refused_to_start`'s
 //! shape rather than this file's. GREEN is this file as written. Verified by this branch's lane and
 //! independently by the PR review's mutations (M1/M4/M6 red, base green).
+
+// A served question over two kinds of source, models and metric read from the same `DataHub` fake.
+#[cfg(all(feature = "postgres", feature = "clickhouse"))]
+#[path = "federated.rs"]
+mod federated;
 
 #[cfg(test)]
 mod tests {
@@ -215,6 +220,52 @@ mod tests {
                 .iter()
                 .all(|seen| seen.authorization() == Some("Bearer pat-under-test")),
             "every DataHub page request must carry the token_file's bearer, got: {authorizations:?}"
+        );
+    }
+
+    /// The catalog's pages with every model on `platform` instead of `bigquery`.
+    fn pages_on(platform: &str) -> Vec<sutura_catalog_datahub::test_support::Scripted> {
+        use sutura_catalog_datahub::test_support::Scripted;
+        let moved = |page: serde_json::Value| {
+            let text = page
+                .to_string()
+                .replace("dataPlatform:bigquery", &format!("dataPlatform:{platform}"));
+            Scripted::ok(&serde_json::from_str(&text).expect("a page with a renamed platform is still JSON"))
+        };
+        happy_path_answers()
+            .iter()
+            .map(|answer| moved(serde_json::from_slice(answer.body()).expect("a happy-path page is JSON")))
+            .collect()
+    }
+
+    #[test]
+    fn a_declared_platform_routes_its_models_to_the_named_source() {
+        let case = "datahub-platform-routed";
+        let data = DataDir::prepared(case);
+        let mut answers = pages_on("snowflake");
+        answers.extend(pages_on("snowflake"));
+        let server = FakeServer::start(answers);
+        let routed = settings(&server, &data)
+            .replace(
+                "metric_property:",
+                "platforms:\n      snowflake: \"lake\"\n    metric_property:",
+            )
+            .replace("  metrics:\n    kind: \"files\"", "  lake:\n    kind: \"files\"");
+        assert!(
+            routed.contains("snowflake: \"lake\"") && routed.contains("  lake:\n"),
+            "{routed}"
+        );
+        let deployment = start_configured(case, &routed);
+
+        let reply = deployment.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), QUESTION);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "412345"]]), "{}", reply.body);
+        assert_eq!(
+            body["executed_as"],
+            serde_json::json!([{ "source": "lake", "posture": "shared-service-user" }]),
+            "{}",
+            reply.body
         );
     }
 

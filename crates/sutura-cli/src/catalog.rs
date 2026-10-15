@@ -661,9 +661,8 @@ fn open_rdbms_catalogs(_catalogs: &sutura_config::Catalogs) -> Result<OpenedCata
 /// `sutura_catalog_openmetadata::OpenMetadataCatalog`.
 ///
 /// **The source mapping is a single fixed alias, the service the recorded corpus and this build's
-/// fake serve - `warehouse` - a real limit, not a placeholder**, for the same reason
-/// `open_one_datahub_catalog` fixes `bigquery`: `CatalogSettings` carries no platform-to-source
-/// mapping for an `openmetadata` entry. A deployment whose models live on a different service is
+/// fake serve - `warehouse` - a real limit, not a placeholder**: `CatalogSettings` carries no
+/// platform-to-source mapping for an `openmetadata` entry. A deployment whose models live on a different service is
 /// not representable by this build's `openmetadata` composition yet - a real gap, named here rather
 /// than left for a reader to discover from a refusal at load time.
 ///
@@ -783,12 +782,10 @@ fn read_token(settings: &sutura_config::CatalogSettings, kind: &'static str) -> 
 /// Opens one declared `datahub` catalog: the reader, bounded and authenticated, wrapped in
 /// `sutura_catalog_datahub::DataHubCatalog`.
 ///
-/// **The source mapping is a single fixed alias, `bigquery` - a real limit, not a placeholder.**
-/// `docs/adr/0016` decision 7 leaves the platform-to-`sources.<alias>` mapping to the deployment, and
-/// `sutura_config::CatalogSettings` carries no such mapping for a `datahub` entry today. A
-/// deployment whose models live on a platform other than `bigquery` is not representable by this
-/// build's `datahub` composition yet - a real gap, not a placeholder, and named here rather than
-/// left for a reader to discover from a refusal at load time.
+/// **The source mapping is `catalogs.<name>.platforms`**, each `DataHub` platform to the declared
+/// `sources:` alias serving it (`docs/adr/0016` decision 7 leaves that mapping to the deployment;
+/// `sutura-config` refuses an alias nobody declared). An entry that writes none keeps the single
+/// `bigquery` platform served by the catalog's own name.
 ///
 /// **The read bounds are `catalogs.<name>.deadline_seconds`/`max_response_bytes`, each defaulting
 /// to the reader's own recommended constant when absent.** `docs/adr/0016`'s 2026-09-14 revision
@@ -853,8 +850,15 @@ fn open_one_datahub_catalog(
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (datahub reader)", rotator);
     let reader = HttpAspectReader::rotating(endpoint, property, token, bounds, reader);
-    let mut sources = std::collections::BTreeMap::new();
-    drop(sources.insert(String::from("bigquery"), settings.name().clone()));
+    let sources = if settings.platforms().is_empty() {
+        std::collections::BTreeMap::from([(String::from("bigquery"), settings.name().clone())])
+    } else {
+        settings
+            .platforms()
+            .iter()
+            .map(|(platform, source)| (String::from(platform.as_str()), source.clone()))
+            .collect()
+    };
     Ok(sutura_catalog_datahub::DataHubCatalog::new(
         settings.name().clone(),
         settings.version().clone(),
