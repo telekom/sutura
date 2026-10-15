@@ -2585,10 +2585,6 @@ per source** - the reason the architecture decision gives for a broker being per
 pub fn addressing(self, at: SourceName) -> Self
 ```
 
-How many sources this broker can mint for at all.
-
-Read by this crate's own suite, where the assertion that matters is that a source declared
-impersonating with no entry is ABSENT rather than mapped to something.
 Declares one `domain_delegation` source, presented each caller's verified address as the
 principal the source runs as. A caller with no verified address is refused: the deployment
 vouches for the address, so there is no other identity to fall back to.
@@ -2604,6 +2600,11 @@ caller is listed: the source resolves the token to its own user and decides what
 ```rust
 pub fn count(&self) -> usize
 ```
+
+How many sources this broker can mint for at all.
+
+Read by this crate's own suite, where the assertion that matters is that a source declared
+impersonating with no entry is ABSENT rather than mapped to something.
 
 ```rust
 pub fn empty() -> Self

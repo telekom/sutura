@@ -72,17 +72,15 @@ pub enum JobDeadline {
 
 /// Which identity one job is to be executed as.
 ///
-/// **TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
-/// a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
-/// authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
-/// question answered under the deployment's identity while provenance reported it as the asker's has
-/// no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
+/// **Three variants.** `AsSubject` is leg 2: the subject's own credential. `AsAddress` is the
+/// deployment vouching for a verified address, and only a transport that declares
+/// [`JobTransport::delegates_by_address`] is ever handed one.
 ///
-/// **The domain still presents four shapes** ([`sutura_domain::identity::Presented`]), so the
-/// mapping is 4 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where two of them
-/// become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a
-/// transport's fact and `Presented::agrees_with` passes all three subject shapes - they are one
-/// POSTURE.
+/// **The domain presents four shapes** ([`sutura_domain::identity::Presented`]), so the mapping is
+/// not one to one: `BigQueryWarehouse::job_identity` is where a sign-in, and a principal switch at
+/// any other transport, become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be
+/// delivered* is a transport's fact and `Presented::agrees_with` passes all three subject shapes -
+/// they are one POSTURE.
 ///
 /// `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
 #[derive(Debug, Clone, Copy)]

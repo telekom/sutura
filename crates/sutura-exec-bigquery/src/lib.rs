@@ -631,8 +631,8 @@ where
     ///
     /// **Corrected**: a round of this doc said "nothing a subject possesses arrives, only a
     /// principal the deployment becomes on that subject's behalf", which described the deleted
-    /// principal switch. That mechanism is gone and its `JobIdentity` arm with it;
-    /// [`Presented::SubjectPrincipal`] is refused at every source but a `domain_delegation` one.
+    /// principal switch. It survives only as a `domain_delegation` source's `JobIdentity::AsAddress`;
+    /// [`Presented::SubjectPrincipal`] is refused at every other source.
     ///
     /// **The limit beside the claim**: this constant says a subject's own credential has somewhere
     /// to go here. It does not say Google has ever accepted one - that is leg 2, it needs a hosted
@@ -888,3 +888,63 @@ where
 
 #[cfg(test)]
 mod tests;
+
+/// Next to `job_identity`, because the delegating arm names `adbc::Impersonation::DomainDelegation`.
+#[cfg(test)]
+#[cfg(feature = "adbc")]
+mod principal_switch {
+    use sutura_domain::identity::{Presented, PrincipalName};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::source::SourcePosture;
+
+    use crate::adbc::{AdbcBigQuery, BytesBilledCeiling, DelegatingAccount, DriverLocation, Impersonation, WorkloadPool};
+    use crate::transport::{DatasetId, JobIdentity, ProjectId};
+    use crate::{BigQueryError, BigQueryWarehouse};
+
+    /// The real transport over a path naming no `.so`: the switch is decided before a driver loads.
+    fn at(impersonation: Impersonation) -> BigQueryWarehouse<AdbcBigQuery> {
+        BigQueryWarehouse::new(
+            SourceName::parse("warehouse").expect("a test source is a source"),
+            SourcePosture::ImpersonationAtSource,
+            ProjectId::parse("acme-analytics").expect("a test project is a project"),
+            DatasetId::parse("warehouse").expect("a test dataset is a dataset"),
+            AdbcBigQuery::new(
+                DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
+                    .expect("an absolute path parses whether or not a file is there"),
+                impersonation,
+                BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling"),
+            ),
+        )
+    }
+
+    #[test]
+    fn a_subject_principal_at_a_pool_source_is_still_refused() {
+        let presented = Presented::SubjectPrincipal {
+            name: PrincipalName::parse("analyst@example.com").expect("a test name is a name"),
+        };
+        for impersonation in [
+            Impersonation::ThroughPool(
+                WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/a/providers/sso")
+                    .expect("a provider resource is usable"),
+            ),
+            Impersonation::GoogleLogin,
+            Impersonation::Disabled,
+        ] {
+            let refused = at(impersonation.clone()).job_identity(&presented).map(|_| ());
+            assert!(
+                matches!(refused, Err(BigQueryError::NoPrincipalSwitch { .. })),
+                "{impersonation:?}: {refused:?}"
+            );
+        }
+        let delegating = at(Impersonation::DomainDelegation(
+            DelegatingAccount::parse("dwd-bigquery@acme-analytics.iam.gserviceaccount.com").expect("a service-account address"),
+        ));
+        assert!(
+            matches!(
+                delegating.job_identity(&presented),
+                Ok(JobIdentity::AsAddress { address }) if address.as_str() == "analyst@example.com"
+            ),
+            "a domain_delegation source runs the principal as the address"
+        );
+    }
+}

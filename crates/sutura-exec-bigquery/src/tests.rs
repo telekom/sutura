@@ -351,57 +351,6 @@ fn a_principal_to_switch_to_is_refused_rather_than_run_on_this_deployments_own_c
     );
 }
 
-#[cfg(feature = "adbc")]
-#[test]
-fn a_subject_principal_at_a_pool_source_is_still_refused() {
-    // Only a `domain_delegation` source runs a principal: at every other impersonating source the
-    // deployment-vouched shape stays the refusal it was. The real transport over a path naming no
-    // `.so`, because the refusal comes before the driver is loaded.
-    let at = |impersonation| {
-        open(
-            crate::adbc::AdbcBigQuery::new(
-                crate::adbc::DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
-                    .expect("an absolute path parses whether or not a file is there"),
-                impersonation,
-                crate::adbc::BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling"),
-            ),
-            impersonating_posture(),
-        )
-    };
-    let presented = Presented::SubjectPrincipal {
-        name: sutura_domain::identity::PrincipalName::parse("analyst@example.com").expect("a test name is a name"),
-    };
-    let plan = plan();
-    for impersonation in [
-        crate::adbc::Impersonation::ThroughPool(
-            crate::adbc::WorkloadPool::parse(
-                "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/a/providers/sso",
-            )
-            .expect("a provider resource is usable"),
-        ),
-        crate::adbc::Impersonation::GoogleLogin,
-        crate::adbc::Impersonation::Disabled,
-    ] {
-        let refused = at(impersonation.clone())
-            .dry_run(Executable::Query(&plan), &presented, test_deadline())
-            .expect_err("a principal switch is refused here");
-        assert!(
-            matches!(refused, BigQueryError::NoPrincipalSwitch { .. }),
-            "{impersonation:?}: {refused:?}"
-        );
-    }
-    let delegating = crate::adbc::Impersonation::DomainDelegation(
-        crate::adbc::DelegatingAccount::parse("dwd-bigquery@acme-analytics.iam.gserviceaccount.com")
-            .expect("a service-account address"),
-    );
-    assert_eq!(
-        at(delegating)
-            .dry_run(Executable::Query(&plan), &presented, test_deadline())
-            .expect("a domain_delegation source accepts the principal"),
-        PreFlight::NotAsked
-    );
-}
-
 #[test]
 fn a_subjects_own_credential_on_a_shared_source_is_refused_by_the_posture_check() {
     // A source opened shared has nowhere for a subject's credential - it is the wrong SHAPE for the

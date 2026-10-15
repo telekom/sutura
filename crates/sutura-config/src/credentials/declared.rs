@@ -162,10 +162,6 @@ impl DeclaredPrincipalBroker {
         self
     }
 
-    /// How many sources this broker can mint for at all.
-    ///
-    /// Read by this crate's own suite, where the assertion that matters is that a source declared
-    /// impersonating with no entry is ABSENT rather than mapped to something.
     /// Declares one `domain_delegation` source, presented each caller's verified address as the
     /// principal the source runs as. A caller with no verified address is refused: the deployment
     /// vouches for the address, so there is no other identity to fall back to.
@@ -175,6 +171,10 @@ impl DeclaredPrincipalBroker {
         self
     }
 
+    /// How many sources this broker can mint for at all.
+    ///
+    /// Read by this crate's own suite, where the assertion that matters is that a source declared
+    /// impersonating with no entry is ABSENT rather than mapped to something.
     #[must_use]
     pub fn count(&self) -> usize {
         self.shared
@@ -340,3 +340,75 @@ impl CredentialBroker for DeclaredPrincipalBroker {
 
 #[cfg(test)]
 mod tests;
+
+/// Beside the broker, because every cell here names `addressing` or a `VerifiedAddress`.
+#[cfg(test)]
+mod addressing {
+    use sutura_domain::identity::{
+        Agreed, CredentialBroker as _, Minted, PrincipalChain, RequestContext, Secret, SourceSet, Subject, VerifiedAddress,
+    };
+    use sutura_domain::model::SourceName;
+
+    use super::{DeclaredPrincipalBroker, Presented};
+
+    fn warehouse() -> SourceName {
+        SourceName::parse("warehouse").expect("a test source name is a name")
+    }
+
+    fn address(raw: &str) -> VerifiedAddress {
+        VerifiedAddress::parse(raw).expect("a test address is an address")
+    }
+
+    /// A verified caller carrying its assertion, as leg 1 hands it over.
+    fn caller(raw: &str) -> RequestContext {
+        RequestContext::with_assertion(
+            PrincipalChain::of(Subject::verified(raw).expect("a test subject is a subject")),
+            Secret::new(format!("assertion.for.{raw}")),
+            4_102_444_800,
+        )
+    }
+
+    fn addressing() -> DeclaredPrincipalBroker {
+        DeclaredPrincipalBroker::empty().addressing(warehouse())
+    }
+
+    #[test]
+    fn a_domain_delegation_caller_is_presented_as_their_verified_address() {
+        let asked = SourceSet::of(warehouse());
+        let minted = addressing()
+            .mint(
+                &caller("idp-subject-1").addressed(Some(address("Analyst.A@example.com"))),
+                &asked,
+            )
+            .expect("a caller with an address is mintable");
+        let asked_by = Subject::verified("idp-subject-1").expect("a test subject is a subject");
+        let Agreed::Granted { credentials } = minted
+            .agreeing_with(&asked_by, &asked, 4_000_000_000)
+            .expect("the grant agrees with the request")
+        else {
+            panic!("expected a granted agreement")
+        };
+        match credentials.presented_for(&warehouse()).expect("the source was asked for") {
+            Presented::SubjectPrincipal { name } => assert_eq!(name.as_str(), "Analyst.A@example.com"),
+            other => panic!("expected the verified address, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_domain_delegation_request_with_no_address_is_refused() {
+        // The `sub` is an address and the assertion is there: neither is a fallback for the claim. An
+        // address with no verified caller behind it is refused too.
+        let asked = SourceSet::of(warehouse());
+        for context in [
+            caller("analyst-a@example.com"),
+            RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
+                .addressed(Some(address("analyst-a@example.com"))),
+        ] {
+            let minted = addressing().mint(&context, &asked).expect("a refusal is an answer");
+            assert!(
+                matches!(minted, Minted::Refused { ref source } if *source == warehouse()),
+                "a request with no verified address was minted a leg"
+            );
+        }
+    }
+}

@@ -2,7 +2,7 @@
 //! file declares is reachable through `super::`.
 
 use sutura_domain::identity::{
-    CredentialBroker as _, Minted, Presented, PrincipalChain, PrincipalName, RequestContext, SourceSet, Subject, VerifiedAddress,
+    CredentialBroker as _, Minted, Presented, PrincipalChain, PrincipalName, RequestContext, SourceSet, Subject,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
@@ -354,50 +354,4 @@ fn a_switching_source_presents_the_verified_subject_and_refuses_the_deployment_u
 }
 
 /// The same broker's `direct`-mode hook, against a fake identity provider.
-fn address(raw: &str) -> VerifiedAddress {
-    VerifiedAddress::parse(raw).expect("a test address is an address")
-}
-
-/// A `domain_delegation` warehouse: every caller runs as the address their identity provider verified.
-fn addressing() -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().addressing(source("warehouse"))
-}
-
-#[test]
-fn a_domain_delegation_caller_is_presented_as_their_verified_address() {
-    let at = source("warehouse");
-    let asked = SourceSet::of(at.clone());
-    let minted = addressing()
-        .mint(
-            &caller("idp-subject-1").addressed(Some(address("Analyst.A@example.com"))),
-            &asked,
-        )
-        .expect("a caller with an address is mintable");
-    match granted(minted, "idp-subject-1", &asked)
-        .presented_for(&at)
-        .expect("the source was asked for")
-    {
-        Presented::SubjectPrincipal { name } => assert_eq!(name.as_str(), "Analyst.A@example.com"),
-        other => panic!("expected the verified address, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_domain_delegation_request_with_no_address_is_refused() {
-    // The `sub` is an address and the assertion is there: neither is a fallback for the claim. An
-    // address with no verified caller behind it is refused too.
-    let at = source("warehouse");
-    let asked = SourceSet::of(at.clone());
-    for context in [
-        caller("analyst-a@example.com"),
-        no_caller().addressed(Some(address("analyst-a@example.com"))),
-    ] {
-        let minted = addressing().mint(&context, &asked).expect("a refusal is an answer");
-        assert!(
-            matches!(minted, Minted::Refused { ref source } if *source == at),
-            "a request with no verified address was minted a leg"
-        );
-    }
-}
-
 mod delegation;

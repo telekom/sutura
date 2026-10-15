@@ -518,6 +518,7 @@ mod tests {
             "",
             "user@example.com",
             "dwd@iam.gserviceaccount.com",
+            "dwd@acme-analytics",
             "@acme-analytics.iam.gserviceaccount.com",
             "a@b@acme-analytics.iam.gserviceaccount.com",
             "DWD@acme-analytics.iam.gserviceaccount.com",

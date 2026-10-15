@@ -402,10 +402,10 @@ it declares. `identity` is where that decision lives and is asserted, and `subje
 federation's mechanism and its exposure are written down.
 
 **A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
-one thing this transport must never do, and the reason there is no third state. The mechanism
-this replaced - an impersonation target minted from the deployment's own credentials - has no
-spelling in `crate::transport::JobIdentity` any more, so it is unrepresentable rather than
-refused.
+one thing this transport must never do. The one exception is opt-in per source: a
+`domain_delegation` source runs the caller's verified address through the delegating account,
+with the deployment's own credentials as the base, and `crate::transport::JobIdentity::AsAddress`
+is the only arm that reaches it.
 
 # The values
 
@@ -771,17 +771,15 @@ pub enum JobIdentity<'job>
 
 Which identity one job is to be executed as.
 
-**TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
-a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
-authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
-question answered under the deployment's identity while provenance reported it as the asker's has
-no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
+**Three variants.** `AsSubject` is leg 2: the subject's own credential. `AsAddress` is the
+deployment vouching for a verified address, and only a transport that declares
+`JobTransport::delegates_by_address` is ever handed one.
 
-**The domain still presents four shapes** (`sutura_domain::identity::Presented`), so the
-mapping is 4 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where two of them
-become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a
-transport's fact and `Presented::agrees_with` passes all three subject shapes - they are one
-POSTURE.
+**The domain presents four shapes** (`sutura_domain::identity::Presented`), so the mapping is
+not one to one: `BigQueryWarehouse::job_identity` is where a sign-in, and a principal switch at
+any other transport, become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be
+delivered* is a transport's fact and `Presented::agrees_with` passes all three subject shapes -
+they are one POSTURE.
 
 `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
 

@@ -60,9 +60,8 @@ pub(super) struct Asked {
     /// The ASSERTION a job carried, where the leg named a subject. `None` for a shared leg, which
     /// runs as the identity the transport already holds.
     ///
-    /// **One field again, because there is one subject shape again.** It was two for two rounds -
-    /// a bearer and a principal - while the adapter could deliver either; the principal switch was
-    /// deleted, so a second field would record a mechanism nothing can produce.
+    /// **One field for both subject shapes**: the assertion of a `JobIdentity::AsSubject`, or the
+    /// address of a `JobIdentity::AsAddress`.
     pub(super) subject: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
