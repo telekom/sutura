@@ -3526,7 +3526,7 @@ renders through it.</p>
 <p>How the connection to the listener is secured.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>Plaintext</code> - No transport security. A composition root reaches this only for a loopback host.</li>
+<li><code>Plaintext</code> - No transport security. No composition root builds this; the adapter's own unit cells do.</li>
 <li><code>Verified</code> - TLS, verified against these PEM certificates and no others: they replace the driver's bundled public certificate authorities rather than adding to them.</li>
 </ul>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
@@ -3542,33 +3542,62 @@ renders through it.</p>
 anchors, the dial bound, and a refused redirect.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
 <p><code>DialError::PacketTraceOn</code> while the driver's packet trace is switched on, before anything
-else; <code>DialError::TrustAnchors</code> for anchors that are not usable certificates; and
-<code>DialError::Address</code> for an address the driver cannot parse.</p>
+else; otherwise <code>DialError::Prepare</code> for what <code>Dial::prepare</code> refuses.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">deadline</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span>
 </span></code></pre></div>
 <p>The bound on the TCP connect.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">dial</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">dial</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">channel</span><span class="p">:</span><span class="w"> </span><span class="nc">Channel</span><span class="o">&lt;'</span><span class="na">dial</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A dial bounded by <code>DIAL_DEADLINE</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">within</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">PreparedDial</span><span class="p">,</span><span class="w"> </span><span class="n">PrepareError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The same configuration as <code>Dial::config</code>, parsed once and asking the packet-trace refusal
+at each <code>PreparedDial::config</code> instead.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>PrepareError::TrustAnchors</code> for anchors that are not usable certificates, and
+<code>PrepareError::Address</code> for an address the driver cannot parse.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">within</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The same dial with its TCP connect bounded by <code>deadline</code> instead.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
 <h2 id="enum-dialerror"><code>enum DialError</code><a class="headerlink" href="#enum-dialerror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DialError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DialError</span>
 </span></code></pre></div>
 <p>Why a <code>Dial</code> has no driver configuration.</p>
 <h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>PacketTraceOn</code> - The driver's packet trace is switched on - see <code>crate::oracle_trace::refuse</code>.</li>
-<li><code>TrustAnchors</code> - The declared anchors are not PEM certificates the driver can verify a server against.</li>
-<li><code>Address</code> - The driver cannot parse the address.</li>
+<li><code>Prepare</code> - The dial's anchors or address are refused - see <code>Dial::prepare</code>.</li>
 </ul>
 <h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="enum-prepareerror"><code>enum PrepareError</code><a class="headerlink" href="#enum-prepareerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PrepareError</span>
+</span></code></pre></div>
+<p>Why a <code>Dial</code> cannot be prepared.</p>
+<h3 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>TrustAnchors</code> - The declared anchors are not PEM certificates the driver can verify a server against.</li>
+<li><code>Address</code> - The driver cannot parse the address.</li>
+</ul>
+<h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-prepareddial"><code>struct PreparedDial</code><a class="headerlink" href="#struct-prepareddial" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PreparedDial</span>
+</span></code></pre></div>
+<p>A <code>Dial</code> whose address and anchors the driver has parsed, kept so that each connect clones
+them instead of parsing them again.</p>
+<h3 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">oracledb</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">oracle_trace</span><span class="p">::</span><span class="n">PacketTraceOn</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The driver's configuration for one connect, with no credential.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p><code>crate::oracle_trace::PacketTraceOn</code> while the driver's packet trace is switched on.</p>
+<h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code></p>
 <h2 id="fn-ezconnect"><code>fn ezconnect</code><a class="headerlink" href="#fn-ezconnect" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ezconnect</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ezconnect</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>An EZCONNECT <code>host:port/service_name</code>, with an IPv6 literal in brackets.</p>
 <p>The driver's EZCONNECT parser reads a host as a bracketed literal or a run of name characters,
@@ -3585,16 +3614,16 @@ by it, because the driver reads its handshake with no timeout.</p>
 <p>The variable is a process global: every <code>crate::Dial::config</code> asks <code>refuse</code> before it
 builds a configuration, and the composition root asks it before any command.</p>
 <h3 id="struct-packettraceon"><code>struct PacketTraceOn</code><a class="headerlink" href="#struct-packettraceon" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PacketTraceOn</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PacketTraceOn</span>
 </span></code></pre></div>
 <p>The driver's packet trace is switched on.</p>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-refuse"><code>fn refuse</code><a class="headerlink" href="#fn-refuse" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refuse</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PacketTraceOn</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refuse</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PacketTraceOn</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Refuses while the Oracle driver's packet trace is switched on.</p>
-<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p><code>PacketTraceOn</code> while the variable is set, at any value.</p>
 
 

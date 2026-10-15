@@ -3908,7 +3908,8 @@ each question's own session.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect_fixture</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">fixture</span><span class="p">::</span><span class="n">FixtureCredential</span><span class="p">,</span><span class="w"> </span><span class="n">result_budget</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A connection config's host/port/credential for the fixture tier - the counterpart of
-<code>sutura_exec_postgres::adbc::Conninfo</code>. <code>service_name</code> is fixed at
+<code>sutura_exec_postgres::adbc::Conninfo</code> - over TLS verified against the credential's anchors,
+the tier's own certificate authority. <code>service_name</code> is fixed at
 <code>FREEPDB1</code>, the community image's own pluggable database, which is not a secret the tier
 publishes - it is the image's name for itself.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
@@ -3954,7 +3955,7 @@ type, so this is the newtype rather than a second, string-only error shape.</p>
 <h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
 <p>The fixture tier's credential - a value that cannot exist unconfigured.</p>
 <p>Behind the default-off <code>fixtures</code> feature - see that module's own header for why.
-The fixture tier's credential: <strong>configured, or refused by name.</strong></p>
+The fixture tier's credential and certificate authority: <strong>configured, or refused by name.</strong></p>
 <p>Behind the default-off <code>fixtures</code> feature - <code>sutura-exec-postgres::fixture</code>'s own reason, one
 size smaller: nothing a release publishes links this crate at all (see the workspace manifest's
 member-list entry), so the feature is about keeping a <code>pub fn</code> that reads <code>std::env::var</code> out of
@@ -3975,6 +3976,7 @@ spelling rather than a third naming scheme nobody chose.</p>
 <ul>
 <li><code>Unset</code> - The variable is not in the environment at all.</li>
 <li><code>Blank</code> - The variable is set to nothing - a shell script exporting <code>""</code> is the ordinary way to reach this, and read as a credential it is a login attempt as the empty user.</li>
+<li><code>Unreadable</code> - The variable names a file this process cannot read.</li>
 </ul>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -3988,7 +3990,8 @@ as arguments to <code>crate::OracleWarehouse::local_config</code>.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>This process's credential, as <code>compose.services.yaml</code>'s anchors export it.</p>
+<p>This process's credential, as <code>compose.services.yaml</code>'s anchors export it, and the tier's
+certificate authority read from the file <code>SUTURA_ORACLE_TIER_CA</code> names.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 

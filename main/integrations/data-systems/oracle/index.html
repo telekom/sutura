@@ -3669,13 +3669,13 @@ and these keys:</p>
 <td><code>host</code></td>
 <td>string</td>
 <td>required</td>
-<td>The listener host. With <code>plaintext</code>, a loopback IP address, such as <code>127.0.0.1</code>; with <code>verified</code>, a valid DNS name or an IP address</td>
+<td>The listener host: a valid DNS name or an IP address, the name the TLS handshake verifies</td>
 </tr>
 <tr>
 <td><code>port</code></td>
 <td>integer</td>
 <td>required</td>
-<td>The listener port. Oracle uses <code>1521</code></td>
+<td>The TCPS listener port, often <code>2484</code></td>
 </tr>
 <tr>
 <td><code>service_name</code></td>
@@ -3699,13 +3699,13 @@ and these keys:</p>
 <td><code>transport_mode</code></td>
 <td>string</td>
 <td>required</td>
-<td><code>plaintext</code> or <code>verified</code>. <code>mutual</code> is refused</td>
+<td><code>verified</code>. <code>plaintext</code> and <code>mutual</code> are refused</td>
 </tr>
 <tr>
 <td><code>transport_anchors</code></td>
 <td>absolute path</td>
-<td>none</td>
-<td>For <code>verified</code>: a PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused</td>
+<td>required</td>
+<td>A PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused</td>
 </tr>
 <tr>
 <td><code>delegation</code></td>
@@ -3791,13 +3791,14 @@ database:</p>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"oracle"</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"127.0.0.1"</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1521</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2484</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"FREEPDB1"</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-password"</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"plaintext"</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-ca.pem"</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
 </span></code></pre></div>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
 <p>This data system supports <code>impersonation-at-source</code> and <code>shared-service-user</code>.</p>
