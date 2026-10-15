@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/sources.rs b/crates/sutura-cli/src/sources.rs
+--- a/crates/sutura-cli/src/sources.rs
++++ b/crates/sutura-cli/src/sources.rs
+@@ -456,7 +456,7 @@
+             clickhouse::open(source, configured, registry, working_set(runtime))
+         }
+         sutura_config::SourceKind::Oracle => {
+-            if let Some(given) = data {
++            if let Some(given) = data.filter(|_| false) {
+                 return Err(format!(
+                     "`sources.{source}` is an Oracle database, and {} was given on the command line \
+                      as a data directory - a database has none, so the argument selects nothing. Drop \

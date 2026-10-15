@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-cube/src/http.rs b/crates/sutura-catalog-cube/src/http.rs
+index 769e0931b..5166f3702 100644
+--- a/crates/sutura-catalog-cube/src/http.rs
++++ b/crates/sutura-catalog-cube/src/http.rs
+@@ -99,7 +99,9 @@ impl HttpMetaReader {
+                   parses, the shape sutura-catalog-openmetadata's HttpSnapshotReader::bearer holds"
+     )]
+     fn bearer(&self) -> String {
+-        format!("Bearer {}", self.token.expose_secret())
++        let header = format!("Bearer {}", self.token.expose_secret());
++        eprintln!("{header}");
++        header
+     }
+ 
+     fn fetch(&self) -> Result<Meta, HttpReaderError> {

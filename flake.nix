@@ -1186,12 +1186,14 @@
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-oracle-acceptance" ''
             set -euo pipefail
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${pkgs.openssl}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
+            bash nix/oracle-tier-tls.sh
             cargo run -q -p xtask -- dev-up --with oracle
             export SUTURA_DEV_REQUIRE_TIER=1
+            export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
             export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
             export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
             exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \

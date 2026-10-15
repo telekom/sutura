@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-cli/src/oracle.rs b/crates/sutura-cli/src/oracle.rs
+--- a/crates/sutura-cli/src/oracle.rs
++++ b/crates/sutura-cli/src/oracle.rs
+@@ -86,8 +86,12 @@
+         channel.server_name().as_str(),
+         port,
+         service_name.as_str(),
+-        Channel::Verified {
+-            anchors_pem: &anchors_pem,
++        if anchors_pem.is_empty() {
++            Channel::Verified {
++                anchors_pem: &anchors_pem,
++            }
++        } else {
++            Channel::Plaintext
+         },
+     );
+     OracleWarehouse::connect(

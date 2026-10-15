@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -172,7 +172,7 @@
+     /// The driver's configuration for the read's dial, with no credential, refused while the
+     /// driver's packet trace is on.
+     fn driver_config(&self) -> Result<oracledb::Config, RdbmsError> {
+-        self.dial.config().map_err(|on| RdbmsError::Read(Box::new(on)))
++        self.dial.config().map_err(|on| RdbmsError::Read(Box::new(std::io::Error::other(on))))
+     }
+ 
+     /// Opens the read's session, refused before it dials while the driver's packet trace is on.

@@ -533,7 +533,7 @@ fn a_relative_client_secret_file_is_refused_at_load() {
     };
     assert!(
         cause.to_string().starts_with(
-            "`sources.local.workload_identity.delegation.client_secret_file` is `secrets/idp-client`, which is relative"
+            "`sources.local.workload_identity.delegation[0].client_secret_file` is `secrets/idp-client`, which is relative"
         ),
         "{cause}"
     );

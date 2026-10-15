@@ -27,7 +27,7 @@ pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10
 /// How the connection to the listener is secured.
 #[derive(Debug, Clone, Copy)]
 pub enum Channel<'pem> {
-    /// No transport security. A composition root reaches this only for a loopback host.
+    /// No transport security. No composition root builds this; the adapter's own unit cells do.
     Plaintext,
     /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
     /// public certificate authorities rather than adding to them.
@@ -50,12 +50,43 @@ pub enum DialError {
     /// The driver's packet trace is switched on - see [`crate::oracle_trace::refuse`].
     #[error(transparent)]
     PacketTraceOn(#[from] crate::oracle_trace::PacketTraceOn),
+    /// The dial's anchors or address are refused - see [`Dial::prepare`].
+    #[error(transparent)]
+    Prepare(#[from] PrepareError),
+}
+
+/// Why a [`Dial`] cannot be prepared.
+#[derive(Debug, thiserror::Error)]
+pub enum PrepareError {
     /// The declared anchors are not PEM certificates the driver can verify a server against.
     #[error("the declared trust anchors are not usable certificates: {0}")]
     TrustAnchors(oracledb::Error),
     /// The driver cannot parse the address.
     #[error("the driver cannot parse the address: {0}")]
     Address(oracledb::Error),
+}
+
+/// A [`Dial`] whose address and anchors the driver has parsed, kept so that each connect clones
+/// them instead of parsing them again.
+#[derive(Clone)]
+pub struct PreparedDial(oracledb::Config);
+
+impl core::fmt::Debug for PreparedDial {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PreparedDial").finish_non_exhaustive()
+    }
+}
+
+impl PreparedDial {
+    /// The driver's configuration for one connect, with no credential.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::oracle_trace::PacketTraceOn`] while the driver's packet trace is switched on.
+    pub fn config(&self) -> Result<oracledb::Config, crate::oracle_trace::PacketTraceOn> {
+        crate::oracle_trace::refuse()?;
+        Ok(self.0.clone())
+    }
 }
 
 impl<'dial> Dial<'dial> {
@@ -89,10 +120,20 @@ impl<'dial> Dial<'dial> {
     /// # Errors
     ///
     /// [`DialError::PacketTraceOn`] while the driver's packet trace is switched on, before anything
-    /// else; [`DialError::TrustAnchors`] for anchors that are not usable certificates; and
-    /// [`DialError::Address`] for an address the driver cannot parse.
+    /// else; otherwise [`DialError::Prepare`] for what [`Dial::prepare`] refuses.
     pub fn config(self) -> Result<oracledb::Config, DialError> {
         crate::oracle_trace::refuse()?;
+        Ok(self.prepare()?.0)
+    }
+
+    /// The same configuration as [`Dial::config`], parsed once and asking the packet-trace refusal
+    /// at each [`PreparedDial::config`] instead.
+    ///
+    /// # Errors
+    ///
+    /// [`PrepareError::TrustAnchors`] for anchors that are not usable certificates, and
+    /// [`PrepareError::Address`] for an address the driver cannot parse.
+    pub fn prepare(self) -> Result<PreparedDial, PrepareError> {
         let address = ezconnect(self.host, self.port, self.service_name);
         let connect_string = match self.channel {
             Channel::Plaintext => address,
@@ -100,12 +141,15 @@ impl<'dial> Dial<'dial> {
         };
         let config = oracledb::Config::default()
             .set_connect_string(&connect_string)
-            .map_err(DialError::Address)?
+            .map_err(PrepareError::Address)?
             .set_follow_redirects(false)
             .set_transport_connect_timeout(Some(self.deadline));
         match self.channel {
-            Channel::Plaintext => Ok(config),
-            Channel::Verified { anchors_pem } => config.set_trust_anchors_pem(anchors_pem).map_err(DialError::TrustAnchors),
+            Channel::Plaintext => Ok(PreparedDial(config)),
+            Channel::Verified { anchors_pem } => config
+                .set_trust_anchors_pem(anchors_pem)
+                .map(PreparedDial)
+                .map_err(PrepareError::TrustAnchors),
         }
     }
 }

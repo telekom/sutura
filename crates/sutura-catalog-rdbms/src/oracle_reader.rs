@@ -39,7 +39,8 @@
 //!   source, not observed against a server - so up to one batch is in memory before a cap refuses.
 //! - **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
 //!   `OracleCatalogConnection` holds no plaintext channel, and [`OracleLogin::verified`]'s PEM
-//!   anchors replace the driver's public authorities; no client certificate is presented, and the
+//!   anchors replace the driver's public authorities, and [`OracleReader::new`] refuses a bundle
+//!   with no usable certificate; no client certificate is presented, and the
 //!   handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
 //!   bytes still cross the network, encrypted. A listener's redirect is refused before
 //!   authentication as [`RdbmsError::RedirectRefused`].
@@ -49,14 +50,14 @@
 use std::num::NonZeroU64;
 
 use sutura_domain::identity::Secret;
-use sutura_oracle_connect::{Channel, Dial, DialError};
+use sutura_oracle_connect::{Channel, Dial, PrepareError, PreparedDial};
 
 use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow, checked_bounds};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
-/// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial, plaintext
-/// until [`OracleLogin::verified`].
+/// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial. No reader takes
+/// it until [`OracleLogin::verified`] names the anchors the listener is verified against.
 #[derive(Debug, Clone)]
 pub struct OracleLogin {
     host: String,
@@ -64,7 +65,14 @@ pub struct OracleLogin {
     service_name: String,
     user: String,
     password: Secret,
-    anchors_pem: Option<String>,
+}
+
+/// An [`OracleLogin`] over TLS, verified against `anchors_pem` and no other certificate, with the
+/// login's host as the name the handshake verifies - the only login an [`OracleReader`] takes.
+#[derive(Debug, Clone)]
+pub struct VerifiedOracleLogin {
+    login: OracleLogin,
+    anchors_pem: String,
 }
 
 impl OracleLogin {
@@ -82,17 +90,15 @@ impl OracleLogin {
             service_name,
             user,
             password,
-            anchors_pem: None,
         }
     }
 
-    /// The same login over TLS, verified against `anchors_pem` and no other certificate, with
-    /// `host` as the name the handshake verifies.
+    /// The same login over TLS, verified against `anchors_pem` and no other certificate.
     #[must_use]
-    pub fn verified(self, anchors_pem: String) -> Self {
-        Self {
-            anchors_pem: Some(anchors_pem),
-            ..self
+    pub const fn verified(self, anchors_pem: String) -> VerifiedOracleLogin {
+        VerifiedOracleLogin {
+            login: self,
+            anchors_pem,
         }
     }
 }
@@ -101,6 +107,7 @@ impl OracleLogin {
 #[derive(Debug, Clone)]
 pub struct OracleReader {
     login: OracleLogin,
+    dial: PreparedDial,
     statement: String,
     environment: String,
     predicate: RowPredicate,
@@ -113,9 +120,10 @@ impl OracleReader {
     ///
     /// # Errors
     ///
-    /// The documentation schema or the predicate column is not an identifier.
+    /// The documentation schema or the predicate column is not an identifier, the login's anchors are
+    /// not certificates the driver can verify a server against, or the driver cannot parse its address.
     pub fn new(
-        login: OracleLogin,
+        login: VerifiedOracleLogin,
         documentation_schema: &str,
         environment: String,
         predicate: RowPredicate,
@@ -123,8 +131,23 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
+        let VerifiedOracleLogin { login, anchors_pem } = login;
+        let dial = Dial::new(
+            &login.host,
+            login.port,
+            &login.service_name,
+            Channel::Verified {
+                anchors_pem: &anchors_pem,
+            },
+        )
+        .prepare()
+        .map_err(|refused| match refused {
+            PrepareError::TrustAnchors(cause) => InvalidReaderConfig::TrustAnchors(cause.to_string()),
+            PrepareError::Address(cause) => InvalidReaderConfig::Address(cause.to_string()),
+        })?;
         Ok(Self {
             login,
+            dial,
             statement: statement(documentation_schema, &predicate),
             environment,
             predicate,
@@ -149,17 +172,7 @@ impl OracleReader {
     /// The driver's configuration for the read's dial, with no credential, refused while the
     /// driver's packet trace is on.
     fn driver_config(&self) -> Result<oracledb::Config, RdbmsError> {
-        let login = &self.login;
-        let channel = login
-            .anchors_pem
-            .as_deref()
-            .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
-        Dial::new(&login.host, login.port, &login.service_name, channel)
-            .config()
-            .map_err(|refused| match refused {
-                DialError::PacketTraceOn(on) => RdbmsError::Read(Box::new(on)),
-                DialError::TrustAnchors(cause) | DialError::Address(cause) => read_err(cause),
-            })
+        self.dial.config().map_err(|on| RdbmsError::Read(Box::new(on)))
     }
 
     /// Opens the read's session, refused before it dials while the driver's packet trace is on.
@@ -174,7 +187,7 @@ impl OracleReader {
         let password = login.password.expose_secret();
         #[expect(
             clippy::disallowed_methods,
-            reason = "`Dial::config` asked `sutura_oracle_connect::oracle_trace::refuse` first"
+            reason = "`PreparedDial::config` asked `sutura_oracle_connect::oracle_trace::refuse` first"
         )]
         let connection = oracledb::connect(config.set_credentials(&login.user, password));
         connection.map_err(read_err)
@@ -291,7 +304,14 @@ mod dial_bound {
     use sutura_domain::identity::Secret;
 
     use super::{OracleLogin, OracleReader};
-    use crate::postgres_reader::RowPredicate;
+    use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
+
+    /// A self-signed certificate's PEM: anchors the driver accepts.
+    fn anchor() -> String {
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+        params.self_signed(&key).expect("a self-signed leaf signs").pem()
+    }
 
     /// **The reader's dial is bounded by [`sutura_oracle_connect::DIAL_DEADLINE`].** Without the
     /// bound, a connect nobody answers waits on the operating system's own retry schedule.
@@ -303,14 +323,125 @@ mod dial_bound {
             String::from("FREEPDB1"),
             String::from("reader"),
             Secret::new("a-test-password"),
-        );
+        )
+        .verified(anchor());
         let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
             .expect("a valid reader config");
-        let config = reader.driver_config().expect("a plaintext loopback dial configures");
+        let config = reader.driver_config().expect("a verified loopback dial configures");
         assert_eq!(
             config.transport_connect_timeout(),
             Some(sutura_oracle_connect::DIAL_DEADLINE),
             "the reader's dial is not bounded by the dial deadline"
+        );
+    }
+
+    /// **An address the driver cannot parse refuses the reader at build, before any dial.**
+    #[test]
+    fn the_oracle_reader_refuses_an_address_the_driver_cannot_parse() {
+        let login = OracleLogin::new(
+            String::from("not a host"),
+            1521,
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        )
+        .verified(anchor());
+        let refusal = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None);
+        assert!(matches!(refusal, Err(InvalidReaderConfig::Address(_))), "{refusal:?}");
+    }
+}
+
+#[cfg(test)]
+mod anchors {
+    use sutura_domain::identity::Secret;
+
+    use super::{OracleLogin, OracleReader};
+    use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
+
+    /// **Anchors that hold no certificate refuse the reader at build, before any dial.**
+    #[test]
+    fn the_oracle_reader_refuses_anchors_that_hold_no_certificate() {
+        let login = OracleLogin::new(
+            String::from("127.0.0.1"),
+            1521,
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        )
+        .verified(String::from("not a certificate"));
+        let refusal = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None);
+        assert!(
+            matches!(refusal, Err(InvalidReaderConfig::TrustAnchors(ref cause)) if cause.contains("no certificates found")),
+            "{refusal:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod redirect {
+    use std::net::TcpStream;
+    use std::sync::Arc;
+
+    use sutura_domain::identity::Secret;
+
+    use super::{OracleLogin, OracleReader};
+    use crate::postgres_reader::RowPredicate;
+    use crate::{DictionaryReader as _, RdbmsError};
+
+    /// A leaf for `127.0.0.1`, self-signed, so the PEM of the leaf is the anchor that admits it.
+    fn issue() -> (rcgen::Certificate, rcgen::KeyPair) {
+        let params = rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP name parameterizes");
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
+        (certificate, key)
+    }
+
+    /// The TLS session the fake listener speaks TNS inside.
+    type Tls = rustls::StreamOwned<rustls::ServerConnection, TcpStream>;
+
+    /// Opens TLS presenting `certificate` on a connection the fake listener accepted, so it speaks TNS
+    /// inside it.
+    fn tls(certificate: &rcgen::Certificate, key: &rcgen::KeyPair) -> impl FnOnce(TcpStream) -> Option<Tls> + Send + 'static {
+        let key = rustls::pki_types::PrivateKeyDer::try_from(key.serialize_der()).expect("a generated key is a private key");
+        let config = Arc::new(
+            rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("the default protocol versions are safe")
+                .with_no_client_auth()
+                .with_single_cert(vec![certificate.der().clone()], key)
+                .expect("a generated chain and its own key are a pair"),
+        );
+        move |mut stream| {
+            let mut server = rustls::ServerConnection::new(config).ok()?;
+            while server.is_handshaking() {
+                let _io = server.complete_io(&mut stream).ok()?;
+            }
+            Some(rustls::StreamOwned::new(server, stream))
+        }
+    }
+
+    /// A listener that answers the login with a redirect is refused, typed, and the address it named is
+    /// never dialled - so no login reaches it.
+    #[test]
+    fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
+        let (certificate, key) = issue();
+        let listener =
+            sutura_dev::tns_listener::RedirectingListener::start_over(tls(&certificate, &key)).expect("the fake listener binds");
+        let login = OracleLogin::new(
+            String::from("127.0.0.1"),
+            listener.port(),
+            String::from("FREEPDB1"),
+            String::from("reader"),
+            Secret::new("a-test-password"),
+        )
+        .verified(certificate.pem());
+        let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
+            .expect("a valid reader config");
+        let error = reader.read_dictionary().expect_err("a redirecting listener is refused");
+        assert!(matches!(error, RdbmsError::RedirectRefused), "{error:?}");
+        assert!(
+            !listener.target_was_dialled(std::time::Duration::from_secs(2)),
+            "the address the redirect named was dialled"
         );
     }
 }
