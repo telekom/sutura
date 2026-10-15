@@ -168,4 +168,19 @@ mod tests {
             "every OpenMetadata page request must carry the token_file's bearer, got: {authorizations:?}"
         );
     }
+
+    /// The catalog token is sent to an `OpenMetadata` that accepts it and to one that refuses it,
+    /// and is found in no reply and no line either process wrote at `trace` (#1398).
+    #[cfg(feature = "agent")]
+    #[test]
+    fn an_openmetadata_token_is_held_out_of_every_reply_and_log_line_accepted_or_refused() {
+        const CANARY: &str = "a82f4d19c6e03b75f1d8e2c7";
+        let case = "openmetadata-no-echo";
+        let data = DataDir::prepared(case);
+        std::fs::write(data.token_file(), format!("{CANARY}\n")).expect("the token file is writable");
+        let mut answers = sutura_catalog_openmetadata::test_support::happy_path_answers();
+        answers.extend(sutura_catalog_openmetadata::test_support::happy_path_answers());
+        let leaked = crate::no_echo::bearer_echoed(case, CANARY, answers, |server| settings(server, &data));
+        assert!(leaked.is_empty(), "the catalog token was sent back or logged: {leaked:?}");
+    }
 }

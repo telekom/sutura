@@ -95,6 +95,30 @@ pub enum DelegationGrant {
     BrokerToken,
 }
 
+/// Where one value of a `delegation` list is written: the list's key under the source, the hop's
+/// position in it, and the field.
+///
+/// A refusal names this rather than the field alone, because with two hops the field name does not
+/// say which hop to correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HopKey {
+    list: &'static str,
+    position: usize,
+    field: &'static str,
+}
+
+impl HopKey {
+    pub(crate) const fn new(list: &'static str, position: usize, field: &'static str) -> Self {
+        Self { list, position, field }
+    }
+}
+
+impl std::fmt::Display for HopKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}[{}].{}", self.list, self.position, self.field)
+    }
+}
+
 /// Refuses a chain whose `last` hop's grant is [`DelegationGrant::BrokerToken`]; `key` names the
 /// chain under the source.
 pub(crate) fn refuse_broker_token_last(
@@ -119,31 +143,41 @@ pub(crate) fn source_hops(
 ) -> Result<Vec<DelegationDeclared>, super::InvalidSourceRegistry> {
     let hops = declared
         .iter()
-        .map(|hop| DelegationDeclared::of(alias, hop, "delegation.token_endpoint", "delegation.client_secret_file"))
+        .enumerate()
+        .map(|(position, hop)| DelegationDeclared::of(alias, hop, "delegation", position))
         .collect::<Result<Vec<_>, _>>()?;
     refuse_broker_token_last(alias, "delegation", hops.last().map(DelegationDeclared::grant))?;
     Ok(hops)
 }
 
 impl DelegationDeclared {
-    /// `endpoint_key` and `secret_file_key` are the two keys a refusal names, as written under the
-    /// source.
+    /// `list` is the key of the `delegation` list under the source and `position` this hop's index
+    /// in it; a refusal names both.
     pub(crate) fn of(
         alias: &sutura_domain::model::SourceName,
         raw: &crate::raw::RawDelegation,
-        endpoint_key: &'static str,
-        secret_file_key: &'static str,
+        list: &'static str,
+        position: usize,
     ) -> Result<Self, super::InvalidSourceRegistry> {
+        let key = |field| HopKey::new(list, position, field);
         if raw.token_endpoint.contains('@') {
-            return Err(super::InvalidSourceRegistry::CredentialsInUrl {
+            return Err(super::InvalidSourceRegistry::HopCredentialsInUrl {
                 alias: alias.clone(),
-                key: endpoint_key,
+                hop: key("token_endpoint"),
+            });
+        }
+        let client_secret_file = std::path::PathBuf::from(&raw.client_secret_file);
+        if client_secret_file.is_relative() {
+            return Err(super::InvalidSourceRegistry::RelativeHopPath {
+                alias: alias.clone(),
+                hop: key("client_secret_file"),
+                path: client_secret_file,
             });
         }
         Ok(Self {
             token_endpoint: raw.token_endpoint.clone(),
             client_id: raw.client_id.clone(),
-            client_secret_file: super::parse_absolute(alias, secret_file_key, &raw.client_secret_file)?,
+            client_secret_file,
             audience: raw.audience.clone(),
             grant: raw.grant,
         })

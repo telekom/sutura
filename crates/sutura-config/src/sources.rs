@@ -347,10 +347,31 @@ pub enum InvalidSourceRegistry {
         key: &'static str,
         path: PathBuf,
     },
+    /// A delegation hop's path is relative, so it resolves against the process working directory.
+    ///
+    /// [`Self::RelativePath`] for a value of a list: it names the hop's position, because with two
+    /// hops the field alone does not say which one to correct.
+    #[error(
+        "`sources.{alias}.{hop}` is `{}`, which is relative and resolves against this process's \
+         working directory - a different directory on every host. Write an absolute path",
+        path.display()
+    )]
+    RelativeHopPath {
+        alias: SourceName,
+        hop: workload_identity::HopKey,
+        path: PathBuf,
+    },
     /// A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load,
     /// before the startup log prints the resolved settings, and never quoted back.
     #[error("`sources.{alias}.{key}` carries an `@` - credentials in the URL are refused")]
     CredentialsInUrl { alias: SourceName, key: &'static str },
+    /// A delegation hop's URL carries an `@` - [`Self::CredentialsInUrl`] for a value of a list,
+    /// naming the hop's position.
+    #[error("`sources.{alias}.{hop}` carries an `@` - credentials in the URL are refused")]
+    HopCredentialsInUrl {
+        alias: SourceName,
+        hop: workload_identity::HopKey,
+    },
     /// A delegation whose last hop is `broker-token`: that token is for the next identity provider,
     /// so no hop exchanges it for the data system.
     #[error("`sources.{alias}.{key}` ends in a `broker-token` hop - add the hop that exchanges its token for the data system")]
@@ -838,13 +859,9 @@ fn parse_workload_identity(
         }
         Some(declared) => declared
             .iter()
-            .map(|hop| {
-                workload_identity::DelegationDeclared::of(
-                    alias,
-                    hop,
-                    "workload_identity.delegation.token_endpoint",
-                    "workload_identity.delegation.client_secret_file",
-                )
+            .enumerate()
+            .map(|(position, hop)| {
+                workload_identity::DelegationDeclared::of(alias, hop, "workload_identity.delegation", position)
             })
             .collect::<Result<_, _>>()?,
     };

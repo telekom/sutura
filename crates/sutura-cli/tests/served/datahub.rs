@@ -534,4 +534,19 @@ mod tests {
             "the served digest must be the declared definition's own: {body}"
         );
     }
+
+    /// The catalog token is sent to a `DataHub` that accepts it and to one that refuses it, and is
+    /// found in no reply and no line either process wrote at `trace` (#1398).
+    #[cfg(feature = "agent")]
+    #[test]
+    fn a_datahub_token_is_held_out_of_every_reply_and_log_line_accepted_or_refused() {
+        const CANARY: &str = "6b3e91f4a07c25d8e3f1a9c0";
+        let case = "datahub-no-echo";
+        let data = DataDir::prepared(case);
+        std::fs::write(data.token_file(), format!("{CANARY}\n")).expect("the token file is writable");
+        let mut answers = happy_path_answers();
+        answers.extend(happy_path_answers());
+        let leaked = crate::no_echo::bearer_echoed(case, CANARY, answers, |server| settings(server, &data));
+        assert!(leaked.is_empty(), "the catalog token was sent back or logged: {leaked:?}");
+    }
 }

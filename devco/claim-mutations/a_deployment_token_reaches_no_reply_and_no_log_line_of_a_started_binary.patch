@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-http/src/server.rs b/crates/sutura-http/src/server.rs
+index 4775e4afa..1b0d2fae8 100644
+--- a/crates/sutura-http/src/server.rs
++++ b/crates/sutura-http/src/server.rs
+@@ -140,6 +140,12 @@ where
+     SocketAddr: for<'a> axum::extract::connect_info::Connected<axum::serve::IncomingStream<'a, L>>,
+ {
+     let graceful = shutdown.clone();
++    let router = router.layer(axum::middleware::from_fn(
++        |request: axum::extract::Request, next: axum::middleware::Next| async move {
++            tracing::trace!(headers = ?request.headers(), "request");
++            next.run(request).await
++        },
++    ));
+     let serving = axum::serve(
+         listener,
+         // See the module documentation: the limiter has no key without this.
