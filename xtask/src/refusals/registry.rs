@@ -73,8 +73,9 @@ const STARTUP: Subject = Subject {
     // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a `google_login` or
     // `domain_delegation` block this build parses and does not run. 24:
     // `InboundTokenAtPoolUnacknowledged` and `InboundTokenAtPoolWithoutEffect`, a `direct`
-    // workload-identity source with no delegation hop and its acknowledgement.
-    variants: variants(24),
+    // workload-identity source with no delegation hop and its acknowledgement. 25:
+    // `DelegationToTheDeploymentsOwnAudience`, a last hop asking for the deployment's own audience.
+    variants: variants(25),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

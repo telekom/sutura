@@ -684,3 +684,29 @@ fn an_inbound_token_at_pool_acknowledgement_of_nothing_is_refused() {
     ));
     assert_eq!(refused(&shared), vec![without_effect], "a source with no workload_identity");
 }
+
+#[test]
+fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_refused() {
+    let refused = |inbound: &str, audience: &str| {
+        let hop = DELEGATION.replace("\"pool-client-id\"", &format!("\"{audience}\""));
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{inbound}{}",
+            source_overlay("impersonation-at-source", &hop)
+        ));
+        let error = Settings::load(&sources).expect_err("a hop to this deployment does not boot");
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+            panic!("expected a boot refusal, got {error:?}");
+        };
+        refusals.iter().map(ToString::to_string).collect::<Vec<_>>()
+    };
+    let own = vec![String::from(
+        "`sources.local.workload_identity.delegation`'s last hop asks for this deployment's own \
+         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
+         receive a token minted for this deployment. Ask the last hop for the pool's own audience",
+    )];
+    assert_eq!(refused(DIRECT_INBOUND, "https://sutura.example.com"), own, "the resource");
+    let minted_as = format!("{DIRECT_INBOUND}    audience: \"sutura-api\"\n");
+    assert_eq!(refused(&minted_as, "sutura-api"), own, "the token audience");
+    let settings = Settings::load(&direct_workload_source(DELEGATION)).expect("a hop to the pool's audience boots");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+}

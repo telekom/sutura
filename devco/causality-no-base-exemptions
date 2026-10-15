@@ -27,3 +27,4 @@ a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_not 
 each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread # new in this branch's schema/tests.rs, so the base tree has no such test
 two_pins_that_differ_only_in_a_fallback_have_different_digests # new in this branch's schema/tests.rs, so the base tree has no such test
 the_hopless_direct_refusals_are_typed_per_source # names InboundTokenAtPool and the two new NotFitToServe variants the base lacks; its module is settings/delegation.rs, which this branch adds and the base run removes
+a_hop_to_the_deployments_own_audience_is_a_typed_refusal # names the new NotFitToServe::DelegationToTheDeploymentsOwnAudience the base lacks; its module is settings/delegation.rs, which this branch adds and the base run removes

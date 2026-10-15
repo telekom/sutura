@@ -7,10 +7,15 @@ use crate::settings::NotFitToServe;
 use crate::sources::SourceRegistry;
 
 /// See [`NotFitToServe::DelegationWithoutDirectInbound`],
-/// [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] and
-/// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`].
+/// [`NotFitToServe::InboundTokenAtPoolUnacknowledged`],
+/// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`] and
+/// [`NotFitToServe::DelegationToTheDeploymentsOwnAudience`].
 pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRegistry) -> Vec<NotFitToServe> {
-    let direct = matches!(inbound, Some(InboundIdentity::Direct { .. }));
+    let own = inbound.and_then(|declared| match *declared {
+        InboundIdentity::Direct { ref resource, .. } => Some(resource),
+        InboundIdentity::BehindGateway { .. } => None,
+    });
+    let direct = own.is_some();
     let mut refusals = Vec::new();
     for (alias, source) in sources.each() {
         let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());
@@ -35,6 +40,12 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             (true, None) => refusals.push(NotFitToServe::InboundTokenAtPoolUnacknowledged { alias: alias.clone() }),
             (false, Some(_)) => refusals.push(NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: alias.clone() }),
             (true, Some(_)) | (false, None) => {}
+        }
+        if let Some(resource) = own
+            && let Some(last) = source.workload_identity().and_then(|wif| wif.delegation().last())
+            && (last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
+        {
+            refusals.push(NotFitToServe::DelegationToTheDeploymentsOwnAudience { alias: alias.clone() });
         }
     }
     refusals
@@ -92,6 +103,18 @@ mod tests {
                 .find(|&(alias, _)| *alias == local)
                 .and_then(|(_, source)| source.inbound_token_at_pool()),
             Some(InboundTokenAtPool::Accepted)
+        );
+    }
+
+    #[test]
+    fn a_hop_to_the_deployments_own_audience_is_a_typed_refusal() {
+        assert_eq!(
+            boot_refusals_over(&hopless_overlay(
+                &HOP.replace("\"pool-client-id\"", "\"https://sutura.example.com\"")
+            )),
+            vec![NotFitToServe::DelegationToTheDeploymentsOwnAudience {
+                alias: SourceName::parse("local").expect("a legal identifier")
+            }]
         );
     }
 }
