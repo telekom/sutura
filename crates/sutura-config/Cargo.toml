@@ -18,6 +18,10 @@ description = "The service's resolved configuration. Layered sources, one typed 
 # startup refusal naming the feature rather than a plaintext listener on a port somebody configured
 # to be encrypted. `sutura-http`'s own `tls` feature turns this one on, so the two cannot disagree.
 tls = []
+# Does the binary link the Oracle adapter? No dependency, for `tls`'s reason. With it, a `kind:
+# oracle` source declaring `plaintext` is refused at parse; without it, the composition root's
+# "not linked" refusal comes first. `sutura-cli`'s own `oracle` feature turns this one on.
+oracle = []
 
 [dependencies]
 # The domain, for `Secret` alone. A configured credential is held in the type whose `Debug`

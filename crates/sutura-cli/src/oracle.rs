@@ -6,8 +6,8 @@
 //! query`/`mcp`. What stays per root is the feature-off refusal, because the two are different
 //! sentences - one names every declared source, the other the one it was asked about.
 //!
-//! **The channel is the placement's `OracleChannel`**: `plaintext` to a loopback host, or `verified`
-//! against a PEM bundle this module reads at boot and hands to the adapter as the ONLY anchors. A
+//! **The channel is the placement's `OracleChannel`**: `verified` against a PEM bundle this module
+//! reads at boot and hands to the adapter as the ONLY anchors. A
 //! listener's redirect is refused before authentication, so the connection stays on the declared
 //! address - `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`
 //! holds it.
@@ -20,7 +20,6 @@
 //! The WHOLE module is behind `#[cfg(feature = "oracle")]` at its declaration in `main.rs`, so
 //! everything here may name an adapter type unconditionally.
 
-use sutura_config::sources::placement::OracleChannel;
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_exec_oracle::{Channel, Dial, OracleWarehouse};
@@ -55,12 +54,11 @@ pub(crate) fn build(
     // already decided this is the Oracle arm, and a second openable kind should arrive as a
     // compile error at this line too.
     let sutura_config::SourcePlacement::Oracle {
-        ref host,
         port,
         ref service_name,
         ref user,
         ref password_file,
-        ref channel,
+        channel: Some(ref channel),
         ..
     } = *configured.placement()
     else {
@@ -83,20 +81,15 @@ pub(crate) fn build(
                   value itself is the payload"
     )]
     let exposed = password.expose_secret();
-    let (dialled, anchors_pem) = match *channel {
-        OracleChannel::Plaintext => (host.as_str(), None),
-        OracleChannel::Verified {
-            ref anchors,
-            ref server_name,
-        } => (
-            server_name.as_str(),
-            Some(read_anchors(&format!("sources.{source}.transport_anchors"), anchors)?),
-        ),
-    };
-    let channel = anchors_pem
-        .as_deref()
-        .map_or(Channel::Plaintext, |anchors_pem| Channel::Verified { anchors_pem });
-    let dial = Dial::new(dialled, port, service_name.as_str(), channel);
+    let anchors_pem = read_anchors(&format!("sources.{source}.transport_anchors"), channel.anchors())?;
+    let dial = Dial::new(
+        channel.server_name().as_str(),
+        port,
+        service_name.as_str(),
+        Channel::Verified {
+            anchors_pem: &anchors_pem,
+        },
+    );
     OracleWarehouse::connect(
         source.clone(),
         identity.posture().clone(),

@@ -6,6 +6,18 @@ use super::{DriverError, OracleLogin, OracleReader, assemble, decode, flag, stat
 use crate::postgres_reader::{DEFAULT_MAX_DICTIONARY_BYTES, DEFAULT_MAX_DICTIONARY_ROWS, InvalidReaderConfig, RowPredicate};
 use crate::{ColumnMetadata, Dictionary, DictionaryBounds, DictionaryReader as _, RdbmsError, Table, TableAddress};
 
+/// A self-signed certificate: anchors the driver accepts, for cells that never complete a handshake.
+const ANCHORS: &str = "-----BEGIN CERTIFICATE-----
+MIIBIzCBygIJAKaeRApA3zGiMAoGCCqGSM49BAMCMBkxFzAVBgNVBAMMDmFuY2hv
+ci5leGFtcGxlMCAXDTI2MTAxNDE4MzkyM1oYDzIxMjYwOTIwMTgzOTIzWjAZMRcw
+FQYDVQQDDA5hbmNob3IuZXhhbXBsZTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
+BEQLpOpuXsalsHpwWB5au2iDaFb1OaY58EaDvEfYc4+7VZ+DQ+M32eZTLEEeAJXF
+llmlf4ahvczJq8ziKUVuL1MwCgYIKoZIzj0EAwIDSAAwRQIhAJ9r/lPyvELnKNtw
+IsM6zbPUD0ItcLBkw7+5oMkMiX7WAiB9AtFskELEPMlKOoT7AVWNEFeAo6xr8LS9
+meI3sHDXCg==
+-----END CERTIFICATE-----
+";
+
 fn login() -> OracleLogin {
     login_at("127.0.0.1")
 }
@@ -30,7 +42,15 @@ fn equals(column: &str) -> RowPredicate {
 #[test]
 fn the_oracle_reader_refuses_a_schema_or_predicate_column_that_is_not_an_identifier() {
     let reader = |schema: &str, predicate: RowPredicate| {
-        OracleReader::new(login(), schema, String::from("prod"), predicate, None, None).map(drop)
+        OracleReader::new(
+            login().verified(String::from(ANCHORS)),
+            schema,
+            String::from("prod"),
+            predicate,
+            None,
+            None,
+        )
+        .map(drop)
     };
     assert_eq!(
         reader("dictionary\"; DROP USER app; --", RowPredicate::None),
@@ -72,7 +92,15 @@ fn a_primary_key_flag_is_evidence_only_as_zero_or_one() {
 #[test]
 fn the_reader_binds_the_environment_and_the_equals_value_in_placeholder_order() {
     let reader = |predicate: RowPredicate| {
-        OracleReader::new(login(), "dictionary", String::from("prod"), predicate, None, None).expect("a valid reader")
+        OracleReader::new(
+            login().verified(String::from(ANCHORS)),
+            "dictionary",
+            String::from("prod"),
+            predicate,
+            None,
+            None,
+        )
+        .expect("a valid reader")
     };
     assert_eq!(reader(equals("state")).binds(), ["prod", "live'; DROP TABLE t; --"]);
     assert_eq!(reader(RowPredicate::IsNotNull(String::from("state"))).binds(), ["prod"]);
@@ -91,7 +119,15 @@ fn cap(value: u64) -> NonZeroU64 {
 #[test]
 fn the_oracle_reader_holds_the_declared_caps_or_the_documented_defaults() {
     let reader = |rows, bytes| {
-        OracleReader::new(login(), "dictionary", String::from("prod"), RowPredicate::None, rows, bytes).expect("a valid reader")
+        OracleReader::new(
+            login().verified(String::from(ANCHORS)),
+            "dictionary",
+            String::from("prod"),
+            RowPredicate::None,
+            rows,
+            bytes,
+        )
+        .expect("a valid reader")
     };
     assert_eq!(
         reader(Some(cap(500)), Some(cap(64_000))).bounds(),
@@ -224,28 +260,6 @@ fn the_oracle_assembly_stops_at_the_first_row_the_driver_fails() {
     assert_eq!(pulled.get(), 2, "the cursor is abandoned at the refused row");
 }
 
-/// A listener that answers the login with a redirect is refused, typed, and the address it named is
-/// never dialled - so no login reaches it.
-#[test]
-fn the_oracle_reader_refuses_a_listener_redirect_before_authentication() {
-    let listener = sutura_dev::tns_listener::RedirectingListener::start().expect("the fake listener binds");
-    let login = OracleLogin::new(
-        String::from("127.0.0.1"),
-        listener.port(),
-        String::from("FREEPDB1"),
-        String::from("reader"),
-        Secret::new("a-test-password"),
-    );
-    let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
-        .expect("a valid reader config");
-    let error = reader.read_dictionary().expect_err("a redirecting listener is refused");
-    assert!(matches!(error, RdbmsError::RedirectRefused), "{error:?}");
-    assert!(
-        !listener.target_was_dialled(std::time::Duration::from_secs(2)),
-        "the address the redirect named was dialled"
-    );
-}
-
 /// **With the driver's packet trace switched on, a dictionary read is refused.** The cell runs
 /// itself again in a child process with the trace switched on. There it reads through a login on a
 /// loopback port nothing listens on, so a read that dialled would fail as a refused connection
@@ -263,7 +277,8 @@ fn with_the_packet_trace_switched_on_a_dictionary_read_is_refused() {
             String::from("FREEPDB1"),
             String::from("reader"),
             Secret::new("a-test-password"),
-        );
+        )
+        .verified(String::from(ANCHORS));
         let reader = OracleReader::new(login, "dictionary", String::from("prod"), RowPredicate::None, None, None)
             .expect("a valid reader config");
         let refused = reader

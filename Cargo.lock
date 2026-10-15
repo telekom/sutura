@@ -3948,6 +3948,8 @@ dependencies = [
  "adbc_core",
  "arrow-array",
  "oracledb",
+ "rcgen",
+ "rustls",
  "sutura-adbc",
  "sutura-adbc-postgres",
  "sutura-dev",

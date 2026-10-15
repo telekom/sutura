@@ -76,6 +76,35 @@ mod tests {
         )
     }
 
+    /// [`oracle_entry`] over `verified`, the only channel a build with the adapter parses.
+    #[cfg(feature = "oracle")]
+    fn verified_oracle_entry(alias: &str, posture: &str, extra: &str) -> String {
+        oracle_entry(alias, posture, extra).replace(
+            "transport_mode: \"plaintext\"",
+            "transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-test-oracle-ca.pem\"",
+        )
+    }
+
+    /// The TLS session a fake listener speaks TNS inside.
+    #[cfg(feature = "oracle")]
+    type Tls = rustls::StreamOwned<rustls::ServerConnection, std::net::TcpStream>;
+
+    /// Writes a self-signed `127.0.0.1` leaf to `anchors` and returns the opener that presents it on
+    /// a connection a fake listener accepted, so the fake speaks TNS inside TLS those anchors verify.
+    #[cfg(feature = "oracle")]
+    fn tls_fake(anchors: &std::path::Path) -> impl FnOnce(std::net::TcpStream) -> Option<Tls> + Send + 'static {
+        let issued = sutura_http_client::tls_test_support::issue();
+        std::fs::write(anchors, issued.certificate().pem()).expect("the anchors file writes");
+        let config = sutura_http_client::tls_test_support::server_config(&issued);
+        move |mut stream| {
+            let mut server = rustls::ServerConnection::new(config).ok()?;
+            while server.is_handshaking() {
+                let _io = server.complete_io(&mut stream).ok()?;
+            }
+            Some(rustls::StreamOwned::new(server, stream))
+        }
+    }
+
     /// **Refused at startup and naming the source and the feature, not skipped**: a default build
     /// links no Oracle adapter. Compiled by `cargo xtask check-default-features` and RUN by
     /// `cargo xtask check-default-feature-tests`; `--all-features` makes this cfg false.
@@ -105,7 +134,7 @@ mod tests {
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(&oracle_entry("warehouse", "shared-service-user", "")),
+                &registry(&verified_oracle_entry("warehouse", "shared-service-user", "")),
                 one_worker(),
                 default_timeout(),
                 None,
@@ -149,7 +178,7 @@ mod tests {
         let both = format!(
             "{}{}",
             entry(ENGINE_SOURCE, "shared-service-user", ""),
-            oracle_entry("warehouse", "shared-service-user", "")
+            verified_oracle_entry("warehouse", "shared-service-user", "")
         );
         let error = refusal(
             open_engine(
@@ -175,17 +204,20 @@ mod tests {
     #[test]
     #[cfg(feature = "oracle")]
     fn a_listener_redirect_to_an_address_nobody_declared_is_refused() {
-        let listener = sutura_dev::tns_listener::RedirectingListener::start().expect("the fake listener binds");
         let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-redirect-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
         let password = directory.join("password");
         std::fs::write(&password, "not-a-real-password").expect("the password file writes");
+        let anchors = directory.join("ca.pem");
+        let listener =
+            sutura_dev::tns_listener::RedirectingListener::start_over(tls_fake(&anchors)).expect("the fake listener binds");
         let entry = format!(
             "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {}\n    \
              service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
-             transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
+             transport_mode: \"verified\"\n    transport_anchors: \"{}\"\n    posture: \"shared-service-user\"\n",
             listener.port(),
-            password.display()
+            password.display(),
+            anchors.display()
         );
         let opened = open_engine(
             &bundle_over(&[("customers", "warehouse", "dim_customer")]),
@@ -210,16 +242,19 @@ mod tests {
     #[test]
     #[cfg(feature = "oracle")]
     fn a_malformed_authentication_response_refuses_the_oracle_source() {
-        let port = sutura_dev::tns_listener::authenticating(&[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
         let directory = std::env::temp_dir().join(format!("sutura-cli-oracle-auth-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
         let password = directory.join("password");
         std::fs::write(&password, "not-a-real-password").expect("the password file writes");
+        let anchors = directory.join("ca.pem");
+        let (port, _sent) = sutura_dev::tns_listener::authenticating_over(tls_fake(&anchors), &[("AUTH_SESSKEY", "00")])
+            .expect("the fake listener binds");
         let entry = format!(
             "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
              service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
-             transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
-            password.display()
+             transport_mode: \"verified\"\n    transport_anchors: \"{}\"\n    posture: \"shared-service-user\"\n",
+            password.display(),
+            anchors.display()
         );
         let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             open_engine(
@@ -237,9 +272,9 @@ mod tests {
     }
 
     /// **A `verified` source opens TLS before the listener reads a TNS packet.** The fake answers
-    /// a CONNECT with packet type 3, which the driver refuses by name. A `plaintext` source reaches
-    /// that refusal; a `verified` one does not, because its first bytes are a TLS handshake that the
-    /// fake cannot answer.
+    /// a CONNECT with packet type 3, which the driver refuses by name over a plaintext dial; a
+    /// `verified` source does not reach that refusal, because its first bytes are a TLS handshake
+    /// that the fake cannot answer.
     #[test]
     #[cfg(feature = "oracle")]
     fn a_verified_oracle_source_opens_tls_before_any_tns_packet() {
@@ -252,30 +287,23 @@ mod tests {
         let key = rcgen::KeyPair::generate().expect("a key pair generates");
         let certificate = params.self_signed(&key).expect("a self-signed certificate signs");
         std::fs::write(&anchors, certificate.pem()).expect("the anchors file writes");
-        let refused_over = |transport: &str| {
-            let port = sutura_dev::tns_listener::answering(3, Vec::new()).expect("the fake listener binds");
-            let entry = format!(
-                "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
-                 service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
-                 {transport}\n    posture: \"shared-service-user\"\n",
-                password.display()
-            );
-            let opened = open_engine(
-                &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-                &registry(&entry),
-                one_worker(),
-                default_timeout(),
-                None,
-            );
-            refusal(opened, "the fake answers no driver")
-        };
-        let plaintext = refused_over("transport_mode: \"plaintext\"");
-        let verified = refused_over(&format!(
-            "transport_mode: \"verified\"\n    transport_anchors: \"{}\"",
+        let port = sutura_dev::tns_listener::answering(3, Vec::new()).expect("the fake listener binds");
+        let entry = format!(
+            "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
+             service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"{}\"\n    posture: \"shared-service-user\"\n",
+            password.display(),
             anchors.display()
-        ));
+        );
+        let opened = open_engine(
+            &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+            &registry(&entry),
+            one_worker(),
+            default_timeout(),
+            None,
+        );
         let _ignored = std::fs::remove_dir_all(&directory);
-        assert!(plaintext.contains("unknown packet type 3"), "{plaintext}");
+        let verified = refusal(opened, "the fake answers no driver");
         assert!(!verified.contains("unknown packet type 3"), "{verified}");
     }
 

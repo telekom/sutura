@@ -845,8 +845,10 @@ dev-up-openmetadata:
 
 # Off by default because it is a full database server and nothing here reads it in `just validate` -
 # `compose.services.yaml`'s own `oracle` row says why there is no nix-native tier to converge to.
-# The same, plus Oracle Database - `github.com/telekom/sutura#127`.
+# The same, plus Oracle Database - `github.com/telekom/sutura#127` - serving TCPS over the wallet
+# `nix/oracle-tier-tls.sh` writes first (#1425).
 dev-up-oracle:
+    bash nix/oracle-tier-tls.sh
     cargo run -q -p xtask -- dev-up --with oracle
 
 # Off by default for `dev-up-oracle`'s reason: one adapter reads it. The model is
@@ -889,6 +891,7 @@ oracle-acceptance:
     echo "oracle-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     just dev-up-oracle
     export SUTURA_DEV_REQUIRE_TIER=1
+    export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
     export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
     export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-sutura}"
     cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'

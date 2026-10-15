@@ -562,10 +562,9 @@ impl OracleCatalogConnection {
         let channel = OracleChannel::declared(&host, transport).map_err(|refused| match refused {
             NoOracleChannel::Undeliverable(mode) => InvalidConnection::TlsNotDeliverable { mode },
             NoOracleChannel::ServerName(cause) => InvalidConnection::TlsServerName { cause },
+            NoOracleChannel::Plaintext => InvalidConnection::OraclePlaintext,
         })?;
-        let OracleChannel::Verified { anchors, server_name } = channel else {
-            return Err(InvalidConnection::OraclePlaintext);
-        };
+        let (anchors, server_name) = channel.into_parts();
         Ok(Self {
             host,
             port,

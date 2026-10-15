@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -146,7 +146,7 @@
+     fn binds(&self) -> Vec<&str> {
+         let mut binds = vec![self.environment.as_str()];
+         if let RowPredicate::Equals { value, .. } = &self.predicate {
+-            binds.push(value);
++            binds.insert(0, value);
+         }
+         binds
+     }

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-oracle-connect/src/lib.rs b/crates/sutura-oracle-connect/src/lib.rs
+--- a/crates/sutura-oracle-connect/src/lib.rs
++++ b/crates/sutura-oracle-connect/src/lib.rs
+@@ -142,7 +142,7 @@
+         let config = oracledb::Config::default()
+             .set_connect_string(&connect_string)
+             .map_err(PrepareError::Address)?
+-            .set_follow_redirects(false)
++            .set_follow_redirects(true)
+             .set_transport_connect_timeout(Some(self.deadline));
+         match self.channel {
+             Channel::Plaintext => Ok(PreparedDial(config)),
