@@ -1784,16 +1784,6 @@ it is a fixed literal here rather than derived from the variant name: a `Debug` 
 rename a client's tool the day somebody renamed a variant.
 
 ```rust
-pub fn not_enabled_message(self) -> String
-```
-
-The sentence every transport refuses this capability with when the deployment left it off:
-its id and the switch `tools.<id>.enabled`, never its scope, which would not help.
-
-One function so `/v1` and the agent surface cannot drift apart. Only `Capability::RunSql`
-has such a switch today; for the others the sentence names a key that does not exist.
-
-```rust
 pub const fn scope(self) -> &'static str
 ```
 

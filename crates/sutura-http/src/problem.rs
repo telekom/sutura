@@ -188,9 +188,8 @@ pub enum Failure {
     /// BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
     /// is the reason a caller with every scope this surface issues still cannot reach the route.
     ///
-    /// The sentence is [`sutura_app::Capability::not_enabled_message`], the one the agent surface
-    /// answers with too.
-    ToolNotEnabled { capability: sutura_app::Capability },
+    /// `capability` is the capability's id, and the switch the sentence names is `tools.<id>.enabled`.
+    ToolNotEnabled { capability: &'static str },
     /// The request's `Host` is not one this deployment answers.
     ///
     /// **`403`, and no `Host` echoed back**: the value is the caller's own text and the list it was
@@ -323,7 +322,12 @@ impl Failure {
             }
             // Named for what it is: obtaining a scope will not help here, and saying
             // `insufficient_scope` would send a caller looking for a grant that does not exist.
-            Self::ToolNotEnabled { capability } => capability.not_enabled_message(),
+            Self::ToolNotEnabled { capability } => {
+                format!(
+                    "`{capability}` is not enabled on this deployment. The operator turns it on with \
+                     `tools.{capability}.enabled`."
+                )
+            }
             Self::HostNotAllowed => String::from("this deployment does not answer this Host"),
             Self::NotAQuestion { ref detail } => detail.to_string(),
             Self::TooLarge => String::from("the body is larger than this service will read"),
@@ -428,7 +432,7 @@ mod tests {
                 required: "sutura:metrics.ask",
             },
             Failure::ToolNotEnabled {
-                capability: sutura_app::Capability::RunSql,
+                capability: "sutura:sql.run",
             },
             Failure::HostNotAllowed,
             Failure::NotAQuestion {
@@ -482,7 +486,7 @@ mod tests {
                 required: "sutura:metrics.ask",
             },
             Failure::ToolNotEnabled {
-                capability: sutura_app::Capability::RunSql,
+                capability: "sutura:sql.run",
             },
             Failure::HostNotAllowed,
             Failure::TooLarge,
@@ -540,7 +544,7 @@ mod tests {
     #[test]
     fn a_deployment_switch_being_off_is_not_reported_as_a_missing_scope() {
         let off = Failure::ToolNotEnabled {
-            capability: sutura_app::Capability::RunSql,
+            capability: sutura_app::Capability::RunSql.id(),
         };
         assert_eq!(
             off.status(),
@@ -549,7 +553,8 @@ mod tests {
         );
         assert_ne!(off.code(), Failure::InsufficientScope { required: "x" }.code());
         assert_eq!(off.code(), "tool_not_enabled");
-        // The id and the switch, never the scope: nothing here reads as "go get a scope".
+        // The id and the switch, never the scope: nothing here reads as "go get a scope". The same
+        // sentence as `/mcp` and stdio answer with, which `sutura-mcp`'s `not_enabled` writes itself.
         assert_eq!(
             off.detail(),
             "`run_sql` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`."
