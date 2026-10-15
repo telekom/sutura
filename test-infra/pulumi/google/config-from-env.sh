@@ -71,7 +71,6 @@ declare -a REQUIRED=(
   "WORKLOAD_POOL_ID:workload_pool_id"
   "WORKLOAD_PROVIDER_ID:workload_provider_id"
   "WORKLOAD_ISSUER_URI:workload_issuer_uri"
-  "WORKLOAD_ALLOWED_AUDIENCES:workload_allowed_audiences"
 )
 
 for pair in "${REQUIRED[@]}"; do

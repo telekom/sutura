@@ -52,6 +52,15 @@
 //! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
 //! two principals' grants.
 //!
+//! **The delegation hop is in front of the pool, as a `direct` deployment requires by default.** Each
+//! subject's question starts from an inbound token minted for this deployment's audience, and a
+//! [`DelegationExchange`](sutura_domain::identity::DelegationExchange) fake stands where the
+//! identity provider's exchange stands: it answers the token the job minted for the same subject
+//! with the pool's audience. The pool still verifies a Google-issued token, so the fake signs
+//! nothing. A third cell presents the inbound token with no hop and expects the pool to refuse it,
+//! which holds the pool provider to the pool's audience only. **The limit:** the fake is not an
+//! identity provider, so this venue does not observe a real RFC 8693 exchange.
+//!
 //! **What it asserts: two subjects, two principals, neither the deployment's.** The credential
 //! document names no second hop, so `SESSION_USER()` is each subject's own federated principal.
 //! Its exact spelling is Google's, so the cell compares the two answers with each other and with
@@ -68,7 +77,11 @@ mod declared_principal {
     mod support;
 
     use self::support::live_env;
-    use sutura_domain::identity::{Presented, Secret};
+    use std::sync::Arc;
+
+    use sutura_domain::identity::{
+        Delegated, Delegation, DelegationExchange, DelegationFailed, Presented, RequestedAudience, Secret,
+    };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
@@ -119,6 +132,59 @@ mod declared_principal {
     /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
     /// document, and the transport puts it behind a workload-identity credential document for the
     /// driver to federate.
+    /// The identity provider's half of the delegation hop, behind its port: it takes the caller's
+    /// inbound token and answers the token the job minted for that same subject with the pool's
+    /// audience. It refuses an audience other than the pool's and an inbound token it was not given.
+    #[derive(Debug)]
+    struct PoolHop {
+        pool: String,
+        issued: Vec<(String, String)>,
+    }
+
+    impl DelegationExchange for PoolHop {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the fake identity provider matches the inbound token it was handed against the ones the job minted"
+        )]
+        fn exchange(&self, subject: &Secret, audience: &RequestedAudience) -> Result<Delegated, DelegationFailed> {
+            if audience.as_str() != self.pool {
+                return Err(DelegationFailed::WrongAudience);
+            }
+            self.issued
+                .iter()
+                .find(|issued| issued.0 == subject.expose_secret())
+                .map(|issued| Delegated::new(Secret::new(issued.1.as_str()), u64::MAX))
+                .ok_or(DelegationFailed::Malformed {
+                    what: "an inbound token this hop was not given",
+                })
+        }
+    }
+
+    /// Each subject's inbound token, exchanged through [`PoolHop`] as `sutura serve` exchanges a
+    /// `direct` caller's, then asked who it runs as.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the exchanged token is handed on as the subject token, as the broker presents it"
+    )]
+    fn executed_through_the_hop(inbound: &str) -> String {
+        let pool = live_env("SUTURA_BQ_AUDIENCE");
+        let hop = PoolHop {
+            pool: pool.clone(),
+            issued: vec![
+                (live_env("SUTURA_BQ_INBOUND_A"), live_env("SUTURA_BQ_ASSERTION_A")),
+                (live_env("SUTURA_BQ_INBOUND_B"), live_env("SUTURA_BQ_ASSERTION_B")),
+            ],
+        };
+        let delegation = Delegation::through(
+            Arc::new(hop),
+            RequestedAudience::parse(&pool).expect("the pool audience is a requestable audience"),
+        );
+        let exchanged = delegation
+            .exchange(&Secret::new(inbound))
+            .expect("the hop answers each subject's inbound token");
+        executed_as(exchanged.into_token().expose_secret())
+    }
+
     fn executed_as(assertion: &str) -> String {
         let warehouse = opened();
         let presented = Presented::SubjectToken {
@@ -138,15 +204,15 @@ mod declared_principal {
         // **THE leg-2 bar**: two distinct subjects resolve to two distinct BigQuery principals,
         // observed at the data system rather than at a seam. The first `assert_ne!` refuses a
         // MISCONFIGURED venue (one assertion presented twice) with a message naming it.
-        let first_assertion = live_env("SUTURA_BQ_ASSERTION_A");
-        let second_assertion = live_env("SUTURA_BQ_ASSERTION_B");
+        let first_inbound = live_env("SUTURA_BQ_INBOUND_A");
+        let second_inbound = live_env("SUTURA_BQ_INBOUND_B");
         assert_ne!(
-            first_assertion, second_assertion,
-            "one assertion presented twice is one subject, and proves nothing about two"
+            first_inbound, second_inbound,
+            "one inbound token presented twice is one subject, and proves nothing about two"
         );
         assert_ne!(
-            executed_as(&first_assertion),
-            executed_as(&second_assertion),
+            executed_through_the_hop(&first_inbound),
+            executed_through_the_hop(&second_inbound),
             "both subjects resolved to one principal, which is the shared-identity outcome wearing leg 2's name"
         );
     }
@@ -193,6 +259,19 @@ mod declared_principal {
     /// with every variable set to a fake and `GITHUB_ACTIONS` absent, and must stop at the first read with
     /// the rule's message. **The limit:** the fakes name nothing, so without the guard the child runs on
     /// to a failure of its own, and it is the rule's message that is then absent.
+    #[test]
+    #[ignore = "needs a real BigQuery project, the driver .so, and an inbound token minted for another audience"]
+    fn an_inbound_token_presented_without_the_hop_is_refused_at_the_pool() {
+        let warehouse = opened();
+        let presented = Presented::SubjectToken {
+            material: Secret::new(live_env("SUTURA_BQ_INBOUND_A")),
+        };
+        assert!(
+            warehouse.session_user(&presented).is_err(),
+            "the pool accepted a token minted for this deployment's audience, so its provider accepts more than the pool's own"
+        );
+    }
+
     #[test]
     fn a_declared_principal_cell_is_refused_outside_ci() {
         let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))

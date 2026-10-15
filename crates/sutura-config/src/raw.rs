@@ -135,6 +135,11 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
+    /// The acknowledgement that lets a `direct` deployment present this source's caller's inbound
+    /// token to the pool with no delegation hop - see
+    /// `crate::sources::workload_identity::InboundTokenAtPool`.
+    #[serde(default)]
+    pub(crate) inbound_token_at_pool: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]

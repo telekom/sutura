@@ -195,9 +195,11 @@ binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d c
 `e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`), which skips the merge queue, forks and
 Dependabot. They read what the IdP was offered, what the surface answered and which Google token
 host the driver dialled through a refusing proxy - never the token it carried, so a source handed
-the caller's own token instead of the exchanged one is held in-process only. And nothing requires a
-`direct` BigQuery source to declare one: without it the inbound token is presented. Oracle
-requires its delegation declaration.
+the caller's own token instead of the exchanged one is held in-process only. A `direct`
+`workload_identity` source without one does not boot unless it writes
+`inbound_token_at_pool: accepted` (`NotFitToServe::InboundTokenAtPoolUnacknowledged`); with that,
+the inbound token is presented and each boot logs one `WARN`. The check reads configuration, never
+which audiences the pool's provider accepts. Oracle requires its delegation declaration.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
