@@ -1,0 +1,127 @@
+# Open one issue per vendored BigQuery driver patch once an upstream release makes it droppable.
+#
+# `VENDOR.md` records two patches on the driver sutura builds from source, and each has its own
+# exit: `nix/bigquery-adbc-forbidden.patch` goes when a `go/v*` release contains the upstream
+# merge commit of its fix, and `nix/bigquery-adbc-caller-credentials.patch` goes when a release
+# carries both option names it adds. Nothing else would tell anyone: the pin only moves when a human
+# moves it. This workflow is that tell, and it never gates a merge. The two checks are independent;
+# neither waits for the other.
+#
+# An issue title is the dedupe key and is searched across closed issues too, so a closed one is not
+# opened twice. A patch that is no longer in the tree is not checked.
+#
+# Limits: containing a merge commit says the fix is in the release, not that it behaves as the
+# patch does, and the option check is a literal string match on non-test Go source, so it reads that
+# both names exist upstream and nothing more. The first step of each issue is to compare them.
+name: watch-upstream-bigquery-driver
+
+on:
+  schedule:
+    # Off the hour, so the run does not queue behind everyone else's.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: watch-upstream-bigquery-driver
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Open an issue for each patch an upstream release lets go
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          UPSTREAM: adbc-drivers/bigquery
+          # Upstream merge commit of the fix `nix/bigquery-adbc-forbidden.patch` carries (#331).
+          FORBIDDEN_MERGE_SHA: 5d378cbf22
+          # Upstream merge commit that adds the two options; empty until such a PR merges.
+          CREDENTIALS_MERGE_SHA: ""
+        run: |
+          set -euo pipefail
+
+          # A failed listing aborts the run: an empty answer must not read as "no release".
+          latest="$(gh release list --repo "$UPSTREAM" --limit 100 \
+            --json tagName,isPrerelease,isDraft \
+            --jq '.[] | select(.isPrerelease or .isDraft | not) | .tagName | select(startswith("go/v"))' \
+            | sort -V | tail -n 1)"
+          test -n "$latest"
+          echo "latest upstream release: $latest"
+
+          compare_status() { gh api "repos/${UPSTREAM}/compare/${1}...${latest}" --jq .status; }
+
+          open_once() {
+            local title="$1" body="$2" existing
+            existing="$(gh issue list --repo "$REPO" --state all --limit 100 --search "\"$title\" in:title" \
+              --json title | jq --arg t "$title" '[.[] | select(.title == $t)] | length')"
+            if [ "$existing" != "0" ]; then
+              echo "an issue titled '$title' already exists; nothing to do"
+              return 0
+            fi
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          }
+
+          forbidden=nix/bigquery-adbc-forbidden.patch
+          if [ ! -e "$forbidden" ]; then
+            echo "$forbidden is gone; nothing to check"
+          else
+            status="$(compare_status "$FORBIDDEN_MERGE_SHA")"
+            if [ "$status" = ahead ] || [ "$status" = identical ]; then
+              open_once "Drop $forbidden: upstream $latest has #331" \
+                "Upstream release \`$latest\` contains \`$FORBIDDEN_MERGE_SHA\`, which maps the 403 reasons \`$forbidden\` maps.
+
+          1. Compare the upstream mapping with the patch: \`accessDenied\`, \`billingNotEnabled\` and \`blocked\` must read as \`Unauthorized\`, a rate or quota 403 as \`Internal\`.
+          2. Set the tag of the flake input \`bigquery-adbc-src\` in \`flake.nix\` to \`$latest\`, lock only that input, and refresh the \`vendorHash\` in \`nix/bigquery-adbc-drivers.nix\`.
+          3. Delete \`$forbidden\` and its use in \`nix/bigquery-adbc-drivers.nix\`.
+          4. Update the BigQuery section of \`VENDOR.md\`: the pin and the patch list.
+          5. Run \`just validate\`."
+            else
+              echo "$latest does not contain $FORBIDDEN_MERGE_SHA (compare: $status); nothing to do"
+            fi
+          fi
+
+          credentials=nix/bigquery-adbc-caller-credentials.patch
+          if [ ! -e "$credentials" ]; then
+            echo "$credentials is gone; nothing to check"
+          else
+            have=no
+            if [ -n "$CREDENTIALS_MERGE_SHA" ]; then
+              status="$(compare_status "$CREDENTIALS_MERGE_SHA")"
+              if [ "$status" = ahead ] || [ "$status" = identical ]; then have=yes; fi
+            fi
+            if [ "$have" = no ]; then
+              src="$(mktemp -d)"
+              gh api "repos/${UPSTREAM}/tarball/${latest}" > "$src/release.tar.gz"
+              tar -xzf "$src/release.tar.gz" -C "$src" --strip-components=1
+              have=yes
+              for option in bigquery.auth.access_token bigquery.impersonate.subject; do
+                if ! grep -rqF --include='*.go' --exclude='*_test.go' -- "\"$option\"" "$src/go"; then
+                  have=no
+                fi
+              done
+            fi
+            if [ "$have" = yes ]; then
+              open_once "Drop $credentials: upstream $latest has both options" \
+                "Upstream release \`$latest\` carries both \`bigquery.auth.access_token\` and \`bigquery.impersonate.subject\`.
+
+          1. Compare the two upstream options with \`$credentials\`: the refusals \`VENDOR.md\` lists must hold upstream too, or stay as a smaller patch.
+          2. Set the tag of the flake input \`bigquery-adbc-src\` in \`flake.nix\` to \`$latest\`, lock only that input, and refresh the \`vendorHash\` in \`nix/bigquery-adbc-drivers.nix\`.
+          3. Delete \`$credentials\` and its use in \`nix/bigquery-adbc-drivers.nix\`.
+          4. Update the BigQuery section of \`VENDOR.md\`: the pin and the patch list.
+          5. Run \`just validate\`."
+            else
+              echo "$latest does not carry both options; nothing to do"
+            fi
+          fi

@@ -97,8 +97,9 @@ Five source-level adaptations, recorded here so nothing is silent:
   `Internal`. `patch` fails the build when a driver bump moves the patched lines. The patch also
   adds `forbidden_test.go`, which the build's check phase runs, so a changed reason table fails the
   build on a host that can run its target; a cross build that cannot skips it. Upstream issue:
-  [`adbc-drivers/bigquery#329`](https://github.com/adbc-drivers/bigquery/issues/329). Drop it
-  when upstream maps the same reasons.
+  [`adbc-drivers/bigquery#329`](https://github.com/adbc-drivers/bigquery/issues/329), fixed by the
+  merged upstream pull request #331. Drop it when a `go/v*` release contains that merge commit;
+  `.github/workflows/watch-upstream-bigquery-driver.yml` opens an issue weekly once one does.
 - **Two options for a caller's own Google credential.** `nix/bigquery-adbc-caller-credentials.patch`
   adds the `bigquery.auth_type` value `access_token` with `bigquery.auth.access_token`, a bare OAuth
   2.0 access token the driver sends as it is and never refreshes, and `bigquery.impersonate.subject`,
@@ -112,7 +113,8 @@ Five source-level adaptations, recorded here so nothing is silent:
   Nothing in sutura sets these options yet.
   Upstream issue:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
-  upstream ships both options.
+  an upstream release carries both options; `.github/workflows/watch-upstream-bigquery-driver.yml`
+  opens an issue weekly once one does.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
