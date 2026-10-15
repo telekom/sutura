@@ -439,7 +439,6 @@ mod tests {
             ),
             ("user@example.com", InvalidDelegatingAccount::Shape),
             ("dwd@iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
-            ("dwd@acme-analytics", InvalidDelegatingAccount::Shape),
             ("dwd@.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
             ("@acme-analytics.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),
             ("a@b@acme-analytics.iam.gserviceaccount.com", InvalidDelegatingAccount::Shape),

@@ -468,6 +468,25 @@ fn a_domain_delegation_source_boots_on_a_direct_deployment() {
 }
 
 #[test]
+fn a_delegating_account_without_the_service_account_domain_is_refused_at_boot() {
+    let delegation = "    domain_delegation:\n      delegating_account: \"dwd@acme-analytics\"\n";
+    let error = Settings::load(&on_direct_inbound(delegation)).expect_err("a bare project is not a service account");
+    let SettingsError::Sources { ref cause } = *error.reason() else {
+        panic!("expected a sources refusal, got {error:?}");
+    };
+    assert!(
+        matches!(
+            *cause,
+            crate::sources::InvalidSourceRegistry::DomainDelegation {
+                cause: crate::sources::caller_identity::InvalidDelegatingAccount::Shape,
+                ..
+            }
+        ),
+        "{cause:?}"
+    );
+}
+
+#[test]
 fn a_delegation_written_as_one_mapping_is_refused_at_load() {
     // `delegation` is a list of hops, and a single mapping is not read as a one-hop list.
     let mapping = Sources::defaults(Environment::Development).with_overlay(format!(
