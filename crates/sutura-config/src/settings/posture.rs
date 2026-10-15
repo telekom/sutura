@@ -220,7 +220,7 @@ pub enum NotFitToServe {
     /// would load keys that nothing reads.
     #[error(
         "`sources.{alias}.{block}` is a caller-identity mode this build does not run yet - declare \
-         `workload_identity` instead, or remove the source"
+         `workload_identity` or `google_login` instead, or remove the source"
     )]
     CallerIdentityModeNotBuilt {
         alias: SourceName,
