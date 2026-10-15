@@ -89,6 +89,28 @@ Those three plus secure-by-design are the definition of *correct* in review here
   `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before
   building any other repo; a red run there is unexplained until you have.
 
+## Code review and verification rules
+
+- A new guard, branch or refusal needs a test cell in the same diff that fails without it.
+- Every claim in a PR body or commit names the cell that proves it, or moves to a Limits section.
+- After a behaviour change, fix stale text everywhere, including outside the diff.
+- A comment is never stronger than what the code and cells prove.
+- A value stated in docs (deadline, interval, cap) is pinned by a cell asserting that exact number.
+- Timing cells are bound by real work or a set budget, with one number used everywhere.
+- A new refusal code or status gets a row in the serving and configuration docs.
+- A 'gate X holds Y' sentence matches what gate X actually reads.
+- Dropping &mut self or a lock means no check-then-act; make compare and write one step.
+- No work whose result is thrown away, like sorting into a set.
+- Echo and error text matches what the cell asserts.
+- Don't call something verified unless a cell ran it.
+- A newtype seal covers every constructor.
+- A test name never promises more than it asserts.
+- Assert on types, not Debug output.
+- No roadmap text on published pages.
+- No hand-written counts; derive them or drop them.
+- Amending an ADR updates its amendment list.
+- No clone or Arc just to escape the borrow checker.
+
 ## Working here
 
 Read the source, run the tests, check the pinned versions - prompt text, task notes and memory are
