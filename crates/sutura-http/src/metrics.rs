@@ -383,7 +383,7 @@ mod tests {
                 required: "catalog.read",
             },
             Failure::ToolNotEnabled {
-                capability: "sutura:sql.run",
+                capability: sutura_app::Capability::RunSql,
             },
             Failure::HostNotAllowed,
             Failure::NotAQuestion {

@@ -600,17 +600,13 @@ fn not_granted(capability: Capability) -> ErrorData {
 
 /// `run_sql` when this DEPLOYMENT left it off, as a JSON-RPC error naming the switch - distinct from
 /// [`not_granted`], whose scope would not help a caller here. The same code, for the reason
-/// [`not_granted`] gives. A second switchable tool writes its own sentence.
+/// [`not_granted`] gives. The sentence is the one `/v1` answers with.
 fn not_enabled() -> ErrorData {
     tracing::warn!(
         tool = "run_sql",
         "a tool call was refused: this deployment has not enabled this tool"
     );
-    ErrorData::new(
-        ErrorCode::METHOD_NOT_FOUND,
-        "`run_sql` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`.",
-        None,
-    )
+    ErrorData::new(ErrorCode::METHOD_NOT_FOUND, Capability::RunSql.not_enabled_message(), None)
 }
 
 /// The catalog tool's arguments: an object with nothing in it.

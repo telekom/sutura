@@ -148,6 +148,17 @@ impl Capability {
             Self::RunSql => "sutura:sql.run",
         }
     }
+
+    /// The sentence every transport refuses this capability with when the deployment left it off:
+    /// its id and the switch `tools.<id>.enabled`, never its scope, which would not help.
+    ///
+    /// One function so `/v1` and the agent surface cannot drift apart. Only [`Capability::RunSql`]
+    /// has such a switch today; for the others the sentence names a key that does not exist.
+    #[must_use]
+    pub fn not_enabled_message(self) -> String {
+        let id = self.id();
+        format!("`{id}` is not enabled on this deployment. The operator turns it on with `tools.{id}.enabled`.")
+    }
 }
 
 /// What one caller may do on this surface.

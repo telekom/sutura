@@ -3111,7 +3111,8 @@ come from the variant, so two handlers cannot answer the same situation with dif
   BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
   is the reason a caller with every scope this surface issues still cannot reach the route.
 
-  `capability` is the capability's id, and the switch the sentence names is `tools.<id>.enabled`.
+  The sentence is `sutura_app::Capability::not_enabled_message`, the one the agent surface
+  answers with too.
 - `HostNotAllowed` - The request's `Host` is not one this deployment answers.
 
   **`403`, and no `Host` echoed back**: the value is the caller's own text and the list it was

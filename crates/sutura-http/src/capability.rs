@@ -317,10 +317,7 @@ fn refused_tool_not_enabled(capability: Capability) -> Response {
         capability = capability.id(),
         "refused: this deployment has not enabled this capability"
     );
-    Failure::ToolNotEnabled {
-        capability: capability.id(),
-    }
-    .into_response()
+    Failure::ToolNotEnabled { capability }.into_response()
 }
 
 #[cfg(test)]
