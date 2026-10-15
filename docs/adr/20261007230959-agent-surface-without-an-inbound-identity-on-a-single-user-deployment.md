@@ -82,9 +82,8 @@ whatever `ServiceState::with_agent_surface` attached, and no type ties that moun
   (`run_sql` only while `tools.run_sql.enabled` is on). No scope narrows the
   tool list, because there is no verified caller to read a scope from. That is `/v1`'s posture on
   the same deployment.
-- **`/v1` is unchanged.** A deployment with no `security.inbound` and an impersonating source still
-  starts, and `/v1` answers each question `credential_unavailable`. (3) is scoped to `/mcp`, the
-  surface this record opens.
+- **`/v1` is unchanged by this record.** (3) is scoped to `/mcp`, the surface this record opens; the
+  third amendment below holds `/v1` to leg 1 too.
 - The refusals read the configuration, not the command, so `sutura mcp` over stdio reading a file
   that sets `server.agent_surface.enabled` is refused by them too, as by every other `NotFitToServe`.
 - (2) reads the configuration, not the traffic. The first amendment below sets what it counts as
@@ -158,3 +157,32 @@ Limits:
   it.
 - A loopback bind behind a declared proxy with no `security.tls_termination` starts: what sits in
   front of that proxy is the proxy's own configuration.
+
+## Third amendment, 2026-10-15: `/v1` is refused without an inbound identity at the serve root
+
+**Status of the amendment: accepted** (issue #1293). With no `security.inbound`, `/v1` answers every
+caller as the deployment, so `sutura serve` now refuses to start it unless `security.identity` is
+`single-user` with its reason, and refuses it over any source whose posture is
+`impersonation-at-source`, which has no verified caller to run as:
+
+| Refusal                                 | Refuses                                                                       |
+| --------------------------------------- | ----------------------------------------------------------------------------- |
+| `QuerySurfaceWithoutInboundIdentity`    | no `security.inbound` and a `security.identity` that is not `single-user`     |
+| `QuerySurfaceOverAnImpersonatingSource` | no `security.inbound` and a source with `impersonation-at-source`, per source |
+
+Both come from `Settings::query_surface_refusals`, asked where `sutura serve` starts `/v1` and not
+by `Settings::refusals`: no key mounts `/v1`, so every command that loads settings would be refused
+by it. A deployment with no `security.inbound` and an impersonating source therefore no longer
+starts, and `/v1` no longer answers `credential_unavailable` for it.
+
+| Cell                                                                                    | Shows                                                      |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `serve::tests::v1_with_no_inbound_identity_starts_only_on_a_single_user_deployment`     | no mode and `multi-user` are refused; `single-user` starts |
+| `serve::tests::v1_with_no_inbound_identity_does_not_start_over_an_impersonating_source` | the impersonating source is refused; a shared one starts   |
+
+Limits:
+
+- The rule is asked at the serve root only. `sutura_http::router` does not ask it, so a router built
+  in process with no inbound gate is not refused; the `/mcp` rule is asked by the router's
+  `agent_subtree`.
+- `single-user` is declared, not measured, as above.
