@@ -3800,7 +3800,7 @@ authenticates the deployment, and every question runs with the access of the dep
 <td><code>key_set_file</code></td>
 <td>path</td>
 <td>required</td>
-<td>A JWK set file with the public keys of the identity provider</td>
+<td>A JWK set, or one PEM public key or certificate, of the identity provider</td>
 </tr>
 <tr>
 <td><code>algorithms</code></td>
@@ -3868,7 +3868,7 @@ authenticates the deployment, and every question runs with the access of the dep
 <td><code>key_set_file</code></td>
 <td>path</td>
 <td>required</td>
-<td>A JWK set file with the public keys of the gateway</td>
+<td>A JWK set, or one PEM public key or certificate, of the gateway</td>
 </tr>
 <tr>
 <td><code>algorithms</code></td>
@@ -3905,9 +3905,14 @@ such a gateway, the subject is the application that the gateway's assertion name
 request, so keep its lifetime short.</p>
 <h2 id="the-key-set">The key set<a class="headerlink" href="#the-key-set" title="Permanent link">&para;</a></h2>
 <p>sutura reads <code>key_set_file</code> before it opens the listener, and it does not start if the file is not
-a usable JWK set. It reads the file again 60 seconds after its last read, and when a token names an
+a usable key set. It reads the file again 60 seconds after its last read, and when a token names an
 unknown <code>kid</code>, at most once every 30 seconds. To rotate keys, replace the file, and wait 60 seconds
 after the file holds the new key before the gateway signs with it.</p>
+<p>The file is a JWK set, or one PEM key: a single <code>PUBLIC KEY</code> block, or a certificate followed by its
+chain. A file that starts with <code>-----BEGIN</code> is read as PEM. Only the first certificate is a key,
+and its validity period is not checked. The key id of a PEM key is its RFC 7638 SHA-256 thumbprint,
+so a token must carry that thumbprint as its <code>kid</code>. A file with a private key, or with a second
+public key, does not load.</p>
 <h2 id="related-settings">Related settings<a class="headerlink" href="#related-settings" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

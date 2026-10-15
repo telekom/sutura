@@ -4874,6 +4874,9 @@ this file. A file is also a real deployment shape rather than a placeholder: a s
 rewrites a mounted key set is how a process with no egress gets rotation.</p>
 <p><strong>The honest cost of the file source:</strong> it does not honour a cache header, because a file has
 none. What bounds staleness is <code>MAX_KEY_SET_AGE</code> and nothing the issuer says.</p>
+<p>The document is a JWK set, or one PEM public key or certificate - the <code>tls.crt</code> cluster
+certificate tooling writes - named by its RFC 7638 thumbprint. <code>document</code> holds that parse; the
+source hands back bytes and knows neither format.</p>
 <h4 id="struct-keyid"><code>struct KeyId</code><a class="headerlink" href="#struct-keyid" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">KeyId</span>
 </span></code></pre></div>
@@ -4943,7 +4946,13 @@ id does not, and the two are different strings to whoever wrote them.</p>
   permitted-algorithm list whose family disagrees with that key, so a key set of RSA keys under
   <code>algorithms: ["ES256"]</code> cannot verify anything - and every request would be a <code>401</code> with
   nothing in the log connecting the two. <code>sutura_config::InvalidAlgorithms::MixedFamilies</code>
-  refuses the same shape from the configuration side; this is the half that reads the keys.</p>
+  refuses the same shape from the configuration side; this is the half that reads the keys.
+- <code>NotPem</code>
+- <code>PrivateKeyMaterial</code> - A private key block anywhere in the document, refused on its <code>BEGIN</code> label: never decoded.
+- <code>MoreThanOneKey</code>
+- <code>UnsupportedPemBlock</code>
+- <code>UnreadableCertificate</code>
+- <code>UnreadablePublicKey</code></p>
 <h5 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="struct-keyset"><code>struct KeySet</code><a class="headerlink" href="#struct-keyset" title="Permanent link">&para;</a></h4>
@@ -4975,7 +4984,7 @@ the kind it pinned.</p>
 <p>The ids, for a log line and for a test.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidKeySet</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Parses a JWK set document.</p>
+<p>Parses a key set document: a JWK set, or one PEM public key or certificate - see <code>document</code>.</p>
 <p><strong>Every refusal here is a refusal to start, not a key that gets skipped.</strong> A key set is
 operator-supplied configuration and a deployment that silently dropped half of it would
 authenticate an arbitrary subset of its callers - which reads exactly like an intermittent
