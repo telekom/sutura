@@ -36,9 +36,12 @@ this fails the render rather than shipping a Deployment that crash-loops on the 
 The credential is an access token or an inbound identity (`security.inbound.mode`), and `direct`
 refuses an access token beside it, as does `behind-gateway` with a `transit_header` of
 `authorization`. Both are read the way the binary layers the two files: the environment file over
-`base.yaml`, key by key. A `SUTURA__*` variable in `extraEnv` is not read. A header with a character
-outside ASCII letters, digits, `-` and `_`, or a configured token with surrounding whitespace, is
-refused first as the binary does, so the sharing compare below sees only what the binary folds.
+`base.yaml`, key by key, and a `null` there erases the key as it does in the binary. An `extraEnv` variable
+under `SUTURA__SECURITY__` is refused, because no guard here reads it. A `security.inbound` block, or
+`security.inbound.keySetSecretName`, with no mode, or a mode other than `direct` or `behind-gateway`, is refused as the binary
+does. A header with a character outside ASCII letters, digits, `-` and `_`, or a configured token with
+surrounding whitespace, is refused first as the binary does, so the sharing compare below sees only what the
+binary folds.
 
 With no inbound mode, `sutura serve` starts `/v1` only for a `single-user` deployment with no
 `impersonation-at-source` source (`Settings::query_surface_refusals`). Those two guards come last,
@@ -51,14 +54,32 @@ so a values file that breaks an earlier rule still fails at that rule.
 {{- if not (has .Values.environment (list "development" "test" "production")) -}}
 {{ fail (printf "environment is %q: it must be exactly one of development, test, production, spelled as sutura names them (SUTURA_ENVIRONMENT and the config.environment file)" (toString .Values.environment)) }}
 {{- end -}}
+{{- range .Values.extraEnv -}}
+{{- if hasPrefix "SUTURA__SECURITY__" (upper (toString .name)) -}}
+{{ fail (printf "extraEnv sets %s: no guard in this chart reads a SUTURA__SECURITY__ variable, so it could change the posture sutura starts with unseen - set it in config.environment, or with security.accessToken, security.metricsToken or security.inbound.keySetSecretName" .name) }}
+{{- end -}}
+{{- end -}}
 {{- $base := .Values.config.base | default dict -}}
 {{- $env := .Values.config.environment | default dict -}}
-{{- $mode := dig "security" "inbound" "mode" (dig "security" "inbound" "mode" "" $base) $env | default "" | toString | trim -}}
-{{- $transit := dig "security" "inbound" "transit_header" (dig "security" "inbound" "transit_header" "" $base) $env | default "" | toString | trim -}}
+{{- $securityEnv := dig "security" (dict) $env -}}
+{{- $envInbound := get $securityEnv "inbound" -}}
+{{- $inboundErased := and (hasKey $securityEnv "inbound") (not (kindIs "map" $envInbound)) -}}
+{{- $baseInbound := dig "security" "inbound" nil $base -}}
+{{- $inboundBlock := or .Values.security.inbound.keySetSecretName (kindIs "map" $envInbound) (and (kindIs "map" $baseInbound) (not $inboundErased)) -}}
+{{- $baseIn := ternary $baseInbound (dict) (and (kindIs "map" $baseInbound) (not $inboundErased)) -}}
+{{- $envIn := ternary $envInbound (dict) (kindIs "map" $envInbound) -}}
+{{- $mode := dig "mode" (get $baseIn "mode") $envIn | default "" | toString | trim -}}
+{{- $transit := dig "transit_header" (get $baseIn "transit_header") $envIn | default "" | toString | trim -}}
 {{- $configToken := dig "security" "access_token" (dig "security" "access_token" "" $base) $env | default "" | toString -}}
 {{- $token := or .Values.security.accessToken.secretName $configToken -}}
 {{- if ne $configToken (trim $configToken) -}}
 {{ fail "security.access_token in config begins or ends with whitespace: sutura refuses to start with it, because no token can be read from it (SettingsError::AccessToken, InvalidAccessToken::Untrimmed) - remove the whitespace, or set the token from a Secret with security.accessToken.secretName" }}
+{{- end -}}
+{{- if and $inboundBlock (not $mode) -}}
+{{ fail "security.inbound is declared (security.inbound.keySetSecretName, or a security.inbound block in config.base or config.environment) and no security.inbound.mode resolves: sutura refuses to start with it, because neither mode is safe to assume (SettingsError::InboundModeUndeclared) - set security.inbound.mode to `direct` or `behind-gateway`" }}
+{{- end -}}
+{{- if and $mode (not (has $mode (list "direct" "behind-gateway"))) -}}
+{{ fail (printf "security.inbound.mode is %q: sutura refuses to start with it, and takes exactly `direct` or `behind-gateway` (SettingsError::InboundModeUnknown)" $mode) }}
 {{- end -}}
 {{- if and (eq $mode "behind-gateway") (not (regexMatch "^[A-Za-z0-9_-]*$" $transit)) -}}
 {{ fail "security.inbound.transit_header holds a character a header name cannot: after trimming and ASCII case folding sutura accepts lower-case letters, digits, `-` and `_` only, and refuses to start otherwise (InvalidInboundValue::NotPermitted)" }}

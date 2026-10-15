@@ -25,7 +25,8 @@
 //!   would also refuse, is held by review alone.
 //! * **Secret and file contents.** A placeholder token is never empty, and `Settings::load` opens
 //!   no key-set or TLS file, so neither a Secret holding `""` nor a missing mount is seen.
-//! * **`extraEnv`**, beyond what a golden's values file happens to set.
+//! * **`extraEnv`**, beyond the `SUTURA__SECURITY__` names the chart refuses and what a golden's values file happens
+//!   to set: no guard reads another `SUTURA__*` variable, a source's posture included.
 //! * **A binary without `tls`.** Gated on the feature: the chart's `tls.enabled` render assumes a
 //!   binary that can terminate TLS, and every venue that runs this crate's tests enables it.
 
@@ -283,7 +284,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 19] = [
+    const REFUSALS: [(&str, Binary); 27] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -346,6 +347,18 @@ mod tests {
             Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
         ),
         (
+            "extra-env-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "extra-env-inbound-mode",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "extra-env-transit-header",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
             "identity-undeclared-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
@@ -356,6 +369,26 @@ mod tests {
         (
             "impersonating-source-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceOverAnImpersonatingSource { .. })),
+        ),
+        (
+            "inbound-mode-empty",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-null-override",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-undeclared",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-unknown-spelling",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUnknown { .. })),
+        ),
+        (
+            "inbound-null-override",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
         ),
         ("memory-limit-unparseable", Binary::Derivation),
         (

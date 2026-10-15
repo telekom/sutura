@@ -1,0 +1,23 @@
+# A `null` in the environment file erases the mode `base.yaml` set, as the binary layers them, so
+# the block is left with no mode and the binary refuses to start (`SettingsError::InboundModeUndeclared`).
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  base:
+    security:
+      inbound:
+        mode: behind-gateway
+        transit_header: x-transit-proof
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]
+  environment:
+    security:
+      inbound:
+        mode: null

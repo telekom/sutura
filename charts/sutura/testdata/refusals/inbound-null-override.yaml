@@ -1,0 +1,22 @@
+# A `null` `security.inbound` in the environment file erases the whole block `base.yaml` set, so
+# no inbound identity is left and, with no access token, the binary refuses to start
+# (`NotFitToServe::AccessTokenRequired`).
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+config:
+  base:
+    security:
+      inbound:
+        mode: behind-gateway
+        key_set_file: /etc/sutura/inbound-keys/jwks.json
+        transit_header: x-transit-proof
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]
+  environment:
+    security:
+      inbound: null
