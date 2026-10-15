@@ -639,7 +639,7 @@ const WARNED: &str = "sources.warehouse.inbound_token_at_pool is accepted";
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn an_acknowledged_hopless_source_warns_once_and_a_source_with_a_hop_never_does() {
+fn an_acknowledged_hopless_source_warns_once_and_no_other_source_does() {
     let acknowledged = direct_sources_or_refusal(&bigquery_entry(
         "warehouse",
         "impersonation-at-source",
@@ -655,7 +655,7 @@ fn an_acknowledged_hopless_source_warns_once_and_a_source_with_a_hop_never_does(
         "{line}"
     );
 
-    let secret = SecretFileGuard::create("an_acknowledged_hopless_source_warns_once_and_a_source_with_a_hop_never_does");
+    let secret = SecretFileGuard::create("an_acknowledged_hopless_source_warns_once_and_no_other_source_does");
     let delegating = direct_sources_or_refusal(&bigquery_entry(
         "warehouse",
         "impersonation-at-source",
@@ -663,5 +663,9 @@ fn an_acknowledged_hopless_source_warns_once_and_a_source_with_a_hop_never_does(
     ))
     .expect("a direct deployment admits a declared delegation");
     let log = broker_warnings(&delegating);
+    assert!(!log.contains(WARNED), "{log}");
+
+    let undirected = registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with("")));
+    let log = broker_warnings(&undirected);
     assert!(!log.contains(WARNED), "{log}");
 }

@@ -262,10 +262,12 @@ mod declared_principal {
         let presented = Presented::SubjectToken {
             material: Secret::new(live_env("SUTURA_BQ_INBOUND_A")),
         };
-        assert!(
-            warehouse.session_user(&presented).is_err(),
-            "the pool accepted a token minted for this deployment's audience, so its provider accepts more than the pool's own"
+        // The transport has no variant for the token-exchange stage, and Google's text is Google's,
+        // so the refusal is printed for the run log to name rather than matched.
+        let refused = warehouse.session_user(&presented).expect_err(
+            "the pool accepted a token minted for this deployment's audience, so its provider accepts more than the pool's own",
         );
+        eprintln!("refused at the pool: {refused}");
     }
 
     /// **A hosted cell refuses outside CI**, offline: a child of this binary runs the first hosted cell
