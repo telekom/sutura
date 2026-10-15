@@ -51,8 +51,9 @@ The chart does not check either value: sutura refuses to start with a bad one.
 Set every option in `values.yaml`.
 Each section has a one-line comment.
 The chart passes `config.base` and `config.environment` to sutura as its settings files.
-The chart refuses an `extraEnv` name that starts with `SUTURA__SECURITY__`.
+The chart refuses an `extraEnv` name that sutura reads as a `security` setting, in any letter case, with `__`, `.` or `[` after `SUTURA__SECURITY`.
 Set that setting in `config.environment`, or with `security.accessToken`, `security.metricsToken` or `security.inbound.keySetSecretName`.
+The chart also refuses an `extraEnv` name that sutura reads as a variable the chart sets itself, such as `SUTURA_ENVIRONMENT`.
 
 ## Learn more
 

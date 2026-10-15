@@ -25,8 +25,9 @@
 //!   would also refuse, is held by review alone.
 //! * **Secret and file contents.** A placeholder token is never empty, and `Settings::load` opens
 //!   no key-set or TLS file, so neither a Secret holding `""` nor a missing mount is seen.
-//! * **`extraEnv`**, beyond the `SUTURA__SECURITY__` names the chart refuses and what a golden's values file happens
-//!   to set: no guard reads another `SUTURA__*` variable, a source's posture included.
+//! * **`extraEnv`**, beyond the names the chart refuses (one the binary reads under `security`, or as a
+//!   variable the chart sets) and what a golden's values file happens to set: no guard reads another
+//!   `SUTURA__*` variable, a source's posture included.
 //! * **A binary without `tls`.** Gated on the feature: the chart's `tls.enabled` render assumes a
 //!   binary that can terminate TLS, and every venue that runs this crate's tests enables it.
 
@@ -284,7 +285,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 29] = [
+    const REFUSALS: [(&str, Binary); 33] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -355,8 +356,31 @@ mod tests {
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
         ),
         (
+            "extra-env-chart-environment",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
+        ),
+        (
+            "extra-env-chart-port",
+            Binary::Accepts("the binary folds both names into one key; the chart refuses an order it cannot fix"),
+        ),
+        (
+            "extra-env-dotted-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
             "extra-env-inbound-mode",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "extra-env-indexed-access-token",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::AccessToken {
+                        cause: InvalidAccessToken::Untrimmed
+                    }
+                )
+            }),
         ),
         (
             "extra-env-transit-header",

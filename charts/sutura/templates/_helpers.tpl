@@ -28,6 +28,64 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
+The container's own env entries. `sutura.requireOffHostPosture` reads their names, so an `extraEnv`
+entry the binary would read as one of them is refused against the list the Deployment renders.
+*/}}
+{{- define "sutura.env" -}}
+- name: {{ "SUTURA_ENVIRONMENT" }}
+  value: {{ .Values.environment | quote }}
+- name: SUTURA_CONFIG_DIR
+  value: /etc/sutura/config
+# Always off-host from this process's own point of view: the Service targets
+# the pod, never the loopback-only embedded default.
+- name: SUTURA__SERVER__HOST
+  value: "0.0.0.0"
+- name: SUTURA__SERVER__PORT
+  value: {{ .Values.service.port | quote }}
+- name: SUTURA__RATE_LIMIT__ENABLED
+  value: {{ .Values.rateLimit.enabled | quote }}
+{{- if .Values.security.accessToken.secretName }}
+- name: SUTURA__SECURITY__ACCESS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.security.accessToken.secretName }}
+      key: {{ .Values.security.accessToken.secretKey }}
+{{- end }}
+{{- if .Values.security.metricsToken.secretName }}
+- name: SUTURA__SECURITY__METRICS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.security.metricsToken.secretName }}
+      key: {{ .Values.security.metricsToken.secretKey }}
+{{- end }}
+{{- if .Values.tls.enabled }}
+- name: SUTURA__SECURITY__TLS_TERMINATION
+  value: "in-process"
+- name: SUTURA__SERVER__TLS_CERTIFICATE
+  value: /etc/sutura/tls/tls.crt
+- name: SUTURA__SERVER__TLS_KEY
+  value: /etc/sutura/tls/tls.key
+{{- else if .Values.security.tlsTermination }}
+- name: SUTURA__SECURITY__TLS_TERMINATION
+  value: {{ .Values.security.tlsTermination | quote }}
+{{- end }}
+{{- if .Values.security.inbound.keySetSecretName }}
+- name: SUTURA__SECURITY__INBOUND__KEY_SET_FILE
+  value: /etc/sutura/inbound-keys/{{ .Values.security.inbound.keySetSecretKey }}
+{{- end }}
+{{- $engineWorkerThreads := include "sutura.engineWorkerThreads" . }}
+{{- if $engineWorkerThreads }}
+- name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+  value: {{ $engineWorkerThreads | quote }}
+{{- end }}
+{{- $workingSetMaxBytes := include "sutura.workingSetMaxBytes" . }}
+{{- if $workingSetMaxBytes }}
+- name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+  value: {{ $workingSetMaxBytes | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 The bind is always off-host: this chart's Service targets the pod, so `server.host` is
 always `0.0.0.0`, never the loopback-only embedded default. `Settings::refusals` therefore
 always asks for a credential, a declared TLS termination, and an enabled rate limiter -
@@ -36,8 +94,12 @@ this fails the render rather than shipping a Deployment that crash-loops on the 
 The credential is an access token or an inbound identity (`security.inbound.mode`), and `direct`
 refuses an access token beside it, as does `behind-gateway` with a `transit_header` of
 `authorization`. Both are read the way the binary layers the two files: the environment file over
-`base.yaml`, key by key, and a `null` there erases the key as it does in the binary. An `extraEnv` variable
-under `SUTURA__SECURITY__` is refused, because no guard here reads it. A `security.inbound` block, or
+`base.yaml`, key by key, and a `null` there erases the key as it does in the binary. An `extraEnv` name the
+binary reads under `security` is refused, because no guard here reads it: matched as the binary
+matches it, in any letter case, after `SUTURA__` and before `__`, `.` or `[`. So is a name equal to one
+`sutura.env` sets once both are lower-cased with `__` read as `.`; that also refuses a lower-case
+`sutura_environment`, which the binary does not read, and does not refuse a `[n]` name such as
+`SUTURA__SERVER[0]`, which replaces a whole section. A `security.inbound` block, or
 `security.inbound.keySetSecretName`, with no mode, or a mode other than `direct` or `behind-gateway`, is refused as the binary
 does. A header with a character outside ASCII letters, digits, `-` and `_`, or a configured token with
 surrounding whitespace, is refused first as the binary does, so the sharing compare below sees only what the
@@ -54,9 +116,19 @@ so a values file that breaks an earlier rule still fails at that rule.
 {{- if not (has .Values.environment (list "development" "test" "production")) -}}
 {{ fail (printf "environment is %q: it must be exactly one of development, test, production, spelled as sutura names them (SUTURA_ENVIRONMENT and the config.environment file)" (toString .Values.environment)) }}
 {{- end -}}
+{{- if .Values.extraEnv -}}
+{{- $chartKeys := list -}}
+{{- range include "sutura.env" . | fromYamlArray -}}
+{{- $chartKeys = append $chartKeys (lower .name | replace "__" ".") -}}
+{{- end -}}
 {{- range .Values.extraEnv -}}
-{{- if hasPrefix "SUTURA__SECURITY__" (upper (toString .name)) -}}
-{{ fail (printf "extraEnv sets %s: no guard in this chart reads a SUTURA__SECURITY__ variable, so it could change the posture sutura starts with unseen - set it in config.environment, or with security.accessToken, security.metricsToken or security.inbound.keySetSecretName" .name) }}
+{{- $name := lower (toString .name) -}}
+{{- if regexMatch `^sutura__security(__|\.|\[)` $name -}}
+{{ fail (printf "extraEnv sets %s: sutura reads it as a security setting and no guard in this chart reads it, so it could change the posture sutura starts with unseen - set it in config.environment, or with security.accessToken, security.metricsToken or security.inbound.keySetSecretName" .name) }}
+{{- end -}}
+{{- if has (replace "__" "." $name) $chartKeys -}}
+{{ fail (printf "extraEnv sets %s: sutura reads it as a variable this chart sets itself, so it could override a value the chart's guards read - set it through the chart's own values or config.environment" .name) }}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $base := .Values.config.base | default dict -}}

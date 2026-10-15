@@ -1,0 +1,18 @@
+# `extraEnv` repeats `SUTURA_ENVIRONMENT`, which the chart sets itself: the later entry names an
+# environment whose settings file the chart does not render, so the binary does not read the
+# `single-user` declaration and refuses `/v1` without an inbound identity.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+config:
+  environment:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
+extraEnv:
+  - name: SUTURA_ENVIRONMENT
+    value: development
