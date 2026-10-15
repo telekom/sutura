@@ -707,6 +707,11 @@ fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_r
     assert_eq!(refused(DIRECT_INBOUND, "https://sutura.example.com"), own, "the resource");
     let minted_as = format!("{DIRECT_INBOUND}    audience: \"sutura-api\"\n");
     assert_eq!(refused(&minted_as, "sutura-api"), own, "the token audience");
+    assert_eq!(
+        refused(&minted_as, "https://sutura.example.com"),
+        own,
+        "the resource, beside its own token audience"
+    );
     let settings = Settings::load(&direct_workload_source(DELEGATION)).expect("a hop to the pool's audience boots");
     assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
 }
