@@ -63,36 +63,39 @@ fn audited_router(
     (crate::router(&state).expect("the test router assembles"), capture)
 }
 
-/// The `client` of each audit line in `capture`, keyed by the line's message.
-fn client_on_each(capture: &sutura_runtime::testing::Capture) -> Vec<(String, String)> {
+/// The `azp` and `client_id` of each audit line in `capture`, after the line's message.
+fn client_on_each(capture: &sutura_runtime::testing::Capture) -> Vec<[String; 3]> {
     capture
         .contents()
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .filter(|line| line.get("subject_established").is_some())
         .map(|line| {
-            (
-                line["msg"].as_str().unwrap_or_default().to_owned(),
-                line["client"].to_string(),
-            )
+            let field = |key: &str| line[key].as_str().unwrap_or("<absent>").to_owned();
+            [field("msg"), field("azp"), field("client_id")]
         })
         .collect()
 }
 
 /// A token for every scope whose extra claims are `claims`.
-fn a_token_naming(issuer: &MockIssuer, claims: &[(&str, &str)]) -> String {
+fn a_token_naming(issuer: &MockIssuer, claims: &[(&str, serde_json::Value)]) -> String {
     let token = claims
         .iter()
-        .fold(accepted_by("someone@example.com"), |token, &(name, value)| {
-            token.claiming(name, serde_json::Value::from(value))
+        .fold(accepted_by("someone@example.com"), |token, (name, value)| {
+            token.claiming(name, value.clone())
         });
     issuer.mint(&token).expect("the issuer signs a token")
+}
+
+/// One audit line's message, `azp` and `client_id`.
+fn audit_line(message: &str, azp: &str, client_id: &str) -> [String; 3] {
+    [message, azp, client_id].map(String::from)
 }
 
 #[tokio::test]
 async fn the_client_a_token_names_is_on_every_audit_line() {
     let issuer = an_issuer();
-    let token = a_token_naming(&issuer, &[("azp", "agent-app")]);
+    let token = a_token_naming(&issuer, &[("azp", "agent-app".into())]);
     let (app, capture) = audited_router(&issuer, bundle(), fake_warehouse());
     assert_eq!(asked(&app, "POST", "/v1/query", Some(&token)).await.status, StatusCode::OK);
     for statement in ["select 1", "refuse me"] {
@@ -104,34 +107,43 @@ async fn the_client_a_token_names_is_on_every_audit_line() {
 
     let mut lines = client_on_each(&capture);
     lines.extend(client_on_each(&refused));
-    let named = |message: &str| {
-        lines
-            .iter()
-            .find(|(written, _)| written == message)
-            .map(|(_, client)| client.as_str())
-    };
-    for message in ["answered", "raw_answered", "raw_refused", "refused"] {
-        assert_eq!(named(message), Some(r#""agent-app""#), "{message}: {lines:?}");
-    }
+    let expected = ["answered", "raw_answered", "raw_refused", "refused"].map(|message| audit_line(message, "agent-app", ""));
+    assert_eq!(lines, expected);
 }
 
 #[tokio::test]
-async fn a_client_named_only_as_client_id_is_audited_and_azp_wins_over_it() {
+async fn a_client_id_claim_is_audited_and_two_that_disagree_are_both_kept() {
     let issuer = an_issuer();
     let (app, capture) = audited_router(&issuer, bundle(), fake_warehouse());
     for claims in [
-        &[("client_id", "agent-app")][..],
-        &[("azp", "agent-app"), ("client_id", "another-app")][..],
+        vec![("client_id", "agent-app".into())],
+        vec![("azp", "agent-app".into()), ("client_id", "another-app".into())],
     ] {
-        let token = a_token_naming(&issuer, claims);
+        let token = a_token_naming(&issuer, &claims);
         assert_eq!(asked(&app, "POST", "/v1/query", Some(&token)).await.status, StatusCode::OK);
     }
-    let lines = client_on_each(&capture);
     assert_eq!(
-        lines,
+        client_on_each(&capture),
         [
-            (String::from("answered"), String::from(r#""agent-app""#)),
-            (String::from("answered"), String::from(r#""agent-app""#)),
+            audit_line("answered", "", "agent-app"),
+            audit_line("answered", "agent-app", "another-app")
+        ]
+    );
+}
+
+#[tokio::test]
+async fn an_unreadable_azp_is_audited_as_unreadable_and_still_answered() {
+    let issuer = an_issuer();
+    let (app, capture) = audited_router(&issuer, bundle(), fake_warehouse());
+    for azp in [serde_json::Value::from(42), serde_json::Value::from("agent\u{7}app")] {
+        let token = a_token_naming(&issuer, &[("azp", azp)]);
+        assert_eq!(asked(&app, "POST", "/v1/query", Some(&token)).await.status, StatusCode::OK);
+    }
+    assert_eq!(
+        client_on_each(&capture),
+        [
+            audit_line("answered", "unreadable", ""),
+            audit_line("answered", "unreadable", "")
         ]
     );
 }

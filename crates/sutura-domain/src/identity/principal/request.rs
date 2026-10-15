@@ -1,4 +1,4 @@
-//! What a request carries besides the question, and the OAuth client it names.
+//! What a request carries besides the question, and the OAuth client its token names.
 
 use core::fmt;
 
@@ -50,6 +50,65 @@ impl fmt::Debug for OAuthClient {
     }
 }
 
+/// What one client claim of a verified token held.
+#[derive(Debug, Clone)]
+pub enum ClientClaim {
+    /// A client identifier.
+    Named(OAuthClient),
+    /// Present, but not a string or not a client identifier. Rendered `unreadable`, so a record tells
+    /// it apart from a token that named no client; a client literally named `unreadable` renders the
+    /// same.
+    Unreadable,
+}
+
+impl ClientClaim {
+    /// Reads one claim value; `None` is a value that is not a string.
+    #[must_use]
+    pub fn read(raw: Option<&str>) -> Self {
+        raw.and_then(|written| OAuthClient::parse(written).ok())
+            .map_or(Self::Unreadable, Self::Named)
+    }
+}
+
+impl fmt::Display for ClientClaim {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Named(ref client) => client.fmt(f),
+            Self::Unreadable => f.write_str("unreadable"),
+        }
+    }
+}
+
+/// The OAuth client a verified token names, as its `azp` and RFC 9068 `client_id` claims each held it.
+///
+/// **Both are kept**, so two claims that disagree are both on the record rather than one chosen.
+/// Audit only: nothing refuses on it and nothing grants on it.
+#[derive(Debug, Clone, Default)]
+pub struct ClientClaims {
+    azp: Option<ClientClaim>,
+    client_id: Option<ClientClaim>,
+}
+
+impl ClientClaims {
+    /// The two claims as the token held them; `None` is a claim the token did not carry.
+    #[must_use]
+    pub const fn of(azp: Option<ClientClaim>, client_id: Option<ClientClaim>) -> Self {
+        Self { azp, client_id }
+    }
+
+    /// What `azp` held.
+    #[inline]
+    pub const fn azp(&self) -> Option<&ClientClaim> {
+        self.azp.as_ref()
+    }
+
+    /// What `client_id` held.
+    #[inline]
+    pub const fn client_id(&self) -> Option<&ClientClaim> {
+        self.client_id.as_ref()
+    }
+}
+
 /// What a request carries besides the question.
 ///
 /// Two fields: who the call is attributed to, and - where the transport established one - the
@@ -95,8 +154,8 @@ pub struct RequestContext {
     /// belongs to whoever chooses [`crate::catalog::GrantedAudiences`] vs a [`crate::pinned::view::ScopedView`]
     /// built from [`Subject::TheDeploymentItself`](crate::identity::Subject::TheDeploymentItself), and it must keep the two distinct.
     audiences: crate::catalog::GrantedAudiences,
-    /// The OAuth client the caller's token named, for the audit record - see [`OAuthClient`].
-    client: Option<OAuthClient>,
+    /// The OAuth client the caller's token named, for the audit record - see [`ClientClaims`].
+    client: ClientClaims,
 }
 
 impl RequestContext {
@@ -108,7 +167,7 @@ impl RequestContext {
             chain,
             assertion: None,
             audiences: crate::catalog::GrantedAudiences::none(),
-            client: None,
+            client: ClientClaims::of(None, None),
         }
     }
 
@@ -142,7 +201,7 @@ impl RequestContext {
                 },
             )),
             audiences: crate::catalog::GrantedAudiences::none(),
-            client: None,
+            client: ClientClaims::of(None, None),
         }
     }
 
@@ -201,14 +260,14 @@ impl RequestContext {
     /// The same context, naming the OAuth client the caller's token was issued to.
     #[inline]
     #[must_use]
-    pub fn naming_client(mut self, client: Option<OAuthClient>) -> Self {
+    pub fn naming_client(mut self, client: ClientClaims) -> Self {
         self.client = client;
         self
     }
 
     /// The OAuth client the caller's token named, for the audit record.
     #[inline]
-    pub const fn client(&self) -> Option<&OAuthClient> {
-        self.client.as_ref()
+    pub const fn client(&self) -> &ClientClaims {
+        &self.client
     }
 }

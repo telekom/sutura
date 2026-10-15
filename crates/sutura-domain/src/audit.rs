@@ -65,7 +65,7 @@
 //! [`crate::query::RefusalReason::PlanSpansTooManySources`]), so the source set is a name a reader
 //! already has from the bundle.
 
-use crate::identity::{Expiry, OAuthClient, PrincipalChain};
+use crate::identity::{ClientClaims, Expiry, PrincipalChain};
 use crate::pinned::Provenance;
 use crate::query::{RefusalReason, ToolOutcome};
 use crate::raw::{RawOutcome, RawRefusalReason, RawStatement};
@@ -119,7 +119,7 @@ pub struct CallRecord<'a> {
     chain: &'a PrincipalChain,
     outcome: RecordedOutcome<'a>,
     executed_until: Option<Expiry>,
-    client: Option<&'a OAuthClient>,
+    client: Option<&'a ClientClaims>,
 }
 
 /// How the call ended, as the two outcomes a question has.
@@ -272,14 +272,14 @@ impl<'a> CallRecord<'a> {
     /// The same record, naming the OAuth client the caller's token was issued to.
     #[inline]
     #[must_use]
-    pub const fn naming_client(mut self, client: Option<&'a OAuthClient>) -> Self {
-        self.client = client;
+    pub const fn naming_client(mut self, client: &'a ClientClaims) -> Self {
+        self.client = Some(client);
         self
     }
 
-    /// The OAuth client the caller's token named. Recorded, never authorized on - see [`OAuthClient`].
+    /// The OAuth client the caller's token named. Recorded, never authorized on - see [`ClientClaims`].
     #[inline]
-    pub const fn client(&self) -> Option<&OAuthClient> {
+    pub const fn client(&self) -> Option<&ClientClaims> {
         self.client
     }
 

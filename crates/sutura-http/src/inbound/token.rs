@@ -58,7 +58,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{
     ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
 };
-use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, OAuthClient, PrincipalChain, Subject};
+use sutura_domain::identity::{Actor, ActorChain, ClientClaim, ClientClaims, InvalidPrincipalId, PrincipalChain, Subject};
 
 use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 use crate::inbound::keys::{KeyId, NotAKeyId};
@@ -310,7 +310,7 @@ struct Claims {
     /// is set, and otherwise only recorded. A `Value` for the same reason as `scp`.
     #[serde(default)]
     azp: Option<serde_json::Value>,
-    /// RFC 9068's name for the same client, read only for the audit record where `azp` is absent.
+    /// RFC 9068's name for the client, read only for the audit record.
     #[serde(default)]
     client_id: Option<serde_json::Value>,
     /// The caller's group membership, if the issuer sent one - `docs/adr/0028`. A JSON array, per
@@ -636,13 +636,13 @@ fn append_scope_claim(written: &mut String, claim: Option<&serde_json::Value>) -
     Ok(())
 }
 
-/// The OAuth client a token names, for the audit record: `azp`, else `client_id`.
+/// The OAuth client a token names in `azp` and `client_id`, for the audit record.
 ///
 /// Never a refusal and never an input to a grant: a value that is not a string or will not parse is
-/// recorded as no client, and the token is judged exactly as it would be without one.
-fn client_of(claims: &Claims) -> Option<OAuthClient> {
-    let raw = claims.azp.as_ref().or(claims.client_id.as_ref())?.as_str()?;
-    OAuthClient::parse(raw).ok()
+/// recorded as unreadable, and the token is judged exactly as it would be without one.
+fn client_of(claims: &Claims) -> ClientClaims {
+    let read = |claim: Option<&serde_json::Value>| claim.map(|value| ClientClaim::read(value.as_str()));
+    ClientClaims::of(read(claims.azp.as_ref()), read(claims.client_id.as_ref()))
 }
 
 /// Turns a nested `act` claim into an ordered actor chain.

@@ -209,10 +209,10 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
-pub const fn client(&self) -> Option<&OAuthClient>
+pub const fn client(&self) -> Option<&ClientClaims>
 ```
 
-The OAuth client the caller's token named. Recorded, never authorized on - see `OAuthClient`.
+The OAuth client the caller's token named. Recorded, never authorized on - see `ClientClaims`.
 
 ```rust
 pub const fn executed_as(&self) -> Option<&ExecutedAs>
@@ -252,7 +252,7 @@ adapter, and `crate::identity::Minted::agreeing_with` is where that is decided; 
 lets an incident ask afterwards how much life was left.
 
 ```rust
-pub const fn naming_client(self, client: Option<&'a OAuthClient>) -> Self
+pub const fn naming_client(self, client: &'a ClientClaims) -> Self
 ```
 
 The same record, naming the OAuth client the caller's token was issued to.
@@ -3554,6 +3554,17 @@ Who to attribute a call to: the subject, and whether anything acted for them.
 absence to be handled rather than a case to name, and the case is the whole point: a call by a
 person and a call by an agent for that person are two different events, and a reader that cannot
 tell them apart is the failure this module exists to prevent.
+
+### `use ClientClaim`
+
+What one client claim of a verified token held.
+
+### `use ClientClaims`
+
+The OAuth client a verified token names, as its `azp` and RFC 9068 `client_id` claims each held it.
+
+**Both are kept**, so two claims that disagree are both on the record rather than one chosen.
+Audit only: nothing refuses on it and nothing grants on it.
 
 ### `use InvalidPrincipalId`
 

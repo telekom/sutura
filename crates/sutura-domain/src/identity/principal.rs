@@ -38,7 +38,7 @@ use crate::text::first_invisible;
 
 mod request;
 
-pub use self::request::{OAuthClient, RequestContext};
+pub use self::request::{ClientClaim, ClientClaims, OAuthClient, RequestContext};
 
 /// The longest principal identifier accepted.
 ///

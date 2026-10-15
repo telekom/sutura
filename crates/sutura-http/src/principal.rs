@@ -65,7 +65,7 @@ pub(crate) fn established() -> RequestContext {
 /// and no assertion, because the deployment's own identity has no credential of its own to exchange.
 pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
     RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())
-        .naming_client(caller.client().cloned())
+        .naming_client(caller.client().clone())
 }
 
 #[cfg(test)]
@@ -110,7 +110,7 @@ mod tests {
             Groups::none(),
             sutura_domain::identity::Secret::new("the-assertion-the-gate-verified"),
             4_102_444_800,
-            None,
+            sutura_domain::identity::ClientClaims::default(),
         );
         let context = of_verified(&caller);
         assert_eq!(context.chain().subject().established(), "verified");

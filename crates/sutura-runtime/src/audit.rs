@@ -92,8 +92,11 @@ impl AuditSink for TracingAuditSink {
     /// so a filter written against that line still finds these.
     fn record(&self, record: &CallRecord<'_>) {
         let who = Attributed::of(record.chain());
-        // Recorded so an incident can name the agent; nothing reads it for a decision.
-        let client = record.client().map_or_else(String::new, ToString::to_string);
+        // Recorded so an incident can name the agent; nothing reads it for a decision. Both claims,
+        // so two that disagree are both on the line.
+        let claimed = |claim: Option<&sutura_domain::identity::ClientClaim>| claim.map_or_else(String::new, ToString::to_string);
+        let azp = claimed(record.client().and_then(sutura_domain::identity::ClientClaims::azp));
+        let client_id = claimed(record.client().and_then(sutura_domain::identity::ClientClaims::client_id));
         match *record.outcome() {
             // `executed_as` is the field that answers the incident question this line exists for, and
             // it was missing until a review asked it: a verified subject's question can be ANSWERED
@@ -109,7 +112,8 @@ impl AuditSink for TracingAuditSink {
                 actors = who.actors,
                 acting = who.acting,
                 task = who.task,
-                client,
+                azp,
+                client_id,
                 rows,
                 definition_version = %provenance.version(),
                 executed_as = executed_as(record),
@@ -124,7 +128,8 @@ impl AuditSink for TracingAuditSink {
                 actors = who.actors,
                 acting = who.acting,
                 task = who.task,
-                client,
+                azp,
+                client_id,
                 reason = ?reason,
                 "refused"
             ),
@@ -139,7 +144,8 @@ impl AuditSink for TracingAuditSink {
                 actors = who.actors,
                 acting = who.acting,
                 task = who.task,
-                client,
+                azp,
+                client_id,
                 rows,
                 statement = statement.as_str(),
                 credential_until = executed_until(record),
@@ -151,7 +157,8 @@ impl AuditSink for TracingAuditSink {
                 actors = who.actors,
                 acting = who.acting,
                 task = who.task,
-                client,
+                azp,
+                client_id,
                 reason = reason.code(),
                 statement = statement.as_str(),
                 "raw_refused"
