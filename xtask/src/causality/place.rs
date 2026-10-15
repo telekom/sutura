@@ -38,6 +38,7 @@ use crate::causality::diff::ChangedFile;
 use crate::causality::names::{CargoName, Ident};
 use crate::causality::regions::{AddedLine, PostImage, item_head, module_name};
 use crate::changes::package_name;
+use crate::serde_parse::scan::code_lines;
 
 /// One test the diff added, as a key that identifies it in a run's output.
 #[derive(Debug, Clone)]
@@ -399,7 +400,7 @@ pub(super) fn place(path: &str, read: &PostImage<'_>) -> Option<Place> {
 /// declared name, and return a key only if the route crossed a `#[path]` edge. Ordinary modules
 /// keep [`Module::of`]'s path-derived answer. Inline modules are outside this walk; a file included
 /// under multiple module names gets the first readable route, which cannot name both. This walk
-/// does not evaluate `cfg` or lex comments, so a route absent from the test binary can still yield
+/// does not evaluate `cfg`, so a route absent from the test binary can still yield
 /// a key; the causality runner reports a filter matching no test as INCONCLUSIVE.
 fn relocated_src(dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Module> {
     let target = in_dir(dir, &format!("src/{inner}"));
@@ -422,7 +423,8 @@ fn declared_route(root: String, target: &str, read: &PostImage<'_>, path_only: b
         let Some(text) = read(&path) else {
             continue;
         };
-        let lines: Vec<&str> = text.lines().collect();
+        let code = code_lines(&text);
+        let lines: Vec<&str> = code.iter().map(String::as_str).collect();
         for (at, line) in lines.iter().enumerate() {
             let Some(name) = module_name(line).and_then(Ident::parse) else {
                 continue;
@@ -538,9 +540,10 @@ fn collapse(path: &str) -> String {
 ///
 /// Strict where [`place`] falls back: a file under `tests/` that no root declares, or a `src/` file
 /// no `mod` reaches, is `false` here and has a package-wide place there. The declarations are read
-/// without evaluating `cfg`, so a module a `cfg` compiles out still counts as declared. Only the
-/// `src/` roots `lib.rs`, `main.rs`, `bin/<name>.rs` and `bin/<name>/main.rs` are walked from: a
-/// file reached only through a `src/bin/<name>/` module is `false`, which keeps its tests measured.
+/// without evaluating `cfg`, so a module a `cfg` compiles out still counts as declared; a `mod`
+/// inside a comment is not a declaration. Only the `src/` roots `lib.rs`, `main.rs`,
+/// `bin/<name>.rs` and `bin/<name>/main.rs` are walked from: a file reached only through a
+/// `src/bin/<name>/` module is `false`, which keeps its tests measured.
 pub(super) fn is_built(path: &str, read: &PostImage<'_>) -> bool {
     let Some((package, dir)) = owning_package(path, read) else {
         return false;
