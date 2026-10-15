@@ -305,7 +305,7 @@ pub enum InvalidKeySet {
     NoKeyOfThePinnedFamily { family: &'static str, pinned: String },
     #[error("the key set opens as PEM and is not well-formed PEM")]
     NotPem,
-    /// A private key block, refused on its label: its body is never decoded.
+    /// A private key block anywhere in the document, refused on its `BEGIN` label: never decoded.
     #[error(
         "the key set holds a private key. A verifier holds public keys only: point \
          security.inbound.key_set_file at the certificate or the public key"

@@ -2,8 +2,8 @@
 //!
 //! The document decides which: RFC 7468 armour (`-----BEGIN `) cannot open a JSON text, so a
 //! document that opens with it is read as PEM and anything else as a JWK set. A PEM carries ONE
-//! signing key - a single `PUBLIC KEY` block, or the first `CERTIFICATE` block (the leaf). The
-//! `CERTIFICATE` blocks after the leaf are its chain: skipped, never decoded, never a key. Its key
+//! signing key - a single `PUBLIC KEY` block, or the first `CERTIFICATE` block, taken as the leaf
+//! without a check. The `CERTIFICATE` blocks after it are its chain: skipped, never decoded, never a key. Its key
 //! id is the key's RFC 7638 SHA-256 thumbprint, so a signer derives the same `kid` from the same
 //! material. A certificate's validity and chain are not read: the key verifies signatures and
 //! nothing else.
@@ -29,7 +29,17 @@ const P_384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.34");
 const ED25519: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 
 /// Parses a key set document: a PEM when it opens with armour, a JWK set otherwise.
+///
+/// A private key block is refused first, wherever it sits and whatever surrounds it, on its `BEGIN`
+/// line alone: its body is never decoded. No JSON text holds such a line.
 pub(super) fn parse(document: &str) -> Result<KeySet, InvalidKeySet> {
+    if document
+        .lines()
+        .filter_map(|line| armour(line.trim(), "BEGIN"))
+        .any(|label| label.ends_with("PRIVATE KEY"))
+    {
+        return Err(InvalidKeySet::PrivateKeyMaterial);
+    }
     if document.trim_start().starts_with("-----BEGIN ") {
         return from_pem(document);
     }
@@ -82,9 +92,9 @@ struct KeyBlock<'doc> {
 
 /// Finds the [`KeyBlock`].
 ///
-/// The label is decided on the `BEGIN` line, before any body is read, so a private key block is
-/// refused without its body being decoded. Outside a block only blank lines are accepted, and inside
-/// one any other armour line is malformed - so nothing can hide in a skipped chain certificate.
+/// The label is decided on the `BEGIN` line, before any body is read. Outside a block only blank
+/// lines are accepted, and inside one any other armour line is malformed - so nothing can hide in a
+/// skipped chain certificate.
 fn key_block(document: &str) -> Result<KeyBlock<'_>, InvalidKeySet> {
     let mut key: Option<KeyBlock<'_>> = None;
     // The open block's label, and whether its body is the key's.
@@ -94,9 +104,6 @@ fn key_block(document: &str) -> Result<KeyBlock<'_>, InvalidKeySet> {
             None if line.is_empty() => {}
             None => {
                 let label = armour(line, "BEGIN").ok_or(InvalidKeySet::NotPem)?;
-                if label.ends_with("PRIVATE KEY") {
-                    return Err(InvalidKeySet::PrivateKeyMaterial);
-                }
                 if label != CERTIFICATE && label != PUBLIC_KEY {
                     return Err(InvalidKeySet::UnsupportedPemBlock);
                 }

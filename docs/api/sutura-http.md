@@ -1952,7 +1952,7 @@ Why a document is not a usable key set.
   nothing in the log connecting the two. `sutura_config::InvalidAlgorithms::MixedFamilies`
   refuses the same shape from the configuration side; this is the half that reads the keys.
 - `NotPem`
-- `PrivateKeyMaterial` - A private key block, refused on its label: its body is never decoded.
+- `PrivateKeyMaterial` - A private key block anywhere in the document, refused on its `BEGIN` label: never decoded.
 - `MoreThanOneKey`
 - `UnsupportedPemBlock`
 - `UnreadableCertificate`

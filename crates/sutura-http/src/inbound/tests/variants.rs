@@ -354,6 +354,19 @@ gwIDAQAB
 -----END PUBLIC KEY-----
 ";
 
+/// RFC 7517 appendix A.1's example P-256 key, as a `PUBLIC KEY` block.
+const RFC_7517_P256_EXAMPLE: &str = "-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMKBCTNIcKUSDii11ySs3526iDZ8A
+iTo7Tu6KPAqv7D7gS2XpJFbZiItSs3m9+9Ue6GnvHw/GW2ZZaVtszggXIw==
+-----END PUBLIC KEY-----
+";
+
+/// RFC 8037 appendix A.2's example Ed25519 key, as a `PUBLIC KEY` block.
+const RFC_8037_ED25519_EXAMPLE: &str = "-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=
+-----END PUBLIC KEY-----
+";
+
 /// The ids a document's key set holds, as strings.
 fn pem_ids(document: &str) -> Vec<String> {
     KeySet::parse(document)
@@ -368,6 +381,30 @@ fn pem_ids(document: &str) -> Vec<String> {
 #[test]
 fn a_pem_key_id_is_the_rfc_7638_thumbprint_of_its_key() {
     assert_eq!(pem_ids(RFC_7638_EXAMPLE), ["NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs"]);
+}
+
+/// The EC and Ed25519 thumbprints are fixed vectors, not this library's: Ed25519's is RFC 8037
+/// appendix A.3's, and P-256's was computed by an RFC 7638 implementation outside this library over
+/// the RFC 7517 key's `crv`, `kty`, `x` and `y`.
+#[test]
+fn a_pem_key_id_on_p_256_and_ed25519_is_an_independent_rfc_7638_thumbprint() {
+    assert_eq!(
+        pem_ids(RFC_7517_P256_EXAMPLE),
+        ["cn-I_WNMClehiVp51i_0VpOENW1upEerA8sEam5hn-s"]
+    );
+    assert_eq!(
+        pem_ids(RFC_8037_ED25519_EXAMPLE),
+        ["kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k"]
+    );
+}
+
+/// Whitespace before the armour, as a hand-edited file or a heredoc leaves it, still reads as PEM.
+#[test]
+fn a_pem_opened_by_whitespace_is_read_as_pem() {
+    let ids = KeySet::parse(&format!("\n  {RFC_7638_EXAMPLE}"))
+        .map(|set| set.ids().into_iter().map(ToString::to_string).collect::<Vec<_>>())
+        .map_err(|refused| refused.to_string());
+    assert_eq!(ids, Ok(vec![String::from("NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs")]));
 }
 
 /// A `PUBLIC KEY` on each curve the issuer fixtures generate is named by the thumbprint of its JWK.
@@ -404,6 +441,29 @@ fn a_pem_holding_a_private_key_is_refused_as_private_key_material() {
         assert_eq!(
             refused.to_string(),
             "the key set holds a private key. A verifier holds public keys only: point security.inbound.key_set_file at the certificate or the public key"
+        );
+    }
+}
+
+/// A private key block is refused before anything else is read: inside a chain certificate, after
+/// text that is not armour, and after a block that would itself be refused.
+#[test]
+fn a_private_key_block_anywhere_in_the_document_is_refused() {
+    let pair = key_pair();
+    for document in [
+        format!(
+            "{}-----BEGIN CERTIFICATE-----\n{}-----END CERTIFICATE-----\n",
+            certificate_pem(&pair),
+            pair.serialize_pem()
+        ),
+        format!("Bag Attributes\n{}", pair.serialize_pem()),
+        format!("{}{}", pem_block("X509 CRL", b"a revocation list"), pair.serialize_pem()),
+    ] {
+        let refused = KeySet::parse(&document).expect_err("a private key is not a key set");
+        assert_eq!(
+            refused.to_string(),
+            "the key set holds a private key. A verifier holds public keys only: point security.inbound.key_set_file at the certificate or the public key",
+            "{document}"
         );
     }
 }
