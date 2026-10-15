@@ -35,6 +35,9 @@
 //! - **A carried test is measured by no run**, because [`carried`] takes its added lines out of the
 //!   scan: a range that only moves tests has nothing to prove and passes. What the move did not
 //!   change in a test's own body is not re-checked either, which is what the previous bullet says.
+//! - **A destination counts as built when a target root or a `mod` declaration reaches it**
+//!   ([`is_built`]), read without evaluating `cfg`. A test moved anywhere else keeps its added lines
+//!   in the scan and is refused as an added test.
 //! - **A moved file that also holds a new test** is reverted to base with the other files that add
 //!   no test, so a base tree that still declares it may not build: INCONCLUSIVE, not a pass.
 
@@ -45,6 +48,7 @@ use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use crate::causality::attributes::attached;
 use crate::causality::diff::{ChangedFile, RemovedLine};
 use crate::causality::names::Ident;
+use crate::causality::place::is_built;
 use crate::causality::plan::{Plan, plan_with_deleted};
 use crate::causality::provenance::Reach;
 use crate::causality::regions::{PostImage, item_end};
@@ -260,6 +264,9 @@ fn moves(files: &[ChangedFile], gone: &[ChangedFile], base: &PostImage<'_>, read
 
 /// `files` less the added lines inside an item the range moved unchanged from another file, so a
 /// moved test is neither added nor deleted: [`unmoved`] is the deletion side of the same match.
+///
+/// Only into a file a cargo target builds ([`is_built`]): a test moved where no target runs it is
+/// measured as added, and refused as one.
 pub(crate) fn carried(
     mut files: Vec<ChangedFile>,
     gone: &[ChangedFile],
@@ -268,6 +275,9 @@ pub(crate) fn carried(
 ) -> Vec<ChangedFile> {
     let moved = moves(&files, gone, base, read);
     for (at, file) in files.iter_mut().enumerate() {
+        if !is_built(&file.path, read) {
+            continue;
+        }
         file.added
             .retain(|line| !moved.iter().any(|one| one.to == at && one.landed.contains(&line.number)));
     }

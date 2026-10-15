@@ -534,6 +534,43 @@ fn collapse(path: &str) -> String {
     out.join("/")
 }
 
+/// Does a cargo target build `path`: a target root, or a file one declares with `mod`?
+///
+/// Strict where [`place`] falls back: a file under `tests/` that no root declares, or a `src/` file
+/// no `mod` reaches, is `false` here and has a package-wide place there. The declarations are read
+/// without evaluating `cfg`, so a module a `cfg` compiles out still counts as declared. Only the
+/// `src/` roots `lib.rs`, `main.rs`, `bin/<name>.rs` and `bin/<name>/main.rs` are walked from: a
+/// file reached only through a `src/bin/<name>/` module is `false`, which keeps its tests measured.
+pub(super) fn is_built(path: &str, read: &PostImage<'_>) -> bool {
+    let Some((package, dir)) = owning_package(path, read) else {
+        return false;
+    };
+    let rest = path.get(dir.len()..).unwrap_or_default().trim_start_matches('/');
+    if let Some(inner) = rest.strip_prefix("tests/") {
+        return match inner.split_once('/') {
+            None => is_rust(inner),
+            Some(_) => included_by(&package, dir, inner, read).is_some(),
+        };
+    }
+    let Some(inner) = rest.strip_prefix("src/") else {
+        return false;
+    };
+    if let Some(bin) = inner.strip_prefix("bin/") {
+        return match bin.split_once('/') {
+            None => is_rust(bin),
+            Some((_, rest)) => rest == "main.rs",
+        };
+    }
+    ["src/lib.rs", "src/main.rs"]
+        .into_iter()
+        .map(|root| in_dir(dir, root))
+        .any(|root| root == path || read(&root).is_some() && declared_route(root, path, read, false).is_some())
+}
+
+fn is_rust(name: &str) -> bool {
+    std::path::Path::new(name).extension().is_some_and(|ext| ext == "rs")
+}
+
 /// `rel` under `dir`, where an empty `dir` is the repo root.
 fn in_dir(dir: &str, rel: &str) -> String {
     if dir.is_empty() {

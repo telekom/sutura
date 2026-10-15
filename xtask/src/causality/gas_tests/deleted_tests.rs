@@ -137,6 +137,48 @@ fn a_test_file_renamed_between_compiled_paths_adds_and_deletes_no_test() {
     );
 }
 
+/// What the renamed file adds is still a test added: it needs a result on base like any other.
+#[test]
+fn a_renamed_test_file_that_also_adds_a_test_is_refused() {
+    let added = format!("{PINS}\n#[test]\nfn pins_g() {{\n    assert_eq!(wired::f(), 1);\n}}\n");
+    assert_eq!(
+        committed_tree(
+            "test: rename the pins and add one\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/moved.rs", &added)],
+        ),
+        Verdict::Fail
+    );
+}
+
+/// The new file's first four lines are the span the moved test holds in `tests/moved.rs`: a line
+/// number that coincides is not the same test.
+#[test]
+fn a_new_test_file_beside_a_rename_is_not_taken_for_the_moved_test() {
+    let other = "#[test]\nfn other_new() {\n    assert_eq!(wired::f(), 1);\n}\n";
+    assert_eq!(
+        committed_tree(
+            "test: rename the pins and add a file\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/moved.rs", PINS), ("tests/other_new.rs", other)],
+        ),
+        Verdict::Inconclusive
+    );
+}
+
+/// `tests/sub/pins.rs` is no target and nothing declares it, so cargo never runs its tests.
+#[test]
+fn a_test_file_renamed_where_no_target_builds_it_is_refused() {
+    assert_eq!(
+        committed_tree(
+            "test: move the pins\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/sub/pins.rs", PINS)],
+        ),
+        Verdict::Fail
+    );
+}
+
 /// A fresh repository with a `tests/` directory and a commit identity.
 fn scratch_repo(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("sutura-causality-{tag}-{}", std::process::id()));
