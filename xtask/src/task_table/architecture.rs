@@ -263,23 +263,24 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
             // Each snapshot names only part of each enum, so neither is a census.
-            // T6 is the sole uncovered variant; the enrolled counts must still agree.
+            // T6 is the sole uncovered variant; each enum declares the registry's count, held by
+            // `refusals::falsifier_seed`.
             seeds: &[
                 (
                     "crates/sutura-domain/src/query.rs",
-                    "pub enum RefusalReason {\n    R0,\n    R1,\n    R2,\n    R3,\n    R4,\n    R5,\n    R6,\n    R7,\n    R8,\n    R9,\n    R10,\n    R11,\n    R12,\n    R13,\n    R14,\n    R15,\n    R16,\n    R17,\n    R18,\n    R19,\n    R20,\n    R21,\n    R22,\n    R23,\n    R24,\n    R25,\n    R26,\n    R27,\n    R28,\n    R29,\n}\n",
+                    "pub enum RefusalReason {\n    R0,\n    R1,\n    R2,\n    R3,\n    R4,\n    R5,\n    R6,\n    R7,\n    R8,\n    R9,\n    R10,\n    R11,\n    R12,\n    R13,\n    R14,\n    R15,\n    R16,\n    R17,\n    R18,\n    R19,\n    R20,\n    R21,\n    R22,\n    R23,\n    R24,\n    R25,\n    R26,\n    R27,\n    R28,\n    R29,\n    R30,\n    R31,\n}\n",
                 ),
                 (
                     "crates/sutura-config/src/settings/posture.rs",
-                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n}\n",
+                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n}\n",
                 ),
                 (
                     "crates/sutura-domain/src/pinned.rs",
-                    "pub enum NotValidated {\n    V0,\n    V1,\n    V2,\n    V3,\n    V4,\n    V5,\n    V6,\n}\n",
+                    "pub enum NotValidated {\n    V0,\n    V1,\n    V2,\n    V3,\n    V4,\n    V5,\n    V6,\n    V7,\n}\n",
                 ),
                 (
                     "crates/sutura-domain/src/raw.rs",
-                    "pub enum RawRefusalReason {\n    W0,\n    W1,\n    W2,\n    W3,\n}\n",
+                    "pub enum RawRefusalReason {\n    W0,\n    W1,\n    W2,\n    W3,\n    W4,\n    W5,\n}\n",
                 ),
                 (
                     "crates/sutura-http/src/tls.rs",
@@ -287,11 +288,11 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/example/tests/first.snap",
-                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 S0 S1 S2 S3 S4 S5 S6 S7 V0 V1 V2 W0 W1 T0 T1 T2\n",
+                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 V0 V1 V2 V3 W0 W1 W2 T0 T1 T2\n",
                 ),
                 (
                     "crates/example/tests/second.snap",
-                    "R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 S8 S9 S10 S11 S12 S13 S14 S15 V3 V4 V5 V6 W2 W3 T3 T4 T5\n",
+                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 V4 V5 V6 V7 W3 W4 W5 T3 T4 T5\n",
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),

@@ -33,6 +33,8 @@
 //! unadjudicated at exit 0 - both were measured green before that type existed.
 
 mod declared;
+#[cfg(test)]
+mod falsifier_seed;
 mod registry;
 
 use std::collections::{BTreeMap, BTreeSet};
