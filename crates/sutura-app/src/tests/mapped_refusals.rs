@@ -21,8 +21,8 @@ use crate::spend::SpendLedger;
 use crate::surface::{LocalService, ServiceNotStarted, Surface as _, SurfaceFailure};
 use crate::tests::{asked_by_a_person, certified, june, metric, shared, source, test_deadline};
 use crate::tests_support::{
-    AdapterFailure, AuthoredWarehouse, CountingBroker, DiscardingAuditSink, FixedBroker, FixedCatalog, FixedWarehouse,
-    RawCapableWarehouse, authored_bundle,
+    AuthoredWarehouse, CountingBroker, DiscardingAuditSink, FixedBroker, FixedCatalog, FixedWarehouse, RawCapableWarehouse,
+    RawDeclaredButSilentWarehouse, authored_bundle,
 };
 use crate::warehouses::Warehouses;
 use crate::{RunSqlError, ServiceError, run_sql, verify_and_validate};
@@ -233,69 +233,25 @@ fn the_surface_answers_run_sql_over_a_shape_the_tool_does_not_serve_with_a_refus
     );
 }
 
-/// Declares `ACCEPTS_RAW_STATEMENTS` and then answers no statement: the one shape `run_sql` still
-/// reports as a wiring defect, because no caller can cause it.
-struct DeclaresRawAndAnswersNone {
-    source: SourceName,
-    posture: sutura_domain::source::SourcePosture,
-}
-
-impl DeclaresRawAndAnswersNone {
-    fn new() -> Self {
-        Self {
-            source: source(),
-            posture: shared(),
-        }
-    }
-}
-
-impl sutura_domain::warehouse::Warehouse for DeclaresRawAndAnswersNone {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
-        sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
-    const ACCEPTS_RAW_STATEMENTS: bool = true;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &sutura_domain::source::SourcePosture {
-        &self.posture
-    }
-
-    fn execute(
-        &self,
-        _executable: sutura_domain::plan::Executable<'_>,
-        _presented: &sutura_domain::identity::Presented,
-        _deadline: sutura_domain::warehouse::deadline::Deadline,
-    ) -> Result<sutura_domain::warehouse::ResultBatches, Self::Error> {
-        Err(AdapterFailure::RefusedBySource)
-    }
-
-    fn verify_anchor(
-        &self,
-        _plan: sutura_domain::plan::AnchorPlan<'_>,
-    ) -> Result<sutura_domain::warehouse::AnchorRows, Self::Error> {
-        Err(AdapterFailure::RefusedBySource)
-    }
-}
-
 #[test]
 fn an_adapter_declaring_raw_and_answering_none_stays_a_wiring_defect() {
     let failure = run_sql(
         &asked_by_a_person(),
         &select_one(),
         &FixedBroker::GrantsShared,
-        &Warehouses::of(DeclaresRawAndAnswersNone::new()),
+        &Warehouses::of(RawDeclaredButSilentWarehouse::over(source(), shared())),
         test_deadline(),
     )
     .expect_err("an adapter that declares raw and answers none is not a refusal the caller can read");
     assert!(matches!(failure, RunSqlError::NoAcceptingSource), "{failure:?}");
 
-    let surfaced = service(declared(), DeclaresRawAndAnswersNone::new(), FixedBroker::GrantsShared)
-        .run_sql(&asked_by_a_person(), &select_one(), test_deadline())
-        .expect_err("the surface reports it as a failure, not an answer");
+    let surfaced = service(
+        declared(),
+        RawDeclaredButSilentWarehouse::over(source(), shared()),
+        FixedBroker::GrantsShared,
+    )
+    .run_sql(&asked_by_a_person(), &select_one(), test_deadline())
+    .expect_err("the surface reports it as a failure, not an answer");
     assert!(matches!(surfaced, SurfaceFailure::Miswired { .. }), "{surfaced:?}");
 }
 

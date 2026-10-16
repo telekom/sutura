@@ -114,3 +114,44 @@ impl Warehouse for RawCapableWarehouse {
         matches!(error, AdapterFailure::TimedOut)
     }
 }
+
+/// Declares `ACCEPTS_RAW_STATEMENTS` and then answers no statement: the one shape `run_sql` still
+/// reports as a wiring defect, because no caller can cause it.
+pub(crate) struct RawDeclaredButSilentWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl RawDeclaredButSilentWarehouse {
+    pub(crate) const fn over(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for RawDeclaredButSilentWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+}
