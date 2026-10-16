@@ -702,10 +702,11 @@ where
                 crate::RunSqlError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
                 crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
                 crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                // A boot refusal is supposed to make this unreachable in a running deployment - see
-                // `sutura_config`'s own refusal over `DeploymentIdentity` and the adapter's declared
-                // `Warehouse::ACCEPTS_RAW_STATEMENTS`. Reported as a wiring defect rather than panicking,
-                // because a port that CAN return this is a port whose contract says it might.
+                // Only an adapter that declares `Warehouse::ACCEPTS_RAW_STATEMENTS` and then answers no
+                // raw statement reaches this: `run_sql` has already refused the deployments that are
+                // not one raw-capable source, as a refusal the caller reads. Reported as a wiring defect
+                // rather than panicking, because a port that CAN return this is a port whose contract
+                // says it might.
                 crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
                     cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
                 },

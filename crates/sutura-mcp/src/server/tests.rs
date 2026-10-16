@@ -32,6 +32,9 @@ mod deadline;
 /// header says what it builds instead and why.
 #[cfg(test)]
 mod asking;
+/// `run_sql` over a deployment shape the raw tool does not serve, answered as a refusal.
+#[cfg(test)]
+mod raw_refusals;
 /// The catalog tool after a refresh swaps the served bundle.
 #[cfg(test)]
 mod refresh;

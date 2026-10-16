@@ -131,9 +131,11 @@ mod tests {
             Deadline::opened_at(Instant::now(), Budget::parse(Duration::from_secs(30)).expect("a budget")),
         );
         drop(std::fs::remove_dir_all(&dir));
-        assert!(
-            matches!(answered, Err(sutura_app::RunSqlError::NoAcceptingSource)),
-            "two raw-capable sources must have no raw tool, got {answered:?}"
+        let outcome = answered.expect("two raw-capable sources are refused the tool, not failed");
+        assert_eq!(
+            outcome.outcome().refusal().map(sutura_domain::raw::RawRefusalReason::code),
+            Some("more_than_one_source_open"),
+            "two raw-capable sources must have no raw tool, got {outcome:?}"
         );
     }
 }

@@ -529,9 +529,8 @@ Why running a raw statement did not produce an outcome.
 **Deliberately not `ServiceError`.** That type's `Compile` and
 `Federated` arms describe the compiler and the splitter, neither of which this path touches - a
 raw statement is unparsed text, end to end. What is left is the credential half
-`answer` also has, plus one arm of its own for a state the boot refusal is
-supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
-text at all.
+`answer` also has, plus one arm of its own for an adapter that declares it
+accepts raw text and then answers none.
 
 ## `use RunningRaw`
 
@@ -543,10 +542,13 @@ Runs one literal statement against the deployment's configured source, or says w
 
 # PR1's scope, stated as a limit rather than left implicit
 
-**This targets the sole registered data system, and refuses `RunSqlError::NoAcceptingSource`
-where more than one is open or none is.** The architecture decision's showcase is one Postgres source; a
-deployment naming which of several sources the raw tool may run over is future work, not a
-decision this function makes by omission - a second source is refused rather than guessed at.
+**This targets the sole registered data system, and refuses with
+`RawRefusalReason::MoreThanOneSourceOpen` where more than one is open, or
+`RawRefusalReason::NoSourceAcceptsRawStatements` where the one open does not accept raw text.**
+the architecture decision's showcase is one Postgres source; a deployment naming which of several sources
+the raw tool may run over is future work, not a decision this function makes by omission - a
+second source is refused rather than guessed at. Both are answers to the caller, declined before
+the broker is asked, so each is audited and neither is a `RunSqlError`.
 
 # Otherwise, this mirrors `answer`'s credential handling exactly
 
