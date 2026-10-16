@@ -37,7 +37,8 @@ here because no single step below satisfies more than two of them:
 | e | **ADBC**                                                                                | Built. `sutura-exec-bigquery`'s `adbc` transport is the only BigQuery mode.                                                                                                                                                |
 
 *Corrected by the third amendment: row (c)'s "blocked upstream" no longer holds, because the upstream
-change is released. `datafusion-federation` is still not a dependency.*
+change is released. `datafusion-federation` is still not a dependency.* *Corrected by the fourth
+amendment: it is a dependency since #1358, and no cut uses it yet.*
 
 **No hand row handling is the standing rule this comes from**: `DataFusion`, Arrow, Arrow Flight or
 ADBC, and nothing that walks a result one cell at a time. That rule is what makes the blast radius
@@ -308,7 +309,8 @@ redeveloping it.
 `cargo xtask unused-deps` is a `Kind::Hygiene` task, so it runs in `just validate`'s hygiene leg, and
 it fails a declared dependency no crate references. `datafusion-federation`'s caller is a
 `FederationProvider`/`SQLExecutor` implementation with a per-subject `compute_context`, which is step
-5's work; declaring the dependency ahead of it is a red leg, not groundwork.
+5's work; declaring the dependency ahead of it is a red leg, not groundwork. *Corrected by the
+fourth amendment: the provider landed with #1358, so the dependency is declared and used.*
 
 **What is already measured about adopting it, so the next step does not re-derive it.**
 `datafusion-federation 0.5.6`'s manifest declares `[dependencies.datafusion] version = "55"` with no
@@ -335,7 +337,8 @@ back as orphaned dead code, and `DataFusionCombiner::for_subject` is its caller.
 **What that is worth today, stated before the property it carries.** This build depends on no
 federation provider - step 4 is blocked ahead of an upstream manifest change, and
 `cargo xtask unused-deps` would fail a declared dependency no crate names (*corrected by the third
-amendment: the upstream change is released; the caller is what is missing*) - so nothing in this
+amendment: the upstream change is released; the caller is what is missing. Corrected by the fourth
+amendment: the provider landed with #1358*) - so nothing in this
 process compares two contexts. What the wiring buys is that the seam exists where a provider plugs
 in, and that the value reaching it is a digest: `ComputeContext::of` takes a `Subject` and there is
 no other constructor, so a provider written against this cannot publish a raw one. The combiner's own
@@ -451,7 +454,8 @@ published and neither is yanked. Four sentences above say otherwise and are left
 with an inline correction pointing here: the Status paragraph, row (c) of the requirements table,
 Step 4's "proposed and OPEN", and Step 5's "blocked ahead of an upstream manifest change".
 
-**What did not change is that step 4 is not built.** `datafusion-federation` is in neither
+**What did not change is that step 4 is not built.** *Corrected by the fourth amendment: the next
+sentence was true on 2026-10-07 and is not true now.* `datafusion-federation` is in neither
 `Cargo.toml` nor `Cargo.lock`. Its caller, a `FederationProvider`/`SQLExecutor` implementation with a
 per-subject compute context, does not exist, and the `unused-deps` hygiene task still fails a
 declared dependency no crate references. What holds step 4 back now is that caller, not the
@@ -461,3 +465,24 @@ upstream manifest.
 nothing was built. What adopting it costs in lockfile entries: the estimate of three after the
 change against nineteen before is not re-measured. That the provider-equality property recorded under
 Step 5 holds in 0.5.7: it was not re-read.
+
+## Fourth amendment, 2026-10-17: the dependency and the provider landed, and step 4's caller is PR 5b
+
+**What landed.** `datafusion-federation` 0.5.7 is in `Cargo.toml` (without its `sql` feature) and in
+`Cargo.lock`. `sutura-exec-datafusion` depends on it and implements its `FederationProvider` as
+`SourceProvider`, which gives each source and subject a compute context from
+`ComputeContext::of(source, subject)`. That came with #1358, and #1382 added the check that a leg
+is among the cut's own legs. So the sentences that call the crate "not a dependency" in the status
+table, step 4, step 5 and the third amendment were true when written and are corrected inline above.
+`SourceProvider` names the crate, so the `unused-deps` task has a caller to find.
+
+**What did not land: a cut by the crate.** No code runs the crate's optimizer rule, and
+`SourceProvider::optimizer` answers `None`, so the crate cuts no subtree today. The metric path's
+legs are the splitter's own. `DataFusionCombiner::for_subject` has no production caller; a test is
+its only caller. So nothing in a served process compares two contexts yet. **Limit.** This is a
+static read of the tree at this commit. Nothing was built for this record.
+
+**Where step 4's caller is now.** `docs/adr/20261010140559`'s third amendment moves the crate's cut
+off the metric path and to its PR 5b, the federated `run_sql`. Step 4 is built when 5b is. Until
+then, the compute context is held by its type and by the cell that two subjects' providers are
+unequal, and not by a cut that uses it.
