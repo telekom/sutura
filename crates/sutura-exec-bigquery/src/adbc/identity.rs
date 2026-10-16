@@ -449,9 +449,9 @@ mod tests {
     #[test]
     fn the_two_modes_are_the_only_two_and_neither_degrades_into_the_other() {
         // **The XOR as a cell rather than as a sentence.** For `Disabled` and `ThroughPool` and
-        // the two arms of `JobIdentity` that can reach this function, the pairs are four and every
-        // one is decided above: shared runs as the deployment, a subject federates, a subject with
-        // no pool refuses, and the boot path runs as the deployment whatever the source declared.
+        // the three arms of `JobIdentity`, the pairs are six and every one is decided above: shared
+        // and the boot path run as the deployment whatever the source declared, a subject federates,
+        // a subject with no pool refuses, and an address refuses at both.
         // What no pair produces is *a subject's question answered as the deployment* - there is no
         // option list that is both non-empty and free of the credential document, and no arm that
         // returns an empty list for a subject.
