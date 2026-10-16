@@ -7,14 +7,16 @@
 //!
 //! The warehouse (`sutura-exec-cube`) sends the same token when a question is asked, and the second
 //! cell reads that send and the question-time failure after it: a loopback Cube that answers the
-//! question and one that refuses it with a body naming the token, each asked through `/v1/query`.
+//! question, one that answers 401 and one that answers 500, the last two with a body naming the token,
+//! each asked through `/v1/query`.
 //! The example catalog is copied with every anchor but `recurring_revenue`'s removed, because a
 //! deployment verifies each anchor against Cube at boot and a scripted fake answers one certified
 //! number in order, not six.
 //!
 //! **The limit:** only the Cube warehouse is made to fail at question time here. A cause chain from
-//! another data system's driver is not read, and `/mcp` and `sutura mcp` are not asked: the stdio
-//! surface installs no tracing subscriber, so its log surface is standard error alone.
+//! another data system's driver is not read, and `/mcp` and `sutura mcp` are not asked. `/mcp` is
+//! mounted in the served router and was left out; `sutura mcp` (stdio) installs no tracing subscriber,
+//! so its log surface is standard error alone.
 
 use std::path::{Path, PathBuf};
 
@@ -179,7 +181,7 @@ fn a_cube_warehouse_token_is_held_out_of_every_reply_and_log_line_when_a_questio
     let (answered, mut lines, answering) = asked("cube-warehouse-answered", june());
     let (unauthorized, unauthorized_lines, rejecting) = asked("cube-warehouse-unauthorized", naming(401));
     let (failed, failed_lines, failing) = asked("cube-warehouse-failed", naming(500));
-    lines.extend(unauthorized_lines);
+    lines.extend(unauthorized_lines.iter().cloned());
     lines.extend(failed_lines.iter().cloned());
 
     assert_eq!(answered.status, 200, "Cube's answer must be served: {}", answered.body);
@@ -196,17 +198,18 @@ fn a_cube_warehouse_token_is_held_out_of_every_reply_and_log_line_when_a_questio
     assert!(
         failed_lines
             .iter()
-            .any(|line| line.contains("the data system did not answer")),
+            .any(|line| line.contains("the data system did not answer") && line.contains("Cube refused the request with 500")),
         "the question-time cause chain was never logged, so its absence of the token proves nothing:\n{}",
         failed_lines.join("\n")
+    );
+    assert!(
+        unauthorized_lines.iter().any(|line| line.contains(r#""level":10"#)),
+        "the 401 run captured no `trace` line, so its absence of the token proves nothing"
     );
     let bearer = format!("Bearer {CANARY}");
     for (fake, sent) in [("answering", answering), ("rejecting", rejecting), ("failing", failing)] {
         assert!(
-            sent.iter()
-                .filter(|request| request.authorization() == Some(bearer.as_str()))
-                .count()
-                >= 2,
+            sent.iter().all(|request| request.authorization() == Some(bearer.as_str())),
             "the {fake} fake was not sent the token at boot and again for the question, so its absence proves nothing: {sent:?}"
         );
     }
