@@ -20,7 +20,8 @@
 
 use libfuzzer_sys::fuzz_target;
 use sutura_config::{
-    InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, RequiredTokenType, ResourceIdentifier, SigningAlgorithm,
+    InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, PinnedAlgorithms, RequiredTokenType, ResourceIdentifier,
+    SigningAlgorithm,
 };
 use sutura_http::inbound::keys::KeySet;
 use sutura_http::inbound::token::{MAX_TOKEN_BYTES, TokenValidator};
@@ -38,7 +39,7 @@ fn validator() -> &'static (TokenValidator, KeySet) {
         let identity = InboundIdentity::Direct {
             resource: ResourceIdentifier::parse("https://sutura.example.com").expect("fixture audience is valid"),
             authorization_server: IssuerUrl::parse("https://issuer.example.com").expect("fixture issuer is valid"),
-            key_set: KeySetFile::parse("/nonexistent/jwks.json").expect("fixture path is valid"),
+            key_set: KeySetLocation::File(KeySetFile::parse("/nonexistent/jwks.json").expect("fixture path is valid")),
             algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
             token_type: RequiredTokenType::access_token(),
         };
