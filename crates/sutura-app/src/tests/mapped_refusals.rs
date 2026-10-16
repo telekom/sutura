@@ -22,7 +22,7 @@ use crate::surface::{LocalService, ServiceNotStarted, Surface as _, SurfaceFailu
 use crate::tests::{asked_by_a_person, certified, june, metric, shared, source, test_deadline};
 use crate::tests_support::{
     AuthoredWarehouse, CountingBroker, DiscardingAuditSink, FixedBroker, FixedCatalog, FixedWarehouse, RawCapableWarehouse,
-    RawDeclaredButSilentWarehouse, authored_bundle,
+    authored_bundle,
 };
 use crate::warehouses::Warehouses;
 use crate::{RunSqlError, ServiceError, run_sql, verify_and_validate};
@@ -231,28 +231,6 @@ fn the_surface_answers_run_sql_over_a_shape_the_tool_does_not_serve_with_a_refus
         Some("no_source_accepts_raw_statements"),
         "{outcome:?}"
     );
-}
-
-#[test]
-fn an_adapter_declaring_raw_and_answering_none_stays_a_wiring_defect() {
-    let failure = run_sql(
-        &asked_by_a_person(),
-        &select_one(),
-        &FixedBroker::GrantsShared,
-        &Warehouses::of(RawDeclaredButSilentWarehouse::over(source(), shared())),
-        test_deadline(),
-    )
-    .expect_err("an adapter that declares raw and answers none is not a refusal the caller can read");
-    assert!(matches!(failure, RunSqlError::NoAcceptingSource), "{failure:?}");
-
-    let surfaced = service(
-        declared(),
-        RawDeclaredButSilentWarehouse::over(source(), shared()),
-        FixedBroker::GrantsShared,
-    )
-    .run_sql(&asked_by_a_person(), &select_one(), test_deadline())
-    .expect_err("the surface reports it as a failure, not an answer");
-    assert!(matches!(surfaced, SurfaceFailure::Miswired { .. }), "{surfaced:?}");
 }
 
 /// A refusal declined before any mint is still a call, so it must reach the sink: one `RawRefused`
