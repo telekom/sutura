@@ -104,7 +104,7 @@ impl Declared {
         let names = variant_names(body);
         if names.len() != enrolled.get() {
             return Err(format!(
-                "{declared_in}: {name} declares {} variant(s) and the enrolment in xtask/src/refusals.rs \
+                "{declared_in}: {name} declares {} variant(s) and the enrolment in xtask/src/refusals/registry.rs \
                  declares {} - update the enrolled count in the same diff, so this gate cannot check a \
                  shorter list than the enum has",
                 names.len(),
