@@ -3783,7 +3783,7 @@ whatever kinds the issuer publishes; one <em>token</em> is verified by one key w
 the validator this feeds refuses a permitted-algorithm list whose family disagrees with the key
 it looked up. So the mixed list is refused at startup instead - see <code>PinnedAlgorithms::parse</code>.</p>
 <h2 id="use-keysetfile"><code>use KeySetFile</code><a class="headerlink" href="#use-keysetfile" title="Permanent link">&para;</a></h2>
-<p>Where the signing keys are read from.</p>
+<p>The path a <code>KeySetLocation::File</code> key set is read from.</p>
 <p><strong>A file and not a URL, and that gap is named rather than left to be discovered.</strong> A JWKS
 endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
 its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
@@ -3792,6 +3792,11 @@ None of that is built. What is built is the <em>rotation</em> mechanism: the key
 when a key id is not in it, and that refetch is rate limited - and every one of those properties
 is the same whether the source is a file a sidecar rewrites or an endpoint. See
 <code>sutura_http::inbound::keys</code>.</p>
+<h2 id="use-keysetlocation"><code>use KeySetLocation</code><a class="headerlink" href="#use-keysetlocation" title="Permanent link">&para;</a></h2>
+<p>Where the signing keys are read from.</p>
+<p><strong>An enum, so a second source arrives as a variant every reader has to match</strong> rather than as a
+second optional field a reader can forget. The gate picks its key source out of this value, and
+the cache it feeds is the same whatever the source is.</p>
 <h2 id="use-pinnedalgorithms"><code>use PinnedAlgorithms</code><a class="headerlink" href="#use-pinnedalgorithms" title="Permanent link">&para;</a></h2>
 <p>The algorithms this deployment will accept, all of one family and at least one.</p>
 <p>Non-emptiness and single-family-ness are both structural: the first link lives in its own field,
@@ -5580,7 +5585,7 @@ holds an asserted identity. See this module's documentation for why.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-120-1"><a id="__codelineno-120-1" name="__codelineno-120-1" href="#__codelineno-120-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">header</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ProofHeader</span>
 </span></code></pre></div>
 <p>The header the proof arrives in.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-121-1"><a id="__codelineno-121-1" name="__codelineno-121-1" href="#__codelineno-121-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">header</span><span class="p">:</span><span class="w"> </span><span class="nc">ProofHeader</span><span class="p">,</span><span class="w"> </span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="nc">IssuerUrl</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="nc">TokenAudience</span><span class="p">,</span><span class="w"> </span><span class="n">key_set</span><span class="p">:</span><span class="w"> </span><span class="nc">KeySetFile</span><span class="p">,</span><span class="w"> </span><span class="n">algorithms</span><span class="p">:</span><span class="w"> </span><span class="nc">PinnedAlgorithms</span><span class="p">,</span><span class="w"> </span><span class="n">token_type</span><span class="p">:</span><span class="w"> </span><span class="nc">RequiredTokenType</span><span class="p">,</span><span class="w"> </span><span class="n">max_lifetime</span><span class="p">:</span><span class="w"> </span><span class="nc">ProofLifetime</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-121-1"><a id="__codelineno-121-1" name="__codelineno-121-1" href="#__codelineno-121-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">header</span><span class="p">:</span><span class="w"> </span><span class="nc">ProofHeader</span><span class="p">,</span><span class="w"> </span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="nc">IssuerUrl</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="nc">TokenAudience</span><span class="p">,</span><span class="w"> </span><span class="n">key_set</span><span class="p">:</span><span class="w"> </span><span class="nc">KeySetLocation</span><span class="p">,</span><span class="w"> </span><span class="n">algorithms</span><span class="p">:</span><span class="w"> </span><span class="nc">PinnedAlgorithms</span><span class="p">,</span><span class="w"> </span><span class="n">token_type</span><span class="p">:</span><span class="w"> </span><span class="nc">RequiredTokenType</span><span class="p">,</span><span class="w"> </span><span class="n">max_lifetime</span><span class="p">:</span><span class="w"> </span><span class="nc">ProofLifetime</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Assembles a declaration from parts that have each already been parsed.</p>
 <p>Seven arguments, over <code>clippy.toml</code>'s threshold of five, and taken rather than grouped
@@ -5680,7 +5685,7 @@ when the indicator is absent.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-135-1"><a id="__codelineno-135-1" name="__codelineno-135-1" href="#__codelineno-135-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issuer</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">inbound</span><span class="w"> </span><span class="nc">IssuerUrl</span>
 </span></code></pre></div>
 <p>The issuer the <code>iss</code> claim must equal, byte for byte.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-136-1"><a id="__codelineno-136-1" name="__codelineno-136-1" href="#__codelineno-136-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">inbound</span><span class="w"> </span><span class="nc">KeySetFile</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-136-1"><a id="__codelineno-136-1" name="__codelineno-136-1" href="#__codelineno-136-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">inbound</span><span class="w"> </span><span class="nc">KeySetLocation</span>
 </span></code></pre></div>
 <p>Where the signing keys are read from.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-137-1"><a id="__codelineno-137-1" name="__codelineno-137-1" href="#__codelineno-137-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">location</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TokenLocation</span><span class="o">&lt;'</span><span class="na">inbound</span><span class="o">&gt;</span>
@@ -5702,6 +5707,11 @@ gateway, which publishes none.</p>
 <p>A client id exactly as written: 1 to 128 letters, digits, <code>-</code>, <code>.</code> or <code>_</code>.</p>
 <h3 id="use-tokenaudience_1"><code>use TokenAudience</code><a class="headerlink" href="#use-tokenaudience_1" title="Permanent link">&para;</a></h3>
 <p>What <code>aud</code> must equal: an <code>https</code> URI, a client id, or - behind a gateway - an absolute path.</p>
+<h3 id="use-keysetlocation_1"><code>use KeySetLocation</code><a class="headerlink" href="#use-keysetlocation_1" title="Permanent link">&para;</a></h3>
+<p>Where the signing keys are read from.</p>
+<p><strong>An enum, so a second source arrives as a variant every reader has to match</strong> rather than as a
+second optional field a reader can forget. The gate picks its key source out of this value, and
+the cache it feeds is the same whatever the source is.</p>
 <h3 id="use-invalidalgorithms_1"><code>use InvalidAlgorithms</code><a class="headerlink" href="#use-invalidalgorithms_1" title="Permanent link">&para;</a></h3>
 <p>Why a pinned algorithm list is not one.</p>
 <h3 id="use-invalidinboundvalue_1"><code>use InvalidInboundValue</code><a class="headerlink" href="#use-invalidinboundvalue_1" title="Permanent link">&para;</a></h3>
@@ -5726,7 +5736,7 @@ whatever kinds the issuer publishes; one <em>token</em> is verified by one key w
 the validator this feeds refuses a permitted-algorithm list whose family disagrees with the key
 it looked up. So the mixed list is refused at startup instead - see <code>PinnedAlgorithms::parse</code>.</p>
 <h3 id="use-keysetfile_1"><code>use KeySetFile</code><a class="headerlink" href="#use-keysetfile_1" title="Permanent link">&para;</a></h3>
-<p>Where the signing keys are read from.</p>
+<p>The path a <code>KeySetLocation::File</code> key set is read from.</p>
 <p><strong>A file and not a URL, and that gap is named rather than left to be discovered.</strong> A JWKS
 endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
 its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
