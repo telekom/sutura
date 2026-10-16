@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): extraEnv sets SUTURA__SECURITY__INBOUND__MODE: sutura reads it as a security setting and no guard in this chart reads it, so it could change the posture sutura starts with unseen - set it in config.environment, or with security.accessToken, security.metricsToken or security.inbound.keySetSecretName
+
+Use --debug flag to render out invalid YAML

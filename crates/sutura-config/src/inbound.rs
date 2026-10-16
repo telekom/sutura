@@ -13,7 +13,7 @@
 //!
 //! | Written | What it means |
 //! | --- | --- |
-//! | no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. `docs/adr/0008` part 5a calls that a first-class shape rather than a degraded one |
+//! | no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish and the bearer token authenticates the deployment, so no key of this block becomes required. `sutura serve` starts `/v1` that way only with `security.identity: single-user` and its reason, and over no `impersonation-at-source` source. `docs/adr/0008` part 5a calls that a first-class shape rather than a degraded one |
 //! | a block with no `mode` | a deployment that meant to establish identity and did not say how. It does not start |
 //!
 //! **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.

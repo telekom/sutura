@@ -1,0 +1,12 @@
+# `security.inbound.keySetSecretName` alone: it sets `SUTURA__SECURITY__INBOUND__KEY_SET_FILE`, which
+# creates a `security.inbound` block with no mode, so the binary refuses to start
+# (`SettingsError::InboundModeUndeclared`) even though an access token is set.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  accessToken:
+    secretName: sutura-access-token
+  inbound:
+    keySetSecretName: sutura-inbound-keys

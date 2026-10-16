@@ -1,0 +1,8 @@
+# The access token comes from an `extraEnv` variable indexing `security`, in mixed case, with
+# whitespace at one end. The binary reads the index as the first field of `security`, the access
+# token, and refuses it while reading the settings (`InvalidAccessToken::Untrimmed`). No other
+# variable here sets `security`, so the order the binary reads the environment in cannot move it.
+environment: production
+extraEnv:
+  - name: Sutura__Security[0]
+    value: " placeholder-access-token-long-enough"

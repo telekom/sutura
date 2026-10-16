@@ -1,0 +1,18 @@
+# `extraEnv` repeats `SUTURA__SERVER__PORT`, which the chart sets itself, as `Sutura__Server.Port`.
+# The binary folds both names into `server.port` and keeps whichever its environment read inserts
+# last, an order this chart cannot fix. With the chart's own value it starts either way.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+config:
+  environment:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
+extraEnv:
+  - name: Sutura__Server.Port
+    value: "8080"

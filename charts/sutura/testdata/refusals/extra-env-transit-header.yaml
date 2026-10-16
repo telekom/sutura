@@ -1,0 +1,22 @@
+# The gateway's header comes from an `extraEnv` variable and is `authorization`, beside an access
+# token: the binary refuses to start (`NotFitToServe::DeploymentTokenSharesTheHeader`).
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  accessToken:
+    secretName: sutura-access-token
+config:
+  base:
+    security:
+      inbound:
+        mode: behind-gateway
+        key_set_file: /etc/sutura/inbound-keys/jwks.json
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]
+extraEnv:
+  - name: SUTURA__SECURITY__INBOUND__TRANSIT_HEADER
+    value: authorization

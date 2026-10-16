@@ -1,0 +1,20 @@
+# The mode comes from an `extraEnv` variable, which no guard here reads: the binary sees `direct`
+# beside an access token and refuses to start (`NotFitToServe::DeploymentTokenSharesTheHeader`).
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  accessToken:
+    secretName: sutura-access-token
+config:
+  base:
+    security:
+      inbound:
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        key_set_file: /etc/sutura/inbound-keys/jwks.json
+        algorithms: [RS256]
+extraEnv:
+  - name: SUTURA__SECURITY__INBOUND__MODE
+    value: direct

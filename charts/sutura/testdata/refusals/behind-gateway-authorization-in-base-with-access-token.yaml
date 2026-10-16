@@ -1,0 +1,22 @@
+# The same refusal as `behind-gateway-authorization-with-access-token`, with the mode and the header
+# in `base.yaml`: `behind-gateway` signs the gateway's assertion into `authorization`, the header
+# the access token is read from (`DeploymentTokenSharesTheHeader`).
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  accessToken:
+    secretName: sutura-access-token
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+config:
+  base:
+    security:
+      inbound:
+        mode: behind-gateway
+        transit_header: authorization
+        transit_issuer: https://gateway.example.com
+        transit_audience: https://sutura.example.com
+        transit_token_type: at+jwt
+        algorithms: [ES256]

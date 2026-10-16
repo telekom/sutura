@@ -242,8 +242,9 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   CLI's attaching half is not built. A forgotten attachment cannot silently read every row as the
   deployment: the port refuses a source the broker holds neither half for as
   `credential_unavailable`.
-- `CredentialUnavailable` is reachable **through the served binary**: a served impersonating source
-  with no inbound gate answers `403 credential_unavailable` (no verified subject to serve), and a
+- A served impersonating source with no inbound gate is refused at start
+  (`NotFitToServe::QuerySurfaceOverAnImpersonatingSource`, asked at the serve root), so
+  `credential_unavailable` for want of a verified subject is not what `sutura serve` answers. A
   broker that cannot be reached gets `503` from `SurfaceFailure::Broker` - which is also what a
   refused delegation exchange answers, held behind the real router by `serve::tests::delegation_served`.
   None of that is an answer *under* an asker.

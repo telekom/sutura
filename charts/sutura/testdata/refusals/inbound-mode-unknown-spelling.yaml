@@ -1,0 +1,19 @@
+# `Direct` is not `direct`: the binary reads the mode exactly and refuses to start
+# (`SettingsError::InboundModeUnknown`), where a chart that compared it to `direct` alone would
+# have let the access token through beside it.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  accessToken:
+    secretName: sutura-access-token
+config:
+  base:
+    security:
+      inbound:
+        mode: Direct
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        key_set_file: /etc/sutura/inbound-keys/jwks.json
+        algorithms: [RS256]
