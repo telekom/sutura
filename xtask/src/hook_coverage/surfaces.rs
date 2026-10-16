@@ -73,8 +73,8 @@ pub(crate) const SURFACES: &[Surface] = &[
         reached_by: "lint-workflows",
     },
     Surface {
-        // `zizmor`'s own `files:` is `^\.github/workflows/.*\.ya?ml$`, so this row and that
-        // regex agree by construction rather than by coincidence.
+        // This row's paths are the `workflows` half of `zizmor`'s own `files:`,
+        // `^\.github/(workflows|actions)/.*\.ya?ml$`; the `actions` half is the next row.
         label: "workflow YAML",
         paths: &[".github/workflows/*.yml", ".github/workflows/*.yaml"],
         hooks: &["zizmor"],
@@ -82,8 +82,9 @@ pub(crate) const SURFACES: &[Surface] = &[
     },
     Surface {
         // NO HOOK, and that is the finding rather than an omission here. `actionlint` cannot read
-        // a composite action at the pinned version, `zizmor` is pointed elsewhere, and a `run:`
-        // block is not a `.sh` file - so this surface is invisible to every hook in the config.
+        // a composite action at the pinned version, a `run:` block is not a `.sh` file, and the
+        // `zizmor` hook's `files:` matches these paths but reads them for injection hazards, not
+        // shell correctness - so no hook in the config checks this shell.
         label: "composite-action shell",
         paths: &[".github/actions/*/action.yml", ".github/actions/*/action.yaml"],
         hooks: &[],

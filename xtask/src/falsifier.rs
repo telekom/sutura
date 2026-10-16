@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(named, expected, "`paired-gate`'s filter must name exactly the per-gate cells");
     }
 
-    /// Every subject is in scope; a named `fn` because `Scope` is a bare `fn` pointer.
+    /// Every subject is in scope.
     fn all_in_scope(_rel: &str) -> bool {
         true
     }
