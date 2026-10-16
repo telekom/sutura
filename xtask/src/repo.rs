@@ -28,6 +28,10 @@ const SKIP_DIRS: &[&str] = &[
     ".devenv",
     ".direnv",
     ".pixi",
+    // Gitignored provisioning state. The conformance corpus stages `<table>.<pid>.csv` here and
+    // renames it, so a walk that lists the staged name finds it gone by the time it reads or copies
+    // it - and only the walk fallback can see it, since git never lists an ignored path.
+    ".sutura-dev",
     "target",
     "result",
     "node_modules",
@@ -955,5 +959,27 @@ mod tests {
 
         let _swept = std::fs::remove_dir_all(&root);
         assert_eq!(found, vec![String::from("crates/thing/src/lib.rs")], "{found:?}");
+    }
+
+    #[test]
+    fn a_staged_file_under_the_gitignored_state_directory_is_not_walked() {
+        let root = std::env::temp_dir().join(format!("sutura-walk-state-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("a scratch tree");
+        std::fs::create_dir_all(root.join(".sutura-dev/conformance")).expect("the state directory");
+        std::fs::write(root.join("src/lib.rs"), "// ours\n").expect("our file");
+        std::fs::write(root.join(".sutura-dev/conformance/orders.4242.csv"), "a,b\n").expect("a staged file");
+
+        let mut found = Vec::new();
+        super::collect_files(&root, &root, &["rs", "csv"])
+            .inspect(&[], every_subject, |rel, _| found.push(String::from(rel)))
+            .expect("the scratch tree holds one .rs file and nothing unreadable");
+
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(found, vec![String::from("src/lib.rs")], "{found:?}");
+        assert_eq!(
+            super::skip_dir_crossed(".sutura-dev/conformance/orders.4242.csv"),
+            Some(".sutura-dev")
+        );
     }
 }
