@@ -9,6 +9,6 @@ use crate::inbound::primitive::KeySetFile;
 /// the cache it feeds is the same whatever the source is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeySetLocation {
-    /// A key set on disk, reread when a token names a key id the cached set does not hold.
+    /// A key set on disk at a [`KeySetFile`] path.
     File(KeySetFile),
 }

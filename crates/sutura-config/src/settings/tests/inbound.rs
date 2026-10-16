@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, KeySetLocation, ProofLifetime, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -92,6 +92,42 @@ fn each_mode_requires_its_own_keys_and_the_refusal_names_the_mode() {
     assert!(
         matches!(*error.reason(), SettingsError::InboundKeyMissing { key, .. } if key == "security.inbound.transit_header"),
         "{error:?}"
+    );
+}
+
+#[test]
+fn a_key_set_file_left_out_or_blank_is_refused_as_missing_naming_the_mode() {
+    // Blank is read as absent here, before the path parser sees it, so both name the key and mode.
+    for written in [
+        DIRECT_INBOUND.replacen("    key_set_file: \"/etc/sutura/jwks.json\"\n", "", 1),
+        DIRECT_INBOUND.replacen("\"/etc/sutura/jwks.json\"", "\"  \"", 1),
+    ] {
+        let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}")))
+            .expect_err("a direct block with no key set does not start");
+        let SettingsError::InboundKeyMissing { key, ref mode } = *error.reason() else {
+            panic!("expected a missing key, got {error:?}");
+        };
+        assert_eq!(key, KeySetFile::KEY);
+        assert_eq!(mode, "direct");
+    }
+}
+
+#[test]
+fn a_key_set_file_path_over_the_length_cap_is_refused_naming_the_key() {
+    let path = format!("/{}", "k".repeat(512));
+    let written = DIRECT_INBOUND.replacen("/etc/sutura/jwks.json", &path, 1);
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}")))
+        .expect_err("an over-long key set path does not start");
+    let SettingsError::InboundValue { ref cause } = *error.reason() else {
+        panic!("expected an inbound value refusal, got {error:?}");
+    };
+    assert_eq!(
+        *cause,
+        InvalidInboundValue::TooLong {
+            key: KeySetFile::KEY,
+            found: 513,
+            limit: 512
+        }
     );
 }
 
