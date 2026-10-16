@@ -240,6 +240,7 @@ fn a_multi_user_agent_route_does_not_offer_or_run_sql_the_deployment_left_off() 
     );
     assert_eq!(versioned.status, 403, "{}", versioned.body);
     assert_eq!(versioned.json()["code"], "tool_not_enabled", "{}", versioned.body);
+    assert!(versioned.body.contains("`tools.run_sql.enabled`"), "{}", versioned.body);
 
     drop(served.mcp(Some(&token), &initialize(1)));
     let tools = tool_names(&served.mcp(Some(&token), &tools_list(2)));
@@ -255,7 +256,7 @@ fn a_multi_user_agent_route_does_not_offer_or_run_sql_the_deployment_left_off() 
     let reply = called.json();
     assert_eq!(reply["error"]["code"], serde_json::json!(-32601), "{}", called.body);
     assert!(reply.get("result").is_none(), "{}", called.body);
-    // The scope this caller holds would not help, so the refusal names the switch; `/v1` gives the scope instead (#1402).
+    // The scope this caller holds would not help, so the refusal names the switch, as `/v1` does.
     let message = reply["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains("`tools.run_sql.enabled`"), "{}", called.body);
 }

@@ -42,10 +42,18 @@ The gateway rotates its signing keys. The key set that sutura reads must follow 
 sutura reads `key_set_file` again 60 seconds after its last read, and when an assertion names an unknown `kid`, at most
 once every 30 seconds. It keeps the last key set that loaded when the new file does not load.
 
+The key set can also be one PEM public key or certificate, such as the `tls.crt` that cert-manager writes. The key id
+is the RFC 7638 SHA-256 thumbprint of the key, so the gateway puts that thumbprint in the `kid` of each assertion it
+signs with that key. A PEM file holds one key, so it cannot hold the old key and the new key at the same time.
+
 ## With the chart
 
 The chart mounts the key set from a Secret and sets `security.inbound.key_set_file` to the mounted file. Update the
 Secret to rotate. Kubernetes writes the new content into the mounted file after a short delay.
+
+The chart mounts only the `security.inbound.keySetSecretKey` entry of the Secret. Keep the gateway's own Secret in the
+gateway's namespace, and copy only its certificate or public key into a Secret of sutura's own, for example with
+trust-manager or a copy job.
 
 `security.inbound.mode` in `config.environment` is enough for the chart: it asks for no access token then.
 

@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -279,7 +279,7 @@
+             continue;
+         }
+         file.added
+-            .retain(|line| !moved.iter().any(|one| one.to == at && one.landed.contains(&line.number)));
++            .retain(|line| !moved.iter().any(|one| one.to == at && (one.landed.contains(&line.number) || true)));
+     }
+     files
+ }

@@ -42,10 +42,12 @@ use crate::inbound::gate::InboundGate;
 use crate::inbound::keys::{FileKeySet, KeySetCache, KeyUnavailable};
 use crate::inbound::token::TokenRejected;
 use crate::testing::{
-    Answered, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, serving,
-    settings_with,
+    Answered, ISSUER, RESOURCE, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse,
+    serving, settings_with,
 };
 
+use super::fixtures::{claims, key_pair, signed};
+use super::variants::{certificate_pem, thumbprint_of};
 use super::{KID, direct_over};
 
 /// The two windows every test here runs with, and they are the same value on purpose.
@@ -371,4 +373,105 @@ async fn a_published_set_this_deployment_cannot_use_starts_no_gate_at_all() {
     // that the gate adopted the set it was pointed at rather than that both happen to spell one name.
     assert_eq!(count, issuer.key_ids().len());
     assert_eq!(ids, issuer.key_ids());
+}
+
+#[tokio::test]
+async fn a_certificate_pem_verifies_a_token_whose_kid_is_its_thumbprint() {
+    // The file cert-manager writes, read by the shipped source: no converter, and the `kid` a signer
+    // derives from the same Secret is the one this deployment holds.
+    let pair = key_pair();
+    let published = PublishedKeySet::of(&an_issuer(), "pem").expect("a placeholder publishes");
+    published
+        .rotate_to(&certificate_pem(&pair))
+        .expect("the certificate publishes");
+    let primed = Instant::now();
+    let gate = gate_reading(&published, primed);
+
+    let thumbprinted = signed(
+        &pair,
+        &thumbprint_of(&pair),
+        &claims("someone@example.com", RESOURCE, ISSUER, ""),
+    );
+    let verified = gate.establish(&bearer(&thumbprinted), primed).await;
+    assert!(verified.is_ok(), "{:?}", verified.err());
+
+    let named = signed(&pair, KID, &claims("someone@example.com", RESOURCE, ISSUER, ""));
+    let refused = gate
+        .establish(&bearer(&named), primed)
+        .await
+        .expect_err("a PEM key answers to its thumbprint only");
+    assert!(matches!(refused, TokenRejected::NoKey { .. }), "{refused:?}");
+}
+
+/// A key set mounted the way a projected Secret is: `jwks.json -> ..data/jwks.json` and
+/// `..data -> <version>`. A rotation writes a new version and renames a new `..data` link over the
+/// old one, so the file the deployment names is never rewritten in place.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_projected_secret_symlink_swap_rotates_the_key_set() {
+    use std::os::unix::fs::symlink;
+
+    let issuer = an_issuer()
+        .also_holding("rotated-in", Curve::P256)
+        .expect("a second key pair generates");
+    let mount = std::env::temp_dir().join(format!("sutura-projected-secret-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&mount));
+    let publish = |version: &str, document: &str| {
+        let directory = mount.join(version);
+        std::fs::create_dir_all(&directory).expect("a secret version directory is creatable");
+        std::fs::write(directory.join("jwks.json"), document).expect("a secret version is writable");
+    };
+    publish("..2026_a", &issuer.key_set_without("rotated-in"));
+    symlink("..2026_a", mount.join("..data")).expect("..data links to the first version");
+    symlink("..data/jwks.json", mount.join("jwks.json")).expect("the key file links through ..data");
+
+    let path = mount.join("jwks.json");
+    let declaration = direct_over(&path.to_string_lossy());
+    let requirement = declaration.requirement();
+    let primed = Instant::now();
+    let cache = KeySetCache::primed_with_window(
+        Box::new(FileKeySet::at(&path)),
+        requirement.algorithms().family(),
+        requirement.algorithms().to_string(),
+        WINDOW,
+        WINDOW,
+        primed,
+    )
+    .expect("the mounted key set primes a cache");
+    let gate = InboundGate::over(&declaration, cache);
+    let retired = issuer
+        .mint(&accepted_by("someone@example.com").signed_by(KID))
+        .expect("the issuer signs with the first version's key");
+    let rotated_in = issuer
+        .mint(&accepted_by("someone@example.com").signed_by("rotated-in"))
+        .expect("the issuer signs with the second version's key");
+    assert!(
+        gate.establish(&bearer(&retired), primed).await.is_ok(),
+        "the first version's key verifies"
+    );
+
+    publish("..2026_b", &issuer.key_set_without(KID));
+    symlink("..2026_b", mount.join("..data_tmp")).expect("the new link is creatable");
+    std::fs::rename(mount.join("..data_tmp"), mount.join("..data")).expect("the new link replaces ..data atomically");
+    std::fs::remove_dir_all(mount.join("..2026_a")).expect("the first version is removed");
+
+    let past = primed + PAST_THE_WINDOW;
+    let refused = gate.establish(&bearer(&retired), past).await;
+    let verified = gate.establish(&bearer(&rotated_in), past).await;
+    drop(std::fs::remove_dir_all(&mount));
+    assert!(
+        matches!(
+            refused,
+            Err(TokenRejected::NoKey {
+                cause: KeyUnavailable::UnknownKeyId
+            })
+        ),
+        "past the bound the swapped-out key verifies nothing: {:?}",
+        refused.err()
+    );
+    assert!(
+        verified.is_ok(),
+        "past the bound the swapped-in key verifies: {:?}",
+        verified.err()
+    );
 }

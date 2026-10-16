@@ -34,7 +34,7 @@ How the connection to the listener is secured.
 
 ### Variants
 
-- `Plaintext` - No transport security. A composition root reaches this only for a loopback host.
+- `Plaintext` - No transport security. No composition root builds this; the adapter's own unit cells do.
 - `Verified` - TLS, verified against these PEM certificates and no others: they replace the driver's bundled public certificate authorities rather than adding to them.
 
 ### Implements
@@ -61,8 +61,7 @@ anchors, the dial bound, and a refused redirect.
 # Errors
 
 `DialError::PacketTraceOn` while the driver's packet trace is switched on, before anything
-else; `DialError::TrustAnchors` for anchors that are not usable certificates; and
-`DialError::Address` for an address the driver cannot parse.
+else; otherwise `DialError::Prepare` for what `Dial::prepare` refuses.
 
 ```rust
 pub const fn deadline(&self) -> std::time::Duration
@@ -75,6 +74,18 @@ pub const fn new(host: &'dial str, port: u16, service_name: &'dial str, channel:
 ```
 
 A dial bounded by `DIAL_DEADLINE`.
+
+```rust
+pub fn prepare(self) -> Result<PreparedDial, PrepareError>
+```
+
+The same configuration as `Dial::config`, parsed once and asking the packet-trace refusal
+at each `PreparedDial::config` instead.
+
+# Errors
+
+`PrepareError::TrustAnchors` for anchors that are not usable certificates, and
+`PrepareError::Address` for an address the driver cannot parse.
 
 ```rust
 pub const fn within(self, deadline: std::time::Duration) -> Self
@@ -97,12 +108,53 @@ Why a `Dial` has no driver configuration.
 ### Variants
 
 - `PacketTraceOn` - The driver's packet trace is switched on - see `crate::oracle_trace::refuse`.
+- `Prepare` - The dial's anchors or address are refused - see `Dial::prepare`.
+
+### Implements
+
+`Debug`, `Display`, `Error`
+
+## `enum PrepareError`
+
+```rust
+pub enum PrepareError
+```
+
+Why a `Dial` cannot be prepared.
+
+### Variants
+
 - `TrustAnchors` - The declared anchors are not PEM certificates the driver can verify a server against.
 - `Address` - The driver cannot parse the address.
 
 ### Implements
 
 `Debug`, `Display`, `Error`
+
+## `struct PreparedDial`
+
+```rust
+pub struct PreparedDial
+```
+
+A `Dial` whose address and anchors the driver has parsed, kept so that each connect clones
+them instead of parsing them again.
+
+### Methods
+
+```rust
+pub fn config(&self) -> Result<oracledb::Config, crate::oracle_trace::PacketTraceOn>
+```
+
+The driver's configuration for one connect, with no credential.
+
+# Errors
+
+`crate::oracle_trace::PacketTraceOn` while the driver's packet trace is switched on.
+
+### Implements
+
+`Clone`, `Debug`
 
 ## `fn ezconnect`
 

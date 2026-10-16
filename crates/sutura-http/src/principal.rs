@@ -66,6 +66,7 @@ pub(crate) fn established() -> RequestContext {
 pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
     RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())
         .addressed(caller.address().cloned())
+        .naming_client(caller.client().clone())
 }
 
 #[cfg(test)]
@@ -110,6 +111,7 @@ mod tests {
             Groups::none(),
             sutura_domain::identity::Secret::new("the-assertion-the-gate-verified"),
             4_102_444_800,
+            sutura_domain::identity::ClientClaims::default(),
         );
         let context = of_verified(&caller);
         assert_eq!(context.chain().subject().established(), "verified");

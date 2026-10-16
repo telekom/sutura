@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/http.rs b/crates/sutura-catalog-openmetadata/src/http.rs
+index 56b818f4a..50778acc9 100644
+--- a/crates/sutura-catalog-openmetadata/src/http.rs
++++ b/crates/sutura-catalog-openmetadata/src/http.rs
+@@ -229,7 +229,9 @@ impl HttpSnapshotReader {
+                   shape sutura-catalog-datahub's HttpAspectReader::bearer holds"
+     )]
+     fn bearer(&self) -> String {
+-        format!("Bearer {}", self.token.expose_secret())
++        let header = format!("Bearer {}", self.token.expose_secret());
++        eprintln!("{header}");
++        header
+     }
+ 
+     /// Requests one entity kind's page, checked as far as *the service answered and it fits the

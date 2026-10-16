@@ -183,14 +183,25 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line() {
         ("AUTH_PBKDF2_SDER_COUNT", "1"),
         ("AUTH_PBKDF2_CSK_SALT", salt.as_str()),
     ];
-    let (port, sent) = sutura_dev::tns_listener::authenticating_over(Some, &session).expect("the fake listener binds");
+    let issued = sutura_http_client::tls_test_support::issue();
+    let config = sutura_http_client::tls_test_support::server_config(&issued);
+    let open = move |mut stream| {
+        let mut server = rustls::ServerConnection::new(config).ok()?;
+        while server.is_handshaking() {
+            let _io = server.complete_io(&mut stream).ok()?;
+        }
+        Some(rustls::StreamOwned::new(server, stream))
+    };
+    let (port, sent) = sutura_dev::tns_listener::authenticating_over(open, &session).expect("the fake listener binds");
     let case = "source-password-oracle";
     let wrong = PasswordFile::holding(case, CANARY);
+    let anchors = PasswordFile::holding("source-password-oracle-ca", &issued.certificate().pem());
     let entry = format!(
         "  {LOCAL_SOURCE}:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
          service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
-         transport_mode: \"plaintext\"\n    posture: \"shared-service-user\"\n",
-        wrong.0.display()
+         transport_mode: \"verified\"\n    transport_anchors: \"{}\"\n    posture: \"shared-service-user\"\n",
+        wrong.0.display(),
+        anchors.0.display()
     );
 
     let lines = crate::harness::refused_to_start(

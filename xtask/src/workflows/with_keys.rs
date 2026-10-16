@@ -220,7 +220,7 @@ fn body(line: &str) -> &str {
 /// carries the human-readable tag - `uses: owner/repo@<sha> # v7.0.2` - and reading the line to its
 /// end made every single reference look unpinned. A `#` cannot appear in an action reference, so
 /// the value ends at the first one.
-fn third_party_uses(text: &str) -> Vec<(usize, String)> {
+pub(super) fn third_party_uses(text: &str) -> Vec<(usize, String)> {
     text.lines()
         .enumerate()
         .filter_map(|(index, line)| {

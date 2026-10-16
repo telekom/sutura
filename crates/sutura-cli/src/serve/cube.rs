@@ -214,7 +214,10 @@ mod tests {
         let error = super::served(&catalogs, engines, &settings, None)
             .map(drop)
             .expect_err("the declared client secret file is not there");
-        assert!(error.contains("sources.warehouse.delegation.client_secret_file"), "{error}");
+        assert!(
+            error.contains("sources.warehouse.delegation[0].client_secret_file"),
+            "{error}"
+        );
     }
 
     /// **The broker composes the source's delegation**: it reads the declared client secret, so a
@@ -225,6 +228,9 @@ mod tests {
         let error = crate::serve::broker::build_broker(&crate::serve::tests::direct_registry(IMPERSONATING), None)
             .map(drop)
             .expect_err("the declared client secret file is not there");
-        assert!(error.contains("sources.warehouse.delegation.client_secret_file"), "{error}");
+        assert!(
+            error.contains("sources.warehouse.delegation[0].client_secret_file"),
+            "{error}"
+        );
     }
 }

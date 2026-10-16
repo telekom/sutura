@@ -15,7 +15,9 @@
 //! Compose only, like `sutura-exec-oracle/tests/acceptance.rs`: `just oracle-acceptance` (by hand)
 //! and `nix run .#oracle-acceptance` (the `oracle-tier` CI job) start the tier and run these
 //! `#[ignore]`d cells, with `SUTURA_DEV_REQUIRE_TIER` set so an absent tier fails rather than
-//! skips. A nix check has no docker socket, so a green `just validate` says nothing here.
+//! skips. A nix check has no docker socket, so a green `just validate` says nothing here. Every
+//! session is TCPS, verified against the tier's own certificate authority, which the task exports
+//! as `SUTURA_ORACLE_TIER_CA`.
 //!
 //! # What is NOT here
 //!
@@ -45,12 +47,14 @@ mod oracle_provisioned {
     /// The declared environment key the fixture rows carry.
     const ENVIRONMENT: &str = "test";
 
-    /// The provisioned endpoint and the fixture user the acceptance task exports.
+    /// The provisioned endpoint, the fixture user and the tier's certificate authority the
+    /// acceptance task exports.
     struct Tier {
         host: String,
         port: u16,
         user: String,
         password: String,
+        anchors: String,
     }
 
     impl Tier {
@@ -64,26 +68,44 @@ mod oracle_provisioned {
                 port: endpoint.port(),
                 user: std::env::var("SUTURA_DEV_USER").expect("the acceptance task sets SUTURA_DEV_USER"),
                 password: std::env::var("SUTURA_DEV_PASSWORD").expect("the acceptance task sets SUTURA_DEV_PASSWORD"),
+                anchors: std::fs::read_to_string(
+                    std::env::var("SUTURA_ORACLE_TIER_CA").expect("the acceptance task sets SUTURA_ORACLE_TIER_CA"),
+                )
+                .expect("the tier's certificate authority is readable"),
             }
         }
 
         fn connect(&self) -> oracledb::Connection {
             let config = oracledb::Config::default()
-                .set_connect_string(&format!("{}:{}/{SERVICE_NAME}", self.host, self.port))
+                .set_connect_string(&format!("tcps://{}:{}/{SERVICE_NAME}", self.host, self.port))
                 .expect("the discovered endpoint is an Oracle connect string")
+                .set_trust_anchors_pem(&self.anchors)
+                .expect("the tier's certificate authority is an anchor")
                 .set_credentials(&self.user, &self.password);
             oracledb::connect(config).expect("the provisioned Oracle accepts the fixture credential")
         }
 
         /// A reader logged in as the fixture user over `schema`, which the reader folds to upper case.
         fn reader(&self, schema: &str, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> OracleReader {
+            self.reader_anchored(self.anchors.clone(), schema, row_cap, byte_cap)
+        }
+
+        /// [`Self::reader`], verifying the listener against `anchors` instead of the tier's own.
+        fn reader_anchored(
+            &self,
+            anchors: String,
+            schema: &str,
+            row_cap: Option<NonZeroU64>,
+            byte_cap: Option<NonZeroU64>,
+        ) -> OracleReader {
             let login = OracleLogin::new(
                 self.host.clone(),
                 self.port,
                 String::from(SERVICE_NAME),
                 self.user.clone(),
                 Secret::new(self.password.clone()),
-            );
+            )
+            .verified(anchors);
             OracleReader::new(
                 login,
                 schema,
@@ -210,6 +232,46 @@ mod oracle_provisioned {
         assert_eq!(
             catalog.load().expect_err("a NULL flag is no evidence").to_string(),
             "reading the dictionary failed: a documentation row carried no primary-key evidence",
+        );
+    }
+
+    /// A self-signed authority the tier never saw; its key was discarded when it was made.
+    const STRANGER_CA: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIBRTCB7KADAgECAgkA2NTm5+12gREwCgYIKoZIzj0EAwIwHTEbMBkGA1UEAwwS
+c3V0dXJhLXN0cmFuZ2VyLWNhMCAXDTI2MTAxNDE0NTU1MloYDzIxMjYwOTIwMTQ1
+NTUyWjAdMRswGQYDVQQDDBJzdXR1cmEtc3RyYW5nZXItY2EwWTATBgcqhkjOPQIB
+BggqhkjOPQMBBwNCAAQXLzSXb8DG93B1pWvhF7xneThJzueK5DiCzvW+/oTxDmwE
+arLuMsZct+MCZKdv6RpGa4OAShwU3WjeJ29RiV23oxMwETAPBgNVHRMBAf8EBTAD
+AQH/MAoGCCqGSM49BAMCA0gAMEUCIQDVByH8k0aI1g2tTRSubS2UnrQu1Bl5yGgI
+JEcF0XIa1gIgE3M4ixRwgpQcNQDe5W2BUZWG+7HGdQFw5Mz/20QHKgU=
+-----END CERTIFICATE-----
+";
+
+    /// **The tier's dictionary is read over TCPS, verified against the tier's authority and no
+    /// other.** Under `SUTURA_ORACLE_TIER_CA` the server itself answers; the same login anchored on
+    /// a certificate the tier never saw is refused before the server says anything. It reads a
+    /// schema with no `COLUMNS`, so it shares no fixture with the cells running beside it.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn a_live_oracle_dictionary_reads_over_tls_verified_against_the_tier_authority_only() {
+        let tier = Tier::here();
+        let answered = tier
+            .reader("no_such_schema", None, None)
+            .read_dictionary()
+            .expect_err("a missing documentation schema is a read error");
+        assert!(
+            matches!(answered, RdbmsError::Read(_)) && answered.to_string().contains("ORA-"),
+            "the server answered over the session its own authority verified: {answered:?}"
+        );
+
+        let refused = tier
+            .reader_anchored(String::from(STRANGER_CA), "no_such_schema", None, None)
+            .read_dictionary()
+            .expect_err("a listener another authority signed is refused");
+        assert!(
+            matches!(refused, RdbmsError::Read(_)) && !refused.to_string().contains("ORA-"),
+            "the handshake, not the server, refused the read: {refused:?}"
         );
     }
 

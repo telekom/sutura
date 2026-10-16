@@ -1,6 +1,114 @@
-//! What a request carries besides the question: who asked, and what the transport verified.
+//! What a request carries besides the question, and the OAuth client its token names.
 
-use crate::identity::{PrincipalChain, TaskId};
+use core::fmt;
+
+use super::{InvalidPrincipalId, PrincipalChain, TaskId, parse_principal_id};
+
+/// The OAuth client a verified token names - in the usual agent flow, the agent.
+///
+/// **Recorded, never authorized on.** There is no `PartialEq`, `Eq`, `Hash`, `Ord` or `as_str`, so
+/// no grant, map key or comparison can read it; a sink renders it through `Display`:
+///
+/// ```compile_fail
+/// use sutura_domain::identity::OAuthClient;
+///
+/// let client = OAuthClient::parse("agent-app").expect("a client id");
+/// assert!(client == OAuthClient::parse("agent-app").expect("a client id"));
+/// ```
+///
+/// The compiling twin, so the failure above is the missing `==` and not a typo - and the limit: a
+/// rendering is a `String`, which review alone keeps out of a decision.
+///
+/// ```
+/// use sutura_domain::identity::OAuthClient;
+///
+/// let client = OAuthClient::parse("agent-app").expect("a client id");
+/// assert_eq!(client.to_string(), "agent-app");
+/// ```
+///
+/// Not masked, unlike [`super::Actor`]: it names an application registration, not a person. It goes
+/// through the same parse, so a control or invisible character cannot reach an audit line.
+#[derive(Clone)]
+pub struct OAuthClient(String);
+
+impl OAuthClient {
+    /// Parses a client identifier with the principal-identifier rules.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPrincipalId> {
+        parse_principal_id(raw.as_ref()).map(Self)
+    }
+}
+
+impl fmt::Display for OAuthClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl fmt::Debug for OAuthClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// What one client claim of a verified token held.
+#[derive(Debug, Clone)]
+pub enum ClientClaim {
+    /// A client identifier.
+    Named(OAuthClient),
+    /// Present, but not a string or not a client identifier. Rendered `unreadable`, so a record tells
+    /// it apart from a token that named no client; a client literally named `unreadable` renders the
+    /// same. A JSON `null` is read as no claim, not as this.
+    Unreadable,
+}
+
+impl ClientClaim {
+    /// Reads one claim value; `None` is a value that is not a string.
+    #[must_use]
+    pub fn read(raw: Option<&str>) -> Self {
+        raw.and_then(|written| OAuthClient::parse(written).ok())
+            .map_or(Self::Unreadable, Self::Named)
+    }
+}
+
+impl fmt::Display for ClientClaim {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Named(ref client) => client.fmt(f),
+            Self::Unreadable => f.write_str("unreadable"),
+        }
+    }
+}
+
+/// The OAuth client a verified token names, as its `azp` and RFC 9068 `client_id` claims each held it.
+///
+/// **Both are kept**, so two claims that disagree are both on the record rather than one chosen.
+/// Audit only: nothing grants on it. Leg 1's own `azp` check reads the token, not this: with
+/// `extra_scope_claims` set, a token whose `azp` is absent or names the API is refused.
+#[derive(Debug, Clone, Default)]
+pub struct ClientClaims {
+    azp: Option<ClientClaim>,
+    client_id: Option<ClientClaim>,
+}
+
+impl ClientClaims {
+    /// The two claims as the token held them; `None` is a claim the token did not carry.
+    #[must_use]
+    pub const fn of(azp: Option<ClientClaim>, client_id: Option<ClientClaim>) -> Self {
+        Self { azp, client_id }
+    }
+
+    /// What `azp` held.
+    #[inline]
+    pub const fn azp(&self) -> Option<&ClientClaim> {
+        self.azp.as_ref()
+    }
+
+    /// What `client_id` held.
+    #[inline]
+    pub const fn client_id(&self) -> Option<&ClientClaim> {
+        self.client_id.as_ref()
+    }
+}
 
 /// What a request carries besides the question.
 ///
@@ -42,11 +150,13 @@ pub struct RequestContext {
     /// the forever variant cannot be written into this pair at all.
     assertion: Option<(crate::identity::Secret, crate::identity::Expiry)>,
     /// What a deployment mapped this caller's verified group claim onto - `docs/adr/0028`. Empty
-    /// for [`crate::identity::Subject::TheDeploymentItself`] and for every constructor below that does not call
+    /// for [`Subject::TheDeploymentItself`](crate::identity::Subject::TheDeploymentItself) and for every constructor below that does not call
     /// [`Self::granting`]; nothing here interprets emptiness as "the whole catalog" - that reading
     /// belongs to whoever chooses [`crate::catalog::GrantedAudiences`] vs a [`crate::pinned::view::ScopedView`]
-    /// built from [`crate::identity::Subject::TheDeploymentItself`], and it must keep the two distinct.
+    /// built from [`Subject::TheDeploymentItself`](crate::identity::Subject::TheDeploymentItself), and it must keep the two distinct.
     audiences: crate::catalog::GrantedAudiences,
+    /// The OAuth client the caller's token named, for the audit record - see [`ClientClaims`].
+    client: ClientClaims,
     /// The address the identity provider verified for this caller, if it did.
     address: Option<crate::identity::VerifiedAddress>,
 }
@@ -60,6 +170,7 @@ impl RequestContext {
             chain,
             assertion: None,
             audiences: crate::catalog::GrantedAudiences::none(),
+            client: ClientClaims::of(None, None),
             address: None,
         }
     }
@@ -94,6 +205,7 @@ impl RequestContext {
                 },
             )),
             audiences: crate::catalog::GrantedAudiences::none(),
+            client: ClientClaims::of(None, None),
             address: None,
         }
     }
@@ -162,5 +274,19 @@ impl RequestContext {
     #[inline]
     pub const fn task(&self) -> Option<&TaskId> {
         self.chain.task()
+    }
+
+    /// The same context, naming the OAuth client the caller's token was issued to.
+    #[inline]
+    #[must_use]
+    pub fn naming_client(mut self, client: ClientClaims) -> Self {
+        self.client = client;
+        self
+    }
+
+    /// The OAuth client the caller's token named, for the audit record.
+    #[inline]
+    pub const fn client(&self) -> &ClientClaims {
+        &self.client
     }
 }

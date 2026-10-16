@@ -302,6 +302,8 @@ pub struct VerifiedCaller {
     expires: u64,
     /// The address the issuer verified, read by a `domain_delegation` source alone.
     address: Option<sutura_domain::identity::VerifiedAddress>,
+    /// The OAuth client the token named in `azp` and `client_id`, for the audit record only.
+    client: sutura_domain::identity::ClientClaims,
 }
 
 impl VerifiedCaller {
@@ -322,6 +324,7 @@ impl VerifiedCaller {
         groups: Groups,
         assertion: sutura_domain::identity::Secret,
         expires: u64,
+        client: sutura_domain::identity::ClientClaims,
     ) -> Self {
         Self {
             chain,
@@ -330,6 +333,7 @@ impl VerifiedCaller {
             assertion,
             expires,
             address: None,
+            client,
         }
     }
 
@@ -396,5 +400,13 @@ impl VerifiedCaller {
     #[must_use]
     pub const fn groups(&self) -> &Groups {
         &self.groups
+    }
+
+    /// The OAuth client the token was issued to. Recorded, never authorized on - see
+    /// [`sutura_domain::identity::ClientClaims`].
+    #[inline]
+    #[must_use]
+    pub const fn client(&self) -> &sutura_domain::identity::ClientClaims {
+        &self.client
     }
 }

@@ -630,7 +630,8 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
   source, not observed against a server - so up to one batch is in memory before a cap refuses.
 - **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
   `OracleCatalogConnection` holds no plaintext channel, and `OracleLogin::verified`'s PEM
-  anchors replace the driver's public authorities; no client certificate is presented, and the
+  anchors replace the driver's public authorities, and `OracleReader::new` refuses a bundle
+  with no usable certificate; no client certificate is presented, and the
   handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
   bytes still cross the network, encrypted. A listener's redirect is refused before
   authentication as `RdbmsError::RedirectRefused`.
@@ -643,8 +644,8 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
 pub struct OracleLogin
 ```
 
-Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial, plaintext
-until `OracleLogin::verified`.
+Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial. No reader takes
+it until `OracleLogin::verified` names the anchors the listener is verified against.
 
 #### Methods
 
@@ -653,11 +654,23 @@ pub const fn new(host: String, port: u16, service_name: String, user: String, pa
 ```
 
 ```rust
-pub fn verified(self, anchors_pem: String) -> Self
+pub const fn verified(self, anchors_pem: String) -> VerifiedOracleLogin
 ```
 
-The same login over TLS, verified against `anchors_pem` and no other certificate, with
-`host` as the name the handshake verifies.
+The same login over TLS, verified against `anchors_pem` and no other certificate.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct VerifiedOracleLogin`
+
+```rust
+pub struct VerifiedOracleLogin
+```
+
+An `OracleLogin` over TLS, verified against `anchors_pem` and no other certificate, with the
+login's host as the name the handshake verifies - the only login an `OracleReader` takes.
 
 #### Implements
 
@@ -678,7 +691,7 @@ pub const fn bounds(&self) -> DictionaryBounds
 ```
 
 ```rust
-pub fn new(login: OracleLogin, documentation_schema: &str, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
+pub fn new(login: VerifiedOracleLogin, documentation_schema: &str, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
 ```
 
 Builds the reader without dialling. An absent `row_cap`/`byte_cap` selects the documented
@@ -686,7 +699,8 @@ defaults `crate::postgres_reader::PostgresReader` uses.
 
 # Errors
 
-The documentation schema or the predicate column is not an identifier.
+The documentation schema or the predicate column is not an identifier, the login's anchors are
+not certificates the driver can verify a server against, or the driver cannot parse its address.
 
 #### Implements
 
@@ -777,6 +791,8 @@ pub enum InvalidReaderConfig
 - `Schema`
 - `PredicateColumn`
 - `DefaultBound`
+- `TrustAnchors` - An Oracle login's anchors hold no certificate, or one the driver cannot verify a server against; the driver's own reason.
+- `Address` - The driver cannot parse the reader's address.
 
 #### Implements
 

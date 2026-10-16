@@ -36,6 +36,10 @@ use core::fmt;
 
 use crate::text::first_invisible;
 
+mod request;
+
+pub use self::request::{ClientClaim, ClientClaims, OAuthClient, RequestContext};
+
 /// The longest principal identifier accepted.
 ///
 /// Wide enough for an issuer-qualified OIDC `sub` - a URL plus an opaque identifier - and narrow

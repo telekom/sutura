@@ -135,7 +135,8 @@ pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura
 ```
 
 A connection config's host/port/credential for the fixture tier - the counterpart of
-`sutura_exec_postgres::adbc::Conninfo`. `service_name` is fixed at
+`sutura_exec_postgres::adbc::Conninfo` - over TLS verified against the credential's anchors,
+the tier's own certificate authority. `service_name` is fixed at
 `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
 publishes - it is the image's name for itself.
 
@@ -215,7 +216,7 @@ type, so this is the newtype rather than a second, string-only error shape.
 The fixture tier's credential - a value that cannot exist unconfigured.
 
 Behind the default-off `fixtures` feature - see that module's own header for why.
-The fixture tier's credential: **configured, or refused by name.**
+The fixture tier's credential and certificate authority: **configured, or refused by name.**
 
 Behind the default-off `fixtures` feature - `sutura-exec-postgres::fixture`'s own reason, one
 size smaller: nothing a release publishes links this crate at all (see the workspace manifest's
@@ -243,6 +244,7 @@ Why there is no fixture credential to connect with.
 
 - `Unset` - The variable is not in the environment at all.
 - `Blank` - The variable is set to nothing - a shell script exporting `""` is the ordinary way to reach this, and read as a credential it is a login attempt as the empty user.
+- `Unreadable` - The variable names a file this process cannot read.
 
 #### Implements
 
@@ -266,7 +268,8 @@ as arguments to `crate::OracleWarehouse::local_config`.
 pub fn from_env() -> Result<Self, UnconfiguredFixture>
 ```
 
-This process's credential, as `compose.services.yaml`'s anchors export it.
+This process's credential, as `compose.services.yaml`'s anchors export it, and the tier's
+certificate authority read from the file `SUTURA_ORACLE_TIER_CA` names.
 
 #### Implements
 

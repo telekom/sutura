@@ -51,6 +51,10 @@ sutura-semantic = { workspace = true }
 # The provisioned-tier reach and skip-or-fail direction for `tests/provisioned.rs` - the same
 # crate every tier-backed fixture in this workspace uses (`sutura/dev`), scoped to `sutura-domain`.
 sutura-dev = { workspace = true }
+# `oracle_reader`'s unit cells: an `rcgen`-issued leaf as the verified login's anchors, behind a real
+# `rustls` server for the redirect cell. Both are already in `Cargo.lock`.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 # `tests/provisioned.rs` exercises the live reader against a real Postgres tier, so it only builds
 # (and only the `--all-features` gates reach it) with the `live` feature that links the reader.
 [[test]]

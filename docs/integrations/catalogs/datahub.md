@@ -23,13 +23,14 @@ the deployment writes the sutura metric document into a structured property.
 This catalog reads the [settings that every catalog has](../../integrations.md#catalog-settings)
 and these keys. It requires `dir` and `data_dir`, but does not read them.
 
-| Key                  | Type    | Default   | Meaning                                                                                                      |
-| -------------------- | ------- | --------- | ------------------------------------------------------------------------------------------------------------ |
-| `endpoint`           | string  | required  | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`. |
-| `token_file`         | path    | required  | A file that holds a DataHub personal access token. sutura reads it once at startup.                          |
-| `metric_property`    | string  | required  | The qualified name of the structured property that holds the metric document.                                |
-| `deadline_seconds`   | integer | `30`      | One time limit for all requests of one catalog read. `0` is refused.                                         |
-| `max_response_bytes` | integer | `8388608` | The size limit for one response page. `0` is refused.                                                        |
+| Key                  | Type    | Default   | Meaning                                                                                                                                                                                                                                     |
+| -------------------- | ------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`           | string  | required  | `scheme://host[:port]`. `https` for any host, `http` only for a loopback IP address. No path and no `user@`.                                                                                                                                |
+| `token_file`         | path    | required  | A file that holds a DataHub personal access token. sutura reads it once at startup.                                                                                                                                                         |
+| `metric_property`    | string  | required  | The qualified name of the structured property that holds the metric document.                                                                                                                                                               |
+| `platforms`          | map     | none      | Each DataHub platform, mapped to the `sources:` alias that serves its datasets. An alias that `sources:` does not declare, an empty map, a platform with no source, and a platform name that is empty or holds whitespace all stop startup. |
+| `deadline_seconds`   | integer | `30`      | One time limit for all requests of one catalog read. `0` is refused.                                                                                                                                                                        |
+| `max_response_bytes` | integer | `8388608` | The size limit for one response page. `0` is refused.                                                                                                                                                                                       |
 
 `sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
 
@@ -55,8 +56,10 @@ catalog `name` is also the name of the BigQuery source that the models bind to.
 | `metric` with the structured property | A certified metric                                             |
 | `metric` without the property         | Read and not used                                              |
 
-Every model must be on the `bigquery` platform. sutura binds those models to the source whose
-alias is the catalog `name`.
+A model is bound to the source that `platforms` maps its platform to. Without `platforms`, every
+model must be on the `bigquery` platform, and sutura binds it to the source whose alias is the
+catalog `name`. A model on a platform that is not mapped is refused at load, by name.
+The [federated](../../examples/federated.md) example maps `postgres` and `clickhouse`.
 
 ## Identity
 

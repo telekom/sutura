@@ -234,7 +234,7 @@ jobs:
       # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
       # correctly.
       - name: Hand the licence statement to publish
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: licence-statement
           path: dist/
@@ -334,7 +334,7 @@ jobs:
       # `retention-days: 7`: long enough that re-running only a failed `publish` days later
       # still finds its inputs, short enough that four images per release do not accumulate.
       - name: Hand the artifacts to publish
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ matrix.target }}
           path: |
@@ -403,7 +403,7 @@ jobs:
       # those three names exists in the checkout, so nothing is overwritten, and nix ignores
       # untracked files, so the flake source is unaffected.
       - name: Collect what the matrix built
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*
           merge-multiple: true
@@ -411,7 +411,7 @@ jobs:
       # Its own step for the reason the upload states: this artifact is rooted at `dist/`, so its
       # entries are bare file names and it has to be told where they go.
       - name: Collect the licence statement
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: licence-statement
           path: dist

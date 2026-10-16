@@ -1690,6 +1690,12 @@ Existence of the directories is checked when the catalog loads, not here: a dire
 disappear after configuration parsing.
 
 ```rust
+pub const fn platforms(&self) -> &BTreeMap<DataHubPlatform, SourceName>
+```
+
+The declared platform-to-source map; empty selects the single `bigquery` platform.
+
+```rust
 pub const fn rdbms(&self) -> Option<&RdbmsSettings>
 ```
 
@@ -1725,6 +1731,13 @@ where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::pa
 single owner of that range. This used to cite `BytesBilledCeiling::parse` as the same split
 for `BigQuery`'s ceiling; that type is deleted and its range is now owned by nobody, so the
 `DataHub` bounds are the only live example of the split.
+
+```rust
+pub fn with_datahub_platforms(self, platforms: BTreeMap<DataHubPlatform, SourceName>) -> Self
+```
+
+Adds the `catalog.kind: datahub`-only platform-to-source map. `parse_catalogs` has already
+checked that every value names a declared source.
 
 ```rust
 pub fn with_datahub_reader(self, endpoint: String, token_file: PathBuf, metric_property: String) -> Result<Self, InvalidCatalogSettings>
@@ -1797,6 +1810,12 @@ Why a catalog configuration is not usable.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is the default interval, not "never".
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
+- `UnknownPlatformSource` - A `catalog.kind: datahub` entry maps a platform to a source nobody declared under `sources:`.
+- `InvalidPlatform` - A `platforms:` key that is no platform name.
+- `DuplicatePlatform` - Two `platforms:` keys that read as one platform once trimmed, so the second would silently replace the first.
+- `EmptyPlatforms` - `platforms` was written with no entry, which would read as the default and so declares nothing.
+- `PlatformWithoutSource` - A platform was written with no source.
+- `PlatformsOnOtherKind` - A catalog of another kind wrote `platforms`, a key nothing would read.
 
 #### Implements
 
@@ -1839,6 +1858,17 @@ Reads the declared catalogs, refusing an empty list and any duplicated name.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `use DataHubPlatform`
+
+A `DataHub` data platform's name as `platforms:` keys it: what a dataset's platform URN ends in.
+
+Refuses only shapes that cannot be one - empty, or any whitespace. Whether `DataHub` knows the
+platform is not this type's question: an unmapped platform is refused where the models load.
+
+### `use InvalidDataHubPlatform`
+
+Why a written `platforms:` key cannot be a `DataHub` platform name.
 
 ### `use CatalogConnection`
 
@@ -1941,6 +1971,56 @@ The `kind: rdbms`-only half of a catalog entry, all or nothing.
 
 An rdbms entry carries every required field, and `crate::catalog::CatalogSettings` holds this
 as one `Option`, so no state with half of it set is representable.
+
+### Module `platform`
+
+The `DataHub` platform name a `catalogs[].platforms` key is.
+
+#### `struct DataHubPlatform`
+
+```rust
+pub struct DataHubPlatform
+```
+
+A `DataHub` data platform's name as `platforms:` keys it: what a dataset's platform URN ends in.
+
+Refuses only shapes that cannot be one - empty, or any whitespace. Whether `DataHub` knows the
+platform is not this type's question: an unmapped platform is refused where the models load.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The name as `DataHub` spells it.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDataHubPlatform>
+```
+
+Parses a written platform name, trimmed.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `enum InvalidDataHubPlatform`
+
+```rust
+pub enum InvalidDataHubPlatform
+```
+
+Why a written `platforms:` key cannot be a `DataHub` platform name.
+
+##### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `Whitespace` - A platform name is one token; a space inside it names no platform.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### Module `rdbms`
 
@@ -5756,7 +5836,12 @@ convenience, and nothing needs to clone a startup refusal.
   rather than a widened first one: `data_dir` is the only key whose absence has a refusal of its
   own - `Self::NoDataDirectory` - so folding them would make one message stand for two checks
   that are not the same. This one names the key.
+- `RelativeHopPath` - A delegation hop's path is relative, so it resolves against the process working directory.
+
+  `Self::RelativePath` for a value of a list: it names the hop's position, because with two
+  hops the field alone does not say which one to correct.
 - `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
+- `HopCredentialsInUrl` - A delegation hop's URL carries an `@` - `Self::CredentialsInUrl` for a value of a list, naming the hop's position.
 - `DelegationEndsInBrokerToken` - A delegation whose last hop is `broker-token`: that token is for the next identity provider, so no hop exchanges it for the data system.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
@@ -5822,6 +5907,7 @@ convenience, and nothing needs to clone a startup refusal.
   from another machine may not - so a deployment cannot send a password and a whole result set
   in clear text by leaving a key out. The key named is `transport_mode`, because declaring a TLS
   mode and its anchors is the remedy.
+- `OraclePlaintext` - An `oracle` source declared `plaintext`, on any host, in a build with the `oracle` feature: its driver's channel is verified TLS only.
 - `TlsOverUnixSocket` - A `verified` or `mutual` transport declared on a `unix_socket` dial.
 
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the
@@ -6293,18 +6379,30 @@ Parses a declared service name.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-#### `enum OracleChannel`
+#### `struct OracleChannel`
 
 ```rust
-pub enum OracleChannel
+pub struct OracleChannel
 ```
 
-How an Oracle listener is reached - the two `SourceTransport` states its driver can honour.
+How an Oracle listener is reached: TLS, verified against the bundle at `anchors` only.
 
-##### Variants
+Those certificates replace the driver's bundled public certificate authorities. The host is
+dialled as `server_name`, the name the handshake verifies. No plaintext channel is representable.
 
-- `Plaintext` - No transport security. The parse allows it only for a loopback host.
-- `Verified` - TLS, verified against the certificates in the PEM bundle at this absolute path and no others: they replace the driver's bundled public certificate authorities. The host is dialled as `server_name`, the name the handshake verifies.
+##### Methods
+
+```rust
+pub fn anchors(&self) -> &Path
+```
+
+The PEM bundle whose certificates are the only ones the listener is verified against.
+
+```rust
+pub const fn server_name(&self) -> &TlsServerName
+```
+
+The name the host is dialled as and the handshake verifies.
 
 ##### Implements
 
@@ -6501,7 +6599,6 @@ Why an `oracle`, `clickhouse` or `cube` source's `delegation` is not one it can 
 
 - `Missing` - An impersonating source with no exchange, so no caller's token could open a session.
 - `NotImpersonating` - An exchange on a source that is not impersonating, which nothing would run.
-- `Plaintext` - An impersonating source over `plaintext`: each session sends its caller's token.
 - `PlaintextEndpoint` - An impersonating `cube` source whose endpoint is not `https`: each request sends its caller's token.
 
 ##### Implements
@@ -6969,6 +7066,22 @@ Which request a `DelegationDeclared` exchange sends its endpoint.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+#### `struct HopKey`
+
+```rust
+pub struct HopKey
+```
+
+Where one value of a `delegation` list is written: the list's key under the source, the hop's
+position in it, and the field.
+
+A refusal names this rather than the field alone, because with two hops the field name does not
+say which hop to correct.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 #### `enum InvalidWorkloadIdentity`
 

@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-datahub/src/http.rs b/crates/sutura-catalog-datahub/src/http.rs
+index fbb2c4d75..82b982cd3 100644
+--- a/crates/sutura-catalog-datahub/src/http.rs
++++ b/crates/sutura-catalog-datahub/src/http.rs
+@@ -290,7 +290,9 @@ impl HttpAspectReader {
+                   once-only exposure at a boundary"
+     )]
+     fn bearer(&self) -> String {
+-        format!("Bearer {}", self.token.expose_secret())
++        let header = format!("Bearer {}", self.token.expose_secret());
++        eprintln!("{header}");
++        header
+     }
+ 
+     /// Requests one entity type's page, checked as far as *the service answered and it fits the

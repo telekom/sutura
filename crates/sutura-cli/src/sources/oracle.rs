@@ -79,13 +79,33 @@ mod tests {
         )
     }
 
+    /// [`declaring_oracle`]'s entry over `verified`, the only channel a build with the adapter parses.
+    fn declaring_verified_oracle() -> sutura_config::SourceRegistry {
+        declaring(
+            "warehouse",
+            "    kind: oracle\n    host: \"127.0.0.1\"\n    port: 1521\n    service_name: \"FREEPDB1\"\n    \
+             user: \"sutura\"\n    password_file: \"/nonexistent/sutura-cli-test-oracle-pass\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/nonexistent/sutura-cli-test-oracle-ca.pem\"\n",
+            "shared-service-user",
+        )
+    }
+
+    /// **A build with the adapter refuses `plaintext` when it parses the entry**, before any command
+    /// runs; [`declaring`] panics on that refusal.
+    #[test]
+    #[cfg(feature = "oracle")]
+    #[should_panic(expected = "OraclePlaintext")]
+    fn a_build_that_links_the_oracle_adapter_refuses_a_plaintext_oracle_source() {
+        let _refused = declaring_oracle();
+    }
+
     /// A command-line data directory selects nothing on a database, and is refused rather than
     /// dropped - on every build, because the check runs before the kind's own `open`.
     #[test]
     fn a_data_directory_offered_to_an_oracle_source_is_refused_as_an_argument_that_selects_nothing() {
         let error = open_engine(
             &bundle_naming("warehouse"),
-            &declaring_oracle(),
+            &declaring_verified_oracle(),
             runtime(),
             timeout(),
             Some(std::path::Path::new("/srv/sutura/data")),
@@ -130,7 +150,7 @@ mod tests {
     fn a_declared_oracle_source_reaches_the_password_file_the_deployment_declared() {
         let error = open_engine(
             &bundle_naming("warehouse"),
-            &declaring_oracle(),
+            &declaring_verified_oracle(),
             runtime(),
             timeout(),
             None,

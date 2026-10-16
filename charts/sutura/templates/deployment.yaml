@@ -145,6 +145,11 @@ spec:
         - name: inbound-keys
           secret:
             secretName: {{ .Values.security.inbound.keySetSecretName }}
+            # Only the key set entry: any other entry of the Secret, such as a private key, stays out
+            # of the pod. A projection and not a `subPath`, so a rotated Secret still reaches it.
+            items:
+              - key: {{ .Values.security.inbound.keySetSecretKey }}
+                path: {{ .Values.security.inbound.keySetSecretKey }}
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

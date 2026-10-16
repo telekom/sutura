@@ -1,0 +1,12 @@
+diff --git a/xtask/src/serde_parse/scan.rs b/xtask/src/serde_parse/scan.rs
+--- a/xtask/src/serde_parse/scan.rs
++++ b/xtask/src/serde_parse/scan.rs
+@@ -716,7 +716,7 @@
+         }
+         ('/', Some('*')) => {
+             characters.next();
+-            Lexeme::BlockComment(depth.saturating_add(1))
++            Lexeme::BlockComment(depth)
+         }
+         _ => Lexeme::BlockComment(depth),
+     }

@@ -108,6 +108,16 @@ pub(crate) const TASKS: &[Task] = &[
         run: workflows::action_manifest::run,
     },
     Task {
+        // The weekly Dependabot group moves every pin at once and `refresh-action-inputs` would
+        // be one call per pin plus a hand delete of each stale entry. Same network reason, same
+        // `Standalone`: it takes no argument but it does reach the network.
+        name: "refresh-moved-action-pins",
+        description: "on the weekly Dependabot github-actions PR: refile every moved action pin in devco/action-inputs and print the input change",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: workflows::action_manifest::run_moved_pins,
+    },
+    Task {
         // Beside `check-scope` for the same reason it sits beside `check-guidance`: a claim
         // checked against the thing it claims, over a file no other gate reads. `check-scope`
         // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering

@@ -1548,6 +1548,13 @@ pub const fn chain(&self) -> &PrincipalChain
 Who this call is attributed to.
 
 ```rust
+pub const fn client(&self) -> &sutura_domain::identity::ClientClaims
+```
+
+The OAuth client the token was issued to. Recorded, never authorized on - see
+`sutura_domain::identity::ClientClaims`.
+
+```rust
 pub const fn expires(&self) -> u64
 ```
 
@@ -1855,6 +1862,10 @@ rewrites a mounted key set is how a process with no egress gets rotation.
 **The honest cost of the file source:** it does not honour a cache header, because a file has
 none. What bounds staleness is `MAX_KEY_SET_AGE` and nothing the issuer says.
 
+The document is a JWK set, or one PEM public key or certificate - the `tls.crt` cluster
+certificate tooling writes - named by its RFC 7638 thumbprint. `document` holds that parse; the
+source hands back bytes and knows neither format.
+
 #### `struct KeyId`
 
 ```rust
@@ -1953,6 +1964,12 @@ Why a document is not a usable key set.
   `algorithms: ["ES256"]` cannot verify anything - and every request would be a `401` with
   nothing in the log connecting the two. `sutura_config::InvalidAlgorithms::MixedFamilies`
   refuses the same shape from the configuration side; this is the half that reads the keys.
+- `NotPem`
+- `PrivateKeyMaterial` - A private key block anywhere in the document, refused on its `BEGIN` label: never decoded.
+- `MoreThanOneKey`
+- `UnsupportedPemBlock`
+- `UnreadableCertificate`
+- `UnreadablePublicKey`
 
 ##### Implements
 
@@ -2009,7 +2026,7 @@ The ids, for a log line and for a test.
 pub fn parse(document: &str) -> Result<Self, InvalidKeySet>
 ```
 
-Parses a JWK set document.
+Parses a key set document: a JWK set, or one PEM public key or certificate - see `document`.
 
 **Every refusal here is a refusal to start, not a key that gets skipped.** A key set is
 operator-supplied configuration and a deployment that silently dropped half of it would
@@ -3116,6 +3133,8 @@ come from the variant, so two handlers cannot answer the same situation with dif
   for a route no scope can turn on would go obtain a grant that could never help. Checked
   BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
   is the reason a caller with every scope this surface issues still cannot reach the route.
+
+  `capability` is the capability's id, and the switch the sentence names is `tools.<id>.enabled`.
 - `HostNotAllowed` - The request's `Host` is not one this deployment answers.
 
   **`403`, and no `Host` echoed back**: the value is the caller's own text and the list it was

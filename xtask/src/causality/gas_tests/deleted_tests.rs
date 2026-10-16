@@ -123,6 +123,111 @@ fn a_test_file_renamed_out_of_the_build_needs_a_trailer_naming_each_test() {
     );
 }
 
+/// A diff prints a rename as a deletion and an addition, and a test whose name and body are the
+/// same in both is neither: it needs no trailer and no base result.
+#[test]
+fn a_test_file_renamed_between_compiled_paths_adds_and_deletes_no_test() {
+    assert_eq!(
+        committed_tree(
+            "test: rename the pins\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/moved.rs", PINS)],
+        ),
+        Verdict::Pass
+    );
+}
+
+/// What the renamed file adds is still a test added: it needs a result on base like any other.
+#[test]
+fn a_renamed_test_file_that_also_adds_a_test_is_refused() {
+    let added = format!("{PINS}\n#[test]\nfn pins_g() {{\n    assert_eq!(wired::f(), 1);\n}}\n");
+    assert_eq!(
+        committed_tree(
+            "test: rename the pins and add one\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/moved.rs", &added)],
+        ),
+        Verdict::Fail
+    );
+}
+
+/// The new file's first four lines are the span the moved test holds in `tests/moved.rs`: a line
+/// number that coincides is not the same test.
+#[test]
+fn a_new_test_file_beside_a_rename_is_not_taken_for_the_moved_test() {
+    let other = "#[test]\nfn other_new() {\n    assert_eq!(wired::f(), 1);\n}\n";
+    assert_eq!(
+        committed_tree(
+            "test: rename the pins and add a file\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/moved.rs", PINS), ("tests/other_new.rs", other)],
+        ),
+        Verdict::Inconclusive
+    );
+}
+
+/// `tests/sub/pins.rs` is no target and nothing declares it, so cargo never runs its tests.
+#[test]
+fn a_test_file_renamed_where_no_target_builds_it_is_refused() {
+    assert_eq!(
+        committed_tree(
+            "test: move the pins\n",
+            &[("src/lib.rs", LIB), ("tests/pins.rs", PINS)],
+            &[("src/lib.rs", LIB), ("tests/sub/pins.rs", PINS)],
+        ),
+        Verdict::Fail
+    );
+}
+
+/// The verdict over a head that moves `tests/pins.rs` to `to`, beside `support` files both sides hold.
+fn pins_moved_to(to: &str, support: &[(&str, &str)]) -> Verdict {
+    let base = [&[("src/lib.rs", LIB), ("tests/pins.rs", PINS)][..], support].concat();
+    let head = [&[("src/lib.rs", LIB), (to, PINS)][..], support].concat();
+    committed_tree("test: move the pins\n", &base, &head)
+}
+
+/// `src/bin/foo/util.rs` is declared, but by a module of a bin target, which is not walked from.
+#[test]
+fn a_test_file_renamed_into_a_bin_target_module_is_refused() {
+    let main = ("src/bin/foo/main.rs", "#[cfg(test)]\nmod util;\nfn main() {}\n");
+    assert_eq!(pins_moved_to("src/bin/foo/util.rs", &[main]), Verdict::Fail);
+}
+
+/// `src/other.rs` declares `orphan`, but no crate root declares `other`.
+#[test]
+fn a_test_file_renamed_under_a_module_no_root_reaches_is_refused() {
+    let other = ("src/other.rs", "#[cfg(test)]\nmod orphan;\n");
+    assert_eq!(pins_moved_to("src/other/orphan.rs", &[other]), Verdict::Fail);
+}
+
+/// A declaration inside a block comment is not a declaration.
+#[test]
+fn a_test_file_renamed_under_a_commented_out_declaration_is_refused() {
+    let main = ("tests/sub/main.rs", "/*\nmod pins;\n*/\nfn main() {}\n");
+    assert_eq!(pins_moved_to("tests/sub/pins.rs", &[main]), Verdict::Fail);
+}
+
+/// The comment closes at the inner `*/` only if nesting is not counted.
+#[test]
+fn a_test_file_renamed_under_a_nested_commented_out_declaration_is_refused() {
+    let main = ("tests/sub/main.rs", "/* /* */\nmod pins;\n*/\nfn main() {}\n");
+    assert_eq!(pins_moved_to("tests/sub/pins.rs", &[main]), Verdict::Fail);
+}
+
+/// `/*` inside a `//` comment opens no block, so the declaration on the next line is real.
+#[test]
+fn a_test_file_renamed_under_a_declaration_after_a_line_comment_is_carried() {
+    let main = ("tests/sub/main.rs", "// /*\nmod pins;\nfn main() {}\n");
+    assert_eq!(pins_moved_to("tests/sub/pins.rs", &[main]), Verdict::Pass);
+}
+
+/// A block comment that closes on its own line hides nothing after it.
+#[test]
+fn a_test_file_renamed_under_a_declaration_after_a_block_comment_is_carried() {
+    let main = ("tests/sub/main.rs", "/* note */\nmod pins;\nfn main() {}\n");
+    assert_eq!(pins_moved_to("tests/sub/pins.rs", &[main]), Verdict::Pass);
+}
+
 /// A fresh repository with a `tests/` directory and a commit identity.
 fn scratch_repo(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("sutura-causality-{tag}-{}", std::process::id()));

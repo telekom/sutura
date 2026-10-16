@@ -154,3 +154,8 @@ spec:
         - name: inbound-keys
           secret:
             secretName: sutura-inbound-keys
+            # Only the key set entry: any other entry of the Secret, such as a private key, stays out
+            # of the pod. A projection and not a `subPath`, so a rotated Secret still reaches it.
+            items:
+              - key: jwks.json
+                path: jwks.json

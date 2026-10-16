@@ -324,15 +324,14 @@ impl SocketDirectory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OracleServiceName(String);
 
-/// How an Oracle listener is reached - the two [`SourceTransport`] states its driver can honour.
+/// How an Oracle listener is reached: TLS, verified against the bundle at `anchors` only.
+///
+/// Those certificates replace the driver's bundled public certificate authorities. The host is
+/// dialled as `server_name`, the name the handshake verifies. No plaintext channel is representable.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OracleChannel {
-    /// No transport security. The parse allows it only for a loopback host.
-    Plaintext,
-    /// TLS, verified against the certificates in the PEM bundle at this absolute path and no
-    /// others: they replace the driver's bundled public certificate authorities. The host is
-    /// dialled as `server_name`, the name the handshake verifies.
-    Verified { anchors: PathBuf, server_name: TlsServerName },
+pub struct OracleChannel {
+    anchors: PathBuf,
+    server_name: TlsServerName,
 }
 
 /// Why a declared transport has no [`OracleChannel`].
@@ -342,6 +341,8 @@ pub(crate) enum NoOracleChannel {
     Undeliverable(&'static str),
     /// A `verified` host that is not a name TLS can verify.
     ServerName(InvalidTlsServerName),
+    /// `plaintext`, which no Oracle channel carries.
+    Plaintext,
 }
 
 impl OracleChannel {
@@ -349,10 +350,10 @@ impl OracleChannel {
     /// an rdbms catalog, read their transport through.
     pub(crate) fn declared(host: &HostName, transport: SourceTransport) -> Result<Self, NoOracleChannel> {
         match transport {
-            SourceTransport::Plaintext => Ok(Self::Plaintext),
+            SourceTransport::Plaintext => Err(NoOracleChannel::Plaintext),
             SourceTransport::Verified {
                 anchors: TrustAnchors::File(anchors),
-            } => Ok(Self::Verified {
+            } => Ok(Self {
                 anchors,
                 server_name: TlsServerName::parse(host).map_err(NoOracleChannel::ServerName)?,
             }),
@@ -361,6 +362,23 @@ impl OracleChannel {
             } => Err(NoOracleChannel::Undeliverable("verified with `transport_anchors: system`")),
             SourceTransport::Mutual { .. } => Err(NoOracleChannel::Undeliverable("mutual")),
         }
+    }
+
+    /// The PEM bundle whose certificates are the only ones the listener is verified against.
+    #[must_use]
+    pub fn anchors(&self) -> &Path {
+        &self.anchors
+    }
+
+    /// The name the host is dialled as and the handshake verifies.
+    #[must_use]
+    pub const fn server_name(&self) -> &TlsServerName {
+        &self.server_name
+    }
+
+    /// The anchors path and the server name, for a connection that keeps them as its own fields.
+    pub(crate) fn into_parts(self) -> (PathBuf, TlsServerName) {
+        (self.anchors, self.server_name)
     }
 }
 
@@ -581,8 +599,7 @@ pub enum SourcePlacement {
     /// rather than carried here. A listener's redirect is refused, so the connection stays on the
     /// declared host (`crate::sources`' `oracle` parse names the cell that holds it).
     Oracle {
-        /// The listener's host. A loopback literal when the channel is plaintext, by the parse's
-        /// own refusal.
+        /// The listener's host, the name [`OracleChannel::server_name`] verifies.
         host: HostName,
         /// The listener's port. `1521` by convention, declared rather than defaulted.
         port: u16,
@@ -592,8 +609,11 @@ pub enum SourcePlacement {
         user: String,
         /// The file that user's password is read from at boot.
         password_file: PathBuf,
-        /// How the channel to this source is secured.
-        channel: OracleChannel,
+        /// How the channel to this source is secured. `None` only for a loopback `plaintext` entry
+        /// parsed by a build without the `oracle` feature: that build links no Oracle adapter, and
+        /// its composition root refuses the source as not linked. A build with the feature refuses
+        /// the entry at parse as [`crate::InvalidSourceRegistry::OraclePlaintext`].
+        channel: Option<OracleChannel>,
         /// The hops each caller's verified token is exchanged through, in order, for the token
         /// that opens their session. Non-empty exactly when the source is
         /// `impersonation-at-source`, which also requires a `verified` channel.
@@ -658,12 +678,6 @@ pub enum InvalidDelegation {
         "`delegation` is declared on a source that is not `impersonation-at-source` - remove it, or write the posture you meant"
     )]
     NotImpersonating,
-    /// An impersonating source over `plaintext`: each session sends its caller's token.
-    #[error(
-        "the source is `impersonation-at-source`, so each session sends its caller's token - declare \
-         `transport_mode: verified`"
-    )]
-    Plaintext,
     /// An impersonating `cube` source whose endpoint is not `https`: each request sends its
     /// caller's token.
     #[error(
