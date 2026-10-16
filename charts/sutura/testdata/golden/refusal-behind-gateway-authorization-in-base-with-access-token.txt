@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.inbound.mode is `behind-gateway` with security.inbound.transit_header `authorization` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because the gateway's assertion and the access token are both read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or sign the gateway's assertion into a header of its own
+
+Use --debug flag to render out invalid YAML

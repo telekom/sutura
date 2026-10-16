@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): extraEnv sets SUTURA_ENVIRONMENT: sutura reads it as a variable this chart sets itself, so it could override a value the chart's guards read - set it through the chart's own values or config.environment
+
+Use --debug flag to render out invalid YAML

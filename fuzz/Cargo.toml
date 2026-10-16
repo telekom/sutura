@@ -100,6 +100,11 @@ sutura-config = { path = "../crates/sutura-config" }
 sutura-catalog-local = { path = "../crates/sutura-catalog-local" }
 serde_json = "1"
 
+# The same patch as the root manifest, for the same reason: this workspace does not read the root's
+# `[patch]`, and `Cargo.lock` here has to name the same `zip` as the root lock.
+[patch.crates-io]
+utoipa-swagger-ui = { path = "../vendor/utoipa-swagger-ui" }
+
 # `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole
 # argument this directory exists for. A harness that unwound where the deployment aborts would be
 # measuring a build nobody runs.
