@@ -209,9 +209,10 @@ Limits:
 
 - **The guard is the type only in a build without `sutura-http/fixtures`.** With it on, a bare
   `Arc<Settings>` converts to `ServableSettings`. A dev edge from `sutura-cli` turns it on, and the
-  Rust legs of `just lint`, `just test` and `just validate` all pass `--all-features`, as do the
-  `--all-targets` passes of `just check-default-features`. A revert of the `check` call at the
-  serve root therefore compiles in all of them. Only a build with no dev edges refuses it: the
+  Rust legs of `just lint`, `just test` and `just validate` all pass `--all-features`. The
+  `--all-targets` passes of `just check-default-features` do not; they unify that dev edge. A
+  revert of the `check` call at the serve root therefore compiles in all of them. Only a build
+  with no dev edges refuses it: the
   `cross` link legs, `just shipped` and the release build. That rests on `nix/shipped.nix` building
   `--package` with no dev edges and on a `cargo check -p sutura-cli` of the reverted call, which
   gave `E0277`; the nix cross builds were not run.

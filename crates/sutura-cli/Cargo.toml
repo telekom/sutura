@@ -295,8 +295,9 @@ sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
 sutura-exec-cube = { workspace = true, features = ["fixtures"] }
 sutura-http-client = { workspace = true, features = ["tls-test"] }
 # `ServiceState::new` over bare settings for the `serve::tests` fixtures. With it on, `serve.rs`'s
-# `ServableSettings::check` is a convention and not a type, and a dev edge turns it on in every
-# `--all-features` and `--all-targets` build; a build with no dev edges is the one that holds it.
+# `ServableSettings::check` is a convention and not a type. `--all-features` over a selection that
+# includes `sutura-http` (every `--workspace` leg) turns it on, and so does any build of a
+# `sutura-cli` dev target, through this edge; a build with neither is the one that holds it.
 # `check-default-features` refuses it on a normal edge.
 sutura-http = { workspace = true, features = ["fixtures"] }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
