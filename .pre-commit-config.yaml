@@ -251,8 +251,8 @@ repos:
         # mapping inside a plain scalar and rejects outright.
         entry: >-
           bash -c 'command -v nix >/dev/null 2>&1
-          && exec nix run .#zizmor -- .github/workflows
+          && exec nix run .#zizmor -- .github/workflows .github/actions
           || echo "zizmor skipped - no nix on this host, CI enforces it"'
         language: system
-        files: ^\.github/workflows/.*\.ya?ml$
+        files: ^\.github/(workflows|actions)/.*\.ya?ml$
         pass_filenames: false

@@ -20,7 +20,7 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-nix run .#zizmor -- .github/workflows
+nix run .#zizmor -- .github/workflows .github/actions
 nix run .#actionlint
 
 # Every shell script we ship, and the list IS the list. It used to name one file under this comment,

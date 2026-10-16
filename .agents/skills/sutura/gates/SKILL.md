@@ -817,7 +817,7 @@ panic-free.
   verdict computed from the rows would report *8 of 8 ran* over a run with two gates switched off.
   The denominator is derived from `.pre-commit-config.yaml`, and a declared hook with no row is a
   FAILED verdict. **What no filter reaches:** the shell inside `.github/actions/*/action.yml` -
-  `zizmor` is pointed at `.github/workflows`, `actionlint` cannot read a composite action at the
+  `zizmor` reads it for template injection and permissions only, `actionlint` cannot read a composite action at the
   pinned version, and a `run:` block is not a `.sh` file. `just lint-workflows` is the only task
   that reads it, and `ship-check` runs it when the diff touches one rather than reporting the gap.
 - **THE SAME GATE THEN REPORTED A FALSE FULL HOUSE THREE WAYS, and the transferable part is that a
