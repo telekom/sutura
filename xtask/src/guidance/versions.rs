@@ -280,7 +280,8 @@ fn pinned_names(read: &crate::causality::regions::PostImage<'_>, files: &[String
     let text_of = |rel: &str| read(rel).unwrap_or_default();
     for rel in files {
         let base = rel.rsplit('/').next().unwrap_or(rel);
-        if base == "Cargo.toml" {
+        // A vendored manifest names ITS upstream's dependencies, which this repo does not pin.
+        if base == "Cargo.toml" && !repo::matches_any(EXEMPT, rel) {
             names.extend(manifest_dependencies(&text_of(rel)));
         }
         // A service is pinned by its image tag, so the image name is the thing that has a home.
@@ -754,6 +755,28 @@ mod tests {
                 .iter()
                 .any(|p| p.starts_with("Dockerfile:1:") && p.contains("9.9.9") && p.contains("foo")),
             "a Dockerfile comment beside a pinned name must be refused: {problems:#?}"
+        );
+    }
+
+    #[test]
+    fn a_vendored_manifest_pins_nothing_for_this_repo() {
+        let tree = crate::scratch_tree::Tree::of(
+            "versions-vendored-manifest",
+            &[
+                ("Cargo.toml", b"[dependencies]\nfoo = \"1.0\"\n"),
+                ("vendor/up/Cargo.toml", b"[dependencies.bar]\nversion = \"1.0\"\n"),
+                ("Dockerfile", b"# bar 9.9.9 is upstream's concern\n"),
+            ],
+        );
+        let files = vec![
+            String::from("Cargo.toml"),
+            String::from("vendor/up/Cargo.toml"),
+            String::from("Dockerfile"),
+        ];
+        let (problems, _scan) = super::comment_versions(&|rel: &str| std::fs::read_to_string(tree.root().join(rel)).ok(), &files);
+        assert!(
+            !problems.iter().any(|p| p.contains("bar")),
+            "a name only a vendored manifest declares must not be a pin: {problems:#?}"
         );
     }
 
