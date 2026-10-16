@@ -93,6 +93,9 @@ pub(super) fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
         SurfaceFailure::Broker { .. } => {
             "the identity provider this deployment depends on did not answer; this may work if you try again shortly"
         }
+        SurfaceFailure::NotLinked { .. } => {
+            "your account is not linked at the identity provider this source runs you through; retrying will not help until it is linked"
+        }
         SurfaceFailure::Miswired { .. } => {
             "this deployment is misconfigured: what it holds for the data system does not match the question's. Nothing you can change - report it"
         }
@@ -102,4 +105,25 @@ pub(super) fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
 /// A tool result that says the call failed, with a fixed sentence and nothing derived from a cause.
 pub(super) fn failed(detail: &str) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(String::from(detail))])
+}
+
+#[cfg(test)]
+mod tests {
+    use rmcp::model::ContentBlock;
+    use sutura_app::surface::{ErasedCause, SurfaceFailure};
+
+    #[test]
+    fn a_caller_with_no_linked_account_is_told_to_link_it_not_to_retry() {
+        let result = super::could_not_answer(&SurfaceFailure::NotLinked {
+            cause: ErasedCause::from("no account linked"),
+        });
+        assert_eq!(result.is_error, Some(true), "{result:?}");
+        let text = result
+            .content
+            .first()
+            .and_then(ContentBlock::as_text)
+            .map(|block| block.text.clone())
+            .expect("a failure carries a text block");
+        assert!(text.contains("not linked") && !text.contains("try again"), "{text}");
+    }
 }

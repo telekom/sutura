@@ -97,6 +97,12 @@ fn federating(
     source: &sutura_config::ConfiguredSource,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
+    if let Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(login)) = source.caller_identity() {
+        return Ok(broker.federating(
+            alias.clone(),
+            Some(google_login(&format!("sources.{alias}.google_login"), login, outbound)?),
+        ));
+    }
     let Some(workload) = source.workload_identity() else {
         return Ok(broker);
     };
@@ -149,13 +155,8 @@ fn delegation(
     use sutura_config::sources::workload_identity::DelegationGrant;
     use sutura_domain::identity::{Delegation, DelegationExchange, RequestedAudience};
     use sutura_http_client::delegation::{ExchangeClient, Grant, OverHttp, TokenEndpoint};
-    use sutura_http_client::{ReadBounds, rotating_agent};
 
-    let bounds = ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
-        .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
-    let (agent, rotator) = rotating_agent(bounds, outbound.cloned())
-        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
-    crate::rotation::drive_rotation("security.outbound.transport_anchors (delegation exchange)", rotator);
+    let (agent, bounds) = exchange_agent(outbound)?;
     let hop = |position: usize, declared: &sutura_config::sources::workload_identity::DelegationDeclared| {
         let key = format!("{key}[{position}]");
         let endpoint = TokenEndpoint::parse(declared.token_endpoint())
@@ -181,6 +182,43 @@ fn delegation(
             let (exchange, audience) = hop(position + 1, declared)?;
             Ok(chain.then(exchange, audience))
         })
+}
+
+/// A `google_login` block composed into its one request: the identity provider's broker token
+/// endpoint, asked with the caller's own inbound token for the stored token of the caller's
+/// linked Google account. No hop runs before it.
+#[cfg(feature = "bigquery")]
+fn google_login(
+    key: &str,
+    login: &sutura_config::sources::caller_identity::GoogleLogin,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_domain::identity::Delegation, String> {
+    use sutura_http_client::delegation::{BrokeredLogin, ExchangeClient, TokenEndpoint};
+
+    let (agent, bounds) = exchange_agent(outbound)?;
+    let endpoint = TokenEndpoint::parse(login.token_endpoint())
+        .map_err(|cause| format!("`{key}.token_endpoint` is not an endpoint this exchange can dial: {cause}"))?;
+    let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), login.client_secret_file())?;
+    let client =
+        ExchangeClient::new(login.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
+    Ok(sutura_domain::identity::Delegation::linked(std::sync::Arc::new(
+        BrokeredLogin::new(endpoint, client, agent, bounds),
+    )))
+}
+
+/// The agent and the read bounds one source's identity provider requests go over.
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+type ExchangeAgent = (sutura_http_client::RotatingAgent, sutura_http_client::ReadBounds);
+
+/// The bounded, rotating outbound agent one source's identity provider requests go over.
+#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+fn exchange_agent(outbound: Option<&sutura_tls::Declared>) -> Result<ExchangeAgent, String> {
+    let bounds = sutura_http_client::ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
+        .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
+    let (agent, rotator) = sutura_http_client::rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (delegation exchange)", rotator);
+    Ok((agent, bounds))
 }
 
 #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]

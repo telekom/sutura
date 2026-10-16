@@ -599,3 +599,63 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
         "{refused:?}"
     );
 }
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_google_login_source_presents_the_token_the_identity_provider_stored() {
+    // One broker request with the caller's own inbound token, and the opaque token that came back
+    // is what the source presents.
+    let secret = SecretFileGuard::create("a_google_login_source_presents_the_token_the_identity_provider_stored");
+    let fake = FakeServer::start(vec![Scripted::ok(&serde_json::json!({
+        "access_token": "ya29.stored-google-token",
+        "token_type": "Bearer",
+        "expires_in": 3599,
+        "refresh_token": "1//never-presented",
+        "accessTokenExpiration": 4_102_444_800_u64 - 1,
+    }))]);
+    let login = format!(
+        "    google_login:\n      token_endpoint: \"{}/realms/r/broker/google/token\"\n      client_id: \"sutura\"\n      \
+         client_secret_file: \"{}\"\n",
+        fake.endpoint(),
+        secret.path().display()
+    );
+    let broker = super::super::broker::build_broker(
+        &direct_registry(&bigquery_entry("warehouse", "impersonation-at-source", &login)),
+        None,
+    )
+    .expect("a direct deployment admits a google_login source");
+    let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
+    let asked = SourceSet::of(warehouse.clone());
+    let subject = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    let minted = broker
+        .mint(
+            &RequestContext::with_assertion(
+                PrincipalChain::of(subject.clone()),
+                Secret::new("assertion.for.analyst-a"),
+                4_102_444_800,
+            ),
+            &asked,
+        )
+        .expect("a verified caller at a google_login source is mintable");
+    let Agreed::Granted { credentials } = minted
+        .agreeing_with(&subject, &asked, 4_000_000_000)
+        .expect("the grant agrees with the request")
+    else {
+        panic!("a verified caller is granted");
+    };
+    let Presented::SubjectToken { material } = credentials.presented_for(&warehouse).expect("the source was asked for") else {
+        panic!("a google_login source presents a subject token");
+    };
+    #[expect(clippy::disallowed_methods, reason = "the cell asserts the presented material")]
+    let material = String::from(material.expose_secret());
+    assert_eq!(material, "ya29.stored-google-token");
+    let requests = fake.finish();
+    let [request] = requests.as_slice() else {
+        panic!("expected exactly one broker request, got {requests:?}");
+    };
+    let body = request.body();
+    assert!(
+        body.contains("token=assertion.for.analyst-a") && !body.contains("grant_type"),
+        "{body}"
+    );
+}
