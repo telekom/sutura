@@ -599,3 +599,73 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
         "{refused:?}"
     );
 }
+
+/// [`direct_registry`]'s settings, with the load's own answer kept so a refusal reaches the cell.
+#[cfg(feature = "bigquery")]
+fn direct_sources_or_refusal(entries: &str) -> Result<sutura_config::SourceRegistry, String> {
+    let overlay = format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
+             files\"\n  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+             authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/nonexistent/keys.json\"\n    \
+             algorithms: [\"RS256\"]\nsources:\n{entries}"
+    );
+    sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .map(|settings| settings.sources().clone())
+    .map_err(|error| format!("{error:?}"))
+}
+
+/// What `build_broker` logged over `registry`, at `warn` and above.
+#[cfg(feature = "bigquery")]
+fn broker_warnings(registry: &sutura_config::SourceRegistry) -> String {
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("warn").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let built = tracing::subscriber::with_default(subscriber, || super::super::broker::build_broker(registry, None));
+    drop(built.expect("the registry composes"));
+    sink.contents()
+}
+
+/// The acknowledgement's boot warning, as it names `warehouse`.
+#[cfg(feature = "bigquery")]
+const WARNED: &str = "sources.warehouse.inbound_token_at_pool is accepted";
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn an_acknowledged_hopless_source_warns_once_and_no_other_source_does() {
+    let acknowledged = direct_sources_or_refusal(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &format!("{}    inbound_token_at_pool: \"accepted\"\n", wif_with("")),
+    ))
+    .expect("an acknowledged hopless source boots");
+    let log = broker_warnings(&acknowledged);
+    let warned: Vec<&str> = log.lines().filter(|line| line.contains(WARNED)).collect();
+    assert_eq!(warned.len(), 1, "{log}");
+    let line = warned.first().copied().unwrap_or_default();
+    assert!(
+        line.contains("\"level\":40") && line.contains("inbound token reaches the pool as it is"),
+        "{line}"
+    );
+
+    let secret = SecretFileGuard::create("an_acknowledged_hopless_source_warns_once_and_no_other_source_does");
+    let delegating = direct_sources_or_refusal(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &wif_with(&delegation_block("https://idp.example.com/token", secret.path())),
+    ))
+    .expect("a direct deployment admits a declared delegation");
+    let log = broker_warnings(&delegating);
+    assert!(!log.contains(WARNED), "{log}");
+
+    let undirected = registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with("")));
+    let log = broker_warnings(&undirected);
+    assert!(!log.contains(WARNED), "{log}");
+}

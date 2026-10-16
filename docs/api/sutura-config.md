@@ -5738,6 +5738,13 @@ How this source establishes identity, once the deployment-level refusal has pass
 `None` only for a shared source nobody acknowledged - see the type's own note.
 
 ```rust
+pub const fn inbound_token_at_pool(&self) -> Option<InboundTokenAtPool>
+```
+
+Whether this source acknowledged presenting its caller's inbound token to the pool with no
+delegation hop - see `InboundTokenAtPool`.
+
+```rust
 pub const fn kind(&self) -> SourceKind
 ```
 
@@ -5885,6 +5892,7 @@ convenience, and nothing needs to clone a startup refusal.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
   declaration that does nothing is a configuration nobody can see.
+- `InboundTokenAtPool` - A written `inbound_token_at_pool` is not the one acknowledgement it accepts.
 - `WorkloadIdentity` - The declared workload-identity value is not usable.
 - `Transport` - The declared transport of a source was not usable.
 
@@ -7060,6 +7068,56 @@ Which request a `DelegationDeclared` exchange sends its endpoint.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+#### `enum InboundTokenAtPool`
+
+```rust
+pub enum InboundTokenAtPool
+```
+
+The per-source acknowledgement `sources.<alias>.inbound_token_at_pool: accepted`.
+
+**What it accepts.** With no `workload_identity.delegation` hop, a `direct` deployment hands the
+pool its caller's inbound token as it is, so the pool's provider must accept this deployment's own
+audience. A declared hop hands the pool a token minted for the pool's audience only, which is the
+default `Settings::load` requires: the hopless shape is refused at boot
+(`crate::NotFitToServe::InboundTokenAtPoolUnacknowledged`) unless this is written, and every
+boot that serves it logs one warning naming the source.
+
+One value and no boolean, so the key reads as what it accepts and `false` cannot be written.
+
+##### Variants
+
+- `Accepted` - The pool's provider accepts this deployment's own audience, and the operator accepts that.
+
+##### Methods
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, UnknownAcknowledgement>
+```
+
+The exact word `accepted`; anything else is refused, not read as absent.
+
+# Errors
+
+`UnknownAcknowledgement` for any other value.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct UnknownAcknowledgement`
+
+```rust
+pub struct UnknownAcknowledgement
+```
+
+An `InboundTokenAtPool` value other than `accepted`. The value is not carried: it is
+operator-written text, and the one accepted word is the whole remedy.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### `struct HopKey`
 

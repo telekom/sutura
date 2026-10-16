@@ -36,11 +36,10 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   principal.
 
 `workload_audience` carries the project **number**, not the project id: STS's own `audience`
-request parameter refuses the id with `invalid_target`. `workload_allowed_audiences` defaults to
-`[workload_audience]` - the pool's own audience, which is the `aud` whoever mints a subject's
-assertion has to carry (nothing in sutura mints one; the driver forwards what leg 1 verified) - so a
-stack that never sets it still accepts sutura's tokens; a configured list only adds audiences on
-top (and gets the default appended if it omits it). This changed `workload_audience`'s shape, so a
+request parameter refuses the id with `invalid_target`. The provider accepts `workload_audience`
+and no other audience, so a subject's token reaches the pool only after a delegation hop exchanged
+it for one with that audience. `workload_allowed_audiences` is removed, and a stack that still sets
+it is refused at `pulumi up`. This changed `workload_audience`'s shape, so a
 stack that already ran `infra-set` under the old (broken) value must run it again after `infra-up`.
 
 ## Setup (one time, per developer or CI)

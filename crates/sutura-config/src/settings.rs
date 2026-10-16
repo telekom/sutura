@@ -528,7 +528,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
-        refusals.extend(self.delegation_refusals());
+        refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(self.sources.each().filter_map(|(alias, source)| {
             let block = source.caller_identity()?.not_built()?;
             Some(NotFitToServe::CallerIdentityModeNotBuilt {
@@ -622,36 +622,6 @@ impl Settings {
             }
         }
         refusals
-    }
-
-    /// A declared delegation exchange on a deployment that verifies no `direct` caller - see
-    /// [`NotFitToServe::DelegationWithoutDirectInbound`].
-    fn delegation_refusals(&self) -> Vec<NotFitToServe> {
-        if matches!(self.security.inbound(), Some(InboundIdentity::Direct { .. })) {
-            return Vec::new();
-        }
-        self.sources
-            .each()
-            .filter_map(|(alias, source)| {
-                let alias = alias.clone();
-                if source.workload_identity().is_some_and(|wif| !wif.delegation().is_empty()) {
-                    Some(NotFitToServe::DelegationWithoutDirectInbound {
-                        alias,
-                        key: "workload_identity.delegation",
-                    })
-                } else if let crate::SourcePlacement::Oracle { ref delegation, .. }
-                | crate::SourcePlacement::Cube { ref delegation, .. } = *source.placement()
-                    && !delegation.is_empty()
-                {
-                    Some(NotFitToServe::DelegationWithoutDirectInbound {
-                        alias,
-                        key: "delegation",
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 
     /// Whether the raw SQL tool is enabled in `multi-user` mode with no acknowledged
@@ -977,6 +947,9 @@ mod inbound;
 mod catalogs;
 /// Reading the outbound trust declaration. Carved out for the same reason.
 mod outbound;
+
+/// The delegation-hop combination checks. Carved out for the same reason.
+mod delegation;
 
 mod layers;
 

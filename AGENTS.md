@@ -72,11 +72,14 @@ Those three plus secure-by-design are the definition of *correct* in review here
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
   who is asking) is built. Leg 2 is **observed at the BigQuery adapter, not at a served human caller**: on BigQuery
-  the caller's own verified assertion is federated through the declared pool, and the federated
+  the caller's own verified assertion is federated through the declared pool - in `direct`, by
+  default, only after a declared delegation hop exchanged it for one with the pool's audience, a
+  hop the adapter venue stands in for with a fake - and the federated
   token is that subject's own pool principal - no service account is impersonated, and BigQuery's
   grants on that principal decide what it reads. An anonymous caller is refused, never run as the
   deployment. The adapter venue passed on 2026-10-11 at
-  `github.com/telekom/sutura/actions/runs/38116387739`; a served
+  `github.com/telekom/sutura/actions/runs/38116387739`, which measured its cells before the hop
+  fake was added; the changed cells have no recorded run yet. A served
   venue is not built, by decision - sutura assumes the operator configures a valid issuer and pool,
   and the observed adapter run uses fixture assertions, not human sign-in.
   `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses

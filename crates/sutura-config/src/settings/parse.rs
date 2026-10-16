@@ -139,8 +139,16 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             (entry, blocks)
         })
         .collect();
-    SourceRegistry::parse_declared(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), mode)
-        .map_err(|cause| SettingsError::Sources { cause })
+    let mut registry = SourceRegistry::parse_declared(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), mode)
+        .map_err(|cause| SettingsError::Sources { cause })?;
+    for (written, source) in &raw.sources {
+        if let Some(value) = source.inbound_token_at_pool.as_deref() {
+            registry
+                .acknowledge_inbound_token_at_pool(written, value)
+                .map_err(|cause| SettingsError::Sources { cause })?;
+        }
+    }
+    Ok(registry)
 }
 
 pub(super) fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {

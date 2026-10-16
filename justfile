@@ -304,7 +304,7 @@ gates: hygiene
 
 # LEG 2 for BigQuery: two subjects, two pool principals, `SESSION_USER()` as the oracle. Needs a
 # real project that grants each subject's pool principal - `docs/where-identity-is-proven.md`
-# carries what a green run may be cited for, and both cells panic naming the variable they lack
+# carries what a green run may be cited for, and each cell panics naming the variable it lacks
 # rather than skipping.
 # `#[ignore]`d, so `just test` never reaches them, and this is NOT a gate: `just validate`'s nix
 # checks have no network at all, so nothing here can run there.
@@ -318,7 +318,7 @@ gates: hygiene
 bigquery-declared-principal *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the two hosted cells that read \`SESSION_USER()\` per declared subject."
+    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the three hosted cells: two read \`SESSION_USER()\` per declared subject, one expects the pool to refuse a token minted for another audience."
     echo "bigquery-declared-principal: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
       -E 'test(/declared_principal::/)' {{ args }}

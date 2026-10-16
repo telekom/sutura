@@ -46,9 +46,24 @@ and these keys:
 
 With `delegation`, the first hop exchanges the caller's token at its identity provider, and each
 next hop exchanges the token from the hop before it. The token from the last hop is the one that
-the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `delegation`, sutura
-sends the caller's verified token to the pool as it is. Do not write `expected_issuer` or
-`expected_audience`: sutura refuses to start with them.
+the pool accepts. `delegation` needs `security.inbound.mode: direct`. Do not write
+`expected_issuer` or `expected_audience`: sutura refuses to start with them.
+
+With `security.inbound.mode: direct`, declare `delegation`. Then the pool gets a token for its own
+audience. Configure the pool provider to accept only that audience. If you do not declare
+`delegation`, sutura does not start. The message names two fixes:
+
+1. Declare `delegation`. This is the recommended fix.
+2. Write `inbound_token_at_pool: accepted` on the source, next to `workload_identity`. Then sutura
+   sends the caller's verified token to the pool as it is, so the pool provider must accept the
+   audience of sutura itself. `accepted` is the only value. sutura logs one `WARN` line for the
+   source at each start.
+
+sutura refuses to start when `inbound_token_at_pool` is written on a source that declares
+`delegation`, on a source without `workload_identity`, or on a deployment that is not `direct`. It
+also refuses to start when the last `delegation` hop asks for the audience of sutura itself
+(`security.inbound.resource` or `security.inbound.audience`). This check compares the configured
+text only.
 
 sutura reads and checks the `google_login` and `domain_delegation` blocks, and then refuses to
 start with either of them:

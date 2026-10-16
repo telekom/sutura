@@ -136,7 +136,13 @@ fn an_agent_surface_over_an_impersonating_source_with_no_inbound_identity_is_not
     );
     let rendered = refusals.first().expect("one refusal").to_string();
     assert!(rendered.contains("source `local` is `impersonation-at-source`"), "{rendered}");
-    serves(&format!("{security}{DIRECT_INBOUND}{}", two_sources()));
+    // The serving twin acknowledges that `local` declares no delegation hop, which `direct` requires.
+    let acknowledged = two_sources().replacen(
+        "    workload_identity:",
+        "    inbound_token_at_pool: \"accepted\"\n    workload_identity:",
+        1,
+    );
+    serves(&format!("{security}{DIRECT_INBOUND}{acknowledged}"));
 }
 
 #[test]
