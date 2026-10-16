@@ -22,10 +22,11 @@
 //! # The sharper case, and the surface no hook reaches
 //!
 //! A hook's `files:` filter decides what it sees, and one surface this repository ships has no
-//! hook at all: the shell inside `.github/actions/*/action.yml`. `zizmor` is pointed at
-//! `.github/workflows`, the shellcheck hook globs `*.sh`, and a `run:` block is neither - so a
-//! shell defect there passes a diff-scoped run twice over, once by being filtered out and once by
-//! the filter never reaching it. `just lint-workflows` is the task that does. [`SURFACES`]
+//! hook at all: the shell inside `.github/actions/*/action.yml`. The `zizmor` hook's `files:`
+//! matches those paths but reads them for injection hazards, not shell correctness, and the
+//! shellcheck hook globs `*.sh`, which a `run:` block is not - so a shell defect there passes a
+//! diff-scoped run twice over, once because `zizmor` does not check shell and once because the
+//! shellcheck filter never reaches it. `just lint-workflows` is the task that does. [`SURFACES`]
 //! carries that, and `--surface-tasks` is how `ship-check` learns which extra task a diff needs
 //! BEFORE it can be judged - so the gap is closed rather than described.
 //!
