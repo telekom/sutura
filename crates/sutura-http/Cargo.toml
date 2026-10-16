@@ -36,7 +36,9 @@ agent = []
 
 # `ServiceState::new` over bare `Arc<Settings>` that `ServableSettings::check` was never asked of,
 # for another crate's test fixtures - this crate's own tests have it under `cfg(test)`. Turned on
-# only by `sutura-cli`'s `[dev-dependencies]`, so it is absent from the shipped binary.
+# only by `sutura-cli`'s `[dev-dependencies]`. `check-default-features` refuses it in a shipped
+# root's normal dependencies; that preflight resolves the default feature set, not a `--features`
+# list, so a feature turned on only there is not seen.
 fixtures = []
 
 [dependencies]
