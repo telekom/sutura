@@ -526,11 +526,6 @@ mod spend_test;
 #[cfg(test)]
 mod mapped_refusals;
 
-/// The one `run_sql` shape that stays a wiring defect, with the fake that provokes it.
-/// `#[cfg(test)]` for `not_validated`'s reason above.
-#[cfg(test)]
-mod raw_wiring_defect;
-
 /// A refresh through `Surface::adopt`. `#[cfg(test)]` for `not_validated`'s reason above.
 #[cfg(test)]
 mod adopt;

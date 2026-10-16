@@ -233,6 +233,29 @@ fn the_surface_answers_run_sql_over_a_shape_the_tool_does_not_serve_with_a_refus
     );
 }
 
+#[test]
+fn an_adapter_declaring_raw_and_answering_none_stays_a_wiring_defect() {
+    let declined = RawStatement::parse("decline me").expect("a test statement is a statement");
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &declined,
+        &FixedBroker::GrantsShared,
+        &raw_capable(),
+        test_deadline(),
+    )
+    .expect_err("an adapter that declares raw and answers none is not a refusal the caller can read");
+    assert!(matches!(failure, RunSqlError::NoAcceptingSource), "{failure:?}");
+
+    let surfaced = service(
+        declared(),
+        RawCapableWarehouse::answering_rows(source(), shared(), 1),
+        FixedBroker::GrantsShared,
+    )
+    .run_sql(&asked_by_a_person(), &declined, test_deadline())
+    .expect_err("the surface reports it as a failure, not an answer");
+    assert!(matches!(surfaced, SurfaceFailure::Miswired { .. }), "{surfaced:?}");
+}
+
 /// A refusal declined before any mint is still a call, so it must reach the sink: one `RawRefused`
 /// record, carrying the statement, the same as a refusal after execution.
 #[test]
