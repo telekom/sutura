@@ -1526,6 +1526,12 @@ fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
 ##### Methods
 
 ```rust
+pub const fn address(&self) -> Option<&sutura_domain::identity::VerifiedAddress>
+```
+
+The address the issuer verified for this caller, if it did.
+
+```rust
 pub const fn assertion(&self) -> &sutura_domain::identity::Secret
 ```
 

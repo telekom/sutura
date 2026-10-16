@@ -82,13 +82,14 @@
 //! adapter set the driver's `bigquery.impersonate.target_principal` from the DEPLOYMENT's own
 //! credentials - so the connection was the deployment's, the subject's credential was nowhere in
 //! the chain, and leg 1 was the only barrier. `docs/adr/0018`'s fifth amendment records it, and
-//! `JobIdentity` has no spelling for it: a principal switch is unrepresentable here, not refused at
-//! runtime.
+//! no fallback reaches a deployment-vouched identity.
 //!
-//! **So a [`Presented::SubjectPrincipal`] is refused.** It is the same POSTURE as an assertion to
-//! the domain, so [`Presented::agrees_with`] passes it and only this adapter can say it has no
-//! mechanism - [`BigQueryError::NoPrincipalSwitch`]. `GoogleSQL` has no proxy-user or `SET ROLE`
-//! equivalent either, so there is nothing to build it out of.
+//! **So a [`Presented::SubjectPrincipal`] is refused, except at a `domain_delegation` source.** It
+//! is the same POSTURE as an assertion to the domain, so [`Presented::agrees_with`] passes it and
+//! only this adapter can say it has no mechanism - [`BigQueryError::NoPrincipalSwitch`]. A source
+//! that opted in to domain-wide delegation runs it as the caller's verified address
+//! (`docs/adr/20261014100540`), and its transport says so through
+//! [`JobTransport::delegates_by_address`]. `GoogleSQL` has no proxy-user or `SET ROLE` equivalent.
 //!
 //! **And because leg 1 still gates who may be federated at all, two of ITS limits bound this.**
 //! `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing to a
@@ -190,15 +191,16 @@ where
         #[source]
         cause: sutura_domain::plan::ResolveTablesError<UnresolvableConnection>,
     },
-    /// The leg presents a principal for the data system to switch to, and no transport here has a
-    /// spelling for one.
+    /// The leg presents a principal for the data system to switch to, at a source that does not run
+    /// one through domain-wide delegation.
     ///
     /// **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds
     /// this adapter delivered exactly that shape, through the driver's `target_principal` option and
     /// the deployment's own application default credentials - so the connection was the
     /// deployment's and the subject's credential was nowhere in the chain. The owner rejected it,
     /// so [`crate::transport::JobIdentity`] carries one subject arm now and this refusal is what a
-    /// broker presenting the other one gets. Accepting it would submit the job under the
+    /// broker presenting the other one gets, except at a `domain_delegation` source. Accepting it
+    /// anywhere else would submit the job under the
     /// credential the transport already holds while provenance, read off this source's posture,
     /// reported the answer as impersonated.
     #[error("{presented} was minted for {at}, and this adapter federates a subject's own assertion instead")]
@@ -311,8 +313,8 @@ where
     /// to ask *does the shape agree with the posture* and then *can this adapter deliver the shape*,
     /// because the adapter itself refused a principal switch outright. It no longer does: the
     /// adapter is generic in its transport, and *which shapes can be delivered* moved to
-    /// [`Self::job_identity`] - which refuses [`Presented::SubjectPrincipal`], the shape whose
-    /// mechanism was deleted. An adapter-level match over postures AND shapes would have to be
+    /// [`Self::job_identity`] - which refuses [`Presented::SubjectPrincipal`] unless the transport
+    /// runs an address for this source. An adapter-level match over postures AND shapes would have to be
     /// changed for either, which is exactly the coupling `JobTransport` exists to remove.
     fn deliverable(&self, presented: &Presented) -> Mapped<(), T::Error> {
         presented
@@ -360,26 +362,28 @@ where
         }
     }
 
-    /// What one leg's presented credential means to a transport: two arms, or a refusal.
+    /// What one leg's presented credential means to a transport: three arms, or a refusal.
     ///
     /// **Exhaustive over four shapes and never wildcarded**, so a fifth [`Presented`] variant is a
     /// compile error at this line rather than a shape that falls through to whatever the last arm
-    /// was. Two shapes have a [`JobIdentity`](crate::transport::JobIdentity) spelling; the other two
-    /// are refused HERE and not by a transport, because the mechanisms they name were deleted from
-    /// every transport in this crate.
-    ///
-    fn job_identity<'leg>(presented: &'leg Presented, source: &SourceName) -> Mapped<JobIdentity<'leg>, T::Error> {
+    /// was. A sign-in is refused HERE and not by a transport, and so is a principal switch at every
+    /// transport that does not declare [`JobTransport::delegates_by_address`].
+    fn job_identity<'leg>(&self, presented: &'leg Presented) -> Mapped<JobIdentity<'leg>, T::Error> {
         match presented {
             Presented::SubjectToken { material } => Ok(JobIdentity::AsSubject { assertion: material }),
-            // **The two weaker subject shapes, refused because no transport here has a spelling for
-            // them.** A principal switch runs the question on a connection the DEPLOYMENT
-            // authenticated - this deployment vouching for a subject - and the owner rejected that
-            // mechanism, so `JobIdentity` no longer carries it; a sign-in names a user beside the
-            // token, and `JobIdentity::AsSubject` has nowhere to put the name. `agrees_with` passes
-            // these shapes (all subject shapes are one POSTURE), so only the adapter can say they
-            // cannot be delivered.
+            // **The one exception, and only where the transport declares it**: a `domain_delegation`
+            // source runs the job as the verified address, and the deployment vouches for it.
+            Presented::SubjectPrincipal { name } if self.transport.delegates_by_address() => {
+                Ok(JobIdentity::AsAddress { address: name })
+            }
+            // **Every other principal switch, and every sign-in, refused.** A principal switch runs
+            // the question on a connection the DEPLOYMENT authenticated - this deployment vouching
+            // for a subject - which only a source that opted in to domain-wide delegation accepts;
+            // a sign-in names a user beside the token, and `JobIdentity::AsSubject` has nowhere to
+            // put the name. `agrees_with` passes these shapes (all subject shapes are one POSTURE),
+            // so only the adapter can say they cannot be delivered.
             Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => Err(BigQueryError::NoPrincipalSwitch {
-                at: String::from(source.as_str()),
+                at: String::from(self.source.as_str()),
                 presented: presented.as_str(),
             }),
             Presented::SharedServiceUser { .. } => Ok(JobIdentity::Transport),
@@ -620,12 +624,15 @@ where
     /// **The token the job carries IS the subject's own principal** - the federated pool principal,
     /// or the linked Google account - so two subjects reach the dataset as two principals, and the
     /// dataset's grants and row policies on each decide what that subject reads. There is no second
-    /// hop to a declared account.
+    /// hop to a declared account, except at a `domain_delegation` source: there
+    /// [`Presented::SubjectPrincipal`] becomes [`JobIdentity::AsAddress`], and the deployment's own
+    /// credential impersonates the declared delegating account for the caller's verified address,
+    /// so the deployment vouches for who the caller is.
     ///
     /// **Corrected**: a round of this doc said "nothing a subject possesses arrives, only a
     /// principal the deployment becomes on that subject's behalf", which described the deleted
-    /// principal switch. That mechanism is gone and its `JobIdentity` arm with it;
-    /// [`Presented::SubjectPrincipal`] is what this adapter now refuses.
+    /// principal switch. It survives only as a `domain_delegation` source's `JobIdentity::AsAddress`;
+    /// [`Presented::SubjectPrincipal`] is refused at every other source.
     ///
     /// **The limit beside the claim**: this constant says a subject's own credential has somewhere
     /// to go here. It does not say Google has ever accepted one - that is leg 2, it needs a hosted
@@ -711,11 +718,9 @@ where
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;
-        let asked = self.transport.validate(&self.request(
-            &query,
-            Self::job_identity(presented, &self.source)?,
-            JobDeadline::Port(deadline),
-        ));
+        let asked = self
+            .transport
+            .validate(&self.request(&query, self.job_identity(presented)?, JobDeadline::Port(deadline)));
         let estimated_bytes = match asked {
             Ok(estimate) => estimate,
             // **A transport with no dry run did not ask, and that is not a question that failed.**
@@ -751,11 +756,7 @@ where
         let query = self.render(executable)?;
         let answered = self
             .transport
-            .run(&self.request(
-                &query,
-                Self::job_identity(presented, &self.source)?,
-                JobDeadline::Port(deadline),
-            ))
+            .run(&self.request(&query, self.job_identity(presented)?, JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         // Nothing to convert: the ADBC driver's own typed Arrow arrays ARE the port's currency since
         // `docs/adr/0039` step 2, so this adapter is the one that stopped paying rather than started.
@@ -887,3 +888,63 @@ where
 
 #[cfg(test)]
 mod tests;
+
+/// Next to `job_identity`, because the delegating arm names `adbc::Impersonation::DomainDelegation`.
+#[cfg(test)]
+#[cfg(feature = "adbc")]
+mod principal_switch {
+    use sutura_domain::identity::{Presented, PrincipalName};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::source::SourcePosture;
+
+    use crate::adbc::{AdbcBigQuery, BytesBilledCeiling, DelegatingAccount, DriverLocation, Impersonation, WorkloadPool};
+    use crate::transport::{DatasetId, JobIdentity, ProjectId};
+    use crate::{BigQueryError, BigQueryWarehouse};
+
+    /// The real transport over a path naming no `.so`: the switch is decided before a driver loads.
+    fn at(impersonation: Impersonation) -> BigQueryWarehouse<AdbcBigQuery> {
+        BigQueryWarehouse::new(
+            SourceName::parse("warehouse").expect("a test source is a source"),
+            SourcePosture::ImpersonationAtSource,
+            ProjectId::parse("acme-analytics").expect("a test project is a project"),
+            DatasetId::parse("warehouse").expect("a test dataset is a dataset"),
+            AdbcBigQuery::new(
+                DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
+                    .expect("an absolute path parses whether or not a file is there"),
+                impersonation,
+                BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling"),
+            ),
+        )
+    }
+
+    #[test]
+    fn a_subject_principal_at_a_pool_source_is_still_refused() {
+        let presented = Presented::SubjectPrincipal {
+            name: PrincipalName::parse("analyst@example.com").expect("a test name is a name"),
+        };
+        for impersonation in [
+            Impersonation::ThroughPool(
+                WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/a/providers/sso")
+                    .expect("a provider resource is usable"),
+            ),
+            Impersonation::GoogleLogin,
+            Impersonation::Disabled,
+        ] {
+            let refused = at(impersonation.clone()).job_identity(&presented).map(|_| ());
+            assert!(
+                matches!(refused, Err(BigQueryError::NoPrincipalSwitch { .. })),
+                "{impersonation:?}: {refused:?}"
+            );
+        }
+        let delegating = at(Impersonation::DomainDelegation(
+            DelegatingAccount::parse("dwd-bigquery@acme-analytics.iam.gserviceaccount.com").expect("a service-account address"),
+        ));
+        assert!(
+            matches!(
+                delegating.job_identity(&presented),
+                Ok(JobIdentity::AsAddress { address }) if address.as_str() == "analyst@example.com"
+            ),
+            "a domain_delegation source runs the principal as the address"
+        );
+    }
+}

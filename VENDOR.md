@@ -109,7 +109,8 @@ Five source-level adaptations, recorded here so nothing is silent:
   beside any impersonation option is refused (impersonation would swap it for the deployment's own
   credential), and a subject without a target principal is refused. The patch adds
   `token_options_test.go`, which the build's check phase runs on a host that can run its target.
-  Nothing in sutura sets these options yet.
+  sutura sets the token for a `google_login` source and the subject for a `domain_delegation`
+  source.
   Upstream issue:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
   upstream ships both options.

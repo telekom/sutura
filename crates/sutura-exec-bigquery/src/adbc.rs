@@ -26,10 +26,10 @@
 //! federation's mechanism and its exposure are written down.
 //!
 //! **A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
-//! one thing this transport must never do, and the reason there is no third state. The mechanism
-//! this replaced - an impersonation target minted from the deployment's own credentials - has no
-//! spelling in `crate::transport::JobIdentity` any more, so it is unrepresentable rather than
-//! refused.
+//! one thing this transport must never do. The one exception is opt-in per source: a
+//! `domain_delegation` source runs the caller's verified address through the delegating account,
+//! with the deployment's own credentials as the base, and `crate::transport::JobIdentity::AsAddress`
+//! is the only arm that reaches it.
 //!
 //! # The values
 //!
@@ -48,7 +48,7 @@ mod identity;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
-pub use identity::Impersonation;
+pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
@@ -714,6 +714,12 @@ impl JobTransport for AdbcBigQuery {
         // which is exactly the asymmetry `telekom/sutura#120` is about and which a `files`
         // deployment does not have. Binding `GetObjects` is what closes it.
         Err(AdbcError::Uncovered("list tables"))
+    }
+
+    /// `true` only for a `domain_delegation` source: the one transport that runs a job as the
+    /// caller's verified address.
+    fn delegates_by_address(&self) -> bool {
+        matches!(self.impersonation, Impersonation::DomainDelegation(_))
     }
 
     /// `false`, always, and the two ways that could have been wrong are both worse.

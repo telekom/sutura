@@ -279,7 +279,7 @@ verified name at a switching one - and the operator's witness for a shared one.
 **The credential is the verified assertion itself**, or, for a federating source declared with
 a `Delegation`, or any authenticating source, the token that delegation returned for that assertion.
 
-**All four maps, because one plan may read one of each and a broker is per answer rather than
+**All five, because one plan may read one of each and a broker is per answer rather than
 per source** - the reason the architecture decision gives for a broker being per answer at all.
 
 ## `use DeclaredPrincipalsUnusable`
@@ -2656,10 +2656,18 @@ verified name at a switching one - and the operator's witness for a shared one.
 **The credential is the verified assertion itself**, or, for a federating source declared with
 a `Delegation`, or any authenticating source, the token that delegation returned for that assertion.
 
-**All four maps, because one plan may read one of each and a broker is per answer rather than
+**All five, because one plan may read one of each and a broker is per answer rather than
 per source** - the reason the architecture decision gives for a broker being per answer at all.
 
 ##### Methods
+
+```rust
+pub fn addressing(self, at: SourceName) -> Self
+```
+
+Declares one `domain_delegation` source, presented each caller's verified address as the
+principal the source runs as. A caller with no verified address is refused: the deployment
+vouches for the address, so there is no other identity to fall back to.
 
 ```rust
 pub fn authenticating(self, at: SourceName, delegation: Delegation) -> Self
@@ -5971,9 +5979,6 @@ Which one of three blocks says how an `impersonation-at-source` source runs its 
   verified address. The deployment vouches for the caller here, not the caller's own credential.
 
 Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
-source that declares `domain_delegation`, so a block that nothing reads does not load as if it
-did.
 the architecture decision records the decision.
 
 #### `enum CallerIdentity`
@@ -5988,7 +5993,7 @@ How an `impersonation-at-source` source runs its caller - the one block it decla
 
 - `WorkloadIdentity` - The caller's own pool principal.
 - `GoogleLogin` - The caller's own Google login, brokered by the identity provider.
-- `DomainDelegation` - A delegating service account acting as the caller's verified address. Not served by this build.
+- `DomainDelegation` - A delegating service account acting as the caller's verified address.
 
 ##### Implements
 
