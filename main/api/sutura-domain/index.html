@@ -11665,7 +11665,7 @@ merely undone by a rule somebody remembers to apply.</p>
 the architecture decision's amendment gives: <code>crate::query::RefusalReason</code> is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's six variants are exactly that list.</p>
+answer about the statement, and this module's variants are exactly that list.</p>
 <h1 id="what-this-module-does-not-decide">What this module does not decide<a class="headerlink" href="#what-this-module-does-not-decide" title="Permanent link">&para;</a></h1>
 <p><strong>Neither variant carries the data system's own error text.</strong> The architecture decision - not yet
 built, because the raw tool did not exist when that record was written - requires the raw tool's
@@ -11752,7 +11752,14 @@ answer about the statement once it ran.</p>
 - <code>DeadlineExceeded</code> - The asker's own per-request deadline ran out. <code>execute_raw</code> carries the same bound <code>execute</code> does, and the same <code>Warehouse::deadline_exceeded</code> predicate classifies the stop - including one by an adapter's own ceiling that fired before the budget did. Carries the configured budget in seconds, for <code>crate::query::RefusalReason::DeadlineExceeded</code>'s own reason: a number an operator configured, safe in a log, not how long the statement ran.
 - <code>PlanSpansMoreThanOneSource</code> - The statement reads tables of more than one source, and this deployment does not combine sources in one statement.</p>
 <p>Refused before any leg exists, so nothing reached a data system. Carries no source name: the
-  caller already holds its own tool's source list.</p>
+  caller already holds its own tool's source list.
+- <code>MoreThanOneSourceOpen</code> - This deployment opened more than one data system, and the raw tool runs a statement against exactly one.</p>
+<p>Refused before a credential is minted, so nothing reached a data system. A deployment with two
+  open sources has no way to say which one the statement means, and guessing would run the
+  caller's text against a source they did not name.
+- <code>NoSourceAcceptsRawStatements</code> - The one data system this deployment opened does not accept a raw statement.</p>
+<p>Refused before a credential is minted. The adapter, not the caller, decides this, so asking
+  again changes nothing.</p>
 <h4 id="methods_93">Methods<a class="headerlink" href="#methods_93" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-600-1"><a id="__codelineno-600-1" name="__codelineno-600-1" href="#__codelineno-600-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>

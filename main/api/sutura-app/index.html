@@ -4195,18 +4195,20 @@ than <code>ToolOutcome</code>.</p>
 <p><strong>Deliberately not <code>ServiceError</code>.</strong> That type's <code>Compile</code> and
 <code>Federated</code> arms describe the compiler and the splitter, neither of which this path touches - a
 raw statement is unparsed text, end to end. What is left is the credential half
-<code>answer</code> also has, plus one arm of its own for a state the boot refusal is
-supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
-text at all.</p>
+<code>answer</code> also has, plus one arm of its own for an adapter that declares it
+accepts raw text and then answers none.</p>
 <h2 id="use-runningraw"><code>use RunningRaw</code><a class="headerlink" href="#use-runningraw" title="Permanent link">&para;</a></h2>
 <p>What running a raw statement produced, or why it could not.</p>
 <h2 id="use-run_sql"><code>use run_sql</code><a class="headerlink" href="#use-run_sql" title="Permanent link">&para;</a></h2>
 <p>Runs one literal statement against the deployment's configured source, or says why it will not.</p>
 <h1 id="pr1s-scope-stated-as-a-limit-rather-than-left-implicit">PR1's scope, stated as a limit rather than left implicit<a class="headerlink" href="#pr1s-scope-stated-as-a-limit-rather-than-left-implicit" title="Permanent link">&para;</a></h1>
-<p><strong>This targets the sole registered data system, and refuses <code>RunSqlError::NoAcceptingSource</code>
-where more than one is open or none is.</strong> The architecture decision's showcase is one Postgres source; a
-deployment naming which of several sources the raw tool may run over is future work, not a
-decision this function makes by omission - a second source is refused rather than guessed at.</p>
+<p><strong>This targets the sole registered data system, and refuses with
+<code>RawRefusalReason::MoreThanOneSourceOpen</code> where more than one is open, or
+<code>RawRefusalReason::NoSourceAcceptsRawStatements</code> where the one open does not accept raw text.</strong>
+the architecture decision's showcase is one Postgres source; a deployment naming which of several sources
+the raw tool may run over is future work, not a decision this function makes by omission - a
+second source is refused rather than guessed at. Both are answers to the caller, declined before
+the broker is asked, so each is audited and neither is a <code>RunSqlError</code>.</p>
 <h1 id="otherwise-this-mirrors-answers-credential-handling-exactly">Otherwise, this mirrors <code>answer</code>'s credential handling exactly<a class="headerlink" href="#otherwise-this-mirrors-answers-credential-handling-exactly" title="Permanent link">&para;</a></h1>
 <p>Mint once, check the grant agrees with the request, check the presented leg agrees with the
 adapter's declared posture - the same three findings behind the same one guard, for the same
