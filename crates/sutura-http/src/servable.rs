@@ -89,7 +89,7 @@ mod tests {
     use crate::testing::settings_with;
 
     #[test]
-    fn a_deployment_with_no_inbound_identity_is_servable_only_when_single_user() {
+    fn a_deployment_with_no_inbound_identity_and_no_impersonating_source_is_servable_only_when_single_user() {
         for overlay in ["security:\n  identity: \"multi-user\"\n", ""] {
             let refused = ServableSettings::check(settings_with(overlay)).expect_err("no inbound identity, not single-user");
             assert!(
@@ -108,5 +108,37 @@ mod tests {
                         transit_audience: \"https://sutura.example.com\"\n    key_set_file: \"/unread.json\"\n    \
                         algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n";
         ServableSettings::check(settings_with(declared)).expect("an inbound declaration is servable");
+    }
+
+    /// A source that runs each question as the asking subject has no subject to run as without an
+    /// inbound identity, so single-user does not make the deployment servable, and a multi-user one
+    /// carries both reasons.
+    #[test]
+    fn a_deployment_with_no_inbound_identity_over_an_impersonating_source_is_not_servable() {
+        let source = "sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n    \
+                      posture: \"impersonation-at-source\"\n    workload_identity:\n      audience: \
+                      \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n";
+        let single_user = format!("security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n{source}");
+        let refused =
+            ServableSettings::check(settings_with(&single_user)).expect_err("single-user does not serve an impersonating source");
+        assert!(
+            matches!(
+                refused.refusals(),
+                [NotFitToServe::QuerySurfaceOverAnImpersonatingSource { .. }]
+            ),
+            "{refused}"
+        );
+        let multi_user = format!("security:\n  identity: \"multi-user\"\n{source}");
+        let refused = ServableSettings::check(settings_with(&multi_user)).expect_err("multi-user does not serve it either");
+        assert!(
+            matches!(
+                refused.refusals(),
+                [
+                    NotFitToServe::QuerySurfaceWithoutInboundIdentity,
+                    NotFitToServe::QuerySurfaceOverAnImpersonatingSource { .. }
+                ]
+            ),
+            "{refused}"
+        );
     }
 }
