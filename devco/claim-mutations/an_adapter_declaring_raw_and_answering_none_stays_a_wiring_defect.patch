@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+index 22f3fe0c3..2d7f1560e 100644
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -191,7 +191,12 @@ where
+         ));
+     }
+     let Some(executed) = warehouse.execute_raw(statement, presented, deadline) else {
+-        return Err(RunSqlError::NoAcceptingSource);
++        return Ok(AnsweredRaw::under(
++            &credentials,
++            RawOutcome::Refusal {
++                reason: RawRefusalReason::NoSourceAcceptsRawStatements,
++            },
++        ));
+     };
+     let raw_rows = match executed {
+         Ok(raw_rows) => raw_rows,

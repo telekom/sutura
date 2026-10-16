@@ -155,8 +155,8 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // 409, the status `RefusalReason::PlanSpansTooManySources` gets: answerable in principle, and
         // this deployment is arranged not to combine sources in one statement. The two deployment-
         // shape refusals share it: the request is well formed and conflicts with how this deployment
-        // is arranged, which is neither a client syntax error (4xx other than 409) nor a server
-        // fault, so the caller is told to ask the certified tools or the operator, never to retry.
+        // is arranged, which is neither a malformed request (400) nor a server fault (500), so the
+        // caller is told to ask the certified tools or the operator, never to retry.
         RawRefusalReason::PlanSpansMoreThanOneSource
         | RawRefusalReason::MoreThanOneSourceOpen
         | RawRefusalReason::NoSourceAcceptsRawStatements => StatusCode::CONFLICT,

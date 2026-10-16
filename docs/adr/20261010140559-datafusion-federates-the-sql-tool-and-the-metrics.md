@@ -33,6 +33,10 @@ Each fact was read on `origin/main` at `6f4eb2460`, or in the cached crate sourc
 | The crate's SQL path unparses a plan to SQL text with literals inlined.                                                          | **True for its `sql` module.** `SQLExecutor::execute(&self, query: &str, schema, filters)` takes no parameter list. One refinement: the `datafusion-sql 55.1.0` unparser writes `Expr::Placeholder` as its id, unchanged. So the unparser can keep a placeholder. The executor has no place for the values. |
 | Only the raw SQL tool runs caller text today.                                                                                    | **True.** And `sutura_app::raw::run_sql` runs on one source only. It refuses with `RawRefusalReason::MoreThanOneSourceOpen` when more than one data system is open.                                                                                                                                         |
 
+Note, 2026-10-16: the last row was measured at `6f4eb2460`, where `run_sql` refused more than one open
+source with `RunSqlError::NoAcceptingSource`. `RawRefusalReason::MoreThanOneSourceOpen` did not exist
+then. The sentence in the row names the variant as it is after that refusal changed.
+
 Five more facts, measured for this record:
 
 - `datafusion-federation 0.5.7` declares `sql = ["datafusion/sql"]` and no default feature. The

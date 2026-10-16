@@ -227,6 +227,11 @@ async fn the_served_document_omits_run_sql_when_the_switch_is_off_and_carries_it
         body.contains("/v1/sql/run"),
         "the served document is missing /v1/sql/run even though this deployment turned it on: {body}"
     );
+    let document: serde_json::Value = serde_json::from_str(&body).expect("the served document is JSON");
+    assert!(
+        document["paths"]["/v1/sql/run"]["post"]["responses"]["409"].is_object(),
+        "the served document does not list the 409 a run_sql deployment-shape refusal answers: {body}"
+    );
 }
 
 /// **A raw statement's deadline opens before it waits for a slot**, so the wait is spent from its
