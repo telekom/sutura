@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-cube/src/http.rs b/crates/sutura-exec-cube/src/http.rs
+index 1ee491f99..305106da5 100644
+--- a/crates/sutura-exec-cube/src/http.rs
++++ b/crates/sutura-exec-cube/src/http.rs
+@@ -73,7 +73,9 @@ impl HttpCube {
+                   parses, the shape sutura-catalog-cube's HttpMetaReader::bearer holds"
+     )]
+     fn bearer(token: &Secret) -> String {
+-        format!("Bearer {}", token.expose_secret())
++        let header = format!("Bearer {}", token.expose_secret());
++        eprintln!("{header}");
++        header
+     }
+ 
+     fn remaining(deadline: Deadline) -> Result<core::time::Duration, HttpCubeError> {
