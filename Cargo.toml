@@ -113,7 +113,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/mimalloc_rust", "vendor/rust-oracledb"]
+exclude = ["vendor/mimalloc_rust", "vendor/rust-oracledb", "vendor/utoipa-swagger-ui"]
 
 [workspace.package]
 version = "0.8.0"
@@ -872,6 +872,13 @@ missing_assert_message = "allow"
 #   string_add_assign
 #   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
 #                         know when the error half of every `Result` grows.
+
+# `utoipa-swagger-ui` needs an 8.x `zip` for its build script, and every 8.x release is yanked. The
+# vendored copy asks for a 9.x one; `VENDOR.md` has the source fix and the condition for deleting
+# this patch. `fuzz/Cargo.toml` carries the same entry, because it is a
+# separate workspace and a root `[patch]` does not reach it.
+[patch.crates-io]
+utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui" }
 
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
