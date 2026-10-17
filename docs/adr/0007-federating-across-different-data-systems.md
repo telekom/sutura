@@ -1492,11 +1492,13 @@ today". That sentence is false now. It is left as written.
   is refused before either leg runs, as `RefusalReason::FederationLinkTypeMismatch`. A type it
   cannot classify, or a column with no declared type, is left to the check after the legs run. That
   check is the one the *Eighth amendment* names.
-- **A text key compares exactly.** There is no case folding and no trimming of whitespace. Two
-  cells hold it in `crates/sutura-exec-datafusion/src/combine/tests.rs`:
+- **A text key compares exactly.** There is no ASCII case folding and no trimming of a trailing
+  space. Two cells hold it, each in both directions, in
+  `crates/sutura-exec-datafusion/src/combine/tests.rs`:
   `two_text_link_keys_that_differ_only_in_case_do_not_join` and
-  `two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join`. They run the combiner
-  over in-memory legs, so a source's own handling of a key is not covered.
+  `two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join`. Limits: no cell holds
+  leading whitespace, a tab or a newline. They run the combiner over in-memory legs, so a source's
+  own handling of a key is not covered.
 
 **What stays open is the declaration half**: a field on `Relationship` that says the two sides are
 comparable. `Relationship` carries none. It is tracked in `telekom/sutura#1482`.

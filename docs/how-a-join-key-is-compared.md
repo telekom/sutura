@@ -179,10 +179,12 @@ the rule is that a join key is compared exactly, and a text key that differs in
 case is a mismatch in the data rather than a defect in the comparison.
 
 Two cells in `crates/sutura-exec-datafusion/src/combine/tests.rs` hold it:
-`two_text_link_keys_that_differ_only_in_case_do_not_join` (`C1` against `c1`) and
+`two_text_link_keys_that_differ_only_in_case_do_not_join` (`C1` against `c1`, and `c1`
+against `C1`) and
 `two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join` (`c1 ` against
-`c1`). Each asks the combiner twice. A left join keeps the fact row with a null remote
-side. An inner join drops it. Each cell has a committed mutation under
+`c1`, and `c1` against `c1 `). Each pair is asked twice. A left join keeps the fact row
+with a null remote side. An inner join drops it. Both orders are held, so a fold or a
+trim on one side only fails too. Leading whitespace, a tab and a newline are not held. Each cell has a committed mutation under
 `devco/claim-mutations/` that folds or trims the key before the join, and each fails
 under it.
 
