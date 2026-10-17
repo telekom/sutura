@@ -29,8 +29,8 @@ The documentation of the setting states that window while the key is off.
 - **`behind-gateway` only.** A `direct` access token is reused across requests by design, so the
   key in a `direct` block is refused at load, not ignored.
 - **With it on, an assertion without a `jti`, or with a `jti` over the length bound, is refused.**
-  So is a `jti` this process has seen and still holds. Each refusal is the same `401` body as every
-  other refusal of a presented token, so a caller cannot tell which check failed. A `jti` is never
+  So is a `jti` this process has seen and still holds. Each refusal is the same `401` body as a bad
+  signature or an expired assertion, so a caller cannot tell which check failed. A `jti` is never
   written to a log or a body.
 - **An assertion is recorded only after its signature and every claim check pass.** A forged
   assertion, an expired one or one over the lifetime ceiling never takes a place in the store.

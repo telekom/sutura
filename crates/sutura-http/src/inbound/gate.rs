@@ -28,7 +28,8 @@
 //! that mode offers no Bearer challenge - wherever the assertion arrives.
 //!
 //! An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
-//! challenge: the token may be fine, and the outage is this deployment's.
+//! challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+//! the store of seen assertions is full, where single use is declared.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -342,8 +343,8 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
     }
 }
 
-/// The `401` and its challenge - or a `503` when the key source is down - and the one place the
-/// reason is written down.
+/// The `401` and its challenge - or a `503` when the key source is down or the store of seen
+/// assertions is full - and the one place the reason is written down.
 ///
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in

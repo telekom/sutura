@@ -1650,7 +1650,8 @@ gateway assertion is minted by the component, not by an authorization server a c
 that mode offers no Bearer challenge - wherever the assertion arrives.
 
 An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
-challenge: the token may be fine, and the outage is this deployment's.
+challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+the store of seen assertions is full, where single use is declared.
 
 What the response does **not** say is which check failed. The log says - through the `#[source]`
 chain on `TokenRejected` - and the caller does not, because "the signature verified and the

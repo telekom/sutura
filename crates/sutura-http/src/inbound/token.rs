@@ -631,12 +631,6 @@ impl TokenValidator {
     }
 }
 
-/// Now, in whole seconds since the epoch, as a JWT's time claims express it.
-///
-/// **`unwrap_or(0)` rather than a panic, and the fallback is the safe direction.** `duration_since`
-/// fails only for a clock before 1970; a zero there makes every `iat` look enormously far in the
-/// future, so a proof is refused rather than accepted. A machine whose clock says 1969 should not be
-/// authenticating anybody, and this refuses rather than deciding what it meant.
 /// The longest a seen `jti` is held, in seconds: the ceiling, plus the leeway on `iat` and on `exp`.
 fn entry_window(ceiling: ProofLifetime) -> i64 {
     let leeway = i64::try_from(LEEWAY_SECONDS).unwrap_or(i64::MAX);
@@ -645,6 +639,12 @@ fn entry_window(ceiling: ProofLifetime) -> i64 {
         .saturating_add(leeway.saturating_mul(2))
 }
 
+/// Now, in whole seconds since the epoch, as a JWT's time claims express it.
+///
+/// **`unwrap_or(0)` rather than a panic, and the fallback is the safe direction.** `duration_since`
+/// fails only for a clock before 1970; a zero there makes every `iat` look enormously far in the
+/// future, so a proof is refused rather than accepted. A machine whose clock says 1969 should not be
+/// authenticating anybody, and this refuses rather than deciding what it meant.
 fn now_in_seconds() -> i64 {
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
