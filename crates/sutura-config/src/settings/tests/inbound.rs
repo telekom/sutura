@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, KeySetUrl, ProofLifetime, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -132,6 +132,9 @@ fn a_key_set_file_path_over_the_length_cap_is_refused_naming_the_key() {
 }
 
 /// [`DIRECT_INBOUND`] with its key set file replaced by `url`.
+///
+/// The cells below read the location and the refusals through `Debug` and `Display`, so they build
+/// against a tree that has no URL source and fail there on their own assertions.
 fn direct_fetching(url: &str) -> Sources {
     let written = DIRECT_INBOUND.replacen(
         "key_set_file: \"/etc/sutura/jwks.json\"",
@@ -143,31 +146,42 @@ fn direct_fetching(url: &str) -> Sources {
 
 #[test]
 fn a_key_set_url_is_read_as_the_url_location() {
-    let settings = Settings::load(&direct_fetching("https://issuer.example.com/keys")).expect("a key set URL loads");
-    let inbound = settings.security().inbound().expect("the declaration is there");
-    let key_set = inbound.requirement().key_set();
-    assert!(
-        matches!(key_set, KeySetLocation::Url(url) if url.as_str() == "https://issuer.example.com/keys"),
-        "{key_set:?}"
+    let settings =
+        Settings::load(&direct_fetching("https://issuer.example.com/keys")).map_err(|error| format!("{:?}", error.reason()));
+    let key_set = settings.map(|settings| {
+        format!(
+            "{:?}",
+            settings.security().inbound().map(|inbound| inbound.requirement().key_set())
+        )
+    });
+    assert_eq!(
+        key_set,
+        Ok(String::from(r#"Some(Url(KeySetUrl("https://issuer.example.com/keys")))"#))
     );
 }
 
 #[test]
 fn a_cleartext_key_set_url_is_refused_naming_the_key() {
-    let error =
-        Settings::load(&direct_fetching("http://issuer.example.com/keys")).expect_err("a cleartext key set URL does not start");
-    let SettingsError::InboundValue { ref cause } = *error.reason() else {
-        panic!("expected an inbound value refusal, got {error:?}");
-    };
-    assert_eq!(*cause, InvalidInboundValue::NotHttps { key: KeySetUrl::KEY });
+    let refused = Settings::load(&direct_fetching("http://issuer.example.com/keys"))
+        .map(|_settings| ())
+        .map_err(|error| format!("{:?}", error.reason()));
+    assert_eq!(
+        refused,
+        Err(String::from(
+            r#"InboundValue { cause: NotHttps { key: "security.inbound.key_set_url" } }"#
+        ))
+    );
 }
 
 #[test]
 fn a_key_set_file_and_a_key_set_url_together_are_refused() {
-    let written = format!("security:\n{DIRECT_INBOUND}    key_set_url: \"https://issuer.example.com/keys\"\n");
-    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(written))
-        .expect_err("two key set sources do not start");
-    assert!(matches!(error.reason(), SettingsError::InboundKeySetTwice), "{error:?}");
+    let rendered = refusal(format!(
+        "security:\n{DIRECT_INBOUND}    key_set_url: \"https://issuer.example.com/keys\"\n"
+    ));
+    assert_eq!(
+        rendered,
+        "`security.inbound` names both `key_set_file` and `key_set_url` - one key set, one source"
+    );
 }
 
 #[test]

@@ -46,6 +46,9 @@ pub enum KeySetClientUnusable {
 pub struct UrlKeySet {
     url: KeySetUrl,
     agent: sutura_tls::Rotating<ureq::Agent>,
+    /// The whole fetch's budget. Set per request, because the shared agent's own timeout adds a
+    /// connect margin on top of the budget it is given.
+    timeout: core::time::Duration,
 }
 
 impl UrlKeySet {
@@ -53,7 +56,16 @@ impl UrlKeySet {
     ///
     /// The anchors are read once, here: a rotated bundle reaches this fetch on the next start.
     pub fn trusting(url: &KeySetUrl, anchors: Option<&sutura_tls::Anchors>) -> Result<Self, KeySetClientUnusable> {
-        let bounds = ReadBounds::parse(FETCH_TIMEOUT_SECONDS, MAX_KEY_SET_BYTES as u64)?;
+        Self::trusting_within(url, anchors, FETCH_TIMEOUT_SECONDS)
+    }
+
+    /// The same, with the fetch budget a cell can shorten.
+    pub(crate) fn trusting_within(
+        url: &KeySetUrl,
+        anchors: Option<&sutura_tls::Anchors>,
+        timeout_seconds: u64,
+    ) -> Result<Self, KeySetClientUnusable> {
+        let bounds = ReadBounds::parse(timeout_seconds, MAX_KEY_SET_BYTES as u64)?;
         let anchors = anchors
             .map(sutura_tls::load_anchors)
             .transpose()
@@ -61,6 +73,7 @@ impl UrlKeySet {
         Ok(Self {
             url: url.clone(),
             agent: sutura_http_client::fixed(bounds, anchors),
+            timeout: bounds.timeout(),
         })
     }
 
@@ -86,6 +99,9 @@ impl KeySetSource for UrlKeySet {
             .agent
             .current()
             .get(self.url.as_str())
+            .config()
+            .timeout_global(Some(self.timeout))
+            .build()
             .call()
             .map_err(|cause| failed(FetchFailed::Unreachable(Box::new(cause))))?;
         let status = response.status().as_u16();
@@ -137,6 +153,31 @@ mod tests {
         let document = serde_json::json!({"keys": []});
         let read = fetched("read", Scripted::ok(&document)).expect("a 200 is the document");
         assert_eq!(read, document.to_string());
+    }
+
+    #[test]
+    fn a_fetch_that_never_answers_gives_up_within_its_budget() {
+        // A listener the kernel accepts for and nobody serves: the TLS handshake never completes.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+        let address = silent.local_addr().expect("a bound listener has an address");
+        let url = KeySetUrl::parse(format!("https://{address}/keys")).expect("a loopback https URL parses");
+        let started = std::time::Instant::now();
+        let refused = UrlKeySet::trusting_within(&url, None, 1)
+            .expect("the web roots load")
+            .read()
+            .expect_err("a silent issuer is no key set");
+        let waited = started.elapsed();
+        assert!(waited < std::time::Duration::from_secs(5), "the fetch waited {waited:?}");
+        assert!(
+            matches!(
+                refused,
+                KeySetUnavailable::Fetch {
+                    cause: FetchFailed::Unreachable(_),
+                    ..
+                }
+            ),
+            "{refused:?}"
+        );
     }
 
     #[test]
