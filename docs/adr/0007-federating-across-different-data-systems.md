@@ -1463,3 +1463,19 @@ every hop after the crossing runs on the one system the lookup leg already reads
 two-fact ratio whose second fact has no relationship into the model the chain crossed to is still
 refused (`CrossModelRatioWithoutSharedDimension`). Two tables of one lookup statement that answer to
 one identifier are refused (`PlanTablesShareAnIdentifier`), as they are on the fact leg.
+
+## Fourteenth amendment, 2026-10-17: the transport between two sutura nodes is decided
+
+`docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` decides how one sutura node runs a
+leg at another. It makes these statements above false or narrower. They are left as written.
+
+- *Which claims were run, and which were reasoned* and *Track 1* say that Flight SQL's
+  prepared-statement binding is reasoned and not run. #137 step 1 ran it once, in one process over
+  loopback: `Int64`, `Utf8` and `Date32` values, with nulls, arrived unchanged. It ran no other
+  type, no TLS and no authentication.
+- The transport bullet under *What is explicitly not decided*, which the twelfth amendment left to
+  wait on owner decisions. For a leg between two sutura nodes, the owner decided one Arrow Flight
+  `DoExchange` per leg, not Flight SQL. `DoExchange` is not tested.
+
+**What this amendment does not touch.** Arrow Flight SQL as the route to a data system. The new
+record keeps generic Flight SQL clients and servers out of its scope.
