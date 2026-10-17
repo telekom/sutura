@@ -3822,7 +3822,7 @@ contains the publishing steps of that workflow. A dispatch runs the workflow as 
 It builds the same commit at the <code>release-performance</code> profile: assets
 <code>sutura-&lt;triple&gt;-performance.tar.gz</code>, leaf images <code>:&lt;version&gt;-performance-&lt;triple&gt;</code>, lists
 <code>:&lt;version&gt;-performance</code> and <code>:&lt;version&gt;-performance-musl</code>. The same signing, SBOM and provenance
-sequence runs over it, so the regexp-based <code>cosign</code> commands below apply unchanged. The bundle-mode
+sequence runs over it, so the <code>cosign</code> commands below apply unchanged. The bundle-mode
 <code>gh attestation verify</code> below does not. For an optimised asset its identity is
 <code>https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG</code>, and
 <code>$TAG</code> is the dispatched <code>v&lt;version&gt;</code>, not <code>v&lt;version&gt;-performance</code>. Its change list, licence
@@ -3937,13 +3937,14 @@ transparency log (Rekor).</p>
 somebody notices. You check <em>"this workflow, at this ref, in this repository"</em>. An attacker has
 nothing to steal here. <strong>Every command below passes <code>--certificate-identity-regexp</code> and
 <code>--certificate-oidc-issuer</code>, because those two flags are the check.</strong> Without them, the command only
-verifies that <em>somebody</em> signed the file.</p>
+verifies that <em>somebody</em> signed the file. The regexp names the two release workflows of this
+repository, <code>release.yml</code> and <code>release-performance.yml</code>, at any tag.</p>
 <h2 id="verifying-a-release-asset">Verifying a release asset<a class="headerlink" href="#verifying-a-release-asset" title="Permanent link">&para;</a></h2>
 <p>There are two ways. They differ in what you need.</p>
 <p>From the bytes and the bundle:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-x86_64-unknown-linux-gnu.tar.gz.sigstore.json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>sutura-x86_64-unknown-linux-gnu.tar.gz
 </span></code></pre></div>
@@ -3986,7 +3987,7 @@ tag</strong> - <code>:latest</code> moves, and a verification against a name is 
 meant when you ran it.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
 </span></code></pre></div>
 <p>For the manifest lists, GitHub's provenance works on the same digest:</p>
@@ -4002,13 +4003,14 @@ images. The release notes do not list it: take the digest from the <code>chart</
 reason the images give.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>ghcr.io/telekom/charts/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
 </span></code></pre></div>
-<p>The regexp pins the repository, not the tag. When you know the tag, use <code>--certificate-identity</code>
-in place of the regexp flag, with
+<p>The regexp pins the two release workflows of this repository, at any tag. When you know the tag, use
+<code>--certificate-identity</code> in place of the regexp flag, with
 <code>https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/&lt;tag&gt;</code>, to pin the exact
-identity. You can run <code>cosign</code> from the flake pin with <code>nix run .#cosign</code>.</p>
+tag as well. For an optimised release the file is <code>release-performance.yml</code>. You can run <code>cosign</code>
+from the flake pin with <code>nix run .#cosign</code>.</p>
 <p>The chart carries a signature and nothing else: no SBOM attestation, no SLSA provenance and no
 Sigstore bundle asset. No Helm <code>.prov</code> file exists, so <code>helm install --verify</code> does not apply.
 Whether the registry package is readable without a login is a registry setting.</p>
@@ -4017,7 +4019,7 @@ Whether the registry package is readable without a login is a registry setting.<
 disagree - attached to the release and, for CycloneDX, attached to the image itself:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cosign<span class="w"> </span>verify-attestation<span class="w"> </span>--type<span class="w"> </span>cyclonedx<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
 </span></code></pre></div>
 <p>It covers two things, and they come from two places.</p>
@@ -4060,7 +4062,7 @@ checks them against the RustSec database for the file you have.</p>
 <p>It is signed and carries provenance, so it verifies exactly like a binary tarball:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-attribution.md.sigstore.json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/'</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>sutura-attribution.md
 </span></code></pre></div>
