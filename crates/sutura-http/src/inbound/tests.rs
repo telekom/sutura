@@ -69,6 +69,10 @@ pub(super) fn gate_around(source: Box<dyn crate::inbound::keys::KeySetSource>) -
     Arc::new(InboundGate::over(&direct(), keys))
 }
 
+/// The whole `503` body an unknown key id gets while the key source is down: the code and a sentence,
+/// and nothing about the fetch that failed.
+pub(super) const IDENTITY_UNAVAILABLE: &str = r#"{"code":"identity_unavailable","status":503,"detail":"the identity provider this deployment depends on did not answer; retry"}"#;
+
 /// What a route behind `gate` answers a bearer `token`: the status, the body, and whether a
 /// `WWW-Authenticate` challenge came with it.
 ///
@@ -719,8 +723,8 @@ fn a_key_id_that_could_forge_a_record_line_does_not_parse() {
 
 #[tokio::test]
 async fn a_key_set_read_off_disk_verifies_a_token_and_a_missing_file_starts_no_gate() {
-    // The one test that touches a filesystem, because `FileKeySet` is the only source that ships and a
-    // fake of it would be asserting on the fake. The scratch file is named after the process and
+    // The one test that touches a filesystem, because `FileKeySet` reads one and a fake of it would
+    // be asserting on the fake. The scratch file is named after the process and
     // removed again.
     let pair = key_pair();
     let path = std::env::temp_dir().join(format!("sutura-jwks-{}.json", std::process::id()));
@@ -840,7 +844,7 @@ async fn an_unknown_key_id_while_the_source_is_unreachable_is_503_identity_unava
     );
     let (status, ref body, challenged) = guarded_answer(&gate, &unknown).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
-    assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+    assert_eq!(body, IDENTITY_UNAVAILABLE);
     assert!(!challenged, "an outage carries no challenge to present a different token");
     let (held, ref body, _) = guarded_answer(&gate, &a_token(&pair)).await;
     assert_eq!(held, StatusCode::NO_CONTENT, "{body}");
@@ -861,7 +865,7 @@ async fn an_unknown_key_id_while_the_key_set_file_is_unreadable_is_503_identity_
     let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
     let (status, ref body, challenged) = guarded_answer(&gate, &unknown).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
-    assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+    assert_eq!(body, IDENTITY_UNAVAILABLE);
     assert!(!challenged, "an outage carries no challenge to present a different token");
     let known = mint(sutura_dev::issuer::Token::for_subject("someone@example.com"));
     let (held, ref body, _) = guarded_answer(&gate, &known).await;

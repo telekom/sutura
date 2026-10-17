@@ -182,18 +182,24 @@ mod tests {
     }
 
     #[test]
-    fn a_redirect_is_refused_rather_than_followed() {
-        let refused = fetched("redirect", Scripted::status(302, "")).expect_err("a redirect is no key set");
-        assert!(
-            matches!(
-                refused,
-                KeySetUnavailable::Fetch {
-                    cause: FetchFailed::Status { status: 302 },
-                    ..
-                }
-            ),
-            "{refused:?}"
-        );
+    fn anything_but_a_200_is_refused_a_redirect_included() {
+        let published = crate::testing::an_issuer().key_set().into_bytes();
+        for (name, sent, answer) in [
+            ("redirect", 302, Scripted::status(302, "")),
+            ("non-200-2xx", 203, Scripted::raw(203, published)),
+        ] {
+            let refused = fetched(name, answer).expect_err("only a 200 is a key set");
+            assert!(
+                matches!(
+                    refused,
+                    KeySetUnavailable::Fetch {
+                        cause: FetchFailed::Status { status },
+                        ..
+                    } if status == sent
+                ),
+                "{refused:?}"
+            );
+        }
     }
 
     #[test]
@@ -226,7 +232,7 @@ mod tests {
         let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
         let (status, ref body, challenged) = crate::inbound::tests::guarded_answer(&gate, &unknown).await;
         assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE, "{body}");
-        assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+        assert_eq!(body, crate::inbound::tests::IDENTITY_UNAVAILABLE);
         assert!(!challenged, "an outage carries no challenge to present a different token");
         let known = mint(sutura_dev::issuer::Token::for_subject("someone@example.com"));
         let (held, ref body, _) = crate::inbound::tests::guarded_answer(&gate, &known).await;

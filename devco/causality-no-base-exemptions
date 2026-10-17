@@ -28,6 +28,6 @@ each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread # new i
 two_pins_that_differ_only_in_a_fallback_have_different_digests # new in this branch's schema/tests.rs, so the base tree has no such test
 a_key_set_is_read_from_an_https_url # a cell of keys/url.rs, the URL source this branch adds; the base run removes the module, so it cannot compile there; killed when the body is dropped
 a_fetch_that_never_answers_gives_up_within_its_budget # a cell of keys/url.rs, the URL source this branch adds; the base run removes the module, so it cannot compile there; killed when the budget is raised by 5 s
-a_redirect_is_refused_rather_than_followed # a cell of keys/url.rs, the URL source this branch adds; the base run removes the module, so it cannot compile there; killed when the status check is off
+anything_but_a_200_is_refused_a_redirect_included # a cell of keys/url.rs, the URL source this branch adds; the base run removes the module, so it cannot compile there; killed when the status check is off, or any 2xx is accepted
 a_key_set_over_the_cap_is_refused # a cell of keys/url.rs, the URL source this branch adds; the base run removes the module, so it cannot compile there; killed when there is no cap, or the cap is one byte short
 an_unknown_key_id_while_the_url_does_not_answer_is_503_identity_unavailable # a cell of keys/url.rs, the URL source this branch adds; the base run removes the module, so it cannot compile there; killed when the 503 arm is off, or the challenge is added back
