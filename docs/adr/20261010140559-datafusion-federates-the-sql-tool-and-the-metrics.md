@@ -469,7 +469,7 @@ This is a static read. A plan shape that the splitter does not emit is not part 
 **Owner decision 2026-10-16 (Q4): keep two statements for the two-fact join at one source.** A second
 fact may sit on the first fact's source (#780, `crates/sutura-domain/src/plan/federated.rs:224-230`).
 The domain keeps it as a second statement, and the combine joins the two facts locally, after it
-refuses a fan-out on the link and the bucket (`crates/sutura-exec-datafusion/src/combine.rs:385-391`).
+refuses a fan-out on the link and the bucket (`crates/sutura-exec-datafusion/src/combine.rs:382-388`).
 The crate would fuse those two scans into one node, because one subject's two scans of one source
 have equal providers. Pushed as one statement, the fan-out guard would move to the source, where
 nothing checks it. So the guard stays local. **Limit.** The cost is one more round trip to that

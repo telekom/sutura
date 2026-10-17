@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-domain/src/query.rs b/crates/sutura-domain/src/query.rs
+diff --git a/crates/sutura-domain/src/query/methods.rs b/crates/sutura-domain/src/query/methods.rs
 index 3c36e1440..efd44afba 100644
---- a/crates/sutura-domain/src/query.rs
-+++ b/crates/sutura-domain/src/query.rs
+--- a/crates/sutura-domain/src/query/methods.rs
++++ b/crates/sutura-domain/src/query/methods.rs
 @@ -656,7 +656,7 @@ impl RefusalReason {
              Self::DimensionValueNotAllowed { .. } => "dimension_value_not_allowed",
              Self::DuplicateDimension { .. } => "duplicate_dimension",

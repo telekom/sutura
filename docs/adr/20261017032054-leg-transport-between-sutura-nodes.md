@@ -66,7 +66,7 @@ Node A plans the question and runs the combine. Node B owns the source of one le
    that omits a required filter of B's own definition of the metric
    (`crates/sutura-domain/src/measure.rs:383-389`). The refusal is a new variant
    `RemoteLegNotCertified { source }` of `sutura-domain`'s `RefusalReason`
-   (`crates/sutura-domain/src/query.rs:237`), added in #137 step 3. A maps it to the same variant,
+   (`crates/sutura-domain/src/query.rs:137`), added in #137 step 3. A maps it to the same variant,
    naming its `node` source. So B judges a leg by B's own certified definition, and a leg that
    disagrees with it does not run. The values travel as one Arrow parameter batch. `PlanBindings`
    keeps no `Deserialize` derive, held by `check-serde-parse`, because it has a fallible
