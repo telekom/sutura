@@ -3663,6 +3663,14 @@ once every 30 seconds. It keeps the last key set that loaded when the new file d
 <p>The key set can also be one PEM public key or certificate, such as the <code>tls.crt</code> that cert-manager writes. The key id
 is the RFC 7638 SHA-256 thumbprint of the key, so the gateway puts that thumbprint in the <code>kid</code> of each assertion it
 signs with that key. A PEM file holds one key, so it cannot hold the old key and the new key at the same time.</p>
+<p>So sutura keeps the key set that a rotation replaced. After sutura reads a new key set, the keys that left it verify for
+<code>transit_max_lifetime_seconds</code> plus 30 seconds more, and then stop. While the new file loads, a removed key therefore
+stops verifying within 60 seconds, plus one read, plus that time: 210 seconds at the default lifetime of 120 seconds.
+Only the key set just replaced is kept, so a second rotation in that time stops the oldest key at once. To stop a key
+at once, restart sutura with the new key set.</p>
+<p>sutura asks the new key set first. So a JWK set whose new key keeps the <code>kid</code> of the old key gives the old key no extra
+time: an assertion that the old key signed is refused from the read of the new set. A PEM file cannot do this, because
+its <code>kid</code> is the thumbprint of the key.</p>
 <h2 id="with-the-chart">With the chart<a class="headerlink" href="#with-the-chart" title="Permanent link">&para;</a></h2>
 <p>The chart mounts the key set from a Secret and sets <code>security.inbound.key_set_file</code> to the mounted file. Update the
 Secret to rotate. Kubernetes writes the new content into the mounted file after a short delay.</p>

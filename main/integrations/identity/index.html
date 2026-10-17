@@ -3907,7 +3907,9 @@ request, so keep its lifetime short.</p>
 <p>sutura reads <code>key_set_file</code> before it opens the listener, and it does not start if the file is not
 a usable key set. It reads the file again 60 seconds after its last read, and when a token names an
 unknown <code>kid</code>, at most once every 30 seconds. To rotate keys, replace the file, and wait 60 seconds
-after the file holds the new key before the gateway signs with it.</p>
+after the file holds the new key before the gateway signs with it. Behind a gateway, a key that leaves
+the file verifies for <code>transit_max_lifetime_seconds</code> plus 30 seconds more, unless the new key keeps
+its <code>kid</code> - see <a href="../../serving-behind-a-gateway/#rotating-the-keys">Rotating the keys</a>.</p>
 <p>The file is a JWK set, or one PEM key: a single <code>PUBLIC KEY</code> block, or a certificate followed by its
 chain. A file that starts with <code>-----BEGIN</code> is read as PEM. Only the first certificate is a key,
 and its validity period is not checked. The key id of a PEM key is its RFC 7638 SHA-256 thumbprint,

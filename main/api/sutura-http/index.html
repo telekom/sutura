@@ -4853,7 +4853,8 @@ attempt. Nothing refuses on it, because refusing is an availability-breaking pol
 part-way through rewriting a mounted file would take a deployment's whole authentication down
 with it - and no record in this repository has decided that a deployment should degrade that way
 rather than keep verifying. So the bound and its limit, in one sentence: <strong>a removed key stops
-verifying within <code>MAX_KEY_SET_AGE</code> plus one read while refresh works, and after no bounded time
+verifying within <code>MAX_KEY_SET_AGE</code> plus one read while refresh works - plus the rotated-out
+grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
 while it does not</strong> - the staleness is reported as <code>stale_for_ms</code> on every look that could not
 confirm the keys, and refused on by nothing.</p>
 <h1 id="what-a-key-set-is-read-from-and-the-gap-that-is-named-rather-than-hidden">What a key set is read from, and the gap that is named rather than hidden<a class="headerlink" href="#what-a-key-set-is-read-from-and-the-gap-that-is-named-rather-than-hidden" title="Permanent link">&para;</a></h1>
