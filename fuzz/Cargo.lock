@@ -1807,6 +1807,7 @@ dependencies = [
  "base64 0.23.1",
  "governor",
  "jsonwebtoken",
+ "parking_lot",
  "serde",
  "serde_json",
  "spki",

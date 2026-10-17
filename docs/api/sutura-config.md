@@ -2960,8 +2960,10 @@ carried it there first. Review found the wording overstating exactly that: a pro
 for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
 are now bounded - `ProofLifetime` caps `exp - iat` and an `iat` is required, so the replay window
 is a number this deployment chose rather than one it was handed. **Binding an assertion to a
-particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
-body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+particular request is not built**: nothing hashes a method, a path or a body into the proof, so
+inside the lifetime window an intercepted assertion replays - unless the deployment declares
+`TransitProof::SINGLE_USE_KEY`, which refuses a second presentation per process and never a
+first one by the wrong party (the architecture decision). That is why
 this module and the architecture decision now call it a *gateway-issued identity assertion* rather than a
 proof that the request transited anything, and why the trusted transport boundary - the hop between
 the component and this process - is load-bearing rather than incidental.
@@ -3079,6 +3081,12 @@ Every field is a validation input, and that is the point of the type: there is n
 holds an asserted identity. See this module's documentation for why.
 
 #### Methods
+
+```rust
+pub fn admitting_once(self, single_use: bool) -> Self
+```
+
+The same declaration, admitting each assertion once by its `jti` where `single_use` is `true`.
 
 ```rust
 pub fn granting_when_absent(self, grant: GrantedScopes) -> Self
@@ -3281,6 +3289,12 @@ pub const fn resource(&self) -> Option<&'inbound ResourceIdentifier>
 
 The identifier RFC 9728's metadata and a challenge name, whatever `aud` is. `None` behind a
 gateway, which publishes none.
+
+```rust
+pub const fn single_use(&self) -> bool
+```
+
+Whether each assertion is admitted once, by its `jti`. See `TransitProof::SINGLE_USE_KEY`.
 
 ```rust
 pub const fn token_type(&self) -> &'inbound RequiredTokenType

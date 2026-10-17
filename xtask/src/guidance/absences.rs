@@ -136,8 +136,9 @@ struct Absence {
 /// registered: it is already false, so an entry for it would be a gate that fails on landing, and
 /// what a sentence somebody has got wrong once needs is `CONTRADICTED`'s ratchet. The replay-window
 /// absence is not here either - `crates/sutura-http/src/inbound/tests/review.rs` asserts the replay
-/// SUCCEEDS, twice, so a nonce store turns that test red and puts all four of its sentences in front
-/// of somebody. An entry duplicating a test that already fails is a second thing to keep true.
+/// SUCCEEDS, twice, with `transit_single_use` off, so a store of seen assertions that applies without
+/// that key turns that test red and puts all four of its sentences in front of somebody. An entry
+/// duplicating a test that already fails is a second thing to keep true.
 const ABSENCES: &[Absence] = &[
     // `#370` row E's first item - "`MetricAspect::expression()` has no consumer" - is narrowed,
     // not withdrawn. Issue #202's second PR moved the crate's fake server and page builders into a

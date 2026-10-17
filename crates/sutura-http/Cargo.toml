@@ -71,6 +71,9 @@ spki = { workspace = true }
 # mapping from `sutura_config::SigningAlgorithm` onto this library's own enum lives in
 # `crate::inbound::token` and is the only place the two vocabularies meet.
 jsonwebtoken = { workspace = true }
+# The single-use store's lock, held for one check and one insert with no `.await` inside, which
+# `clippy.toml` sends here rather than to `std::sync::Mutex`. Already linked through `governor`.
+parking_lot = { workspace = true }
 serde = { workspace = true }
 # The interface description is serialized once at startup and served from a clone, and the wire
 # shapes are asserted on as JSON in the tests, because the JSON is the contract.

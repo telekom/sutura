@@ -604,6 +604,20 @@ fn granted_scopes_is_read_behind_a_gateway_and_refused_in_direct() {
 }
 
 #[test]
+fn transit_single_use_is_read_behind_a_gateway_and_refused_in_direct() {
+    const ONCE: &str = "    transit_single_use: true\n";
+    let _settings =
+        load_inbound_overlay(format!("security:\n{GATEWAY_INBOUND}{ONCE}")).expect("single use behind a gateway starts");
+    let refused =
+        load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}{ONCE}")).expect_err("single use in `direct` does not start");
+    let rendered = refused.reason().to_string();
+    assert!(
+        rendered.contains("`security.inbound.transit_single_use`") && rendered.contains("`behind-gateway`"),
+        "{rendered}"
+    );
+}
+
+#[test]
 fn a_grant_of_sutura_sql_run_does_not_start() {
     let refused = load_inbound_overlay(format!(
         "security:\n{GATEWAY_INBOUND}    granted_scopes: [\"sutura:metrics.ask\", \"sutura:sql.run\"]\n"

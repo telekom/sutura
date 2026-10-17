@@ -130,6 +130,14 @@ impl InboundGate {
             Instant::now(),
         )
         .map_err(InboundNotUsable::Unreadable)?;
+        if requirement.single_use() {
+            tracing::info!(
+                capacity = crate::inbound::replay::CAPACITY,
+                max_jti_bytes = crate::inbound::replay::MAX_ASSERTION_ID_BYTES,
+                "single use: each assertion is admitted once by its `jti`, per process - another replica or \
+                 a restart admits it again inside its lifetime, and a full store refuses with 503"
+            );
+        }
         Ok(Self::over(inbound, keys))
     }
 
@@ -341,6 +349,9 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
 /// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
 fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, headers: &HeaderMap) -> Response {
+    if let Some(failure) = not_the_callers_fault(rejected) {
+        return failure.into_response();
+    }
     // The cause chain, not the variant alone: which of signature, expiry, issuer and audience failed is
     // what an operator needs, and it goes here rather than to the caller.
     tracing::warn!(
@@ -364,6 +375,17 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
     response
 }
 
+/// A refusal that is this process's state rather than the caller's credential, and is not a `401`.
+///
+/// A full store of seen assertions is announced once per window where it is raised, so it gets no
+/// line per request here: that would be a line per request of the flood that filled it.
+const fn not_the_callers_fault(rejected: &TokenRejected) -> Option<Failure> {
+    match *rejected {
+        TokenRejected::SeenStoreFull => Some(Failure::IdentityUnavailable),
+        _ => None,
+    }
+}
+
 /// Puts the challenge on a response, or says why it could not.
 ///
 /// Its own function because the fallible-header branch put [`refused`] over the cognitive-complexity
@@ -378,5 +400,19 @@ fn challenged(response: &mut Response, challenge: &str) {
             drop(response.headers_mut().insert(axum::http::header::WWW_AUTHENTICATE, value));
         }
         Err(cause) => tracing::error!(error = %cause, "the configured resource identifier is not a header value"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Failure, TokenRejected, not_the_callers_fault};
+
+    #[test]
+    fn a_full_seen_store_answers_identity_unavailable_and_a_replay_answers_401() {
+        assert!(matches!(
+            not_the_callers_fault(&TokenRejected::SeenStoreFull),
+            Some(Failure::IdentityUnavailable)
+        ));
+        assert!(not_the_callers_fault(&TokenRejected::Replayed).is_none());
     }
 }

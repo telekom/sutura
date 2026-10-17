@@ -141,6 +141,9 @@ security:
   #       # gives the old key no such time, since the new set is asked first; a PEM file cannot,
   #       # because its `kid` is the key's thumbprint.
   #       transit_max_lifetime_seconds: 120
+  #       # Optional, `false` by default. `true` admits each assertion once by its `jti`, per
+  #       # process, so the component must mint one assertion per request - `docs/adr/20261015094920`.
+  #       transit_single_use: false
   #
   # `direct` and `access_token` together are a refusal to start: both are read from
   # `authorization: Bearer`, and a request cannot carry two credentials in one header. A component that

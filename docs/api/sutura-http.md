@@ -2465,6 +2465,10 @@ and an error is not a place for credential material.
   above cannot be trusted to mean what it says.
 - `ClientNotNamed` - With `extra_scope_claims` set, a token whose `azp` is absent or is not a client id.
 - `ClientIsTheApi` - With `extra_scope_claims` set, a token whose `azp` is this deployment's own audience: the client must differ from the API.
+- `NoAssertionId` - Behind a gateway that declares single use, an assertion with no `jti` - the architecture decision.
+- `UnusableAssertionId`
+- `Replayed` - The `jti` was admitted before and its assertion has not expired. The value is never rendered.
+- `SeenStoreFull` - Every place in the store of seen assertions is held by an unexpired one. A `503`, not a `401`: nothing is wrong with the caller's assertion, and none is admitted unrecorded.
 
 ##### Implements
 

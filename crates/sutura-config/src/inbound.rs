@@ -48,8 +48,10 @@
 //! for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
 //! are now bounded - [`ProofLifetime`] caps `exp - iat` and an `iat` is required, so the replay window
 //! is a number this deployment chose rather than one it was handed. **Binding an assertion to a
-//! particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
-//! body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+//! particular request is not built**: nothing hashes a method, a path or a body into the proof, so
+//! inside the lifetime window an intercepted assertion replays - unless the deployment declares
+//! [`TransitProof::SINGLE_USE_KEY`], which refuses a second presentation per process and never a
+//! first one by the wrong party (`docs/adr/20261015094920`). That is why
 //! this module and `docs/adr/0014` now call it a *gateway-issued identity assertion* rather than a
 //! proof that the request transited anything, and why the trusted transport boundary - the hop between
 //! the component and this process - is load-bearing rather than incidental.
@@ -201,6 +203,8 @@ pub struct TransitProof {
     max_lifetime: ProofLifetime,
     /// What an assertion with no `scope` claim is granted. See [`GrantedScopes`].
     grant: Option<GrantedScopes>,
+    /// Whether each assertion is admitted once, by its `jti`. See [`TransitProof::SINGLE_USE_KEY`].
+    single_use: bool,
 }
 
 impl TransitProof {
@@ -231,7 +235,19 @@ impl TransitProof {
             token_type,
             max_lifetime,
             grant: None,
+            single_use: false,
         }
+    }
+
+    /// The key that declares each assertion single use - `docs/adr/20261015094920`. Off by default:
+    /// a component that reuses one assertion across requests would have every request after the
+    /// first refused, and only the operator knows how the component mints.
+    pub const SINGLE_USE_KEY: &'static str = "security.inbound.transit_single_use";
+
+    /// The same declaration, admitting each assertion once by its `jti` where `single_use` is `true`.
+    #[must_use]
+    pub fn admitting_once(self, single_use: bool) -> Self {
+        Self { single_use, ..self }
     }
 
     /// The same declaration, granting `grant` to an assertion that carries no `scope` claim.
@@ -308,9 +324,10 @@ pub struct TokenRequirement<'inbound> {
     /// calls the assertion short-lived, and [`ProofLifetime::parse`] enforces it: a configured value
     /// above [`ProofLifetime::MAX_SECONDS`] is refused at boot as
     /// [`InvalidInboundValue::LifetimeOutOfRange`]. The ceiling bounds the replay window of a captured
-    /// assertion, not the assertion's binding to a request - see the module documentation on why a
-    /// nonce store is still absent.
+    /// assertion, not the assertion's binding to a request - see the module documentation.
     max_lifetime: Option<ProofLifetime>,
+    /// Whether each assertion is admitted once. `false` in `direct`, where the key is refused at load.
+    single_use: bool,
 }
 
 impl<'inbound> TokenRequirement<'inbound> {
@@ -388,6 +405,13 @@ impl<'inbound> TokenRequirement<'inbound> {
     #[must_use]
     pub const fn max_lifetime(&self) -> Option<ProofLifetime> {
         self.max_lifetime
+    }
+
+    /// Whether each assertion is admitted once, by its `jti`. See [`TransitProof::SINGLE_USE_KEY`].
+    #[inline]
+    #[must_use]
+    pub const fn single_use(&self) -> bool {
+        self.single_use
     }
 }
 
@@ -473,6 +497,7 @@ impl InboundIdentity {
                 key_set,
                 algorithms,
                 token_type,
+                single_use: false,
                 // No ceiling: an access token's lifetime belongs to the authorization server. See the
                 // field on `TokenRequirement` for why the two modes differ here.
                 max_lifetime: None,
@@ -492,6 +517,7 @@ impl InboundIdentity {
                 algorithms: &transit.algorithms,
                 token_type: &transit.token_type,
                 max_lifetime: Some(transit.max_lifetime),
+                single_use: transit.single_use,
             },
         }
     }
