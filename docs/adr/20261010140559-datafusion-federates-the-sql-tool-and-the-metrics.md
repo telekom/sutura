@@ -351,7 +351,7 @@ What #828's milestones become:
 - **M1** is replaced by PRs 2 to 3b (*third amendment*: PR 4 is not built).
 - **M2** (CI slice) is unchanged and does not depend on this record.
 - **M3** (plan-time heuristic) reads the cut that the port returns (the legs, one or more for each source, and the local rest; until PR 5b these are today's legs) and not
-  today's fixed two-leg split.
+  today's fixed two-leg split (*third amendment*, *Owner decision 2026-10-16*: no engine cut now, the cut comes with PR 5b).
 - **M4** (elastic multi-node) plugs in where the `FederationPlanner` runs the local rest. A worker
   must call the leg runner, so each guard of decision 4 still runs once per leg. A worker gets the
   caller's credential only through an RFC 8693 token exchange or the declared hop chain. The
@@ -499,8 +499,8 @@ and no cell shows either one fail.
 
 A pre-fetch also avoids F4's plan failure, because the engine then plans over the batches as they
 came back. **Limit.** Not built. That is the design's claim, and no run measured it. M3 (decision 5)
-read PR 4's cut. It now reads the cut that the port returns, which is today's legs until 5b. That
-reading is this amendment's, not a separate owner decision.
+read PR 4's cut. It now reads the cut that the port returns, which is today's legs until 5b. This
+follows from the owner decision of 2026-10-16: no engine cut now, the cut comes with PR 5b.
 
 **What this changes in the record.** Decision 3 holds with the one point above. Q3 stays recorded and
 no PR applies it. If an engine cut returns to the metric path, it needs its own record that answers
