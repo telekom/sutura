@@ -1,0 +1,20 @@
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -68,7 +68,7 @@
+ use datafusion::arrow::datatypes::DataType;
+ use datafusion::common::{Column, JoinType, TableReference};
+ use datafusion::datasource::MemTable;
+-use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif};
++use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif, lower};
+ use datafusion::functions_aggregate::expr_fn::{count, count_distinct, max, min, sum};
+ use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
+ use datafusion::prelude::{SessionConfig, SessionContext};
+@@ -650,7 +650,7 @@
+     } else {
+         JoinType::Inner
+     };
+-    let on = qualified(FACT_TABLE, link).eq(qualified(LOOKUP_TABLE, link));
++    let on = lower(qualified(FACT_TABLE, link)).eq(lower(qualified(LOOKUP_TABLE, link)));
+     let mut builder = builder
+         .join_on(lookup, kind, [on])
+         .map_err(|cause| CombineError::Build { cause })?;

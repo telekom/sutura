@@ -84,6 +84,60 @@ fn a_left_join_keeps_an_unmatched_fact_row_with_null_remote() {
     );
 }
 
+/// The rows one `sum_plan` answers over two legs whose one link pair is `(fact_key, lookup_key)`.
+fn text_key_pair_answers(fact_key: &str, lookup_key: &str, include_unmatched: bool) -> Vec<Vec<Value>> {
+    let fact = fact(vec![fact_row("A", text(fact_key), Value::Integer(100))]);
+    let lookup = lookup(vec![vec![text(lookup_key), text("north")]]);
+    combined(&sum_plan(include_unmatched), &fact, &lookup, UNBOUNDED)
+        .rows()
+        .to_vec()
+}
+
+#[test]
+fn two_text_link_keys_that_differ_only_in_case_do_not_join() {
+    // `telekom/sutura#138`. A text link key is compared exactly: no case folding, here or in the
+    // source, from either side. A miss is a miss, so a left join keeps the fact row unmatched and an inner join drops it.
+    let left = text_key_pair_answers("C1", "c1", true);
+    let inner = text_key_pair_answers("C1", "c1", false);
+    assert_eq!(
+        left,
+        [vec![text("A"), Value::Null, text("2026-06"), Value::Integer(100)]],
+        "`C1` must not find `c1` under a left join"
+    );
+    assert!(inner.is_empty(), "`C1` must not find `c1` under an inner join");
+    assert_eq!(
+        text_key_pair_answers("c1", "C1", true),
+        [vec![text("A"), Value::Null, text("2026-06"), Value::Integer(100)]],
+        "`c1` must not find `C1` under a left join"
+    );
+    assert!(
+        text_key_pair_answers("c1", "C1", false).is_empty(),
+        "`c1` must not find `C1` under an inner join"
+    );
+}
+
+#[test]
+fn two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join() {
+    // `telekom/sutura#138`. As above, for whitespace: no trim, from either side, so `c1 ` and `c1` are two keys.
+    let left = text_key_pair_answers("c1 ", "c1", true);
+    let inner = text_key_pair_answers("c1 ", "c1", false);
+    assert_eq!(
+        left,
+        [vec![text("A"), Value::Null, text("2026-06"), Value::Integer(100)]],
+        "`c1 ` must not find `c1` under a left join"
+    );
+    assert!(inner.is_empty(), "`c1 ` must not find `c1` under an inner join");
+    assert_eq!(
+        text_key_pair_answers("c1", "c1 ", true),
+        [vec![text("A"), Value::Null, text("2026-06"), Value::Integer(100)]],
+        "`c1` must not find `c1 ` under a left join"
+    );
+    assert!(
+        text_key_pair_answers("c1", "c1 ", false).is_empty(),
+        "`c1` must not find `c1 ` under an inner join"
+    );
+}
+
 #[test]
 fn the_join_kind_decides_a_null_fact_key_the_way_it_decides_an_unmatched_one() {
     // **The cross-product a pair of narrower cells missed between them.** A null link matches
