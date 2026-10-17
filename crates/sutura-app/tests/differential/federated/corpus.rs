@@ -463,6 +463,24 @@ pub(crate) fn with_null_keys() -> &'static Derived {
 /// rather than merely a larger equal pair.
 pub(crate) const NULL_DIMENSION_KEYS: (&str, &str) = ("dim_customer.csv", ",C9001,consumer,south\n,C9002,consumer,south\n");
 
+/// **The same corpus with ONE dimension row whose join key is text**, in a column the catalog
+/// declares `BIGINT` on both sides (`telekom/sutura#138`'s executed data mismatch).
+///
+/// The declaration agrees, so the planner's declared-type check has nothing to refuse and both legs
+/// run; the CSV reader then types the dimension's key column as text while the fact's stays an
+/// integer, which only the combiner's check over the legs' real schemas can see.
+pub(crate) fn with_a_text_key() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let derived = derive_into("federated-differential-text-key");
+        apply(&derived.data.join(A_TEXT_KEY.0), &Edit::Appended(A_TEXT_KEY.1));
+        derived
+    })
+}
+
+/// The row [`with_a_text_key`] appends: no integer reading of `K9001` exists.
+pub(crate) const A_TEXT_KEY: (&str, &str) = ("dim_customer.csv", "K9001,C9001,consumer,south\n");
+
 /// **The same corpus with `tickets_per_subscription` written as a cube's one measure**
 /// (`telekom/sutura#1148`): cube `tickets`, measure `per_subscription`, which expand to that name.
 pub(crate) fn as_a_cube() -> &'static Derived {

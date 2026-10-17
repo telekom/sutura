@@ -15,8 +15,8 @@ use sutura_dev::issuer::{PublishedKeySet, Token};
 use super::{over, settings};
 use crate::constants::OPENAPI_JSON_PATH;
 use crate::testing::{
-    Probed, RawDeadlineProbe, an_issuer, broker, bundle, call, declared_inbound, direct_overlay, fake_warehouse, request,
-    serving, settings_with, source, unanchored_bundle,
+    Probed, RawDeadlineProbe, WarehouseThatFailsToExecute, an_issuer, broker, bundle, call, declared_inbound, direct_overlay,
+    fake_warehouse, request, serving, settings_with, source, unanchored_bundle, warehouse_pretending_to_be,
 };
 
 fn run_sql_body(statement: &str) -> String {
@@ -145,6 +145,47 @@ async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape(
     assert!(body.contains(r#""code":"source_refused""#), "{body}");
 }
 
+/// `POST /v1/sql/run` on a deployment with the switch on, over `warehouses`, answered as a client
+/// error the caller can act on: a `409` refusal in the raw vocabulary, never a `500`.
+async fn run_sql_refused_as_a_conflict<W>(warehouses: sutura_app::Warehouses<W>, code: &str, advice: &str)
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    let app = over(
+        unanchored_bundle(),
+        warehouses,
+        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+    );
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/sql/run", None, Body::from(run_sql_body("select 1"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains(r#""outcome":"raw_refusal""#), "{body}");
+    assert!(body.contains(&format!(r#""code":"{code}""#)), "{body}");
+    assert!(body.contains(advice), "{body}");
+}
+
+#[tokio::test]
+async fn run_sql_over_two_open_sources_is_a_409_naming_the_cause_rather_than_a_500() {
+    let both = fake_warehouse()
+        .merge(warehouse_pretending_to_be("other"))
+        .expect("two distinct sources open together");
+    run_sql_refused_as_a_conflict(both, "more_than_one_source_open", "certified tools").await;
+}
+
+#[tokio::test]
+async fn run_sql_over_one_source_that_takes_no_raw_statement_is_a_409_naming_the_cause_rather_than_a_500() {
+    run_sql_refused_as_a_conflict(
+        WarehouseThatFailsToExecute::new(source()),
+        "no_source_accepts_raw_statements",
+        "tools.run_sql.enabled",
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn an_empty_statement_is_a_400_not_a_question_through_the_real_router() {
     // Refused by `RawStatement`'s own parse before admission, so no data system is reached: the
@@ -185,6 +226,11 @@ async fn the_served_document_omits_run_sql_when_the_switch_is_off_and_carries_it
     assert!(
         body.contains("/v1/sql/run"),
         "the served document is missing /v1/sql/run even though this deployment turned it on: {body}"
+    );
+    let document: serde_json::Value = serde_json::from_str(&body).expect("the served document is JSON");
+    assert!(
+        document["paths"]["/v1/sql/run"]["post"]["responses"]["409"].is_object(),
+        "the served document does not list the 409 a run_sql deployment-shape refusal answers: {body}"
     );
 }
 

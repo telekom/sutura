@@ -65,6 +65,15 @@ const TAG: &str = "run_sql";
             body = RawOutcomeBody
         ),
         (
+            status = 409,
+            description = "REFUSED. `code: more_than_one_source_open` - this deployment opened more \
+                           than one data system and a raw statement runs against exactly one. \
+                           `code: no_source_accepts_raw_statements` - the data system it opened does \
+                           not accept a raw statement. Neither changes by retrying: use the \
+                           certified tools, or ask the operator.",
+            body = RawOutcomeBody
+        ),
+        (
             status = 413,
             description = "REFUSED. `too_many_rows` or `result_too_large` - too much data; ask a \
                            narrower question. `too_many_rows` fires at the same `sutura_domain::\

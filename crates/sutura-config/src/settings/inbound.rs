@@ -6,8 +6,8 @@
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
 use crate::inbound::{
-    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
-    RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
+    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, PinnedAlgorithms, ProofHeader,
+    ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
 };
 use crate::raw::RawInbound;
 use crate::settings::SettingsError;
@@ -39,6 +39,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
     // Read before the branch, because both modes need both: one key set and one pinned family,
     // whoever authenticated the caller.
     let key_set = KeySetFile::parse(required(written.key_set_file.as_deref(), KeySetFile::KEY, mode)?)
+        .map(KeySetLocation::File)
         .map_err(|cause| SettingsError::InboundValue { cause })?;
     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
     match mode {

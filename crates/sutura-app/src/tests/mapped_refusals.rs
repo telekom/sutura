@@ -14,7 +14,7 @@ use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, 
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use sutura_domain::plan::{RefusingCombiner, RowCeilings};
 use sutura_domain::query::Query;
-use sutura_domain::raw::RawStatement;
+use sutura_domain::raw::{RawRefusalReason, RawStatement};
 
 use crate::assemble::{CompositionError, assemble};
 use crate::spend::SpendLedger;
@@ -179,29 +179,132 @@ fn credentials_for_the_wrong_source_through_run_sql_are_a_credentials_failure() 
     );
 }
 
+/// Declined before a broker is asked, so each of the next two cells also holds `asked() == 0`: a
+/// refusal that moved past the mint would have run credentials for a statement it then refused.
+fn refused_before_minting(answered: &crate::AnsweredRaw, code: &str, broker: &CountingBroker) {
+    assert_eq!(
+        answered.outcome().refusal().map(RawRefusalReason::code),
+        Some(code),
+        "{:?}",
+        answered.outcome()
+    );
+    assert!(
+        answered.executed_until().is_none(),
+        "a statement declined before minting ran under no credentials"
+    );
+    assert_eq!(broker.asked(), 0, "the refusal comes before any mint");
+}
+
 #[test]
-fn run_sql_over_no_adapter_that_accepts_a_raw_statement_is_refused_as_no_accepting_source() {
-    // One warehouse is registered, but `FixedWarehouse` does not accept raw statements, so
-    // `single_raw_capable_warehouse` finds none and `run_sql` refuses at its FIRST
-    // `NoAcceptingSource` site (`raw.rs:138`), before a broker is ever asked - `run_sql`'s second
-    // site (`raw.rs:167`) is only reachable past a mint, over a raw-capable warehouse whose
-    // `execute_raw` itself returns `None`, which is a different cell's shape. `CountingBroker`
-    // pins the "before minting" half a bare variant match cannot: a broker asked even once here
-    // would mean the refusal moved past the site this cell names.
+fn run_sql_over_one_adapter_that_takes_no_raw_statement_is_a_refusal_the_caller_reads() {
+    // `FixedWarehouse` does not accept raw statements, so the one open source cannot serve the tool.
     let broker = CountingBroker::default();
-    let failure = run_sql(
+    let answered = run_sql(
         &asked_by_a_person(),
         &select_one(),
         &broker,
         &Warehouses::of(FixedWarehouse::new(source(), shared())),
         test_deadline(),
     )
-    .expect_err("no adapter here accepts a raw statement");
-    assert!(
-        matches!(failure, RunSqlError::NoAcceptingSource),
-        "the missing adapter is typed, not {failure:?}"
+    .expect("a deployment shape the tool does not serve is an answer, not a failure");
+    refused_before_minting(&answered, "no_source_accepts_raw_statements", &broker);
+}
+
+#[test]
+fn run_sql_over_two_open_sources_is_a_refusal_the_caller_reads() {
+    let broker = CountingBroker::default();
+    let both = Warehouses::of(RawCapableWarehouse::answering_rows(source(), shared(), 1))
+        .and(RawCapableWarehouse::answering_rows(name("other"), shared(), 1))
+        .expect("two distinct sources open together");
+    let answered = run_sql(&asked_by_a_person(), &select_one(), &broker, &both, test_deadline())
+        .expect("a deployment shape the tool does not serve is an answer, not a failure");
+    refused_before_minting(&answered, "more_than_one_source_open", &broker);
+}
+
+#[test]
+fn the_surface_answers_run_sql_over_a_shape_the_tool_does_not_serve_with_a_refusal_not_a_miswiring() {
+    let outcome = service(declared(), FixedWarehouse::new(source(), shared()), FixedBroker::GrantsShared)
+        .run_sql(&asked_by_a_person(), &select_one(), test_deadline())
+        .expect("the surface answers a refusal rather than failing");
+    assert_eq!(
+        outcome.refusal().map(RawRefusalReason::code),
+        Some("no_source_accepts_raw_statements"),
+        "{outcome:?}"
     );
-    assert_eq!(broker.asked(), 0, "the first NoAcceptingSource site refuses before any mint");
+}
+
+#[test]
+fn an_adapter_declaring_raw_and_answering_none_stays_a_wiring_defect() {
+    let declined = RawStatement::parse("decline me").expect("a test statement is a statement");
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &declined,
+        &FixedBroker::GrantsShared,
+        &raw_capable(),
+        test_deadline(),
+    )
+    .expect_err("an adapter that declares raw and answers none is not a refusal the caller can read");
+    assert!(matches!(failure, RunSqlError::NoAcceptingSource), "{failure:?}");
+
+    let surfaced = service(
+        declared(),
+        RawCapableWarehouse::answering_rows(source(), shared(), 1),
+        FixedBroker::GrantsShared,
+    )
+    .run_sql(&asked_by_a_person(), &declined, test_deadline())
+    .expect_err("the surface reports it as a failure, not an answer");
+    assert!(matches!(surfaced, SurfaceFailure::Miswired { .. }), "{surfaced:?}");
+}
+
+/// A refusal declined before any mint is still a call, so it must reach the sink: one `RawRefused`
+/// record, carrying the statement, the same as a refusal after execution.
+#[test]
+fn run_sql_refused_over_an_unserved_shape_writes_one_audit_record_carrying_the_statement() {
+    use sutura_domain::audit::{AuditSink, CallRecord, RecordedOutcome};
+
+    struct RecordingSink(std::sync::mpsc::Sender<String>);
+
+    impl AuditSink for RecordingSink {
+        fn record(&self, record: &CallRecord<'_>) {
+            let RecordedOutcome::RawRefused { reason, statement } = *record.outcome() else {
+                drop(self.0.send(String::from("not a raw refusal")));
+                return;
+            };
+            drop(self.0.send(format!("{} {}", reason.code(), statement.as_str())));
+        }
+    }
+
+    fn audited<W>(warehouses: Warehouses<W>) -> Vec<String>
+    where
+        W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+        W::Error: Send + Sync,
+    {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let service = LocalService::start(
+            &FixedCatalog::of(declared()),
+            warehouses,
+            RecordingSink(sender),
+            FixedBroker::GrantsShared,
+            RefusingCombiner,
+            1 << 30,
+        )
+        .expect("a bundle with no anchors boots against any warehouse");
+        drop(
+            service
+                .run_sql(&asked_by_a_person(), &select_one(), test_deadline())
+                .expect("a deployment shape the tool does not serve is an answer, not a failure"),
+        );
+        receiver.try_iter().collect()
+    }
+
+    let two = Warehouses::of(RawCapableWarehouse::answering_rows(source(), shared(), 1))
+        .and(RawCapableWarehouse::answering_rows(name("other"), shared(), 1))
+        .expect("two distinct sources open together");
+    assert_eq!(audited(two), ["more_than_one_source_open select 1"]);
+    assert_eq!(
+        audited(Warehouses::of(FixedWarehouse::new(source(), shared()))),
+        ["no_source_accepts_raw_statements select 1"]
+    );
 }
 
 #[test]

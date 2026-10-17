@@ -6,10 +6,10 @@
 //! the implementation, so the tests for that parse sit beside the tests for everything else rather
 //! than inside them.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, ProofLifetime, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -96,6 +96,42 @@ fn each_mode_requires_its_own_keys_and_the_refusal_names_the_mode() {
 }
 
 #[test]
+fn a_key_set_file_left_out_or_blank_is_refused_as_missing_naming_the_mode() {
+    // Blank is read as absent here, before the path parser sees it, so both name the key and mode.
+    for written in [
+        DIRECT_INBOUND.replacen("    key_set_file: \"/etc/sutura/jwks.json\"\n", "", 1),
+        DIRECT_INBOUND.replacen("\"/etc/sutura/jwks.json\"", "\"  \"", 1),
+    ] {
+        let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}")))
+            .expect_err("a direct block with no key set does not start");
+        let SettingsError::InboundKeyMissing { key, ref mode } = *error.reason() else {
+            panic!("expected a missing key, got {error:?}");
+        };
+        assert_eq!(key, KeySetFile::KEY);
+        assert_eq!(mode, "direct");
+    }
+}
+
+#[test]
+fn a_key_set_file_path_over_the_length_cap_is_refused_naming_the_key() {
+    let path = format!("/{}", "k".repeat(512));
+    let written = DIRECT_INBOUND.replacen("/etc/sutura/jwks.json", &path, 1);
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}")))
+        .expect_err("an over-long key set path does not start");
+    let SettingsError::InboundValue { ref cause } = *error.reason() else {
+        panic!("expected an inbound value refusal, got {error:?}");
+    };
+    assert_eq!(
+        *cause,
+        InvalidInboundValue::TooLong {
+            key: KeySetFile::KEY,
+            found: 513,
+            limit: 512
+        }
+    );
+}
+
+#[test]
 fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads() {
     // The positive side, asserted through `Settings::load` rather than by constructing the types:
     // what a reviewer needs to know is that the keys an operator writes reach the validator.
@@ -108,7 +144,11 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     let requirement = inbound.requirement();
     assert_eq!(requirement.audience().as_str(), "https://sutura.example.com");
     assert_eq!(requirement.issuer().as_str(), "https://issuer.example.com");
-    assert_eq!(requirement.key_set().path(), PathBuf::from("/etc/sutura/jwks.json"));
+    assert!(
+        matches!(requirement.key_set(), KeySetLocation::File(file) if file.path() == Path::new("/etc/sutura/jwks.json")),
+        "{:?}",
+        requirement.key_set()
+    );
     assert_eq!(requirement.algorithms().count(), 1);
     assert!(inbound.reads_the_authorization_header());
 

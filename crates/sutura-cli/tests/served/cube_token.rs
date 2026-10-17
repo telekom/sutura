@@ -5,16 +5,32 @@
 //! it and to one that refuses it with a body naming it; each fake must have been sent the token as a
 //! bearer, or the absence the scan reports proves nothing.
 //!
-//! **The limit:** the warehouse (`sutura-exec-cube`) sends the same token when a question is asked,
-//! and nothing here reads that send. A deployment that asks Cube a question also verifies every
-//! catalog anchor at boot against it, so a scripted fake would have to answer each anchor's queries
-//! in an order the process chooses.
+//! The warehouse (`sutura-exec-cube`) sends the same token when a question is asked, and the second
+//! cell reads that send and the question-time failure after it: a loopback Cube that answers the
+//! question, one that answers 401 and one that answers 500, the last two with a body naming the token,
+//! each asked through `/v1/query`.
+//! The example catalog is copied with every anchor but `recurring_revenue`'s removed, because a
+//! deployment verifies each anchor against Cube at boot and a scripted fake answers one certified
+//! number in order, not six.
+//!
+//! **The limit:** only the Cube warehouse is made to fail at question time here. A cause chain from
+//! another data system's driver is not read, and `/mcp` and `sutura mcp` are not asked. `/mcp` is
+//! mounted in the served router and was left out; `sutura mcp` (stdio) installs no tracing subscriber,
+//! so its log surface is standard error alone.
+
+use std::path::{Path, PathBuf};
 
 use sutura_catalog_cube::fixture::META;
-use sutura_http_client::test_support::Scripted;
+use sutura_http_client::test_support::{CapturedAuthorizations, FakeServer, Scripted};
 
-use crate::harness::{LOOPBACK, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside};
-use crate::no_echo::bearer_echoed;
+use crate::harness::{
+    LOOPBACK, Reply, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside, example_root, recurring_revenue_june,
+    start_configured_with_environment, v1,
+};
+use crate::no_echo::{TRACE, bearer_echoed, echoed};
+
+/// The one metric whose anchor stays: Cube must answer it at boot, with the number it certifies.
+const ANCHORED: &str = "recurring_revenue.md";
 
 const CANARY: &str = "5d27e8b1f90a4c63b7e0d9a2";
 
@@ -37,6 +53,54 @@ impl TokenDir {
 
     fn file(&self) -> String {
         self.0.join("token").display().to_string()
+    }
+
+    /// The example catalog, copied beside the token file with every `anchor:` block but one removed.
+    fn catalog_with_one_anchor(&self) -> PathBuf {
+        let root = self.0.join("catalog");
+        copy_tree(&example_root().join("catalog"), &root);
+        let mut stripped = 0;
+        for entry in std::fs::read_dir(root.join("metrics")).expect("the copied metrics are readable") {
+            let path = entry.expect("a directory entry reads").path();
+            if path.file_name().is_some_and(|name| name == ANCHORED) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("a metric document reads");
+            let mut inside = false;
+            let kept: String = text
+                .split_inclusive('\n')
+                .filter(|line| {
+                    inside = if line.starts_with("anchor:") {
+                        true
+                    } else {
+                        inside && line.starts_with(' ')
+                    };
+                    !inside
+                })
+                .collect();
+            if kept != text {
+                stripped += 1;
+                std::fs::write(&path, kept).expect("the metric document writes");
+            }
+        }
+        assert!(
+            stripped > 0,
+            "no other metric of the example declares an anchor, so there was nothing to strip"
+        );
+        root
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("the copy's directory is creatable");
+    for entry in std::fs::read_dir(from).unwrap_or_else(|cause| panic!("{} is not readable: {cause}", from.display())) {
+        let entry = entry.expect("a directory entry reads");
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("a catalog document copies");
+        }
     }
 }
 
@@ -62,5 +126,93 @@ fn a_cube_catalog_token_is_held_out_of_every_reply_and_log_line_accepted_or_refu
              posture: \"shared-service-user\"\n"
         )
     });
+    assert!(leaked.is_empty(), "the cube token was sent back or logged: {leaked:?}");
+}
+
+/// Cube's answer to `recurring_revenue` in June: the number its anchor certifies.
+fn june() -> Scripted {
+    Scripted::ok(&serde_json::json!({ "data": [{
+        "fct_subscription_monthly.month.month": "2026-06-01T00:00:00.000",
+        "fct_subscription_monthly.recurring_revenue": "202121",
+    }] }))
+}
+
+/// What Cube answers while the deployment boots, then `question`.
+fn booted_then(question: Vec<Scripted>) -> Vec<Scripted> {
+    let mut script = vec![meta(), june()];
+    script.extend(question);
+    script
+}
+
+/// The example's markdown catalog over a Cube source at `cube`, reading the token from `token`.
+fn settings_over_cube(token: &TokenDir, cube: &FakeServer) -> String {
+    format!(
+        "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: \"{TOKEN}\"\n\
+         telemetry:\n  format: \"bunyan\"\n\
+         catalogs:\n  - name: \"model\"\n    kind: \"markdown\"\n    dir: \"{catalog}\"\n    data_dir: \"{data}\"\n    \
+         version: \"{VERSION}\"\n\
+         sources:\n  local:\n    kind: \"cube\"\n    endpoint: \"{endpoint}\"\n    token_file: \"{file}\"\n    \
+         posture: \"shared-service-user\"\n",
+        catalog = token.catalog_with_one_anchor().display(),
+        data = example_root().join("data").display(),
+        endpoint = cube.endpoint(),
+        file = token.file(),
+    )
+}
+
+/// One deployment booted over a Cube that then answers the question with `answer`: the reply, every
+/// line the process wrote, and what Cube was sent.
+fn asked(case: &str, answer: Scripted) -> (Reply, Vec<String>, CapturedAuthorizations) {
+    let cube = FakeServer::start(booted_then(vec![meta(), answer]));
+    let kept = TokenDir::holding(case);
+    let mut served = start_configured_with_environment(case, &settings_over_cube(&kept, &cube), None, &TRACE, &[]);
+    let reply = served.post(
+        &v1(sutura_http::constants::base_paths::QUERY),
+        Some(TOKEN),
+        &recurring_revenue_june(),
+    );
+    served.terminate();
+    (reply, served.log(), cube.finish())
+}
+
+#[test]
+fn a_cube_warehouse_token_is_held_out_of_every_reply_and_log_line_when_a_question_is_answered_or_refused() {
+    let naming = |status| Scripted::status(status, &format!(r#"{{"error":"{CANARY} was not accepted"}}"#));
+    let (answered, mut lines, answering) = asked("cube-warehouse-answered", june());
+    let (unauthorized, unauthorized_lines, rejecting) = asked("cube-warehouse-unauthorized", naming(401));
+    let (failed, failed_lines, failing) = asked("cube-warehouse-failed", naming(500));
+    lines.extend(unauthorized_lines.iter().cloned());
+    lines.extend(failed_lines.iter().cloned());
+
+    assert_eq!(answered.status, 200, "Cube's answer must be served: {}", answered.body);
+    assert_eq!(
+        unauthorized.status, 403,
+        "a token Cube rejects is a refusal: {}",
+        unauthorized.body
+    );
+    assert_eq!(
+        failed.status, 503,
+        "a Cube that fails is a data system that did not answer: {}",
+        failed.body
+    );
+    assert!(
+        failed_lines
+            .iter()
+            .any(|line| line.contains("the data system did not answer") && line.contains("Cube refused the request with 500")),
+        "the question-time cause chain was never logged, so its absence of the token proves nothing:\n{}",
+        failed_lines.join("\n")
+    );
+    assert!(
+        unauthorized_lines.iter().any(|line| line.contains(r#""level":10"#)),
+        "the 401 run captured no `trace` line, so its absence of the token proves nothing"
+    );
+    let bearer = format!("Bearer {CANARY}");
+    for (fake, sent) in [("answering", answering), ("rejecting", rejecting), ("failing", failing)] {
+        assert!(
+            sent.iter().all(|request| request.authorization() == Some(bearer.as_str())),
+            "the {fake} fake was not sent the token at boot and again for the question, so its absence proves nothing: {sent:?}"
+        );
+    }
+    let leaked = echoed(&[("the cube token", CANARY)], &[&answered, &unauthorized, &failed], &lines);
     assert!(leaked.is_empty(), "the cube token was sent back or logged: {leaked:?}");
 }

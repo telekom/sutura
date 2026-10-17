@@ -11369,7 +11369,7 @@ merely undone by a rule somebody remembers to apply.
 the architecture decision's amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's six variants are exactly that list.
+answer about the statement, and this module's variants are exactly that list.
 
 # What this module does not decide
 
@@ -11492,6 +11492,15 @@ answer about the statement once it ran.
 
   Refused before any leg exists, so nothing reached a data system. Carries no source name: the
   caller already holds its own tool's source list.
+- `MoreThanOneSourceOpen` - This deployment opened more than one data system, and the raw tool runs a statement against exactly one.
+
+  Refused before a credential is minted, so nothing reached a data system. A deployment with two
+  open sources has no way to say which one the statement means, and guessing would run the
+  caller's text against a source they did not name.
+- `NoSourceAcceptsRawStatements` - The one data system this deployment opened does not accept a raw statement.
+
+  Refused before a credential is minted. The adapter, not the caller, decides this, so asking
+  again changes nothing.
 
 #### Methods
 

@@ -415,7 +415,8 @@ pub(crate) fn run() -> Result<(), String> {
     // The poll and the transports are two owners of one service: this is the Arc that earns its
     // place, not a clone to satisfy the borrow checker.
     let refreshing = Arc::clone(&service);
-    let mut state = ServiceState::new(service, Arc::new(settings), admission);
+    let servable = sutura_http::ServableSettings::check(settings).map_err(flatten)?;
+    let mut state = ServiceState::new(service, servable, admission);
     let coverage = state.catalog_coverage();
     #[cfg(feature = "agent")]
     let agent_mount = agent_mount(&state)?;

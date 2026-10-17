@@ -186,3 +186,41 @@ Limits:
   in process with no inbound gate is not refused; the `/mcp` rule is asked by the router's
   `agent_subtree`.
 - `single-user` is declared, not measured, as above.
+
+## Fourth amendment, 2026-10-16: the router takes settings that passed the `/v1` check
+
+**Status of the amendment: accepted** (PR #1465). The third amendment's first limit is closed for an
+embedder: `sutura_http::ServiceState::new`, which `sutura_http::router` is assembled from, takes a
+`ServableSettings` and not bare settings, and only `ServableSettings::check` builds one. `check`
+asks `Settings::query_surface_refusals` of a deployment with no `security.inbound` and returns every
+reason it gives, as `NotServable`. A deployment that declares `security.inbound` passes without the
+rule, because the rule is about the deployment that does not; that deployment's gate is held at
+assembly by `RouterNotBuilt::InboundIdentityNotAttached`. `sutura serve` still refuses first, in
+`inbound_gate`, and `check` there refuses nothing new.
+
+| Cell                                                                                                                   | Shows                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `servable::tests::a_deployment_with_no_inbound_identity_and_no_impersonating_source_is_servable_only_when_single_user` | no mode and `multi-user` are refused; `single-user` is servable        |
+| `servable::tests::a_deployment_with_no_inbound_identity_over_an_impersonating_source_is_not_servable`                  | single-user is refused for the source; multi-user carries both reasons |
+| `servable::tests::a_deployment_that_declares_inbound_identity_is_servable_without_the_rule`                            | a declared inbound identity passes                                     |
+| `ServableSettings`' `compile_fail,E0423` doctest                                                                       | the private field cannot be built from outside the crate               |
+
+Limits:
+
+- **The guard is the type only in a build without `sutura-http/fixtures`.** With it on, a bare
+  `Arc<Settings>` converts to `ServableSettings`. A dev edge from `sutura-cli` turns it on, and the
+  Rust legs of `just lint`, `just test` and `just validate` all pass `--all-features`. The
+  `--all-targets` passes of `just check-default-features` do not; they unify that dev edge. A
+  revert of the `check` call at the serve root therefore compiles in all of them. Only a build
+  with no dev edges refuses it: the
+  `cross` link legs, `just shipped` and the release build. That rests on `nix/shipped.nix` building
+  `--package` with no dev edges and on a `cargo check -p sutura-cli` of the reverted call, which
+  gave `E0277`; the nix cross builds were not run.
+- `check-default-features` refuses `sutura-http/fixtures` in a shipped root's normal dependencies. It
+  resolves the default feature set, not the `--features` list a release passes, so a feature turned
+  on only there is not seen.
+- No `compile_fail` cell holds that the `From<Arc<Settings>>` impl is absent without the feature:
+  doctests run with `--all-features`. The `E0423` doctest holds only the private field.
+- `check` takes `Settings` by value, so a caller that holds an `Arc<Settings>` has to clone it.
+- The `/mcp` rule is not part of this type: it is asked by the router's `agent_subtree`.
+- `single-user` is declared, not measured, as above.

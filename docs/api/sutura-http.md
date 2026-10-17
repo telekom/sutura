@@ -85,7 +85,7 @@ deployments and shares the probe rate limit with liveness.
 use std::sync::Arc;
 
 use sutura_config::{Environment, Settings, Sources};
-use sutura_http::{ServiceState, router, serve};
+use sutura_http::{ServableSettings, ServiceState, router, serve};
 use sutura_runtime::{Admission, Shutdown};
 
 # async fn wire(surface: Arc<dyn sutura_http::Surface>) -> Result<(), Box<dyn core::error::Error>> {
@@ -94,7 +94,7 @@ let address = settings.server().bind().socket();
 // The execution bound, built HERE and handed down - one per process, like the shutdown below.
 // This crate cannot build one: see `state` for what `telekom/sutura#340` cost.
 let admission = Admission::from_settings(settings.runtime());
-let state = ServiceState::new(surface, Arc::new(settings), admission);
+let state = ServiceState::new(surface, ServableSettings::check(settings)?, admission);
 serve(router(&state)?, address, Shutdown::new()).await?;
 # Ok(())
 # }
@@ -267,6 +267,33 @@ Builds the whole router for this state, and starts the sweeper for its keyed sta
 Everything the posture decides is decided here, once, from settings that were already
 refused-or-accepted at startup. A handler cannot re-decide any of it, which is the point: a
 request never arrives at a branch that could turn a control off.
+
+## `use NotServable`
+
+Why `ServableSettings::check` refused.
+
+## `use ServableSettings`
+
+Settings that passed `ServableSettings::check`.
+
+**Only the check can build one.** The field is private, so construction from outside this crate
+is `E0423`:
+
+```compile_fail,E0423
+fn _unchecked(settings: std::sync::Arc<sutura_config::Settings>) -> sutura_http::ServableSettings {
+    sutura_http::ServableSettings(settings)
+}
+```
+
+The compiling twin, so the failure above is the private field and not an unresolved path:
+
+```
+fn _reachable(_: sutura_http::ServableSettings) {}
+```
+
+The limit: a deployment that declares `security.inbound` passes without the rule being asked,
+because the rule is about the deployment that does not. That deployment's gate is held at
+assembly instead, by `RouterNotBuilt::InboundIdentityNotAttached`.
 
 ## `use serve_tls`
 
@@ -3399,6 +3426,79 @@ For a caller that wants to sweep on its own schedule, and for a test that wants 
 keyed store. It starts no thread, so a test suite that assembles one router per test does not
 accumulate one sweeper per test.
 
+## Module `servable`
+
+Settings `/v1` may be served under, and the one check that says so.
+
+`crate::ServiceState::new` takes a `ServableSettings` rather than bare settings in a build
+without this crate's `fixtures` feature, so an embedder cannot assemble `crate::router()` over a
+deployment with no `security.inbound` that `Settings::query_surface_refusals` refuses: the type
+is the guard, and there is no assembly-time refusal to forget.
+
+### `struct ServableSettings`
+
+```rust
+pub struct ServableSettings
+```
+
+Settings that passed `ServableSettings::check`.
+
+**Only the check can build one.** The field is private, so construction from outside this crate
+is `E0423`:
+
+```compile_fail,E0423
+fn _unchecked(settings: std::sync::Arc<sutura_config::Settings>) -> sutura_http::ServableSettings {
+    sutura_http::ServableSettings(settings)
+}
+```
+
+The compiling twin, so the failure above is the private field and not an unresolved path:
+
+```
+fn _reachable(_: sutura_http::ServableSettings) {}
+```
+
+The limit: a deployment that declares `security.inbound` passes without the rule being asked,
+because the rule is about the deployment that does not. That deployment's gate is held at
+assembly instead, by `RouterNotBuilt::InboundIdentityNotAttached`.
+
+#### Methods
+
+```rust
+pub fn check(settings: Settings) -> Result<Self, NotServable>
+```
+
+Accepts `settings` that declare `security.inbound`, or whose deployment may serve `/v1`
+without it by `Settings::query_surface_refusals`; refuses every other one with each reason.
+
+# Errors
+
+`NotServable` carrying every refusal, not just the first.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct NotServable`
+
+```rust
+pub struct NotServable
+```
+
+Why `ServableSettings::check` refused.
+
+#### Methods
+
+```rust
+pub fn refusals(&self) -> &[NotFitToServe]
+```
+
+Every reason, in the order `Settings::query_surface_refusals` gave them.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ## Module `server`
 
 Binding a socket, serving, and stopping without dropping an answer.
@@ -3584,10 +3684,11 @@ The transport's metrics observer: records question outcomes, admission and rate-
 events against the shared registry.
 
 ```rust
-pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>, admission: Admission) -> Self
+pub fn new(surface: Arc<dyn Surface>, settings: impl Into<crate::ServableSettings>, admission: Admission) -> Self
 ```
 
-Builds the state from a started service and the settings it was started under.
+Builds the state from a started service and the settings it was started under, which outside
+a test fixture only `crate::ServableSettings::check` hands out.
 
 Takes the surface already behind an `Arc`, because the composition root owns it: the same
 service may be handed to a second transport later, and this crate must not be the one that

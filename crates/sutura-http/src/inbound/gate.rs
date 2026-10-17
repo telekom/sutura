@@ -39,7 +39,7 @@ use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{InboundIdentity, ResourceIdentifier, TokenLocation};
+use sutura_config::{InboundIdentity, KeySetLocation, ResourceIdentifier, TokenLocation};
 
 use sutura_runtime::Shutdown;
 
@@ -97,7 +97,9 @@ impl InboundGate {
     /// is a process that does not start rather than one that answers `401` to everybody.
     pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable> {
         let requirement = inbound.requirement();
-        let source = FileKeySet::at(requirement.key_set().path());
+        let source = match requirement.key_set() {
+            KeySetLocation::File(file) => FileKeySet::at(file.path()),
+        };
         // The pinned family travels into the cache, so **every** path that adopts a key set - this one
         // and every later refresh - refuses one that holds no key of it. A deployment whose key set and
         // whose `algorithms` disagree about the kind of key starts and answers `401` to everybody

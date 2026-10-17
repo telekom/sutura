@@ -13,7 +13,7 @@
 //! `docs/adr/0013`'s amendment gives: [`crate::query::RefusalReason`] is keyed to a compiled plan -
 //! dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 //! refused for is a bound this deployment applies before or after execution, or the data system's own
-//! answer about the statement, and this module's six variants are exactly that list.
+//! answer about the statement, and this module's variants are exactly that list.
 //!
 //! # What this module does not decide
 //!
@@ -162,6 +162,18 @@ pub enum RawRefusalReason {
     /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
     /// caller already holds its own tool's source list.
     PlanSpansMoreThanOneSource,
+    /// This deployment opened more than one data system, and the raw tool runs a statement against
+    /// exactly one.
+    ///
+    /// Refused before a credential is minted, so nothing reached a data system. A deployment with two
+    /// open sources has no way to say which one the statement means, and guessing would run the
+    /// caller's text against a source they did not name.
+    MoreThanOneSourceOpen,
+    /// The one data system this deployment opened does not accept a raw statement.
+    ///
+    /// Refused before a credential is minted. The adapter, not the caller, decides this, so asking
+    /// again changes nothing.
+    NoSourceAcceptsRawStatements,
 }
 
 impl RawRefusalReason {
@@ -180,6 +192,8 @@ impl RawRefusalReason {
             Self::SourceRefused => "source_refused",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::PlanSpansMoreThanOneSource => "plan_spans_more_than_one_source",
+            Self::MoreThanOneSourceOpen => "more_than_one_source_open",
+            Self::NoSourceAcceptsRawStatements => "no_source_accepts_raw_statements",
         }
     }
 }
@@ -204,6 +218,16 @@ impl fmt::Display for RawRefusalReason {
             Self::PlanSpansMoreThanOneSource => write!(
                 f,
                 "the statement reads from more than one data system, and this deployment runs a statement against one"
+            ),
+            Self::MoreThanOneSourceOpen => write!(
+                f,
+                "this deployment opened more than one data system, and a raw statement runs against exactly one; \
+                 use the certified tools, or ask the operator to open a single source"
+            ),
+            Self::NoSourceAcceptsRawStatements => write!(
+                f,
+                "the data system this deployment opened does not accept a raw statement; \
+                 use the certified tools, or ask the operator to turn off `tools.run_sql.enabled`"
             ),
         }
     }
@@ -352,6 +376,8 @@ mod tests {
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
             RawRefusalReason::PlanSpansMoreThanOneSource,
+            RawRefusalReason::MoreThanOneSourceOpen,
+            RawRefusalReason::NoSourceAcceptsRawStatements,
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -367,6 +393,11 @@ mod tests {
         assert_eq!(
             RawRefusalReason::PlanSpansMoreThanOneSource.code(),
             "plan_spans_more_than_one_source"
+        );
+        assert_eq!(RawRefusalReason::MoreThanOneSourceOpen.code(), "more_than_one_source_open");
+        assert_eq!(
+            RawRefusalReason::NoSourceAcceptsRawStatements.code(),
+            "no_source_accepts_raw_statements"
         );
     }
 }

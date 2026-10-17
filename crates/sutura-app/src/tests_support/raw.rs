@@ -14,7 +14,8 @@ use super::{AdapterFailure, DriverFailure};
 /// A data system that accepts a raw statement - `docs/adr/0013`'s raw SQL tool - and answers with a
 /// fixed row count, or refuses when handed one of two magic statement texts: `"refuse me"` (a
 /// statement failure, the default predicates) or `"time me out"` (`Warehouse::deadline_exceeded`
-/// answers `true`, `telekom/sutura#1144`'s own cell).
+/// answers `true`, `telekom/sutura#1144`'s own cell). A third, `"decline me"`, makes it declare
+/// the capability and answer no statement.
 ///
 /// **Row count, not row CONTENT, is the whole point of this fake.** It exists for two things no
 /// certified-path fixture can stand in for: proving `crate::run_sql` actually reaches
@@ -93,6 +94,9 @@ impl Warehouse for RawCapableWarehouse {
     ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
         if let Err(cause) = self.deliverable(presented) {
             return Some(Err(cause));
+        }
+        if statement.as_str() == "decline me" {
+            return None;
         }
         if statement.as_str() == "refuse me" {
             return Some(Err(AdapterFailure::RefusedBySource));
