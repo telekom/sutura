@@ -1,15 +1,16 @@
 ---
-title: A remote leg runs as the caller through a token exchanged for the remote node
-description: How one sutura node runs a federated leg at another (#137 step 2). A typed leg crosses as one Arrow Flight call. The caller reaches the remote node as a token the operator's issuer exchanged for that node's audience. Never the caller's raw token, never a node-signed assertion, never the deployment.
+title: A remote leg runs as the subject of a token exchanged for the remote node
+description: How one sutura node runs a federated leg at another (#137 step 2). A typed leg crosses as one Arrow Flight call. The caller reaches the remote node as a token the operator's issuer exchanged for that node's audience, and the remote node runs the leg as that token's subject. It checks the leg against its own certified catalog. Never the caller's raw token, never a node-signed assertion, never the deployment.
 ---
 
-# A remote leg runs as the caller through a token exchanged for the remote node
+# A remote leg runs as the subject of a token exchanged for the remote node
 
 Status: **accepted**, 2026-10-17. The owner chose option (a) for each of the seven questions below.
 It answers #137 step 2. It applies the worker-credential owner decision of 2026-10-12
 (`docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md:420-423`) to a
-node. Nothing here is built or run. This record decides; it proves nothing. ADR 0007's fourteenth
-amendment and ADR 0039's fourth amendment point here.
+node. Of that decision's "short-lived", only the issuer holds it: see *Limits*. Nothing here is
+built or run. This record decides; it proves nothing. ADR 0007's fourteenth amendment and ADR
+0039's fourth amendment point here.
 
 ## The question
 
@@ -35,10 +36,10 @@ Node A plans the question and runs the combine. Node B owns the source of one le
 ## Decision
 
 1. **The leg port does not change.** A remote leg is a `Warehouse`. `sutura-app`'s leg runner
-   already sends each leg to its source's `Warehouse` with `Executable::Leg`
-   (`crates/sutura-app/src/federated/leg.rs:208-234`). So the credential per leg, the posture
-   check, the deadline, the spend charge and the refusal mapping stay in `sutura-app` on A. No new
-   port trait arrives.
+   already sends each leg to its source's `Warehouse` with `Executable::Leg`, after the credential
+   and posture checks (`crates/sutura-app/src/federated/leg.rs:28-131`), through the runner
+   (`:208-234`). So the credential per leg, the posture check, the deadline, the spend charge and
+   the refusal mapping stay in `sutura-app` on A. No new port trait arrives.
 2. **Two new crates.**
    - `sutura-exec-node` is the client on A. It implements `Warehouse` with
      `IMPERSONATION = PerSubjectCredential` (`crates/sutura-domain/src/source.rs:506`) and
@@ -48,14 +49,25 @@ Node A plans the question and runs the combine. Node B owns the source of one le
      (`crates/sutura-exec-cube/src/lib.rs:165`). It is behind a default-off feature on `sutura-cli`.
    - `sutura-flight` is the transport on B. It is an Arrow Flight service over `sutura-app`'s
      driving port. `Surface` gains one operation: run one remote leg through B's own pre-flight,
-     spend charge and leg execution. `sutura-http` carries the service opaquely, as it carries
-     `/mcp`, behind leg 1, with one ungoverned-route row. `sutura-cli` pairs the two behind a
-     default-off feature.
+     spend charge and leg execution. It is a new `Capability`, `RunRemoteLeg`, with its own scope
+     literal `sutura:legs.run` (`crates/sutura-app/src/capability.rs:66`), ordered after
+     `AskMetric` and before `RunSql`. A token that grants only `sutura:metrics.ask` at B cannot
+     send a leg. Which tokens carry the new scope is the issuer's exchange policy. `sutura-http`
+     carries the service opaquely, as it carries `/mcp`, behind leg 1, with one ungoverned-route
+     row. `sutura-cli` pairs the two behind a default-off feature.
 3. **A typed leg crosses the wire, never SQL text.** The domain holds one wire document for a leg,
    on the `Query` precedent: `Deserialize` with `deny_unknown_fields`. B parses it into a `LegPlan`
-   against its own pinned bundle. A table or column that B's bundle does not declare is refused by
-   name. The values travel as one Arrow parameter batch. `LegPlan` and `PlanBindings` keep no
-   `Deserialize` derive (`check-serde-parse`).
+   against its own certified catalog, and never trusts the sender's leg for what a metric means. B
+   refuses every leg that names a metric, table, column or metric term that B does not certify, or
+   that omits a required filter of B's own definition of the metric
+   (`crates/sutura-domain/src/measure.rs:383-389`). The refusal is a new variant
+   `RemoteLegNotCertified { source }` of `sutura-domain`'s `RefusalReason`
+   (`crates/sutura-domain/src/query.rs:237`), added in #137 step 3. A maps it to the same variant,
+   naming its `node` source. So B judges a leg by B's own certified definition, and a leg that
+   disagrees with it does not run. The values travel as one Arrow parameter batch. `PlanBindings`
+   keeps no `Deserialize` derive, held by `check-serde-parse`, because it has a fallible
+   constructor. `LegPlan` has none, so that gate does not read it: the compiler holds it while its
+   fields `StatementTables` and `PlanBindings` have no `Deserialize`, and review holds the rest.
 4. **One call per leg.** Arrow Flight `DoExchange`: the descriptor is the leg, the first message is
    the parameter batch, the reply is the result batches. B keeps no state between calls.
 5. **The identity is an RFC 8693 exchange at the operator's issuer.** A `kind: node` source declares
@@ -64,7 +76,10 @@ Node A plans the question and runs the combine. Node B owns the source of one le
    (`crates/sutura-config/src/credentials/declared.rs:158`). So each request exchanges the
    caller's verified token and presents the result. A sends it as `authorization: Bearer` gRPC
    metadata over TLS. B runs leg 1 in `direct` mode and verifies the token as its own caller. B's
-   own broker then runs B's source as that caller, through B's own declared exchange.
+   own broker then runs B's source as that caller, through B's own broker declaration for that
+   source. In this record, "B runs the leg as the caller" means "B runs the leg as the subject of
+   the exchanged token". The issuer chooses that subject; A does not compare it with the caller A
+   verified (see *Limits*).
 6. **Server-authenticated TLS now.** A refuses an `http://` endpoint. Mutual TLS with
    certificate-bound tokens is a later decision, and it needs the operator's issuer to bind the
    exchanged token.
@@ -90,6 +105,7 @@ Node A plans the question and runs the combine. Node B owns the source of one le
 | B, boot    | The Flight mount with a declared inbound identity that is not attached                                   | The router does not build, as for `/mcp` (`crates/sutura-http/src/router.rs:599-612`)                                                                           |
 | B, request | A token that does not verify                                                                             | `401` before any handler                                                                                                                                        |
 | B, request | A leg over a shared source, over a source that runs no legs, or over a `node` source                     | Decisions 7 and 9                                                                                                                                               |
+| B, request | A leg with an uncertified metric, table, column or term, or with no required filter of B's definition    | Decision 3: `RemoteLegNotCertified`                                                                                                                             |
 
 Each new variant is enrolled in `check-refusal-coverage`. Each refusal gets its own cell.
 
@@ -105,7 +121,9 @@ Each new variant is enrolled in `check-refusal-coverage`. Each refusal gets its 
 - A bounds what B returns through `Accumulating::push`, the only constructor of `ResultBatches`. B
   bounds its own leg.
 - No row is stored at A or at B. `check-answer-path-caches` scans only `sutura-app` and
-  `sutura-domain` today, so it gains the two new crates.
+  `sutura-domain` today, so it gains the two new crates. Its limit applies there too: it reads one
+  shape, a struct field or a `static` whose map value names an answer-path type, not a guarantee
+  (`xtask/src/answer_path_cache.rs:24-37`).
 
 ## Limits
 
@@ -113,12 +131,26 @@ Each new variant is enrolled in `check-refusal-coverage`. Each refusal gets its 
   only: `Int64`, `Utf8` (NUMERIC as text) and `Date32`, with nulls, in one process over loopback.
   It ran no TLS, no authentication, no identity, no `DoGet` and no other type. Both framings carry
   the parameters as Arrow IPC, but that is reasoned, not run, for `DoExchange`.
-- **The issuer is the operator's.** sutura assumes the operator configures a valid issuer and a
-  valid exchange policy (`docs/where-identity-is-proven.md:142`). A reads the issued token's `aud`
-  and `exp` without a signature check. That is a misconfiguration check, not a defence. B verifies
-  the signature.
-- **A captured token replays at B until it expires.** `direct` has no lifetime ceiling and no
-  `jti` store, so the issuer's lifetime is the window. TLS protects the token in transit. Bound
+- **The issuer is the operator's.** sutura assumes the operator configures a valid issuer and
+  identity pool (`docs/where-identity-is-proven.md:142`). This record extends that assumption to
+  the issuer's exchange policy. A reads the issued token's `aud` and `exp` without a signature
+  check. That is a misconfiguration check, not a defence. B verifies the signature.
+- **The subject at B is the issuer's, not A's.** A's exchange client checks `issued_token_type`,
+  `aud` and `exp` (`crates/sutura-http-client/src/delegation.rs:244-266`), not `sub` or `iss`. An
+  exchange policy that answers with another subject makes B run the leg as that subject, while A's
+  audit line and A's per-leg disclosure (ADR 0040) name the caller. Microsoft Entra ID's
+  on-behalf-of grant (`delegation.rs:116-118`) issues a pairwise `sub` for each application. So,
+  for the same person, B's `SubjectKey` (`crates/sutura-domain/src/identity/principal.rs:239-249`)
+  differs from A's, and B's audit lines, B's spend ledger and a `switching` subject map at B use a
+  different key from A's. That is the design of the grant. A strict `sub` equality would refuse
+  every on-behalf-of exchange.
+- **B's bundle can be another version than A's.** A's answer names A's definition digest
+  (`crates/sutura-domain/src/pinned.rs:177-179`). B's check (decision 3) holds that the leg agrees
+  with B's certified definition. It does not hold that the two bundles are one version.
+- **"Short-lived" is held by the issuer only, so a captured token replays at B until it
+  expires.** A refuses only a token that has already expired (`delegation.rs:265-266`). `direct`
+  has no lifetime ceiling (`crates/sutura-config/src/inbound.rs:476-478`) and no `jti` store, so
+  the issuer's lifetime is the window. TLS protects the token in transit. Bound
   tokens (decision 6) are what would close this.
 - **B cannot tell node A from another holder of a token for B.** The token's client is recorded on
   the audit line and grants nothing.

@@ -469,7 +469,9 @@ Step 4 says that federation pushdown, and later a multi-node move, arrive by ado
 `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` decides that such a leg is a
 `Warehouse` (`sutura-exec-node`), which `sutura-app`'s leg runner calls over Arrow Flight. A
 federation provider inside `sutura-exec-datafusion` was considered and not taken, because the
-combiner would then hold the caller's credential. Step 4's sentence is left as written.
+combiner would then hold the caller's credential. So row (c) of *The five requirements* is narrower
+too: a leg at another sutura node arrives through `sutura-exec-node`, not through DataFusion. Row
+(c) and Step 4's sentence are left as written.
 
 **What this amendment does not touch.** Federation pushdown inside one node: step 4 still waits for
 its caller. Elastic multi-node workers (#828): the new record keeps them out of its scope.
