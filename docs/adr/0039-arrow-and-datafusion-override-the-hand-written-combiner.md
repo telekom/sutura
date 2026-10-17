@@ -461,3 +461,15 @@ upstream manifest.
 nothing was built. What adopting it costs in lockfile entries: the estimate of three after the
 change against nineteen before is not re-measured. That the provider-equality property recorded under
 Step 5 holds in 0.5.7: it was not re-read.
+
+## Fourth amendment, 2026-10-17: a leg at another sutura node does not arrive through `datafusion-federation`
+
+Step 4 says that federation pushdown, and later a multi-node move, arrive by adopting
+`datafusion-federation`. For a leg that another sutura node runs, that is no longer the plan.
+`docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` decides that such a leg is a
+`Warehouse` (`sutura-exec-node`), which `sutura-app`'s leg runner calls over Arrow Flight. A
+federation provider inside `sutura-exec-datafusion` was considered and not taken, because the
+combiner would then hold the caller's credential. Step 4's sentence is left as written.
+
+**What this amendment does not touch.** Federation pushdown inside one node: step 4 still waits for
+its caller. Elastic multi-node workers (#828): the new record keeps them out of its scope.
