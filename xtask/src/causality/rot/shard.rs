@@ -1,9 +1,9 @@
 //! `--shard <i>/<n>` for `check-claim-mutation-kills`: one of `n` disjoint, deterministic slices of
 //! the committed patch set, so `n` workflow dispatches cover it inside the hosted job limit.
 //!
-//! The slice is positional over the SORTED names - position `p` belongs to shard `p % n + 1` - so
-//! every shard of one `n` agrees on the order only while the set does not change between
-//! dispatches. Dispatch all `n` from one commit. Nothing here checks that.
+//! The slice is positional over the SORTED names - position `p`, counted from 0, belongs to shard
+//! `p % n + 1` - so every shard of one `n` agrees on the order only while the set does not change
+//! between dispatches. Dispatch all `n` from one commit. Nothing here checks that.
 
 use std::fmt;
 use std::num::NonZeroUsize;

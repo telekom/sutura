@@ -26,9 +26,9 @@
 //! test run - so it is cheap enough for the `hygiene` sweep that runs on every commit.
 //! [`run`] is the kill half: it recompiles this workspace once per patch, the same ~68s
 //! `claim.rs`'s own header prices for a newly declared cell, so re-proving every COMMITTED patch
-//! on every commit would multiply that by however many `devco/claim-mutations/` holds (12 today,
-//! and growing). It is registered `Standalone` - an on-demand task, for the release path or for a
-//! person re-verifying the set after touching something nearby.
+//! on every commit would multiply that by however many `devco/claim-mutations/` holds. It is
+//! registered `Standalone` - an on-demand task, for the release path or for a person re-verifying
+//! the set after touching something nearby.
 //!
 //! **THE RESIDUAL, STATED RATHER THAN LEFT IMPLICIT**: [`check_apply`] alone proves a patch is not
 //! STALE. It does NOT prove the patch still DISCRIMINATES - only [`run`], which recompiles and
@@ -328,11 +328,16 @@ fn lost_line(cell: &str) -> String {
 ///
 /// `--shard <i>/<n>` runs one of `n` disjoint slices of the patches; without it, all of them.
 pub(crate) fn run(args: &[String]) -> Verdict {
+    run_from(args, repo::root)
+}
+
+/// [`run`] over a root lookup a cell can replace, so the refusal of a malformed shard is held.
+fn run_from(args: &[String], root: impl FnOnce() -> Option<PathBuf>) -> Verdict {
     let shard = match shard_of(args) {
         Ok(shard) => shard,
         Err(refusal) => return refusal,
     };
-    let Some(root) = repo::root() else {
+    let Some(root) = root() else {
         eprintln!("xtask check-claim-mutation-kills: could not locate the repo root");
         return Verdict::Fail;
     };
@@ -370,6 +375,7 @@ fn run_at(root: &Path, shard: Shard) -> Verdict {
 
     let total = list.len();
     let list = shard.take(list);
+    // For a person to read: the first dispatch's time divided by `k` is the time for each patch.
     println!(
         "xtask check-claim-mutation-kills: shard {shard}: {} of {total} patches",
         list.len()
@@ -443,7 +449,7 @@ const KILL_HALF: claim::Caller = claim::Caller {
 #[cfg(test)]
 mod tests {
     use super::shard::Shard;
-    use super::{Located, cell_name, check_apply_at, locate, patches, run_at, shard_of, unlocated};
+    use super::{Located, cell_name, check_apply_at, locate, patches, run_at, run_from, shard_of, unlocated};
     use crate::Verdict;
     use std::path::PathBuf;
 
@@ -848,6 +854,8 @@ mod tests {
             Verdict::Fail,
             "the whole set holds the unlocatable cell"
         );
+        let first: Shard = "1/2".parse().expect("a shard");
+        assert_eq!(run_at(&root, first), Verdict::Fail, "shard 1/2 holds the one patch");
     }
 
     #[test]
@@ -861,6 +869,7 @@ mod tests {
         ] {
             let args: Vec<String> = bad.iter().map(|arg| (*arg).to_owned()).collect();
             assert_eq!(shard_of(&args), Err(Verdict::Usage), "{bad:?}");
+            assert_eq!(run_from(&args, || None), Verdict::Usage, "{bad:?}");
         }
     }
 
