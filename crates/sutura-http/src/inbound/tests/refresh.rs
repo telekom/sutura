@@ -15,6 +15,12 @@
 //! | [`a_source_that_stays_unreadable_keeps_the_keys_and_says_how_stale_they_are`] | the availability half of the position, and the measurement the documented bound lacked |
 //! | [`a_document_that_stays_unusable_is_never_a_successful_refresh`] | a rejected document does not become a freshness stamp by being read twice |
 //! | [`a_refresh_that_recovers_confirms_the_keys_again`] | the position is not one-way: a source that comes back resets it |
+//! | [`a_key_rotated_out_keeps_verifying_inside_the_lifetime_ceiling_and_not_after`] | behind a gateway, the set a rotation replaced verifies for the ceiling plus the leeway, and is refused after it |
+//! | [`the_grace_follows_the_declared_ceiling_not_the_default`] | the grace is the deployment's own ceiling, not the default's |
+//! | [`a_rotation_that_keeps_the_key_id_verifies_the_new_key_at_once`] | a set that keeps the `kid` and changes the key verifies the new key at the rotating look |
+//! | [`a_refused_document_inside_the_grace_does_not_end_it`] | re-reading the set in use after a refused document is no rotation |
+//! | [`a_different_set_after_a_refused_document_is_adopted_at_its_look`] | the set read after a refused document verifies its key at that look |
+//! | [`a_set_adopted_after_a_refused_document_starts_the_grace_from_its_look`] | the replaced key verifies for the ceiling plus the leeway from the adopting look, and is refused after it |
 //! | [`a_key_set_document_over_the_byte_bound_is_refused_rather_than_read`] | the cap and the edge on the work itself, in the one source that ships - not the pre-allocation read, see its header |
 //!
 //! **The instrument is the fake at the port**, `super::fixtures::StubSource`, scripted look by
@@ -27,12 +33,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use sutura_config::KeyFamily;
+use sutura_config::{KeyFamily, ProofLifetime, RequiredTokenType};
 
-use super::KID;
-use super::fixtures::{StubSource, cache_around, jwks, key_pair};
+use super::fixtures::{StubSource, cache_around, expiry_in, gateway_declaring, jwks, key_pair, signed, transit};
 use super::variants::{certificate_pem, thumbprint_of};
-use crate::inbound::keys::{FileKeySet, KeyId, KeySetCache, KeySetSource as _, KeySetUnavailable, MAX_KEY_SET_BYTES, Refreshed};
+use super::{ISSUER, KID, RESOURCE};
+use crate::inbound::gate::InboundGate;
+use crate::inbound::keys::{
+    FileKeySet, KeyId, KeySetCache, KeySetSource as _, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_BYTES, Refreshed,
+};
+use crate::inbound::token::TokenRejected;
 
 /// How long a held look stays held.
 ///
@@ -472,6 +482,187 @@ async fn a_refresh_that_recovers_confirms_the_keys_again() {
     let (count, ids) = cache.describe().await;
     assert_eq!(count, 1);
     assert_eq!(ids, vec![String::from("the-next-key")]);
+}
+
+// ------------------------------------------------------- the rotated-out grace ----
+
+/// A transit assertion `pair` signed under `kid`, unexpired by the wall clock for the whole cell.
+fn assertion_signed_by(pair: &rcgen::KeyPair, kid: &str) -> String {
+    let issued = expiry_in(0);
+    signed(
+        pair,
+        kid,
+        &serde_json::json!({"sub": "someone@example.com", "aud": RESOURCE, "iss": ISSUER, "iat": issued, "exp": issued + 60}),
+    )
+}
+
+/// Rotates a one-key file behind a gateway declaring `ceiling`, and brackets the outgoing key's grace
+/// at `grace` seconds from the look that saw the rotation: it verifies one second before, and not at.
+async fn brackets_the_grace(ceiling: ProofLifetime, grace: u64) {
+    let outgoing = key_pair();
+    let incoming = key_pair();
+    let primed = Instant::now();
+    let (cache, _source) = scripted(
+        &[Some(jwks("outgoing", &outgoing)), Some(jwks("incoming", &incoming))],
+        None,
+        primed,
+    );
+    let gate = InboundGate::over(&gateway_declaring(RequiredTokenType::access_token(), ceiling), cache);
+    let old = assertion_signed_by(&outgoing, "outgoing");
+
+    let rotated = primed + Duration::from_secs(1);
+    assert!(
+        gate.establish(&transit(&old), rotated).await.is_ok(),
+        "the look that rotates keeps the outgoing key verifying"
+    );
+    assert!(
+        gate.establish(&transit(&assertion_signed_by(&incoming, "incoming")), rotated)
+            .await
+            .is_ok(),
+        "the rotation happened"
+    );
+    assert!(
+        gate.establish(&transit(&old), rotated + Duration::from_secs(grace - 1))
+            .await
+            .is_ok(),
+        "inside the ceiling plus the leeway the outgoing key still verifies"
+    );
+    let refused = gate
+        .establish(&transit(&old), rotated + Duration::from_secs(grace))
+        .await
+        .expect_err("at the end of the grace the outgoing key verifies nothing");
+    assert!(
+        matches!(
+            refused,
+            TokenRejected::NoKey {
+                cause: KeyUnavailable::UnknownKeyId
+            }
+        ),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_key_rotated_out_keeps_verifying_inside_the_lifetime_ceiling_and_not_after() {
+    // A one-key file behind a gateway: the rotation replaces the only key, so without a grace every
+    // unexpired assertion the old key signed is refused. The default ceiling is 120 s and the leeway
+    // 30 s, so the outgoing key verifies for 150 s from the look that saw the rotation.
+    brackets_the_grace(ProofLifetime::default_lifetime(), 150).await;
+}
+
+#[tokio::test]
+async fn the_grace_follows_the_declared_ceiling_not_the_default() {
+    let ceiling = ProofLifetime::parse(300).expect("five minutes is a lifetime");
+    brackets_the_grace(ceiling, 330).await;
+}
+
+#[tokio::test]
+async fn a_rotation_that_keeps_the_key_id_verifies_the_new_key_at_once() {
+    // A JWK set writer that keeps the `kid`: the current set is asked first, so the new key verifies
+    // from the rotating look, and the old material under that id gets no grace.
+    let outgoing = key_pair();
+    let incoming = key_pair();
+    let primed = Instant::now();
+    let (cache, _source) = scripted(&[Some(jwks(KID, &outgoing)), Some(jwks(KID, &incoming))], None, primed);
+    let gate = InboundGate::over(
+        &gateway_declaring(RequiredTokenType::access_token(), ProofLifetime::default_lifetime()),
+        cache,
+    );
+    let new = gate
+        .establish(
+            &transit(&assertion_signed_by(&incoming, KID)),
+            primed + Duration::from_secs(1),
+        )
+        .await;
+    assert!(new.is_ok(), "the new key under the kept id is refused: {new:?}");
+}
+
+#[tokio::test]
+async fn a_refused_document_inside_the_grace_does_not_end_it() {
+    // An in-place rewrite caught part-way, then the same new set again: re-reading the set in use is
+    // no rotation, so the outgoing key keeps its grace.
+    let outgoing = key_pair();
+    let incoming = key_pair();
+    let primed = Instant::now();
+    let (cache, _source) = scripted(
+        &[
+            Some(jwks("outgoing", &outgoing)),
+            Some(jwks("incoming", &incoming)),
+            Some(String::from("not a key set")),
+            Some(jwks("incoming", &incoming)),
+        ],
+        None,
+        primed,
+    );
+    let gate = InboundGate::over(
+        &gateway_declaring(RequiredTokenType::access_token(), ProofLifetime::default_lifetime()),
+        cache,
+    );
+    let old = assertion_signed_by(&outgoing, "outgoing");
+    for after in [1, 3, 5] {
+        let verified = gate.establish(&transit(&old), primed + Duration::from_secs(after)).await;
+        assert!(verified.is_ok(), "the outgoing key at +{after} s: {verified:?}");
+    }
+}
+
+/// A gateway over `incoming` replacing `outgoing` at +1 s, a refused document at +3 s and the `next` set
+/// at +5 s; each of those instants is a look once a cell asks for a key at it.
+fn refused_then_replaced(incoming: &rcgen::KeyPair, next: &rcgen::KeyPair, primed: Instant) -> InboundGate {
+    let (cache, _source) = scripted(
+        &[
+            Some(jwks("outgoing", &key_pair())),
+            Some(jwks("incoming", incoming)),
+            Some(String::from("not a key set")),
+            Some(jwks("next", next)),
+        ],
+        None,
+        primed,
+    );
+    InboundGate::over(
+        &gateway_declaring(RequiredTokenType::access_token(), ProofLifetime::default_lifetime()),
+        cache,
+    )
+}
+
+#[tokio::test]
+async fn a_different_set_after_a_refused_document_is_adopted_at_its_look() {
+    let (incoming, next) = (key_pair(), key_pair());
+    let primed = Instant::now();
+    let gate = refused_then_replaced(&incoming, &next, primed);
+    let current = assertion_signed_by(&incoming, "incoming");
+    for after in [1, 3] {
+        let verified = gate.establish(&transit(&current), primed + Duration::from_secs(after)).await;
+        assert!(verified.is_ok(), "the incoming key at +{after} s: {verified:?}");
+    }
+    let adopted = gate
+        .establish(&transit(&assertion_signed_by(&next, "next")), primed + Duration::from_secs(5))
+        .await;
+    assert!(adopted.is_ok(), "the set read after the refused document: {adopted:?}");
+}
+
+#[tokio::test]
+async fn a_set_adopted_after_a_refused_document_starts_the_grace_from_its_look() {
+    let (incoming, next) = (key_pair(), key_pair());
+    let primed = Instant::now();
+    let gate = refused_then_replaced(&incoming, &next, primed);
+    let replaced = assertion_signed_by(&incoming, "incoming");
+    for after in [1, 3, 5, 154] {
+        let verified = gate.establish(&transit(&replaced), primed + Duration::from_secs(after)).await;
+        assert!(verified.is_ok(), "the replaced key at +{after} s: {verified:?}");
+    }
+    let refused = gate
+        .establish(&transit(&replaced), primed + Duration::from_secs(155))
+        .await
+        .expect_err("150 s after the adopting look the replaced key verifies nothing");
+    assert!(
+        matches!(
+            refused,
+            TokenRejected::NoKey {
+                cause: KeyUnavailable::UnknownKeyId
+            }
+        ),
+        "{refused:?}"
+    );
 }
 
 // -------------------------------------------------- the bound on the work itself ----

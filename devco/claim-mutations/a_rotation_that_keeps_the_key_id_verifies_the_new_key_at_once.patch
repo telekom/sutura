@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -516,7 +516,7 @@
+ impl Cached {
+     /// The verifier for `id`: the current set first, then the retired one while its grace is open.
+     fn get(&self, id: &KeyId, now: Instant) -> Option<DecodingKey> {
+-        self.keys.get(id).or_else(|| self.retired.as_ref()?.get(id, now))
++        self.retired.as_ref().and_then(|r| r.get(id, now)).or_else(|| self.keys.get(id))
+     }
+ }
+ 

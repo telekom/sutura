@@ -46,6 +46,16 @@ The key set can also be one PEM public key or certificate, such as the `tls.crt`
 is the RFC 7638 SHA-256 thumbprint of the key, so the gateway puts that thumbprint in the `kid` of each assertion it
 signs with that key. A PEM file holds one key, so it cannot hold the old key and the new key at the same time.
 
+So sutura keeps the key set that a rotation replaced. After sutura reads a new key set, the keys that left it verify for
+`transit_max_lifetime_seconds` plus 30 seconds more, and then stop. While the new file loads, a removed key therefore
+stops verifying within 60 seconds, plus one read, plus that time: 210 seconds at the default lifetime of 120 seconds.
+Only the key set just replaced is kept, so a second rotation in that time stops the oldest key at once. To stop a key
+at once, restart sutura with the new key set.
+
+sutura asks the new key set first. So a JWK set whose new key keeps the `kid` of the old key gives the old key no extra
+time: an assertion that the old key signed is refused from the read of the new set. A PEM file cannot do this, because
+its `kid` is the thumbprint of the key.
+
 ## With the chart
 
 The chart mounts the key set from a Secret and sets `security.inbound.key_set_file` to the mounted file. Update the

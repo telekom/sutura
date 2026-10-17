@@ -627,3 +627,13 @@ API's `audience`. Behind a gateway, `security.inbound.granted_scopes` is what an
 claim is granted. It is never added to a `scope` that an assertion states, an empty one included,
 it cannot name `sutura:sql.run`, and start-up prints it at `WARN`. Neither source comes from the
 question, so Decision 4's argument holds. The subject and the audit record still come from `sub`.
+
+## Eighth amendment, 2026-10-15: behind a gateway, a rotated-out key verifies for a bounded grace
+
+**Status of the amendment: accepted.** The *What is built* row on key rotation, and the second
+amendment, say a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while refresh
+works. That still holds in `direct`. In `behind-gateway` the key set a rotation replaced keeps
+verifying for `transit_max_lifetime_seconds` plus the 30 s clock-skew leeway, so a key set file that
+holds only the current key can rotate without refusing the assertions the old key signed. The bound
+there is now 60 s plus one read plus that grace. `docs/adr/20261015095237` decides it and states
+what it does not cover.

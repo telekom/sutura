@@ -89,7 +89,8 @@
 //! part-way through rewriting a mounted file would take a deployment's whole authentication down
 //! with it - and no record in this repository has decided that a deployment should degrade that way
 //! rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
-//! verifying within [`MAX_KEY_SET_AGE`] plus one read while refresh works, and after no bounded time
+//! verifying within [`MAX_KEY_SET_AGE`] plus one read while refresh works - plus the rotated-out
+//! grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
 //! while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
 //! confirm the keys, and refused on by nothing.
 //!
@@ -135,6 +136,9 @@ pub use crate::inbound::keys::source::{FileKeySet, KeySetSource, KeySetUnavailab
 
 /// What a key set document is, and the parse from its bytes to [`KeySet`].
 mod document;
+/// The key set a rotation replaced, and its grace behind a gateway.
+mod retired;
+use crate::inbound::keys::retired::Retired;
 
 /// The longest key id accepted.
 ///
@@ -485,9 +489,12 @@ enum LookFailed {
 /// What the cache holds between reads.
 struct Cached {
     keys: KeySet,
-    /// The bytes [`Cached::keys`] was parsed from, so a re-read can be compared rather than reparsed
-    /// into a value nothing can compare.
+    /// The bytes the last look examined, so a re-read can be compared rather than reparsed into a
+    /// value nothing can compare. [`Cached::keys`] was parsed from them unless they were refused.
     document: String,
+    /// The bytes [`Cached::keys`] was parsed from, while [`Cached::document`] is a refused one: the
+    /// same set read again after a refusal is no rotation, so it does not end a grace.
+    adopted: Option<String>,
     /// When the source was last **attempted**, whether or not it answered.
     ///
     /// Attempted and not succeeded, and that is the whole rate limit: an issuer that is down would
@@ -502,6 +509,15 @@ struct Cached {
     /// instant. Read through [`KeySetCache::stale_for`], which is the measurement a freshness
     /// ceiling would need and which `last_attempt` cannot be.
     last_success: Instant,
+    /// The set the last rotation replaced, while it has a grace. Always `None` in `direct`.
+    retired: Option<Retired>,
+}
+
+impl Cached {
+    /// The verifier for `id`: the current set first, then the retired one while its grace is open.
+    fn get(&self, id: &KeyId, now: Instant) -> Option<DecodingKey> {
+        self.keys.get(id).or_else(|| self.retired.as_ref()?.get(id, now))
+    }
 }
 
 /// The one look in flight, held by whoever awaits it and released when that value is dropped.
@@ -551,6 +567,8 @@ pub struct KeySetCache {
     source: Arc<dyn KeySetSource>,
     refetch_interval: Duration,
     max_age: Duration,
+    /// How long a rotated-out set keeps verifying. `None` in `direct` - see `retired`.
+    grace: Option<Duration>,
     /// The family the pinned algorithms need, so a swap cannot adopt a key set that verifies nothing.
     family: KeyFamily,
     /// What the pinned algorithms are, for the refusal's message alone.
@@ -606,6 +624,7 @@ impl KeySetCache {
             source,
             refetch_interval,
             max_age,
+            grace: None,
             family,
             pinned,
             state: tokio::sync::RwLock::new(Cached {
@@ -615,9 +634,19 @@ impl KeySetCache {
                 // The boot read IS a success, so a deployment that never refreshes again reports a
                 // staleness measured from when it started rather than from nothing.
                 last_success: now,
+                adopted: None,
+                retired: None,
             }),
             reading: AtomicBool::new(false),
         })
+    }
+
+    /// The same cache, keeping a rotated-out set verifying for `grace`. Set by the gate from the
+    /// declaration, so the mode decides it and no caller can.
+    #[must_use]
+    pub(crate) const fn with_grace(mut self, grace: Option<Duration>) -> Self {
+        self.grace = grace;
+        self
     }
 
     /// The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
@@ -643,7 +672,7 @@ impl KeySetCache {
         // that outlives its last use, and here that lint and the right shape agree.
         let (found, since) = {
             let cached = self.state.read().await;
-            (cached.keys.get(id), now.saturating_duration_since(cached.last_attempt))
+            (cached.get(id, now), now.saturating_duration_since(cached.last_attempt))
         };
         if let Some(key) = found {
             // A HIT is still subject to the age bound, and that is the revocation fix: the caller
@@ -657,7 +686,7 @@ impl KeySetCache {
             // Re-read after the refresh: the key may have been REVOKED by it, and then falling through
             // to the unknown-id refusal is exactly right. The guard is taken and dropped inside this
             // statement, for the reason the one above is.
-            let current = { self.state.read().await.keys.get(id) };
+            let current = { self.state.read().await.get(id, now) };
             return current.ok_or(KeyUnavailable::UnknownKeyId);
         }
         if since < self.refetch_interval {
@@ -666,7 +695,7 @@ impl KeySetCache {
             });
         }
         let _refreshed = self.poll_once(now).await;
-        let current = { self.state.read().await.keys.get(id) };
+        let current = { self.state.read().await.get(id, now) };
         current.ok_or(KeyUnavailable::UnknownKeyId)
     }
 
@@ -772,7 +801,7 @@ impl KeySetCache {
                 if candidate.is_ok() {
                     cached.last_success = now;
                 }
-                adopt(&mut cached, read, candidate)
+                adopt(&mut cached, read, candidate, self.grace, now)
             }
         };
         drop(in_flight);
@@ -861,17 +890,29 @@ impl KeySetCache {
 /// distinction `crate::tls::Renewal::seen` already carries: a candidate that was examined and refused
 /// is still examined, so identical bytes on the next tick are silent rather than logging a rejection
 /// once per interval forever. The first look at it said everything, loudly.
-fn adopt(cached: &mut Cached, read: String, candidate: Result<KeySet, InvalidKeySet>) -> Refreshed {
+fn adopt(
+    cached: &mut Cached,
+    read: String,
+    candidate: Result<KeySet, InvalidKeySet>,
+    grace: Option<Duration>,
+    now: Instant,
+) -> Refreshed {
     if read == cached.document {
         return Refreshed::Unchanged;
     }
-    cached.document = read;
+    let examined = core::mem::replace(&mut cached.document, read);
     match candidate {
         Ok(keys) => {
-            cached.keys = keys;
+            if cached.adopted.take().unwrap_or(examined) != cached.document {
+                let outgoing = core::mem::replace(&mut cached.keys, keys);
+                cached.retired = Retired::after(outgoing, grace, now);
+            }
             Refreshed::Rotated
         }
-        Err(_refused) => Refreshed::Rejected,
+        Err(_refused) => {
+            cached.adopted.get_or_insert(examined);
+            Refreshed::Rejected
+        }
     }
 }
 

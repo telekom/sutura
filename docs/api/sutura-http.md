@@ -1862,7 +1862,8 @@ attempt. Nothing refuses on it, because refusing is an availability-breaking pol
 part-way through rewriting a mounted file would take a deployment's whole authentication down
 with it - and no record in this repository has decided that a deployment should degrade that way
 rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
-verifying within `MAX_KEY_SET_AGE` plus one read while refresh works, and after no bounded time
+verifying within `MAX_KEY_SET_AGE` plus one read while refresh works - plus the rotated-out
+grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
 while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
 confirm the keys, and refused on by nothing.
 
