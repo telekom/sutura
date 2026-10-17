@@ -264,8 +264,13 @@ fn a_cube_warehouse_token_is_held_out_of_every_mcp_reply_and_log_line_when_a_que
 
     let result = &called.json()["result"];
     assert_eq!(
-        (result["isError"].as_bool(), result["content"][0]["text"].as_str()),
-        (Some(true), Some("the data system did not answer")),
+        (
+            result["isError"].as_bool(),
+            result["content"].as_array().map(Vec::len),
+            result["content"][0]["text"].as_str(),
+            result.get("structuredContent"),
+        ),
+        (Some(true), Some(1), Some("the data system did not answer"), None),
         "a failed question was not told as the fixed sentence alone: {}",
         called.body
     );
