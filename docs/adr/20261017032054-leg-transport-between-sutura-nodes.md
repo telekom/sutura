@@ -10,7 +10,7 @@ It answers #137 step 2. It applies the worker-credential owner decision of 2026-
 (`docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md:420-423`) to a
 node. Of that decision's "short-lived", only the issuer holds it: see *Limits*. Nothing here is
 built or run. This record decides; it proves nothing. ADR 0007's fourteenth amendment and ADR
-0039's fourth amendment point here.
+0039's fifth amendment point here.
 
 ## The question
 
@@ -49,10 +49,14 @@ Node A plans the question and runs the combine. Node B owns the source of one le
      (`crates/sutura-exec-cube/src/lib.rs:165`). It is behind a default-off feature on `sutura-cli`.
    - `sutura-flight` is the transport on B. It is an Arrow Flight service over `sutura-app`'s
      driving port. `Surface` gains one operation: run one remote leg through B's own pre-flight,
-     spend charge and leg execution. It is a new `Capability`, `RunRemoteLeg`, with its own scope
-     literal `sutura:legs.run` (`crates/sutura-app/src/capability.rs:66`), ordered after
-     `AskMetric` and before `RunSql`. A token that grants only `sutura:metrics.ask` at B cannot
-     send a leg. Which tokens carry the new scope is the issuer's exchange policy. `sutura-http`
+     spend charge and leg execution. It is a new variant of `Capability`, `RunRemoteLeg`
+     (`crates/sutura-app/src/capability.rs:66`), added in #137 step 3, with its own scope literal
+     `sutura:legs.run`, ordered after `AskMetric` and before `RunSql`. A token that grants only
+     `sutura:metrics.ask` at B cannot send a leg. Only `sutura-flight` serves `RunRemoteLeg`: the
+     agent and HTTP surfaces do not advertise it and remove it with `Permitted::without`
+     (`crates/sutura-app/src/capability.rs:236`), so a caller at B that holds the scope gets no
+     agent tool for it. This agrees with *Out of scope*: B's Flight endpoint serves sutura nodes
+     only. Which tokens carry the new scope is the issuer's exchange policy. `sutura-http`
      carries the service opaquely, as it carries `/mcp`, behind leg 1, with one ungoverned-route
      row. `sutura-cli` pairs the two behind a default-off feature.
 3. **A typed leg crosses the wire, never SQL text.** The domain holds one wire document for a leg,
@@ -135,7 +139,7 @@ Each new variant is enrolled in `check-refusal-coverage`. Each refusal gets its 
   identity pool (`docs/where-identity-is-proven.md:142`). This record extends that assumption to
   the issuer's exchange policy. A reads the issued token's `aud` and `exp` without a signature
   check. That is a misconfiguration check, not a defence. B verifies the signature.
-- **The subject at B is the issuer's, not A's.** A's exchange client checks `issued_token_type`,
+- **The subject at B is the issuer's, not A's.** A's exchange client checks the token type,
   `aud` and `exp` (`crates/sutura-http-client/src/delegation.rs:244-266`), not `sub` or `iss`. An
   exchange policy that answers with another subject makes B run the leg as that subject, while A's
   audit line and A's per-leg disclosure (ADR 0040) name the caller. Microsoft Entra ID's
