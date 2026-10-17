@@ -54,6 +54,7 @@ authenticates the deployment, and every question runs with the access of the dep
 | `transit_token_type`           | string      | required                             | The `typ` that the gateway sets, or `any`                                     |
 | `transit_max_lifetime_seconds` | integer     | `120`                                | The longest accepted `exp - iat`, 1 to 3600                                   |
 | `accept_long_transit_lifetime` | boolean     | `false`                              | Must be `true` for a lifetime above 300                                       |
+| `transit_single_use`           | boolean     | `false`                              | Admit each assertion once, by its `jti`                                       |
 
 Some gateways authenticate the calling application, for example with its OAuth 2.0 client
 credentials, and replace its token with their own assertion in `Authorization: Bearer`. For such a
@@ -62,7 +63,10 @@ scheme, and `security.access_token` cannot be set, because both use `Authorizati
 such a gateway, the subject is the application that the gateway's assertion names.
 
 The gateway and sutura must be on a trusted network path. An assertion is not bound to one
-request, so keep its lifetime short.
+request, so keep its lifetime short. With `transit_single_use: false`, sutura accepts one assertion
+again and again until its `exp` plus 30 seconds: at most `transit_max_lifetime_seconds` plus 30
+seconds after its `iat`, 150 seconds at the default. See
+[Single use](../serving-behind-a-gateway.md#single-use).
 
 ## The key set
 

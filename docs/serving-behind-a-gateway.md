@@ -30,6 +30,26 @@ The assertion is a bearer that is not bound to one request. Keep the path from t
 lifetime short. With `tlsTermination: ingress`, the assertion crosses the pod network in clear text. See
 [Inbound identity](integrations/identity.md#settings-for-behind-gateway).
 
+## Single use
+
+`transit_single_use: true` makes sutura admit each assertion once. An assertion must then carry a `jti` of 1 to 128
+bytes, and sutura refuses an assertion with a `jti` that it already admitted, until that assertion expires. The gateway
+must sign a new assertion, with a unique `jti`, for each request. If it uses one assertion for more than one request,
+sutura refuses each request after the first. Before you set it, make sure that your gateway does this.
+
+The setting is `false` by default. Then sutura accepts one assertion again until its `exp` plus 30 seconds: at most
+`transit_max_lifetime_seconds` plus 30 seconds after its `iat`, which is 150 seconds at the default lifetime.
+
+With the setting `true`:
+
+- Each sutura process keeps its own list of the `jti` values that it admitted. With more than one replica, each replica
+  can admit the same assertion once. After a restart, sutura can admit an assertion again that it admitted before.
+- A process keeps at most 262,144 assertions that have not expired. When the list is full, sutura refuses a new
+  assertion with `503 identity_unavailable` until some expire. It logs this once in each `transit_max_lifetime_seconds`
+  plus 60 seconds. A shorter
+  `transit_max_lifetime_seconds` lets a process admit more requests in the same time.
+- Single use does not stop the first use of a stolen assertion. Keep the path from the gateway to sutura trusted.
+
 ## Rotating the keys
 
 The gateway rotates its signing keys. The key set that sutura reads must follow the rotation:

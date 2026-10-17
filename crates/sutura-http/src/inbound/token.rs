@@ -62,6 +62,7 @@ use sutura_domain::identity::{Actor, ActorChain, ClientClaim, ClientClaims, Inva
 
 use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 use crate::inbound::keys::{KeyId, NotAKeyId};
+use crate::inbound::replay::{AssertionId, CAPACITY, MAX_ASSERTION_ID_BYTES, NotAdmitted, SeenAssertions};
 
 /// The largest token this surface will look at.
 ///
@@ -216,6 +217,18 @@ pub enum TokenRejected {
     /// client must differ from the API.
     #[error("the presented token names this deployment's own audience as its client")]
     ClientIsTheApi,
+    /// Behind a gateway that declares single use, an assertion with no `jti` - `docs/adr/20261015094920`.
+    #[error("the presented assertion carries no `jti`, and this deployment admits each assertion once by it")]
+    NoAssertionId,
+    #[error("the `jti` in the presented assertion is not a string of 1 to {limit} bytes")]
+    UnusableAssertionId { limit: usize },
+    /// The `jti` was admitted before and its assertion has not expired. The value is never rendered.
+    #[error("the presented assertion was already presented to this process, which admits each assertion once")]
+    Replayed,
+    /// Every place in the store of seen assertions is held by an unexpired one. A `503`, not a `401`:
+    /// nothing is wrong with the caller's assertion, and none is admitted unrecorded.
+    #[error("this process holds as many unexpired assertions as it can, and admits no new one until some expire")]
+    SeenStoreFull,
 }
 
 /// Why a presented token did not verify, when it did not.
@@ -331,6 +344,10 @@ struct Claims {
     /// library already enforced.
     #[serde(default)]
     exp: i64,
+    /// The assertion's id, read only where single use is declared. A `Value`, so a `jti` that is not
+    /// a string cannot refuse a token on a deployment that does not read it.
+    #[serde(default)]
+    jti: Option<serde_json::Value>,
 }
 
 /// One deployment's whole token check, built once at startup.
@@ -350,6 +367,8 @@ pub struct TokenValidator {
     /// The ceiling on `exp - iat`, where this deployment puts one. `None` in the `direct` mode - see
     /// the field on `sutura_config::TokenRequirement` for why the two modes differ.
     max_lifetime: Option<ProofLifetime>,
+    /// The assertions admitted once, where single use is declared - `docs/adr/20261015094920`.
+    seen: Option<SeenAssertions>,
 }
 
 impl TokenValidator {
@@ -385,6 +404,10 @@ impl TokenValidator {
             extra_scope_claims: requirement.extra_scope_claims(),
             token_type: requirement.token_type().clone(),
             max_lifetime: requirement.max_lifetime(),
+            seen: requirement
+                .max_lifetime()
+                .filter(|_| requirement.single_use())
+                .map(|ceiling| SeenAssertions::new(CAPACITY, entry_window(ceiling))),
         }
     }
 
@@ -451,14 +474,43 @@ impl TokenValidator {
         // presents this assertion to a data system mints a leg whose validity is exactly this, and
         // `u64::try_from` failing means an `exp` before the epoch - so the fallback is the instant
         // that is already past rather than a credential with no bound at all.
-        Ok(VerifiedCaller::established(
+        let caller = VerifiedCaller::established(
             chain,
             scopes,
             groups,
             sutura_domain::identity::Secret::new(token),
             u64::try_from(claims.exp).unwrap_or(0),
             client,
-        ))
+        );
+        // LAST, so an assertion any check above refuses never takes a place in the store.
+        self.admitted_once(claims.jti.as_ref(), claims.exp)?;
+        Ok(caller)
+    }
+
+    /// Admits a single-use assertion once, and holds its `jti` until `exp` plus the leeway - the
+    /// moment the validation above would refuse the assertion anyway. `Ok` where single use is off.
+    fn admitted_once(&self, jti: Option<&serde_json::Value>, exp: i64) -> Result<(), TokenRejected> {
+        let Some(ref seen) = self.seen else {
+            return Ok(());
+        };
+        let id = AssertionId::parse(jti.ok_or(TokenRejected::NoAssertionId)?).ok_or(TokenRejected::UnusableAssertionId {
+            limit: MAX_ASSERTION_ID_BYTES,
+        })?;
+        let leeway = i64::try_from(LEEWAY_SECONDS).unwrap_or(i64::MAX);
+        match seen.admit(id, exp.saturating_add(leeway), now_in_seconds()) {
+            Ok(()) => Ok(()),
+            Err(NotAdmitted::Replayed) => Err(TokenRejected::Replayed),
+            Err(NotAdmitted::Full { announce }) => {
+                if announce {
+                    tracing::error!(
+                        capacity = CAPACITY,
+                        "single use: every place in the store of seen assertions is held, so new assertions are \
+                         refused with 503 until some expire"
+                    );
+                }
+                Err(TokenRejected::SeenStoreFull)
+            }
+        }
     }
 
     /// The scopes a verified token grants.
@@ -537,8 +589,9 @@ impl TokenValidator {
     /// record used and the code did not.
     ///
     /// **What this does NOT do, stated where the check is:** it bounds the replay *window*. It does not
-    /// stop a replay inside that window - nothing here is bound to a request, and there is no store of
-    /// what has been seen. See `sutura_config::inbound` and `docs/adr/0014`.
+    /// stop a replay inside that window - nothing here is bound to a request. A deployment that declares
+    /// single use refuses a second presentation in [`Self::admitted_once`], per process only. See
+    /// `sutura_config::inbound` and `docs/adr/20261015094920`.
     fn within_the_lifetime_ceiling(&self, claims: &Claims) -> Result<(), TokenRejected> {
         let Some(ceiling) = self.max_lifetime else {
             return Ok(());
@@ -576,6 +629,14 @@ impl TokenValidator {
     pub const fn leeway() -> Duration {
         Duration::from_secs(LEEWAY_SECONDS)
     }
+}
+
+/// The longest a seen `jti` is held, in seconds: the ceiling, plus the leeway on `iat` and on `exp`.
+fn entry_window(ceiling: ProofLifetime) -> i64 {
+    let leeway = i64::try_from(LEEWAY_SECONDS).unwrap_or(i64::MAX);
+    i64::try_from(ceiling.seconds())
+        .unwrap_or(i64::MAX)
+        .saturating_add(leeway.saturating_mul(2))
 }
 
 /// Now, in whole seconds since the epoch, as a JWT's time claims express it.

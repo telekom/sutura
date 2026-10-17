@@ -655,3 +655,12 @@ the source failed to read it: a document it reads and refuses is `401`, and the 
 an unknown key id inside the refetch window after a look that read the source is `401` too, even if
 the source has gone down since, because no look runs. A cache header is not read, so the issuer can neither lengthen nor shorten
 `MAX_KEY_SET_AGE`.
+
+## Tenth amendment, 2026-10-17: a gateway assertion may be declared single use
+
+**Status of the amendment: accepted.** "The correction review forced" leaves a replay inside the
+lifetime window open. `docs/adr/20261015094920-single-use-gateway-assertion.md` decides the store
+of seen assertions that section names: `security.inbound.transit_single_use: true` refuses a second
+presentation of one assertion by its `jti`, in a bounded store per process. The key is off by
+default, so the replay window and the trusted transport boundary stand as written until a
+deployment declares it. A binding to the request is still not built.

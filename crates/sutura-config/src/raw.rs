@@ -534,6 +534,9 @@ pub(crate) struct RawInbound {
     /// `ProofLifetime::SHORT_LIVED_SECONDS`, without which it does not start.
     #[serde(default)]
     pub(crate) accept_long_transit_lifetime: bool,
+    /// `behind-gateway`: admit each assertion once, by its `jti`. Off by default - `docs/adr/20261015094920`.
+    #[serde(default)]
+    pub(crate) transit_single_use: bool,
 }
 
 #[derive(serde::Deserialize)]

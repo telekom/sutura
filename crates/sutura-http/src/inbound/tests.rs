@@ -979,6 +979,9 @@ mod published;
 /// as `TestModule`, which the gate holds.
 #[cfg(test)]
 mod refresh;
+/// A gateway assertion declared single use - `docs/adr/20261015094920`.
+#[cfg(test)]
+mod replay;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;
 /// Refusal variants that were defined and raised but never provoked: each cell drives one variant

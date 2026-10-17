@@ -77,7 +77,8 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     None => ProofLifetime::default_lifetime(),
                     Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
-            );
+            )
+            .admitting_once(written.transit_single_use);
             Ok(InboundIdentity::BehindGateway {
                 transit: match written.granted_scopes.as_deref() {
                     None => transit,
@@ -117,6 +118,8 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
 /// The resource identifier, with the audience and the extra scope claims `direct` reads beside it.
 fn direct_resource(written: &RawInbound, mode: &str) -> Result<ResourceIdentifier, SettingsError> {
     read_only_in(written.granted_scopes.is_some(), GrantedScopes::KEY, "behind-gateway")?;
+    // An access token is reused across requests by design, so single use is not offered here.
+    read_only_in(written.transit_single_use, TransitProof::SINGLE_USE_KEY, "behind-gateway")?;
     let value = |cause| SettingsError::InboundValue { cause };
     let mut resource =
         ResourceIdentifier::parse(required(written.resource.as_deref(), ResourceIdentifier::KEY, mode)?).map_err(value)?;
