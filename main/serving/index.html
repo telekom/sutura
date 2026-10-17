@@ -4095,7 +4095,10 @@ no default mode:</p>
 </tbody>
 </table>
 <p><a href="../integrations/identity/">Inbound identity</a> has the settings, the key set and its rotation. In <code>direct</code> mode, a
-refused request gets <code>401</code> with a <code>WWW-Authenticate: Bearer</code> challenge. sutura does not say which check failed.
+refused request gets <code>401</code> with a <code>WWW-Authenticate: Bearer</code> challenge. sutura does not say which check failed. A
+token with an unknown <code>kid</code> while the last look at the key set failed to read it gets <code>503 identity_unavailable</code> with
+no challenge. A key set that sutura reads and refuses is <code>401</code>. An unknown <code>kid</code> less than 30 seconds after a
+look that read the key set is <code>401</code> too, because sutura does not look again so soon.
 <a href="../serving-behind-a-gateway/">Serving behind a gateway</a> covers a gateway that signs into <code>Authorization</code>.</p>
 <p>The <code>scope</code> claim of the token decides which operations the caller can use:</p>
 <table>

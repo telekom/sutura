@@ -3799,8 +3799,14 @@ authenticates the deployment, and every question runs with the access of the dep
 <tr>
 <td><code>key_set_file</code></td>
 <td>path</td>
-<td>required</td>
-<td>A JWK set, or one PEM public key or certificate, of the identity provider</td>
+<td>required unless <code>key_set_url</code> is set</td>
+<td>A JWK set, or one PEM public key or certificate, of the identity provider. Set this or <code>key_set_url</code></td>
+</tr>
+<tr>
+<td><code>key_set_url</code></td>
+<td><code>https</code> URL</td>
+<td>none</td>
+<td>The <code>jwks_uri</code> of the identity provider, instead of <code>key_set_file</code></td>
 </tr>
 <tr>
 <td><code>algorithms</code></td>
@@ -3867,8 +3873,14 @@ authenticates the deployment, and every question runs with the access of the dep
 <tr>
 <td><code>key_set_file</code></td>
 <td>path</td>
-<td>required</td>
+<td>required unless <code>key_set_url</code> is set</td>
 <td>A JWK set, or one PEM public key or certificate, of the gateway</td>
+</tr>
+<tr>
+<td><code>key_set_url</code></td>
+<td><code>https</code> URL</td>
+<td>none</td>
+<td>The JWK set URL of the gateway, instead of <code>key_set_file</code></td>
 </tr>
 <tr>
 <td><code>algorithms</code></td>
@@ -3910,6 +3922,14 @@ unknown <code>kid</code>, at most once every 30 seconds. To rotate keys, replace
 after the file holds the new key before the gateway signs with it. Behind a gateway, a key that leaves
 the file verifies for <code>transit_max_lifetime_seconds</code> plus 30 seconds more, unless the new key keeps
 its <code>kid</code> - see <a href="../../serving-behind-a-gateway/#rotating-the-keys">Rotating the keys</a>.</p>
+<p><code>key_set_url</code> reads a JWK set from that URL the same way, at the same times. Set <code>key_set_file</code> or
+<code>key_set_url</code>, not both. The URL must be <code>https</code>, with no query or fragment. sutura does not follow a
+redirect, accepts only a <code>200</code> of at most 64 KiB, and gives up on one read after 10 seconds. It
+trusts <code>security.outbound.transport_anchors</code> when that is set, and the built-in web roots when not.
+If the last look at the file or the URL failed to read it and a token names an unknown <code>kid</code>, the
+answer is <code>503 identity_unavailable</code> with no challenge, and the keys sutura already has keep
+verifying. A document sutura reads and refuses is <code>401</code>. An unknown <code>kid</code> less than 30 seconds after
+a look that read the source is <code>401</code> too, because sutura does not look again so soon.</p>
 <p>The file is a JWK set, or one PEM key: a single <code>PUBLIC KEY</code> block, or a certificate followed by its
 chain. A file that starts with <code>-----BEGIN</code> is read as PEM. Only the first certificate is a key,
 and its validity period is not checked. The key id of a PEM key is its RFC 7638 SHA-256 thumbprint,
