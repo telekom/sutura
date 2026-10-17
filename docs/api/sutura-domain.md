@@ -10664,6 +10664,10 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
 
+### `use every_refusal`
+
+One instance of every variant, in declaration order.
+
 ### `use Filter`
 
 One clause of a question's filter: a dimension, and what it must - or must not - equal.

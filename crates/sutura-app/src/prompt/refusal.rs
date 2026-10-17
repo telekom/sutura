@@ -297,11 +297,10 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
 /// reader who stops early should have read the actionable ones.
 ///
-/// The exhaustiveness mechanism is in `prompt::tests`: a function there maps every
-/// `RefusalReason` variant to its entry with a total match,
-/// so a variant added to the domain does not compile until somebody opens this file. *What that does
-/// not force is the corpus in that test gaining a member, so the set equality it asserts is a second
-/// net rather than the first.*
+/// The exhaustiveness mechanism is `guide_for` below: a total match over every `RefusalReason`
+/// variant, so a variant added to the domain does not compile until somebody opens this file. *What
+/// that does not force is `sutura_domain::query::every_refusal` gaining a member, so the set equality
+/// `prompt::tests` asserts against it is a second net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
     &METRICS_SPAN_DIFFERENT_MODELS,

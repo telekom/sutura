@@ -14,11 +14,15 @@ use crate::nonempty::NonEmpty;
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
+#[cfg(feature = "test-fakes")]
+mod exemplars;
 pub mod filter;
 pub mod limits;
 mod methods;
 pub mod top;
 
+#[cfg(feature = "test-fakes")]
+pub use exemplars::every_refusal;
 pub use filter::Filter;
 pub use limits::{InvalidResponseByteLimit, ResponseByteLimit, ResultBound};
 pub use top::{InvalidTopN, Top, TopBy, TopDirection, TopN};

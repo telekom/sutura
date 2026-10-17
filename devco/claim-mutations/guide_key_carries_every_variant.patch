@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/query/exemplars.rs b/crates/sutura-domain/src/query/exemplars.rs
+index 4efb88205..e2f5d81bd 100644
+--- a/crates/sutura-domain/src/query/exemplars.rs
++++ b/crates/sutura-domain/src/query/exemplars.rs
+@@ -131,7 +131,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
+             source: source("warehouse"),
+         },
+         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+-        RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
+         RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
+         RefusalReason::CrossModelRatioWithoutSharedCalendar {
+             metric: metric("revenue_per_customer"),
