@@ -484,6 +484,33 @@ async fn a_refresh_that_recovers_confirms_the_keys_again() {
     assert_eq!(ids, vec![String::from("the-next-key")]);
 }
 
+// ------------------------------------------------- a source that does not answer ----
+
+#[tokio::test]
+async fn a_failed_look_answers_source_unavailable_until_a_look_succeeds() {
+    // Inside the refetch window after a failed look the miss is the same outage, not a rate limit;
+    // the next look that answers turns a miss back into an unknown key id.
+    let pair = key_pair();
+    let now = Instant::now();
+    let (cache, _source) = cache_around(
+        StubSource::scripted(vec![Some(jwks(KID, &pair)), None, Some(jwks(KID, &pair))], None),
+        KeyFamily::EllipticCurve,
+        Duration::from_secs(30),
+        Duration::from_secs(60),
+        now,
+    );
+    let unknown = KeyId::parse("a-key-not-yet-read").expect("a test key id is a key id");
+    let at = |seconds| now + Duration::from_secs(seconds);
+    let looked = cache.key_for(&unknown, at(31)).await.expect_err("the look failed");
+    assert!(matches!(looked, KeyUnavailable::SourceUnavailable { .. }), "{looked:?}");
+    let limited = cache.key_for(&unknown, at(32)).await.expect_err("inside the window");
+    assert!(matches!(limited, KeyUnavailable::SourceUnavailable { .. }), "{limited:?}");
+    let id = KeyId::parse(KID).expect("a test key id is a key id");
+    drop(cache.key_for(&id, at(32)).await.expect("the keys held keep verifying"));
+    let recovered = cache.key_for(&unknown, at(62)).await.expect_err("the set does not hold it");
+    assert!(matches!(recovered, KeyUnavailable::UnknownKeyId), "{recovered:?}");
+}
+
 // ------------------------------------------------------- the rotated-out grace ----
 
 /// A transit assertion `pair` signed under `kid`, unexpired by the wall clock for the whole cell.

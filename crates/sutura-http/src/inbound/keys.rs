@@ -23,13 +23,10 @@
 //! The second row holds **while the source answers**, and not otherwise - see *the revocation bound
 //! excludes a failing refresh*, below.
 //!
-//! The age trigger fires from two places, deliberately. [`KeySetCache::watch_until_shutdown`] is a
-//! timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
-//! composition root inside the runtime - so revocation latency is bounded *whether or not this
-//! deployment is serving traffic*. And [`KeySetCache::key_for`] checks the age itself, so a
-//! composition root that never armed the timer still cannot serve a stale key set indefinitely: the
-//! first request past the horizon pays one file read. Neither is a second code path - both call
-//! [`KeySetCache::poll_once`].
+//! The age trigger fires from two places, both through [`KeySetCache::poll_once`]: the timer
+//! [`KeySetCache::watch_until_shutdown`] bounds revocation *whether or not this deployment is serving
+//! traffic*, and [`KeySetCache::key_for`] checks the age itself, so a root that never armed the timer
+//! still cannot serve a stale key set indefinitely - the first request past the horizon pays one read.
 //!
 //! # The bound is one read per window WHATEVER THE CONCURRENCY, and it was not
 //!
@@ -42,16 +39,13 @@
 //! [`KeySetCache::reserve`] is the fix: **the check and the stamp are one lock acquisition**, the
 //! source read stays outside the lock, and it is the only place either window is compared. The two
 //! comparisons in `key_for` remain as a cheap fast path and decide nothing. Because `poll_once` is the
-//! single path, the timer cannot race a caller into two reads either - which is a question worth
-//! asking of a design with two triggers and is answered by there being one gate.
+//! single path, the timer cannot race a caller into two reads either.
 //!
 //! # Why `now` is a parameter everywhere
 //!
-//! [`KeySetCache::key_for`] and [`KeySetCache::poll_once`] take the current instant rather than
-//! reading the clock. That is what makes the interesting cases - a forged key id arriving inside the
-//! window, a key set going stale, and two callers arriving at the same instant - assertable without a
-//! sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
-//! sleep being long enough is worse than none**, and this file is the second attempt at this bound.
+//! [`KeySetCache::key_for`] and [`KeySetCache::poll_once`] take the instant, so a forged key id inside
+//! the window, a stale set and two callers at one instant are assertable without a sleep. **A
+//! concurrency bound proved by a sleep being long enough is worse than none.**
 //!
 //! # Where the read runs, and the three separate things that bound it
 //!
@@ -94,22 +88,14 @@
 //! while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
 //! confirm the keys, and refused on by nothing.
 //!
-//! # What a key set is read from, and the gap that is named rather than hidden
+//! # What a key set is read from
 //!
-//! [`FileKeySet`] is the only source that ships. **There is no HTTPS fetcher**, and that is stated
-//! here rather than left to be discovered: an outbound HTTP client is a supply-chain change with its
-//! own review, and `docs/adr/0014` says plainly that the authorization server then becomes a hard
-//! runtime dependency whose outage must stay *distinguishable from a dead data system*. None of that
-//! is built.
-//!
-//! What is built is everything that a URL source would need anyway - the cache, both triggers, and
-//! the limit on the caller-driven one - behind [`KeySetSource`], which is one method returning the
-//! document's **bytes**. A JWKS endpoint arrives as a second implementor and changes nothing else in
-//! this file. A file is also a real deployment shape rather than a placeholder: a sidecar that
-//! rewrites a mounted key set is how a process with no egress gets rotation.
-//!
-//! **The honest cost of the file source:** it does not honour a cache header, because a file has
-//! none. What bounds staleness is [`MAX_KEY_SET_AGE`] and nothing the issuer says.
+//! [`FileKeySet`] or [`UrlKeySet`], behind [`KeySetSource`], which hands back the document's
+//! **bytes**. A file is how a process with no egress rotates; a URL makes the issuer a runtime
+//! dependency, and `docs/adr/0014` requires its outage to stay *distinguishable from a dead data
+//! system*: an unknown key id while the last look failed is [`KeyUnavailable::SourceUnavailable`],
+//! which the gate answers `503 identity_unavailable`, and the keys already held keep verifying.
+//! Neither source honours a cache header - what bounds staleness is [`MAX_KEY_SET_AGE`].
 //!
 //! The document is a JWK set, or one PEM public key or certificate - the `tls.crt` cluster
 //! certificate tooling writes - named by its RFC 7638 thumbprint. `document` holds that parse; the
@@ -133,6 +119,9 @@ use sutura_runtime::Shutdown;
 mod source;
 
 pub use crate::inbound::keys::source::{FileKeySet, KeySetSource, KeySetUnavailable, MAX_KEY_SET_BYTES};
+
+mod url;
+pub use crate::inbound::keys::url::{FetchFailed, KeySetClientUnusable, UrlKeySet};
 
 /// What a key set document is, and the parse from its bytes to [`KeySet`].
 mod document;
@@ -421,10 +410,12 @@ pub enum KeyUnavailable {
     /// The id is not in the set after a fresh read.
     #[error("the key set does not hold the key this token names")]
     UnknownKeyId,
-    #[error("the key set could not be re-read")]
+    /// The id is not in the set and the last look at the source failed: an outage to retry, not a
+    /// bad token. The cause is that look's, shared by every caller refused until the next one.
+    #[error("the key set source did not answer, and the key set does not hold the key this token names")]
     SourceUnavailable {
         #[source]
-        cause: KeySetUnavailable,
+        cause: Arc<dyn core::error::Error + Send + Sync>,
     },
 }
 
@@ -444,11 +435,8 @@ pub enum Refreshed {
     Unchanged,
     /// **The source could not be looked at**, or the look did not finish.
     ///
-    /// A variant of its own rather than folded into [`Self::Unchanged`], which is what it used to
-    /// be - and that fold is half of why the revocation bound excluded a failing refresh. *"The
-    /// source says these are still the keys"* and *"the source said nothing"* are the same fact
-    /// about the keys and opposite facts about freshness; only the first one stamps
-    /// `Cached::last_success`.
+    /// Not [`Self::Unchanged`], which it once was: *"these are still the keys"* and *"the source said
+    /// nothing"* are opposite facts about freshness, and only the first stamps `Cached::last_success`.
     Unavailable,
     /// A new document parsed, held a key of the pinned family, and is now in use.
     Rotated,
@@ -457,11 +445,8 @@ pub enum Refreshed {
     /// **The source was not looked at**, because the window has not opened or another caller already
     /// reserved this look.
     ///
-    /// A fourth variant rather than folding into [`Self::Unchanged`], and the distinction is the whole
-    /// point of the guard it reports: "the document did not change" is a fact about the source, and
-    /// "nobody looked" is a fact about this deployment. Collapsing them would make the bound that
-    /// [`KeySetCache::reserve`] enforces unobservable, and a bound nothing can observe is one nothing
-    /// can test - which is how the concurrent case got past the first round.
+    /// Not [`Self::Unchanged`]: "nobody looked" is a fact about this deployment, and folding it in
+    /// would make the bound [`KeySetCache::reserve`] enforces unobservable, so untestable.
     NotDue,
 }
 
@@ -511,12 +496,23 @@ struct Cached {
     last_success: Instant,
     /// The set the last rotation replaced, while it has a grace. Always `None` in `direct`.
     retired: Option<Retired>,
+    /// Why the last finished look produced no document, so a miss is an outage and not a refusal.
+    source_failed: Option<Arc<dyn core::error::Error + Send + Sync>>,
 }
 
 impl Cached {
     /// The verifier for `id`: the current set first, then the retired one while its grace is open.
     fn get(&self, id: &KeyId, now: Instant) -> Option<DecodingKey> {
         self.keys.get(id).or_else(|| self.retired.as_ref()?.get(id, now))
+    }
+
+    /// A miss while the source is failing is that outage; otherwise it is `refused`.
+    fn outage_or(&self, refused: KeyUnavailable) -> KeyUnavailable {
+        self.source_failed
+            .as_ref()
+            .map_or(refused, |cause| KeyUnavailable::SourceUnavailable {
+                cause: Arc::clone(cause),
+            })
     }
 }
 
@@ -527,15 +523,11 @@ impl Cached {
 /// install the OLDER document - [`adopt`] compares against the last bytes examined, so a late arrival
 /// looks like a change. One look at a time makes that ordering unrepresentable rather than checked.
 ///
-/// **A value with a `Drop` and not a `bool`, because the `bool` leaked.** The first shape set a
-/// flag in [`KeySetCache::reserve`] and cleared it in [`KeySetCache::record`], and the look between
-/// the two is awaited on the *request* task - [`KeySetCache::key_for`] reaches it with any token
-/// naming an unknown `kid`, under the router's request timeout. A timeout that fired or a client
-/// that disconnected while the source was slow dropped that future between the two, `record` never
-/// ran, and the flag stayed set for the life of the process: no further look, so no rotation and no
-/// revocation, from one disconnect. Now the flag is set in the acquisition that reserves and cleared
-/// by nothing but this drop, so an awaiter that leaves frees the slot on the way out and the next
-/// window may look again.
+/// **A value with a `Drop` and not a `bool`, because the `bool` leaked.** Set in
+/// [`KeySetCache::reserve`] and cleared in [`KeySetCache::record`], it stayed set for the life of the
+/// process when a request timeout or a disconnect dropped the awaiting future between the two: no
+/// further look, so no rotation and no revocation, from one disconnect. Now only this drop clears it,
+/// so an awaiter that leaves frees the slot and the next window may look again.
 ///
 /// **The limit, stated because it is the cost of the choice:** this follows the awaiter, not the
 /// read. A read whose awaiter left keeps its pool thread until the source answers, and nothing
@@ -610,10 +602,8 @@ impl KeySetCache {
         max_age: Duration,
         now: Instant,
     ) -> Result<Self, KeySetUnavailable> {
-        // `Box` at the boundary and `Arc` inside, so every caller and every test stays unchanged
-        // while `look` gets the owned handle the blocking pool needs. This read is the boot one and
-        // is deliberately still inline: it happens before the listener opens, so there is no
-        // executor to block, and an unreadable key set is a refusal to start.
+        // `Box` at the boundary, `Arc` for the blocking pool. The boot read is inline: there is no
+        // executor yet to block, and an unreadable key set is a refusal to start.
         let source = Arc::<dyn KeySetSource>::from(source);
         let document = source.read()?;
         let keys = parse_for(&document, family, &pinned).map_err(|cause| KeySetUnavailable::Invalid {
@@ -636,6 +626,7 @@ impl KeySetCache {
                 last_success: now,
                 adopted: None,
                 retired: None,
+                source_failed: None,
             }),
             reading: AtomicBool::new(false),
         })
@@ -667,9 +658,7 @@ impl KeySetCache {
     /// cost a concurrent caller one `401` it can retry. Making it wait instead would put N request
     /// tasks behind one file read, which is the primitive this whole file is arranged against.
     pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
-        // The read guard is taken, read from twice, and dropped inside this statement. Written as one
-        // expression rather than as a block with early returns because `clippy` flags a lock guard
-        // that outlives its last use, and here that lint and the right shape agree.
+        // One read guard, dropped inside this statement: `clippy` flags a guard outliving its last use.
         let (found, since) = {
             let cached = self.state.read().await;
             (cached.get(id, now), now.saturating_duration_since(cached.last_attempt))
@@ -683,20 +672,25 @@ impl KeySetCache {
                 return Ok(key);
             }
             let _refreshed = self.poll_once(now).await;
-            // Re-read after the refresh: the key may have been REVOKED by it, and then falling through
-            // to the unknown-id refusal is exactly right. The guard is taken and dropped inside this
-            // statement, for the reason the one above is.
-            let current = { self.state.read().await.get(id, now) };
-            return current.ok_or(KeyUnavailable::UnknownKeyId);
+            // Re-read after the refresh: the key may have been REVOKED by it.
+            return self.after_look(id, now).await;
         }
         if since < self.refetch_interval {
-            return Err(KeyUnavailable::RefetchRateLimited {
+            let limited = KeyUnavailable::RefetchRateLimited {
                 ago_ms: since.as_millis(),
-            });
+            };
+            return Err(self.state.read().await.outage_or(limited));
         }
         let _refreshed = self.poll_once(now).await;
-        let current = { self.state.read().await.get(id, now) };
-        current.ok_or(KeyUnavailable::UnknownKeyId)
+        self.after_look(id, now).await
+    }
+
+    /// The key after a look, or why there is none.
+    async fn after_look(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
+        let cached = self.state.read().await;
+        cached
+            .get(id, now)
+            .ok_or_else(|| cached.outage_or(KeyUnavailable::UnknownKeyId))
     }
 
     /// Atomically reserves the next look at the source, or says that somebody else has it.
@@ -788,8 +782,12 @@ impl KeySetCache {
     /// [`InFlight`] exists for; an awaiter that never reaches this line releases it by dropping it.
     async fn record(&self, now: Instant, looked: Looked, in_flight: InFlight<'_>) -> (Refreshed, Duration) {
         let mut cached = self.state.write().await;
+        cached.source_failed = None;
         let outcome = match looked {
-            Err(_failed) => Refreshed::Unavailable,
+            Err(failed) => {
+                cached.source_failed = Some(Arc::new(failed));
+                Refreshed::Unavailable
+            }
             Ok((read, candidate)) => {
                 // **The freshness stamp, and the second half of this file's finding.** The source
                 // answered with a document this deployment can use, so the keys in use are as fresh

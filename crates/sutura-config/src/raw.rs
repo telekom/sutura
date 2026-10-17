@@ -498,9 +498,12 @@ pub(crate) struct RawInbound {
     /// `behind-gateway`: the scopes an assertion with no `scope` claim is granted.
     #[serde(default)]
     pub(crate) granted_scopes: Option<Vec<String>>,
-    /// Both modes: where the signing keys are read from.
+    /// Both modes: where the signing keys are read from. Exactly one of this and `key_set_url`.
     #[serde(default)]
     pub(crate) key_set_file: Option<String>,
+    /// Both modes: the `https` URL the signing keys are fetched from.
+    #[serde(default)]
+    pub(crate) key_set_url: Option<String>,
     /// Both modes: the algorithms this deployment will accept. Required and never defaulted, because
     /// pinning is the control and a default here would be this crate choosing it.
     #[serde(default)]

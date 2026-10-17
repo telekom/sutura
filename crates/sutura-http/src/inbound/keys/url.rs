@@ -1,0 +1,173 @@
+//! A key set fetched from an `https` URL - an issuer's `jwks_uri`.
+//!
+//! The second [`KeySetSource`], and nothing above it changed for it: the cache's triggers, rate limit
+//! and revocation bound are the file source's. What is its own is the request, and every bound on it
+//! is set here or by the shared agent: `https` by the [`KeySetUrl`] parse, no redirect and the proxy
+//! pinning by `sutura_http_client`'s agent, [`FETCH_TIMEOUT_SECONDS`], and [`MAX_KEY_SET_BYTES`]
+//! enforced by the body reader as it reads.
+//!
+//! **No cache header is read.** The cache re-reads within [`super::MAX_KEY_SET_AGE`] whatever the
+//! issuer says, so an issuer's `max-age` can neither lengthen that bound nor shorten it.
+
+use sutura_config::KeySetUrl;
+use sutura_http_client::{InvalidReadBounds, ReadBounds};
+
+use super::source::{KeySetSource, KeySetUnavailable, MAX_KEY_SET_BYTES};
+
+/// How long one fetch may take, from connect to the last byte.
+///
+/// A look runs on the blocking pool and one at a time, so this bounds how long a hung issuer holds
+/// that one pool thread and the refresh behind it.
+const FETCH_TIMEOUT_SECONDS: u64 = 10;
+
+/// Why one fetch returned no document.
+#[derive(Debug, thiserror::Error)]
+pub enum FetchFailed {
+    #[error("the request did not complete")]
+    Unreachable(#[source] Box<ureq::Error>),
+    /// Anything but `200`, a redirect included: the agent follows none, so a `3xx` ends here.
+    #[error("the answer was HTTP {status}, not 200")]
+    Status { status: u16 },
+    #[error("the answer is larger than the {limit} bytes a key set may be")]
+    TooLarge { limit: usize },
+}
+
+/// The client for a key set URL could not be built.
+#[derive(Debug, thiserror::Error)]
+pub enum KeySetClientUnusable {
+    #[error(transparent)]
+    Bounds(#[from] InvalidReadBounds),
+    #[error("`security.outbound.transport_anchors` could not be loaded")]
+    Anchors(#[source] sutura_tls::LoadError),
+}
+
+/// A JWK set at an `https` URL.
+#[derive(Debug)]
+pub struct UrlKeySet {
+    url: KeySetUrl,
+    agent: sutura_tls::Rotating<ureq::Agent>,
+}
+
+impl UrlKeySet {
+    /// Names the URL, trusting `anchors` or, with none declared, the compiled-in web roots.
+    ///
+    /// The anchors are read once, here: a rotated bundle reaches this fetch on the next start.
+    pub fn trusting(url: &KeySetUrl, anchors: Option<&sutura_tls::Anchors>) -> Result<Self, KeySetClientUnusable> {
+        let bounds = ReadBounds::parse(FETCH_TIMEOUT_SECONDS, MAX_KEY_SET_BYTES as u64)?;
+        let anchors = anchors
+            .map(sutura_tls::load_anchors)
+            .transpose()
+            .map_err(KeySetClientUnusable::Anchors)?;
+        Ok(Self {
+            url: url.clone(),
+            agent: sutura_http_client::fixed(bounds, anchors),
+        })
+    }
+
+    /// The URL, for a startup log line.
+    #[inline]
+    #[must_use]
+    pub const fn url(&self) -> &KeySetUrl {
+        &self.url
+    }
+}
+
+impl KeySetSource for UrlKeySet {
+    /// One `GET`, refusing anything but a `200` with a body of at most [`MAX_KEY_SET_BYTES`].
+    ///
+    /// The reader's limit is one byte past the cap, because `ureq` refuses the read *after* the
+    /// limit is reached: at the cap itself a document exactly that size would be refused.
+    fn read(&self) -> Result<String, KeySetUnavailable> {
+        let failed = |cause| KeySetUnavailable::Fetch {
+            url: self.url.to_string(),
+            cause,
+        };
+        let mut response = self
+            .agent
+            .current()
+            .get(self.url.as_str())
+            .call()
+            .map_err(|cause| failed(FetchFailed::Unreachable(Box::new(cause))))?;
+        let status = response.status().as_u16();
+        if status != 200 {
+            return Err(failed(FetchFailed::Status { status }));
+        }
+        response
+            .body_mut()
+            .with_config()
+            .limit(MAX_KEY_SET_BYTES as u64 + 1)
+            .read_to_string()
+            .map_err(|cause| {
+                failed(match cause {
+                    ureq::Error::BodyExceedsLimit(_) => FetchFailed::TooLarge {
+                        limit: MAX_KEY_SET_BYTES,
+                    },
+                    other => FetchFailed::Unreachable(Box::new(other)),
+                })
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sutura_http_client::test_support::Scripted;
+    use sutura_http_client::tls_test_support::{Scratch, TlsFakeServer, declared_bundle, issue};
+
+    use super::*;
+
+    /// One fetch from a loopback TLS server answering `answer`, trusting that server's certificate.
+    ///
+    /// The server thread owns its listener, so it keeps answering after its handle is dropped; the
+    /// bundle is loaded by `trusting`, so its scratch directory may go too.
+    fn fetched(name: &str, answer: Scripted) -> Result<String, KeySetUnavailable> {
+        source_answering(name, answer).read()
+    }
+
+    fn source_answering(name: &str, answer: Scripted) -> UrlKeySet {
+        let issued = issue();
+        let scratch = Scratch::new(name);
+        let anchors = sutura_tls::Anchors::Bundle(declared_bundle(&scratch, name, &issued));
+        let server = TlsFakeServer::start(&issued, vec![answer]);
+        let url = KeySetUrl::parse(format!("{}/keys", server.endpoint())).expect("a loopback https URL parses");
+        UrlKeySet::trusting(&url, Some(&anchors)).expect("a written bundle loads")
+    }
+
+    #[test]
+    fn a_key_set_is_read_from_an_https_url() {
+        let document = serde_json::json!({"keys": []});
+        let read = fetched("read", Scripted::ok(&document)).expect("a 200 is the document");
+        assert_eq!(read, document.to_string());
+    }
+
+    #[test]
+    fn a_redirect_is_refused_rather_than_followed() {
+        let refused = fetched("redirect", Scripted::status(302, "")).expect_err("a redirect is no key set");
+        assert!(
+            matches!(
+                refused,
+                KeySetUnavailable::Fetch {
+                    cause: FetchFailed::Status { status: 302 },
+                    ..
+                }
+            ),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_set_over_the_cap_is_refused() {
+        let at_cap = fetched("at-cap", Scripted::raw(200, vec![b' '; MAX_KEY_SET_BYTES])).expect("the cap itself is read");
+        assert_eq!(at_cap.len(), MAX_KEY_SET_BYTES);
+        let refused = fetched("over-cap", Scripted::raw(200, vec![b' '; MAX_KEY_SET_BYTES + 1])).expect_err("past the cap");
+        assert!(
+            matches!(
+                refused,
+                KeySetUnavailable::Fetch {
+                    cause: FetchFailed::TooLarge { .. },
+                    ..
+                }
+            ),
+            "{refused:?}"
+        );
+    }
+}

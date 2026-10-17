@@ -637,3 +637,16 @@ verifying for `transit_max_lifetime_seconds` plus the 30 s clock-skew leeway, so
 holds only the current key can rotate without refusing the assertions the old key signed. The bound
 there is now 60 s plus one read plus that grace. `docs/adr/20261015095237` decides it and states
 what it does not cover.
+
+## Ninth amendment, 2026-10-17: the key set may be read from an `https` URL
+
+**Status of the amendment: accepted.** *Not built* item 1 is built: `security.inbound.key_set_url`
+names an issuer's `jwks_uri`, exactly one of it and `key_set_file` is accepted, and the fetcher is in
+every build and reads nothing until the setting is written. It uses the shared outbound client, so
+it follows no redirect, and it trusts `security.outbound.transport_anchors` or the built-in web
+roots. The cache, both re-read triggers and the revocation bound are the file source's. The record's
+condition that an authorization server outage stay distinguishable from a dead data system is met
+this way: an unknown key id while the last look at the source failed is
+`503 identity_unavailable`, never `503 unavailable` and never `401`, and the keys already held keep
+verifying. A cache header is not read, so the issuer can neither lengthen nor shorten
+`MAX_KEY_SET_AGE`.

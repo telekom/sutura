@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-config/src/settings/inbound.rs b/crates/sutura-config/src/settings/inbound.rs
-index c8bce1d9d..27d06ab68 100644
 --- a/crates/sutura-config/src/settings/inbound.rs
 +++ b/crates/sutura-config/src/settings/inbound.rs
-@@ -38,7 +38,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
+@@ -146,7 +146,7 @@
+     let parsed = match (given(written.key_set_file.as_deref()), given(written.key_set_url.as_deref())) {
+         (Some(_), Some(_)) => return Err(SettingsError::InboundKeySetTwice),
+         (None, Some(url)) => KeySetUrl::parse(url).map(KeySetLocation::Url),
+-        (file, None) => KeySetFile::parse(required(file, KeySetFile::KEY, mode)?).map(KeySetLocation::File),
++        (file, None) => KeySetFile::parse(file.unwrap_or("/etc/sutura/jwks.json")).map(KeySetLocation::File),
      };
-     // Read before the branch, because both modes need both: one key set and one pinned family,
-     // whoever authenticated the caller.
--    let key_set = KeySetFile::parse(required(written.key_set_file.as_deref(), KeySetFile::KEY, mode)?)
-+    let key_set = KeySetFile::parse(written.key_set_file.as_deref().unwrap_or("/etc/sutura/jwks.json"))
-         .map(KeySetLocation::File)
-         .map_err(|cause| SettingsError::InboundValue { cause })?;
-     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
+     parsed.map_err(|cause| SettingsError::InboundValue { cause })
+ }

@@ -407,13 +407,8 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 The path a `KeySetLocation::File` key set is read from.
 
-**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
-runtime dependency and that an outage there must stay distinguishable from a dead data system.
-None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-when a key id is not in it, and that refetch is rate limited - and every one of those properties
-is the same whether the source is a file a sidecar rewrites or an endpoint. See
+A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+cache, both re-read triggers and the rate limit are the same whatever the source - see
 `sutura_http::inbound::keys`.
 
 ## `use KeySetLocation`
@@ -423,6 +418,13 @@ Where the signing keys are read from.
 **An enum, so a second source arrives as a variant every reader has to match** rather than as a
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
+
+## `use KeySetUrl`
+
+The `https` URL a `KeySetLocation::Url` key set is fetched from.
+
+The same strict parse as `crate::inbound::IssuerUrl`: `https` only, a host, no userinfo, and no
+`?` or `#`, so an endpoint that needs a query string is refused rather than half-read.
 
 ## `use PinnedAlgorithms`
 
@@ -3306,6 +3308,13 @@ Where the signing keys are read from.
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
 
+### `use KeySetUrl`
+
+The `https` URL a `KeySetLocation::Url` key set is fetched from.
+
+The same strict parse as `crate::inbound::IssuerUrl`: `https` only, a host, no userinfo, and no
+`?` or `#`, so an endpoint that needs a query string is refused rather than half-read.
+
 ### `use InvalidAlgorithms`
 
 Why a pinned algorithm list is not one.
@@ -3345,13 +3354,8 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 The path a `KeySetLocation::File` key set is read from.
 
-**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
-runtime dependency and that an outage there must stay distinguishable from a dead data system.
-None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-when a key id is not in it, and that refetch is rate limited - and every one of those properties
-is the same whether the source is a file a sidecar rewrites or an endpoint. See
+A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+cache, both re-read triggers and the rate limit are the same whatever the source - see
 `sutura_http::inbound::keys`.
 
 ### `use PinnedAlgorithms`

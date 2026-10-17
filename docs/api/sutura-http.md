@@ -186,7 +186,7 @@ and a position cannot forge a line.
 Everything one deployment needs to establish who a caller is, built once at startup.
 
 **Built by the composition root and not by `crate::ServiceState::new`**, because building it
-reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+reads the key set: a constructor that could not fail would have to either swallow an unreadable key set
 or read it lazily on the first request, and both turn a refusal to start into a deployment that
 authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
 declare an inbound identity and whose state carries no gate, which is what makes forgetting to
@@ -1129,7 +1129,7 @@ fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
 Everything one deployment needs to establish who a caller is, built once at startup.
 
 **Built by the composition root and not by `crate::ServiceState::new`**, because building it
-reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+reads the key set: a constructor that could not fail would have to either swallow an unreadable key set
 or read it lazily on the first request, and both turn a refusal to start into a deployment that
 authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
 declare an inbound identity and whose state carries no gate, which is what makes forgetting to
@@ -1151,6 +1151,10 @@ reach the validator: the only thing that crosses into the handler is the *result
 **The insertion overwrites**, which matters: `axum` extensions are a map, and a request arriving
 with something already under that type - which nothing can construct, but the reasoning should not
 rest on that alone - is replaced rather than joined.
+
+### `use FetchFailed`
+
+Why one fetch returned no document.
 
 ### `use FileKeySet`
 
@@ -1188,12 +1192,15 @@ across an `await` in an async middleware, which is exactly the deadlock that ban
 is taken to stamp the attempt, released, the document read, and taken again to swap. The stamp
 under the first lock is what keeps two concurrent misses from becoming two reads.
 
+### `use KeySetClientUnusable`
+
+The client for a key set URL could not be built.
+
 ### `use KeySetSource`
 
 Where a key set is read from.
 
-One method, so a JWKS endpoint is a second implementor and nothing else in this module moves. See
-`super`'s module documentation for why the only implementor today reads a file.
+One method, so `FileKeySet` and `super::UrlKeySet` are interchangeable behind the cache.
 
 **It returns the document's BYTES rather than a parsed key set**, and that is what lets
 `super::KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
@@ -1208,9 +1215,9 @@ has to run somewhere, and where that is is the cache's decision rather than the 
 
 **Bounding the document is the IMPLEMENTOR's job and cannot be the cache's.** This returns an
 owned `String`, so an unbounded read has already allocated by the time anything above it could
-object. `MAX_KEY_SET_BYTES` is the number to check against, `FileKeySet` checks it, and
-nothing in this module makes a second implementor do the same - a type cannot express it, so this
-paragraph is the whole of the mechanism.
+object. `MAX_KEY_SET_BYTES` is the number to check against, both implementors check it, and
+nothing in this module makes a third do the same - a type cannot express it, so this paragraph is
+the whole of the mechanism.
 
 ### `use KeySetUnavailable`
 
@@ -1262,6 +1269,10 @@ What one look at the source did.
 Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
 examined and rejected is recorded as examined, so identical bytes on the next tick are silent
 rather than logging a rejection once per interval forever.
+
+### `use UrlKeySet`
+
+A JWK set at an `https` URL.
 
 ### `use MAX_TOKEN_BYTES`
 
@@ -1641,6 +1652,9 @@ other request, because RFC 9728 section 3.3 requires a client to discard mismatc
 gateway assertion is minted by the component, not by an authorization server a client can use, so
 that mode offers no Bearer challenge - wherever the assertion arrives.
 
+An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
+challenge: the token may be fine, and the outage is this deployment's.
+
 What the response does **not** say is which check failed. The log says - through the `#[source]`
 chain on `TokenRejected` - and the caller does not, because "the signature verified and the
 audience did not" tells somebody which half of a forgery to fix.
@@ -1654,7 +1668,7 @@ pub struct InboundGate
 Everything one deployment needs to establish who a caller is, built once at startup.
 
 **Built by the composition root and not by `crate::ServiceState::new`**, because building it
-reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+reads the key set: a constructor that could not fail would have to either swallow an unreadable key set
 or read it lazily on the first request, and both turn a refusal to start into a deployment that
 authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
 declare an inbound identity and whose state carries no gate, which is what makes forgetting to
@@ -1716,6 +1730,13 @@ Builds the gate from a declaration `sutura-config` already accepted, reading the
 is a process that does not start rather than one that answers `401` to everybody.
 
 ```rust
+pub fn from_declaration_trusting(inbound: &InboundIdentity, anchors: Option<&sutura_tls::Anchors>) -> Result<Self, InboundNotUsable>
+```
+
+The same, fetching a key set URL over `anchors` - the deployment's `security.outbound`
+trust - or, with none declared, the compiled-in web roots.
+
+```rust
 pub fn header(&self) -> &str
 ```
 
@@ -1740,13 +1761,18 @@ nothing is being asked.
 
 `Debug`
 
-#### `struct InboundNotUsable`
+#### `enum InboundNotUsable`
 
 ```rust
-pub struct InboundNotUsable
+pub enum InboundNotUsable
 ```
 
 The gate could not be built.
+
+##### Variants
+
+- `Unreadable`
+- `Client`
 
 ##### Implements
 
@@ -1796,13 +1822,10 @@ So there are two triggers and they answer different questions:
 The second row holds **while the source answers**, and not otherwise - see *the revocation bound
 excludes a failing refresh*, below.
 
-The age trigger fires from two places, deliberately. `KeySetCache::watch_until_shutdown` is a
-timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
-composition root inside the runtime - so revocation latency is bounded *whether or not this
-deployment is serving traffic*. And `KeySetCache::key_for` checks the age itself, so a
-composition root that never armed the timer still cannot serve a stale key set indefinitely: the
-first request past the horizon pays one file read. Neither is a second code path - both call
-`KeySetCache::poll_once`.
+The age trigger fires from two places, both through `KeySetCache::poll_once`: the timer
+`KeySetCache::watch_until_shutdown` bounds revocation *whether or not this deployment is serving
+traffic*, and `KeySetCache::key_for` checks the age itself, so a root that never armed the timer
+still cannot serve a stale key set indefinitely - the first request past the horizon pays one read.
 
 # The bound is one read per window WHATEVER THE CONCURRENCY, and it was not
 
@@ -1815,16 +1838,13 @@ amplified source I/O by the number of in-flight forged key ids.
 `KeySetCache::reserve` is the fix: **the check and the stamp are one lock acquisition**, the
 source read stays outside the lock, and it is the only place either window is compared. The two
 comparisons in `key_for` remain as a cheap fast path and decide nothing. Because `poll_once` is the
-single path, the timer cannot race a caller into two reads either - which is a question worth
-asking of a design with two triggers and is answered by there being one gate.
+single path, the timer cannot race a caller into two reads either.
 
 # Why `now` is a parameter everywhere
 
-`KeySetCache::key_for` and `KeySetCache::poll_once` take the current instant rather than
-reading the clock. That is what makes the interesting cases - a forged key id arriving inside the
-window, a key set going stale, and two callers arriving at the same instant - assertable without a
-sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
-sleep being long enough is worse than none**, and this file is the second attempt at this bound.
+`KeySetCache::key_for` and `KeySetCache::poll_once` take the instant, so a forged key id inside
+the window, a stale set and two callers at one instant are assertable without a sleep. **A
+concurrency bound proved by a sleep being long enough is worse than none.**
 
 # Where the read runs, and the three separate things that bound it
 
@@ -1867,22 +1887,14 @@ grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and aft
 while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
 confirm the keys, and refused on by nothing.
 
-# What a key set is read from, and the gap that is named rather than hidden
+# What a key set is read from
 
-`FileKeySet` is the only source that ships. **There is no HTTPS fetcher**, and that is stated
-here rather than left to be discovered: an outbound HTTP client is a supply-chain change with its
-own review, and the architecture decision says plainly that the authorization server then becomes a hard
-runtime dependency whose outage must stay *distinguishable from a dead data system*. None of that
-is built.
-
-What is built is everything that a URL source would need anyway - the cache, both triggers, and
-the limit on the caller-driven one - behind `KeySetSource`, which is one method returning the
-document's **bytes**. A JWKS endpoint arrives as a second implementor and changes nothing else in
-this file. A file is also a real deployment shape rather than a placeholder: a sidecar that
-rewrites a mounted key set is how a process with no egress gets rotation.
-
-**The honest cost of the file source:** it does not honour a cache header, because a file has
-none. What bounds staleness is `MAX_KEY_SET_AGE` and nothing the issuer says.
+`FileKeySet` or `UrlKeySet`, behind `KeySetSource`, which hands back the document's
+**bytes**. A file is how a process with no egress rotates; a URL makes the issuer a runtime
+dependency, and the architecture decision requires its outage to stay *distinguishable from a dead data
+system*: an unknown key id while the last look failed is `KeyUnavailable::SourceUnavailable`,
+which the gate answers `503 identity_unavailable`, and the keys already held keep verifying.
+Neither source honours a cache header - what bounds staleness is `MAX_KEY_SET_AGE`.
 
 The document is a JWK set, or one PEM public key or certificate - the `tls.crt` cluster
 certificate tooling writes - named by its RFC 7638 thumbprint. `document` holds that parse; the
@@ -2081,7 +2093,7 @@ either a rotation this deployment has not caught up with or a caller guessing.
   unauthenticated, which is true, and the retry window is on the log line rather than in the
   response - a caller does not need to know when this deployment will next talk to its issuer.
 - `UnknownKeyId` - The id is not in the set after a fresh read.
-- `SourceUnavailable`
+- `SourceUnavailable` - The id is not in the set and the last look at the source failed: an outage to retry, not a bad token. The cause is that look's, shared by every caller refused until the next one.
 
 ##### Implements
 
@@ -2109,20 +2121,14 @@ rather than logging a rejection once per interval forever.
   `Self::Rejected`.
 - `Unavailable` - **The source could not be looked at**, or the look did not finish.
 
-  A variant of its own rather than folded into `Self::Unchanged`, which is what it used to
-  be - and that fold is half of why the revocation bound excluded a failing refresh. *"The
-  source says these are still the keys"* and *"the source said nothing"* are the same fact
-  about the keys and opposite facts about freshness; only the first one stamps
-  `Cached::last_success`.
+  Not `Self::Unchanged`, which it once was: *"these are still the keys"* and *"the source said
+  nothing"* are opposite facts about freshness, and only the first stamps `Cached::last_success`.
 - `Rotated` - A new document parsed, held a key of the pinned family, and is now in use.
 - `Rejected` - A new document was read and is NOT usable. The previous key set keeps verifying.
 - `NotDue` - **The source was not looked at**, because the window has not opened or another caller already reserved this look.
 
-  A fourth variant rather than folding into `Self::Unchanged`, and the distinction is the whole
-  point of the guard it reports: "the document did not change" is a fact about the source, and
-  "nobody looked" is a fact about this deployment. Collapsing them would make the bound that
-  `KeySetCache::reserve` enforces unobservable, and a bound nothing can observe is one nothing
-  can test - which is how the concurrent case got past the first round.
+  Not `Self::Unchanged`: "nobody looked" is a fact about this deployment, and folding it in
+  would make the bound `KeySetCache::reserve` enforces unobservable, so untestable.
 
 ##### Implements
 
@@ -2247,8 +2253,7 @@ A key set on the local filesystem.
 
 Where a key set is read from.
 
-One method, so a JWKS endpoint is a second implementor and nothing else in this module moves. See
-`super`'s module documentation for why the only implementor today reads a file.
+One method, so `FileKeySet` and `super::UrlKeySet` are interchangeable behind the cache.
 
 **It returns the document's BYTES rather than a parsed key set**, and that is what lets
 `super::KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
@@ -2263,9 +2268,9 @@ has to run somewhere, and where that is is the cache's decision rather than the 
 
 **Bounding the document is the IMPLEMENTOR's job and cannot be the cache's.** This returns an
 owned `String`, so an unbounded read has already allocated by the time anything above it could
-object. `MAX_KEY_SET_BYTES` is the number to check against, `FileKeySet` checks it, and
-nothing in this module makes a second implementor do the same - a type cannot express it, so this
-paragraph is the whole of the mechanism.
+object. `MAX_KEY_SET_BYTES` is the number to check against, both implementors check it, and
+nothing in this module makes a third do the same - a type cannot express it, so this paragraph is
+the whole of the mechanism.
 
 #### `use KeySetUnavailable`
 
@@ -2283,8 +2288,19 @@ are bounded work.
 
 **It bounds an implementor and cannot bound the port.** `KeySetSource::read` hands back a
 `String`, so by the time `super::KeySetCache` sees a document the allocation has already happened.
-`FileKeySet` checks it; a second implementor carries its own check against this constant, and
-nothing in this module can make it.
+`FileKeySet` and `super::UrlKeySet` each check it, and nothing in this module can make a third.
+
+#### `use FetchFailed`
+
+Why one fetch returned no document.
+
+#### `use KeySetClientUnusable`
+
+The client for a key set URL could not be built.
+
+#### `use UrlKeySet`
+
+A JWK set at an `https` URL.
 
 #### `constant MIN_REFETCH_INTERVAL`
 

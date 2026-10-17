@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, ProofLifetime, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, KeySetUrl, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -129,6 +129,45 @@ fn a_key_set_file_path_over_the_length_cap_is_refused_naming_the_key() {
             limit: 512
         }
     );
+}
+
+/// [`DIRECT_INBOUND`] with its key set file replaced by `url`.
+fn direct_fetching(url: &str) -> Sources {
+    let written = DIRECT_INBOUND.replacen(
+        "key_set_file: \"/etc/sutura/jwks.json\"",
+        &format!("key_set_url: \"{url}\""),
+        1,
+    );
+    Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}"))
+}
+
+#[test]
+fn a_key_set_url_is_read_as_the_url_location() {
+    let settings = Settings::load(&direct_fetching("https://issuer.example.com/keys")).expect("a key set URL loads");
+    let inbound = settings.security().inbound().expect("the declaration is there");
+    let key_set = inbound.requirement().key_set();
+    assert!(
+        matches!(key_set, KeySetLocation::Url(url) if url.as_str() == "https://issuer.example.com/keys"),
+        "{key_set:?}"
+    );
+}
+
+#[test]
+fn a_cleartext_key_set_url_is_refused_naming_the_key() {
+    let error =
+        Settings::load(&direct_fetching("http://issuer.example.com/keys")).expect_err("a cleartext key set URL does not start");
+    let SettingsError::InboundValue { ref cause } = *error.reason() else {
+        panic!("expected an inbound value refusal, got {error:?}");
+    };
+    assert_eq!(*cause, InvalidInboundValue::NotHttps { key: KeySetUrl::KEY });
+}
+
+#[test]
+fn a_key_set_file_and_a_key_set_url_together_are_refused() {
+    let written = format!("security:\n{DIRECT_INBOUND}    key_set_url: \"https://issuer.example.com/keys\"\n");
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(written))
+        .expect_err("two key set sources do not start");
+    assert!(matches!(error.reason(), SettingsError::InboundKeySetTwice), "{error:?}");
 }
 
 #[test]

@@ -47,6 +47,10 @@ fixtures = []
 sutura-app = { workspace = true }
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
+# The shared outbound client and its trust material, for one read: `security.inbound.key_set_url`.
+# No new package in the lock: the workspace already resolves both, and `ureq` below.
+sutura-http-client = { workspace = true }
+sutura-tls = { workspace = true }
 # For one value type - `Shutdown` - and not for anything this crate installs. `sutura-runtime` owns
 # the process-global setup and is called by the composition root; nothing here touches a subscriber,
 # a panic hook or a signal handler. The dependency exists so `serve` can arm its drain deadline
@@ -84,6 +88,7 @@ tower_governor = { workspace = true }
 # from a task instead of from `accept`, and the workspace manifest for the feature choices.
 tokio-rustls = { workspace = true, optional = true }
 tracing = { workspace = true }
+ureq = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
@@ -101,6 +106,8 @@ sutura-domain = { workspace = true, features = ["fixtures"] }
 # for the same reason plus one more: a committed private key in a public repository is a committed
 # private key, whatever a comment beside it says, and `KeyPair::generate` costs a millisecond.
 rcgen = { workspace = true }
+# The loopback TLS server the key set URL cells fetch from.
+sutura-http-client = { workspace = true, features = ["tls-test"] }
 # The mock authorization server: a generated key pair, a JWK set it PUBLISHES to a path, and a token
 # minter every claim of which is a parameter.
 #

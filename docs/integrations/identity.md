@@ -31,7 +31,8 @@ authenticates the deployment, and every question runs with the access of the dep
 | `audience`              | string      | none     | The value that `aud` must equal exactly instead: an `https` URI, or a client ID of letters, digits, `-`, `.` and `_`          |
 | `extra_scope_claims`    | list        | none     | More claims that grant scopes, beside `scope`: `scp`, `roles`, or both                                                        |
 | `authorization_server`  | `https` URI | required | The value that `iss` must equal exactly                                                                                       |
-| `key_set_file`          | path        | required | A JWK set, or one PEM public key or certificate, of the identity provider                                                     |
+| `key_set_file`          | path        | required | A JWK set, or one PEM public key or certificate, of the identity provider. Set this or `key_set_url`                          |
+| `key_set_url`           | `https` URL | none     | The `jwks_uri` of the identity provider, instead of `key_set_file`                                                            |
 | `algorithms`            | list        | required | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
 | `token_type`            | string      | `at+jwt` | The required `typ` header. `any` turns the check off                                                                          |
 | `accept_any_token_type` | boolean     | `false`  | Must be `true` beside `token_type: any`                                                                                       |
@@ -48,6 +49,7 @@ authenticates the deployment, and every question runs with the access of the dep
 | `transit_audience`             | string      | required | The `aud` of the assertion: an `https` URI or a path that starts with one `/` |
 | `granted_scopes`               | list        | none     | The scopes of an assertion that has no `scope` claim                          |
 | `key_set_file`                 | path        | required | A JWK set, or one PEM public key or certificate, of the gateway               |
+| `key_set_url`                  | `https` URL | none     | The JWK set URL of the gateway, instead of `key_set_file`                     |
 | `algorithms`                   | list        | required | The accepted algorithms, as for `direct`                                      |
 | `transit_token_type`           | string      | required | The `typ` that the gateway sets, or `any`                                     |
 | `transit_max_lifetime_seconds` | integer     | `120`    | The longest accepted `exp - iat`, 1 to 3600                                   |
@@ -70,6 +72,13 @@ unknown `kid`, at most once every 30 seconds. To rotate keys, replace the file, 
 after the file holds the new key before the gateway signs with it. Behind a gateway, a key that leaves
 the file verifies for `transit_max_lifetime_seconds` plus 30 seconds more, unless the new key keeps
 its `kid` - see [Rotating the keys](../serving-behind-a-gateway.md#rotating-the-keys).
+
+`key_set_url` reads a JWK set from that URL the same way, at the same times. Set `key_set_file` or
+`key_set_url`, not both. The URL must be `https`, with no query or fragment. sutura does not follow a
+redirect, accepts only a `200` of at most 64 KiB, and gives up on one read after 10 seconds. It
+trusts `security.outbound.transport_anchors` when that is set, and the built-in web roots when not.
+If the URL does not answer and a token names an unknown `kid`, the answer is
+`503 identity_unavailable`, and the keys sutura already has keep verifying.
 
 The file is a JWK set, or one PEM key: a single `PUBLIC KEY` block, or a certificate followed by its
 chain. A file that starts with `-----BEGIN ` is read as PEM. Only the first certificate is a key,

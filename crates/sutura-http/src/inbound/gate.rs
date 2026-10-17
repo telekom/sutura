@@ -27,6 +27,9 @@
 //! gateway assertion is minted by the component, not by an authorization server a client can use, so
 //! that mode offers no Bearer challenge - wherever the assertion arrives.
 //!
+//! An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
+//! challenge: the token may be fine, and the outage is this deployment's.
+//!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
 //! audience did not" tells somebody which half of a forgery to fix.
@@ -44,7 +47,9 @@ use sutura_config::{InboundIdentity, KeySetLocation, ResourceIdentifier, TokenLo
 use sutura_runtime::Shutdown;
 
 use crate::inbound::caller::VerifiedCaller;
-use crate::inbound::keys::{FileKeySet, KeySetCache, KeySetUnavailable, MAX_KEY_SET_AGE};
+use crate::inbound::keys::{
+    FileKeySet, KeySetCache, KeySetClientUnusable, KeySetSource, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE, UrlKeySet,
+};
 use crate::inbound::token::{TokenRejected, TokenValidator};
 use crate::problem::Failure;
 
@@ -55,7 +60,7 @@ const BEARER: &str = "Bearer";
 /// Everything one deployment needs to establish who a caller is, built once at startup.
 ///
 /// **Built by the composition root and not by [`crate::ServiceState::new`]**, because building it
-/// reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+/// reads the key set: a constructor that could not fail would have to either swallow an unreadable key set
 /// or read it lazily on the first request, and both turn a refusal to start into a deployment that
 /// authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
 /// declare an inbound identity and whose state carries no gate, which is what makes forgetting to
@@ -84,10 +89,11 @@ pub struct InboundGate {
 
 /// The gate could not be built.
 #[derive(Debug, thiserror::Error)]
-#[error("the inbound identity declared by this deployment is not usable")]
-pub struct InboundNotUsable {
-    #[source]
-    cause: KeySetUnavailable,
+pub enum InboundNotUsable {
+    #[error("the inbound identity declared by this deployment is not usable")]
+    Unreadable(#[source] KeySetUnavailable),
+    #[error("the client for `security.inbound.key_set_url` could not be built")]
+    Client(#[source] KeySetClientUnusable),
 }
 
 impl InboundGate {
@@ -96,21 +102,31 @@ impl InboundGate {
     /// **Called before the listener opens.** An unreadable or unusable key set is an error here, so it
     /// is a process that does not start rather than one that answers `401` to everybody.
     pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable> {
+        Self::from_declaration_trusting(inbound, None)
+    }
+
+    /// The same, fetching a key set URL over `anchors` - the deployment's `security.outbound`
+    /// trust - or, with none declared, the compiled-in web roots.
+    pub fn from_declaration_trusting(
+        inbound: &InboundIdentity,
+        anchors: Option<&sutura_tls::Anchors>,
+    ) -> Result<Self, InboundNotUsable> {
         let requirement = inbound.requirement();
-        let source = match requirement.key_set() {
-            KeySetLocation::File(file) => FileKeySet::at(file.path()),
+        let source: Box<dyn KeySetSource> = match requirement.key_set() {
+            KeySetLocation::File(file) => Box::new(FileKeySet::at(file.path())),
+            KeySetLocation::Url(url) => Box::new(UrlKeySet::trusting(url, anchors).map_err(InboundNotUsable::Client)?),
         };
         // The pinned family travels into the cache, so **every** path that adopts a key set - this one
         // and every later refresh - refuses one that holds no key of it. A deployment whose key set and
         // whose `algorithms` disagree about the kind of key starts and answers `401` to everybody
         // otherwise, which is the shape review asked to have refused.
         let keys = KeySetCache::primed(
-            Box::new(source),
+            source,
             requirement.algorithms().family(),
             requirement.algorithms().to_string(),
             Instant::now(),
         )
-        .map_err(|cause| InboundNotUsable { cause })?;
+        .map_err(InboundNotUsable::Unreadable)?;
         Ok(Self::over(inbound, keys))
     }
 
@@ -315,7 +331,8 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
     }
 }
 
-/// The `401`, its challenge, and the one place the reason is written down.
+/// The `401` and its challenge - or a `503` when the key source is down - and the one place the
+/// reason is written down.
 ///
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
@@ -329,6 +346,14 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
         header = gate.header(),
         "no verified caller: the presented token did not establish one"
     );
+    if matches!(
+        rejected,
+        TokenRejected::NoKey {
+            cause: KeyUnavailable::SourceUnavailable { .. }
+        }
+    ) {
+        return Failure::IdentityUnavailable.into_response();
+    }
     let mut response = Failure::Unauthorized.into_response();
     if let Some(challenge) = gate.challenge(request_uri, headers) {
         challenged(&mut response, &challenge);

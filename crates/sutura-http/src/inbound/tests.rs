@@ -780,6 +780,51 @@ fn the_subject_a_verified_token_names_is_still_parsed_by_the_domain() {
     assert!(matches!(rejected, Err(TokenRejected::UnusableSubject { .. })), "{rejected:?}");
 }
 
+#[tokio::test]
+async fn an_unknown_key_id_while_the_source_is_unreachable_is_503_identity_unavailable() {
+    // An issuer outage is not a bad token: the caller is told to retry, and the keys already held
+    // keep verifying. Both windows are zero, so the request's own clock always reaches the source.
+    let pair = key_pair();
+    let (cache, _source) = fixtures::cache_around(
+        StubSource::scripted(vec![Some(jwks(KID, &pair)), None], None),
+        KeyFamily::EllipticCurve,
+        Duration::ZERO,
+        Duration::ZERO,
+        Instant::now(),
+    );
+    let app = axum::Router::new()
+        .route("/guarded", get(|| async { StatusCode::NO_CONTENT }))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(InboundGate::over(&direct(), cache)),
+            crate::inbound::require_verified_caller,
+        ));
+    let unknown = signed(
+        &pair,
+        "a-key-not-yet-read",
+        &claims("someone@example.com", RESOURCE, ISSUER, ""),
+    );
+    let mut answers = Vec::new();
+    for token in [unknown, a_token(&pair)] {
+        let mut request = Request::builder()
+            .uri("/guarded")
+            .body(Body::empty())
+            .expect("the test request builds");
+        *request.headers_mut() = bearer(&token);
+        let response = app.clone().oneshot(request).await.expect("the infallible router answers");
+        let challenged = response.headers().contains_key(axum::http::header::WWW_AUTHENTICATE);
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a problem body reads");
+        answers.push((status, String::from_utf8_lossy(&body).into_owned(), challenged));
+    }
+    let (status, ref body, challenged) = answers[0];
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+    assert!(!challenged, "an outage carries no challenge to present a different token");
+    assert_eq!(answers[1].0, StatusCode::NO_CONTENT, "{}", answers[1].1);
+}
+
 #[test]
 fn an_invalid_principal_warning_keeps_shape_metadata_and_not_the_claim_value() {
     const RAW_SENTINEL: &str = "principal-leak-sentinel";

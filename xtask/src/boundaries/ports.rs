@@ -72,9 +72,9 @@ const PERMITTED_IN_A_CALLER: &[PermittedPort] = &[PermittedPort {
     name: "KeySetSource",
     declared_by: "sutura-http",
     why: "a DRIVEN port and an internal seam of the inbound gate: where a key set is read from. \
-          Its one implementor, `FileKeySet`, is in the same file, and the second would be a JWKS \
-          endpoint - so nothing outside this transport implements it and no other crate has to \
-          reach through the transport to use it. That is the opposite of the `Surface` case this \
+          Both implementors, `FileKeySet` and the JWKS endpoint's `UrlKeySet`, live beside it in \
+          `inbound::keys` - so nothing outside this transport implements it and no other crate has \
+          to reach through the transport to use it. That is the opposite of the `Surface` case this \
           rule exists for, where the implementation was the application itself",
 }];
 

@@ -103,8 +103,8 @@ pub mod token;
 pub use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 pub use crate::inbound::gate::{InboundGate, InboundNotUsable, require_verified_caller};
 pub use crate::inbound::keys::{
-    FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetSource, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE,
-    MIN_REFETCH_INTERVAL, NotAKeyId, Refreshed,
+    FetchFailed, FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetClientUnusable, KeySetSource, KeySetUnavailable,
+    KeyUnavailable, MAX_KEY_SET_AGE, MIN_REFETCH_INTERVAL, NotAKeyId, Refreshed, UrlKeySet,
 };
 pub use crate::inbound::token::{MAX_TOKEN_BYTES, PresentedType, TokenRejected, TokenValidator};
 
