@@ -208,7 +208,7 @@ A federated answer whose two legs sit on two different warehouse kinds is
 **reachable and served**. `sutura-cli`'s `kind::AnyWarehouse`
 (`crates/sutura-cli/src/serve/kind.rs:60`) is a closed enum - one variant per
 adapter this build linked - implementing `Warehouse`. When `open_engine`
-(`crates/sutura-cli/src/serve.rs:864`) sees more than one kind group non-empty,
+(`crates/sutura-cli/src/serve.rs:865`) sees more than one kind group non-empty,
 it routes to `kind::open_mixed`, which opens each group and merges them into
 one `Warehouses<AnyWarehouse>`. `answer_federated<W, B, C>`
 (`crates/sutura-app/src/federated.rs:115`) is generic in `W: Warehouse`, and
