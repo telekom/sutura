@@ -221,7 +221,7 @@ mod tests {
             .expect("a mock issuer generates a second key");
         let published = issuer.key_set_without("a-key-not-yet-read").into_bytes();
         let source = source_answering("outage", vec![Scripted::raw(200, published), Scripted::status(500, "")]);
-        let gate = crate::testing::gate_around(Box::new(source));
+        let gate = crate::inbound::tests::gate_around(Box::new(source));
         let mint = |token| issuer.mint(&token).expect("the mock issuer signs");
         let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
         let (status, ref body, challenged) = crate::inbound::tests::guarded_answer(&gate, &unknown).await;

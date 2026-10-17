@@ -51,31 +51,3 @@ pub(crate) fn direct_overlay(issuer: &sutura_dev::issuer::MockIssuer, key_set_pa
         issuer.issuer(),
     )
 }
-
-/// A `direct` gate for [`an_issuer`] over `source`, primed now, that looks at the source again for
-/// every unknown key id and holds what it read for the full `MAX_KEY_SET_AGE`.
-///
-/// The declaration's own key set location is not read: the cache is built here, around `source`.
-pub(crate) fn gate_around(source: Box<dyn crate::inbound::keys::KeySetSource>) -> std::sync::Arc<crate::InboundGate> {
-    use sutura_config::{
-        InboundIdentity, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, PinnedAlgorithms, RequiredTokenType,
-        ResourceIdentifier, SigningAlgorithm,
-    };
-    let declaration = InboundIdentity::Direct {
-        resource: ResourceIdentifier::parse(RESOURCE).expect("a test resource is a resource"),
-        authorization_server: IssuerUrl::parse(ISSUER).expect("a test issuer is an issuer"),
-        key_set: KeySetLocation::File(KeySetFile::parse("/unread/by/this/gate.json").expect("a test path is a path")),
-        algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
-        token_type: RequiredTokenType::access_token(),
-    };
-    let keys = crate::inbound::keys::KeySetCache::primed_with_window(
-        source,
-        KeyFamily::EllipticCurve,
-        String::from("ES256"),
-        core::time::Duration::ZERO,
-        crate::inbound::keys::MAX_KEY_SET_AGE,
-        std::time::Instant::now(),
-    )
-    .expect("the first read is a key set");
-    std::sync::Arc::new(crate::InboundGate::over(&declaration, keys))
-}

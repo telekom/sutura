@@ -965,4 +965,4 @@ async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered
 #[cfg(test)]
 mod identity;
 pub(crate) use identity::{ISSUER, KID, RESOURCE};
-pub(crate) use identity::{accepted_by, an_issuer, direct_overlay, every_scope, gate_around};
+pub(crate) use identity::{accepted_by, an_issuer, direct_overlay, every_scope};

@@ -54,6 +54,21 @@ use fixtures::{
     signed, signed_as, transit,
 };
 
+/// A `direct` gate over `source`, primed now, that looks at the source again for every unknown key
+/// id and holds what it read for the full `MAX_KEY_SET_AGE`.
+pub(super) fn gate_around(source: Box<dyn crate::inbound::keys::KeySetSource>) -> Arc<InboundGate> {
+    let keys = KeySetCache::primed_with_window(
+        source,
+        KeyFamily::EllipticCurve,
+        String::from("ES256"),
+        Duration::ZERO,
+        MAX_KEY_SET_AGE,
+        Instant::now(),
+    )
+    .expect("the first read is a key set");
+    Arc::new(InboundGate::over(&direct(), keys))
+}
+
 /// What a route behind `gate` answers a bearer `token`: the status, the body, and whether a
 /// `WWW-Authenticate` challenge came with it.
 ///
@@ -840,7 +855,7 @@ async fn an_unknown_key_id_while_the_key_set_file_is_unreadable_is_503_identity_
         .expect("a mock issuer generates a second key");
     let path = std::env::temp_dir().join(format!("sutura-unreadable-jwks-{}.json", std::process::id()));
     std::fs::write(&path, issuer.key_set_without("a-key-not-yet-read")).expect("the scratch key set is writable");
-    let gate = crate::testing::gate_around(Box::new(FileKeySet::at(&path)));
+    let gate = gate_around(Box::new(FileKeySet::at(&path)));
     std::fs::remove_file(&path).expect("the scratch key set is removable");
     let mint = |token| issuer.mint(&token).expect("the mock issuer signs");
     let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
