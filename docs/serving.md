@@ -110,7 +110,8 @@ no default mode:
 [Inbound identity](integrations/identity.md) has the settings, the key set and its rotation. In `direct` mode, a
 refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed. A
 token with an unknown `kid` while the last look at the key set failed to read it gets `503 identity_unavailable` with
-no challenge. A key set that sutura reads and refuses is `401`.
+no challenge. A key set that sutura reads and refuses is `401`. An unknown `kid` less than 30 seconds after a
+look that read the key set is `401` too, because sutura does not look again so soon.
 [Serving behind a gateway](serving-behind-a-gateway.md) covers a gateway that signs into `Authorization`.
 
 The `scope` claim of the token decides which operations the caller can use:

@@ -6,8 +6,8 @@ description: The other half of the identity path - leg 1, from the caller to sut
 # How a caller proves who it is
 
 Status: **accepted, and the mechanism is built. Four things this record describes are not, and one
-sentence of it was wrong about what the code could support** - the ninth amendment built the first
-of the five *Not built* names - see *What is built, and what of this
+sentence of it was wrong about what the code could support** - the ninth amendment built item 1
+of *Not built* - see *What is built, and what of this
 record is not* at the foot, and *The correction review forced* inside it. That section is the authority
 on the state: every "not built" in the body below it is older than the code, and Decision 1's wording
 about a *proof that the request transited* a component is corrected there rather than quietly rewritten

@@ -427,7 +427,7 @@ cell observes a handshake's protocol or cipher.
 ## Seventh amendment, 2026-10-17: the inbound key set fetch exists, and trusts `security.outbound`
 
 *Consequences* says the inbound JWKS fetch does not exist. It does now: `security.inbound.key_set_url`
-names an issuer's `jwks_uri`, and `sutura_http::UrlKeySet` reads it over the shared outbound client
+names an issuer's `jwks_uri`, and `sutura_http::inbound::UrlKeySet` reads it over the shared outbound client
 (ADR 0014, ninth amendment). It trusts `security.outbound.transport_anchors` when that is set, and the
 built-in web roots when not, so an issuer behind a private CA is the reuse case that sentence named.
 Two limits: the fetch presents no client identity, even when `security.outbound` declares one, and it
