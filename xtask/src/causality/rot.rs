@@ -857,6 +857,8 @@ mod tests {
         );
         let first: Shard = "1/2".parse().expect("a shard");
         assert_eq!(run_at(&root, first), Verdict::Fail, "shard 1/2 holds the one patch");
+        let one = ["--shard".to_owned(), "1/2".to_owned()];
+        assert_eq!(run_from(&one, || Some(root.clone())), Verdict::Fail, "1/2 reaches run_at");
         let args = ["--shard".to_owned(), "2/2".to_owned()];
         assert_eq!(
             run_from(&args, || Some(root)),
