@@ -14,14 +14,27 @@
 # `main`, and a run is not one. That second hold is the save condition AND this trigger list, and
 # no gate reads the trigger list - review holds it. Likewise `contents: read` on the job.
 #
-# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. If a patch takes about 1 minute, 514 patches
-# take about 8.6 hours, which is past the 6 hour limit, so one run may not finish inside it. The
-# time for each patch is not measured. A run stops at the first patch that no longer kills its
-# cell. A timeout is not a verdict. A shard input is the follow-up if the first run times out.
+# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. If a patch takes about 1 minute, 567 patches
+# take about 9.5 hours, which is past the 6 hour limit, so one run over all of them may not finish
+# inside it. The time for each patch is not measured.
+#
+# THE SHARD INPUT splits the set: `shard` is `<i>/<n>`, and `n` dispatches `1/n` to `n/n` cover every
+# patch once. Position `p` of the sorted patch names goes to shard `p % n + 1`, so dispatch all `n`
+# from the same commit. As a bound, not a measurement: with 1 minute for each patch, choose `n` of
+# at least the patch count divided by 300, which is 2 for 567 patches. The default `1/1` is the whole
+# set. A malformed value is refused with exit 2, and never runs the whole set.
+#
+# A run stops at the first patch that no longer kills its cell. A timeout is not a verdict.
 name: claim-mutation-kills
+run-name: claim-mutation-kills ${{ inputs.shard }}
 
 on:
   workflow_dispatch:
+    inputs:
+      shard:
+        description: "Which slice of the patches to run, as <i>/<n> with 1 <= i <= n, for example 2/4"
+        type: string
+        default: "1/1"
 
 permissions: {}
 
@@ -52,7 +65,9 @@ jobs:
           scope: ci
 
       - name: Check every committed claim mutation still kills its cell
-        run: nix run .#claim-mutation-kills
+        env:
+          SHARD: ${{ inputs.shard }}
+        run: nix run .#claim-mutation-kills -- --shard "$SHARD"
 
       - uses: $/.github/actions/nix-store-cache-report
         if: always()

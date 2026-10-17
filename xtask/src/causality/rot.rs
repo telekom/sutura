@@ -68,6 +68,10 @@ use crate::causality::place::{self, AddedTest};
 use crate::causality::scoped::{Code, Scoped};
 use crate::repo;
 
+mod shard;
+
+use shard::Shard;
+
 /// Every `.patch` file committed at `dir`, sorted by name.
 ///
 /// An ABSENT directory is a legitimate "nothing committed yet" and answers `Ok(empty)` - the same
@@ -321,19 +325,33 @@ fn lost_line(cell: &str) -> String {
 /// THE KILL HALF: does every committed mutation patch still kill the cell it names?
 ///
 /// ON-DEMAND, not `hygiene` - see this module's header for the cost and the residual.
-pub(crate) fn run(_args: &[String]) -> Verdict {
+///
+/// `--shard <i>/<n>` runs one of `n` disjoint slices of the patches; without it, all of them.
+pub(crate) fn run(args: &[String]) -> Verdict {
+    let shard = match shard_of(args) {
+        Ok(shard) => shard,
+        Err(refusal) => return refusal,
+    };
     let Some(root) = repo::root() else {
         eprintln!("xtask check-claim-mutation-kills: could not locate the repo root");
         return Verdict::Fail;
     };
-    run_at(&root)
+    run_at(&root, shard)
+}
+
+/// The shard `args` name, or the refusal to report: a malformed one is `Usage`, never a full run.
+fn shard_of(args: &[String]) -> Result<Shard, Verdict> {
+    Shard::of_args(args).map_err(|why| {
+        eprintln!("xtask check-claim-mutation-kills: {why}");
+        Verdict::Usage
+    })
 }
 
 /// [`run`]'s testable core, over an arbitrary root - up to the point the mutation actually needs
 /// compiling. The refusal paths below (a cell that is `Gone`, `Ambiguous` or `Misnamed`) are exercised
 /// without ever reaching [`claim::run`], which is the expensive call this module's header prices;
 /// `claim::run` itself is `claim.rs`'s own tested surface, not re-tested here.
-fn run_at(root: &Path) -> Verdict {
+fn run_at(root: &Path, shard: Shard) -> Verdict {
     let dir = root.join(claim::MUTATIONS_DIR);
     let list = match patches(&dir) {
         Ok(list) => list,
@@ -347,6 +365,16 @@ fn run_at(root: &Path) -> Verdict {
             "xtask check-claim-mutation-kills: ok - no {} committed yet",
             claim::MUTATIONS_DIR
         );
+        return Verdict::Pass;
+    }
+
+    let total = list.len();
+    let list = shard.take(list);
+    println!(
+        "xtask check-claim-mutation-kills: shard {shard}: {} of {total} patches",
+        list.len()
+    );
+    if list.is_empty() {
         return Verdict::Pass;
     }
 
@@ -414,7 +442,8 @@ const KILL_HALF: claim::Caller = claim::Caller {
 
 #[cfg(test)]
 mod tests {
-    use super::{Located, cell_name, check_apply_at, locate, patches, run_at, unlocated};
+    use super::shard::Shard;
+    use super::{Located, cell_name, check_apply_at, locate, patches, run_at, shard_of, unlocated};
     use crate::Verdict;
     use std::path::PathBuf;
 
@@ -494,7 +523,7 @@ mod tests {
         write_patch(&root, "the_wired_one", &patch);
         git_cmd(&root, &["add", "-A"]);
         git_cmd(&root, &["commit", "-q", "-m", "init"]);
-        let verdict = run_at(&root);
+        let verdict = run_at(&root, Shard::WHOLE);
         drop(std::fs::remove_dir_all(&root));
         assert_eq!(verdict, Verdict::Pass, "a mutation that kills the cell must be accepted");
     }
@@ -507,7 +536,7 @@ mod tests {
         write_patch(&root, "the_wired_one", &patch);
         git_cmd(&root, &["add", "-A"]);
         git_cmd(&root, &["commit", "-q", "-m", "init"]);
-        let verdict = run_at(&root);
+        let verdict = run_at(&root, Shard::WHOLE);
         drop(std::fs::remove_dir_all(&root));
         assert_eq!(
             verdict,
@@ -526,7 +555,7 @@ mod tests {
         );
         git_cmd(&root, &["add", "-A"]);
         git_cmd(&root, &["commit", "-q", "-m", "init"]);
-        let verdict = run_at(&root);
+        let verdict = run_at(&root, Shard::WHOLE);
         drop(std::fs::remove_dir_all(&root));
         assert_eq!(
             verdict,
@@ -543,7 +572,7 @@ mod tests {
         write_patch(&root, "the_wired_one", &patch);
         git_cmd(&root, &["add", "-A"]);
         git_cmd(&root, &["commit", "-q", "-m", "init"]);
-        let verdict = run_at(&root);
+        let verdict = run_at(&root, Shard::WHOLE);
         drop(std::fs::remove_dir_all(&root));
         assert_eq!(
             verdict,
@@ -796,7 +825,43 @@ mod tests {
             "a_test_fn_nothing_declares_any_more",
             "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
         );
-        assert_eq!(run_at(&root), Verdict::Fail);
+        assert_eq!(run_at(&root, Shard::WHOLE), Verdict::Fail);
+    }
+
+    /// A shard that selects none of the patches runs none of them, while the whole set - the
+    /// unlocatable cell included - is refused: the slice is what `run_at` acts on.
+    #[test]
+    fn a_shard_runs_only_its_own_patches() {
+        let root = scratch("kill-shard-slice");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "").expect("an empty crate root");
+        write_patch(&root, "a_cell_nothing_declares", "");
+        let other: Shard = "2/2".parse().expect("a shard");
+        assert_eq!(
+            run_at(&root, other),
+            Verdict::Pass,
+            "shard 2/2 holds no patch of a set of one"
+        );
+        assert_eq!(
+            run_at(&root, Shard::WHOLE),
+            Verdict::Fail,
+            "the whole set holds the unlocatable cell"
+        );
+    }
+
+    #[test]
+    fn a_malformed_shard_is_a_usage_error_not_a_full_run() {
+        for bad in [
+            &["--shard", "0/4"][..],
+            &["--shard", "5/4"],
+            &["--shard", "4"],
+            &["4/4"],
+            &["--shard"],
+        ] {
+            let args: Vec<String> = bad.iter().map(|arg| (*arg).to_owned()).collect();
+            assert_eq!(shard_of(&args), Err(Verdict::Usage), "{bad:?}");
+        }
     }
 
     #[test]
@@ -904,7 +969,7 @@ mod tests {
         write_patch(&root, SHARED, &format!("Claim-Cell-File: src/one.rs\n{patch}"));
         git_cmd(&root, &["add", "-A"]);
         git_cmd(&root, &["commit", "-q", "-m", "init"]);
-        let verdict = run_at(&root);
+        let verdict = run_at(&root, Shard::WHOLE);
         drop(std::fs::remove_dir_all(&root));
         assert_eq!(
             verdict,
