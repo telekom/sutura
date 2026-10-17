@@ -50,14 +50,14 @@ split is the whole of the design:
    refused; `ExactInteger` against `ExactDecimal` is refused; `Date` against `Text`
    is refused.
 
-The call site is `crates/sutura-exec-datafusion/src/combine.rs:350`:
+The call site is `crates/sutura-exec-datafusion/src/combine.rs:347`:
 
 ```rust
 agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
 ```
 
 A second fact leg, when one is present for a cross-model ratio, is checked the same
-way against the first fact leg at `combine.rs:364`.
+way against the first fact leg at `combine.rs:361`.
 
 ### Why kinds, not types
 
@@ -128,7 +128,7 @@ so a catalog that mis-declares a key refuses a join that would have matched.
 sides' kind as a prose word - *an exact integer*, *text*, *a date* - via
 `LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The combiner maps that to
 `FederatedAnswerRefusal::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine.rs:449`,
+(`crates/sutura-exec-datafusion/src/combine.rs:446`,
 `crates/sutura-domain/src/plan/federated/failure.rs:62-65`), and it reaches a
 caller inside `RefusalReason::FederatedAnswerNotWellFormed`.
 
