@@ -832,7 +832,7 @@ mod deadline_tests {
         );
     }
 
-    // No `dry_run` variant: this adapter takes the port's default (`lib.rs`'s comment on the
+    // No `dry_run` variant: this adapter takes the port's default (`warehouse.rs`'s comment on the
     // omission), which never calls `rows` and is unchanged by this slice - a test pinning it would
     // pass identically before and after, which `just causality` would rightly read as no coverage.
 
