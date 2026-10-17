@@ -42,6 +42,8 @@ impl AssertionId {
 pub(crate) enum NotAdmitted {
     /// Its `jti` is held, and its assertion has not expired.
     Replayed,
+    /// Its `until` is before the store's own clock.
+    Expired,
     /// Every place is held by an unexpired assertion. `announce` is `true` once per window, so a full
     /// store is logged once rather than once per refused request.
     Full { announce: bool },
@@ -61,6 +63,8 @@ struct Seen {
     next_expiry: i64,
     /// The second until which a full store is not announced again.
     quiet_until: i64,
+    /// The latest `now` any admission was asked at: the store's own clock, which never moves back.
+    latest: i64,
 }
 
 impl SeenAssertions {
@@ -72,6 +76,7 @@ impl SeenAssertions {
                 until: HashMap::new(),
                 next_expiry: i64::MAX,
                 quiet_until: i64::MIN,
+                latest: i64::MIN,
             }),
         }
     }
@@ -79,9 +84,15 @@ impl SeenAssertions {
     /// Admits `id` once and holds it through `until`, both in unix seconds against `now`.
     ///
     /// **The check and the record are one lock acquisition**, so of two concurrent presentations of
-    /// one assertion exactly one is admitted.
+    /// one assertion exactly one is admitted. **The store's own clock decides** - `now`, or the latest
+    /// `now` it was asked at if that is later - and an `until` before it is refused and recorded nowhere.
     pub(crate) fn admit(&self, id: AssertionId, until: i64, now: i64) -> Result<(), NotAdmitted> {
         let mut seen = self.state.lock();
+        let now = now.max(seen.latest);
+        seen.latest = now;
+        if until < now {
+            return Err(NotAdmitted::Expired);
+        }
         if seen.until.get(&id).is_some_and(|held| *held >= now) {
             return Err(NotAdmitted::Replayed);
         }
@@ -133,6 +144,24 @@ mod tests {
             "held through its last second"
         );
         assert_eq!(seen.admit(id("a"), 200, 101), Ok(()), "forgotten after it");
+    }
+
+    #[test]
+    fn an_assertion_already_past_its_window_is_refused_and_recorded_nowhere() {
+        let seen = SeenAssertions::new(4, 180);
+        assert_eq!(seen.admit(id("a"), 100, 101), Err(NotAdmitted::Expired));
+        assert!(seen.state.lock().until.is_empty(), "recorded nowhere");
+    }
+
+    #[test]
+    fn the_store_clock_never_moves_back() {
+        let seen = SeenAssertions::new(4, 180);
+        assert_eq!(seen.admit(id("a"), 300, 200), Ok(()));
+        assert_eq!(
+            seen.admit(id("b"), 195, 190),
+            Err(NotAdmitted::Expired),
+            "asked at 190 after 200, the store reads 200"
+        );
     }
 
     #[test]

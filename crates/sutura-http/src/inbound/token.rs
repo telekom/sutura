@@ -488,7 +488,8 @@ impl TokenValidator {
     }
 
     /// Admits a single-use assertion once, and holds its `jti` until `exp` plus the leeway - the
-    /// moment the validation above would refuse the assertion anyway. `Ok` where single use is off.
+    /// moment the validation above would refuse the assertion anyway. An assertion the store's own
+    /// clock already puts past that moment is refused as expired. `Ok` where single use is off.
     fn admitted_once(&self, jti: Option<&serde_json::Value>, exp: i64) -> Result<(), TokenRejected> {
         let Some(ref seen) = self.seen else {
             return Ok(());
@@ -500,6 +501,9 @@ impl TokenValidator {
         match seen.admit(id, exp.saturating_add(leeway), now_in_seconds()) {
             Ok(()) => Ok(()),
             Err(NotAdmitted::Replayed) => Err(TokenRejected::Replayed),
+            Err(NotAdmitted::Expired) => Err(TokenRejected::NotVerified(NotVerified::Crypto {
+                cause: jsonwebtoken::errors::ErrorKind::ExpiredSignature.into(),
+            })),
             Err(NotAdmitted::Full { announce }) => {
                 if announce {
                     tracing::error!(

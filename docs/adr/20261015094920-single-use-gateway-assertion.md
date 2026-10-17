@@ -47,8 +47,9 @@ which a component can do today. A binding is not built, and nothing here rules i
 ## The store and its bound
 
 - **In memory, one per process.** A `jti` is held until its own `exp` plus the leeway, which is the
-  moment the validator would refuse the assertion anyway. So no entry is dropped while its assertion
-  is still accepted, and no entry outlives `transit_max_lifetime_seconds` plus 60 seconds.
+  moment the validator would refuse the assertion anyway. The store's own clock decides, and it never
+  moves back: an assertion whose `exp` plus the leeway has passed by that clock is refused and not
+  recorded. No entry outlives `transit_max_lifetime_seconds` plus 60 seconds.
 - **Expired entries are swept only when the store is full and one has expired.** No timer and no
   background task, and a store full of unexpired entries is not swept again on each request.
 - **The number of entries has a fixed cap, and a full store fails closed.** When the store is full
