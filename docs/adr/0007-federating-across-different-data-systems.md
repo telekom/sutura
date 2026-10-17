@@ -58,7 +58,8 @@ a mechanism instead of redeveloping one. *Fifth amendment, 2026-09-22* is that d
 and wired at the composition root - and the hand-written function is deleted.
 `datafusion-federation` is **still not** the mechanism: 0039's step 4 is blocked ahead of an upstream
 manifest change (*corrected by the twelfth amendment: that change is released, and step 4 waits for
-its caller*), so what is built is our own `DataFusion` plan behind that port, and the crate plugs
+its caller; corrected by the fourth amendment of `docs/adr/0039`: that caller exists as
+`SourceProvider`, and what is missing is a cut that runs it*), so what is built is our own `DataFusion` plan behind that port, and the crate plugs
 in where the port already is. What that record adds is where the implementation lives - an ADAPTER
 crate, because `ALLOWED_IN_DOMAIN`'s line is *no runtime, no client, no engine* and DataFusion is an
 engine - and what it costs, per step, with the measurement that bounds each. **What survives every
@@ -1298,7 +1299,8 @@ equality is `name() == name() && compute_context() == compute_context()` and equ
 its optimizer fuses into one federated node executed through ONE of them. Nothing in this build
 compares two contexts yet: that crate is step 4 of `docs/adr/0039` and is blocked ahead of an
 upstream manifest change (*corrected by the twelfth amendment: the change is released, and the
-caller is what is missing*). So the seam is where a provider plugs in, and the value reaching it is a
+caller is what is missing; corrected by the fourth amendment of `docs/adr/0039`: that caller now
+exists as `SourceProvider`, which no served process calls yet*). So the seam is where a provider plugs in, and the value reaching it is a
 digest rather than a person's identifier in `EXPLAIN` output.
 
 **Two refusals this record decided are gone, and both because the port made them unrepresentable
@@ -1423,7 +1425,9 @@ unchanged, and so is the question itself: no shipped code calls that driver yet.
 amendment both say step 4 of `docs/adr/0039` (adopting `datafusion-federation`) is blocked ahead of
 an upstream manifest change. That change is released in `datafusion-federation` 0.5.7 (the third
 amendment of that record carries the measurement). Step 4 is still not built: it waits for its
-caller, a provider implementation, which does not exist.
+caller, a provider implementation, which does not exist. *Corrected by the fourth amendment of
+`docs/adr/0039`: the provider exists as `SourceProvider`, and what step 4 waits for now is a cut
+that runs it, in PR 5b.*
 
 **The `RowSet`-to-Arrow bullet under *What is explicitly not decided* is spent.** It asks whether the
 conversion survives the first federated answer. It does not: `Warehouse::execute` answers

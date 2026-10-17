@@ -32,7 +32,7 @@
 //! audience did not" tells somebody which half of a forgery to fix.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Request, State};
 use axum::http::HeaderMap;
@@ -134,7 +134,15 @@ impl InboundGate {
                     .map_or_else(|| requirement.audience().as_str(), ResourceIdentifier::as_str),
             ),
             validator: TokenValidator::new(&requirement),
-            keys: Arc::new(keys),
+            // `docs/adr/20261015095237`: only a mode with a lifetime ceiling has a grace, and it is that
+            // ceiling plus the leeway an old key's last assertion can still be accepted inside.
+            keys: Arc::new(
+                keys.with_grace(
+                    requirement
+                        .max_lifetime()
+                        .map(|ceiling| Duration::from_secs(ceiling.seconds()).saturating_add(TokenValidator::leeway())),
+                ),
+            ),
             header,
             bearer_prefixed,
             challenges,

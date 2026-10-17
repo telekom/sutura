@@ -1,14 +1,15 @@
 //! The value a federation boundary keys per-caller isolation on.
 //!
-//! **What this build does NOT contain, first, because everything below reads as if it did.**
-//! `datafusion-federation` is not a dependency of this workspace and no crate here names it -
-//! `cargo xtask unused-deps` would fail one that did - so nothing in this process compares two
-//! contexts, nothing pushes a sub-plan down to a remote, and there is no multi-node execution. What
-//! ships is a DataFusion-native LOCAL combine (`sutura_exec_datafusion::combine`) plus the provider
-//! seam a federation provider would plug into. The reasoning below is about that crate's rule
-//! because the seam is shaped to it (`docs/adr/0039` step 4, not built and blocked ahead of its
-//! caller); it is a design constraint this type is built to satisfy in advance, never a hazard this
-//! build is exposed to today.
+//! **What this build does NOT do, first, because everything below reads as if it did.**
+//! `datafusion-federation` is a dependency of `sutura_exec_datafusion`, and
+//! `sutura_exec_datafusion`'s `SourceProvider` implements that crate's `FederationProvider` with this
+//! type as the context. No crate here runs that crate's optimizer rule, and `SourceProvider` has no
+//! optimizer of its own. So nothing in this process compares two contexts, nothing pushes a sub-plan
+//! down to a remote, and there is no multi-node execution. What runs is a DataFusion-native LOCAL combine
+//! (`sutura_exec_datafusion::combine`) over legs the splitter already cut. The reasoning below is
+//! about that crate's rule because the provider is shaped to it (`docs/adr/0039`, fourth amendment:
+//! its first caller is PR 5b of `docs/adr/20261010140559`); it is a design constraint this type is
+//! built to satisfy in advance, never a hazard this build is exposed to today.
 //!
 //! **This type exists because of one line of third-party source, and the line is a comparison.**
 //! `datafusion-federation`'s optimizer decides which table scans belong to one remote by comparing

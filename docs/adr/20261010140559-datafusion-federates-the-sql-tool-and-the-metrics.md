@@ -8,7 +8,8 @@ description: DataFusion plans a federated question over table providers built fr
 Status: **proposed** (issue #828). It replaces #828's M1 with the staged plan in decision 5. The
 owner decided its three open questions on 2026-10-10. Each one is recorded where it applies, as
 *Owner decision 2026-10-10*. The identity design and four more owner decisions of 2026-10-12 are in
-*Amendment, 2026-10-12* at the end. Each one is also marked where it applies.
+*Amendment, 2026-10-12* at the end. Each one is also marked where it applies. The third amendment
+(2026-10-17) records that PR 4 is not built and moves the crate's cut to PR 5b.
 
 It amends three records where it names them.
 [ADR 0007](0007-federating-across-different-data-systems.md): how a leg reaches its source, and its
@@ -225,7 +226,8 @@ this feature too. PR 5b adds a gate over the default build's resolved tree that 
 decision 1. `datafusion-federation`'s optimizer rule cuts each largest one-provider subtree into a
 `FederatedPlanNode`. One source can give more than one node. The rest (the join, the re-aggregation, the `Above` division and the sort) runs
 locally. That rest is today's combine plan. The change is that each leg is now a scan in the same
-plan, and not a `MemTable` of a finished result.
+plan, and not a `MemTable` of a finished result. *Third amendment: this does not happen on the
+metric path. The legs stay the splitter's own, and the crate's cut first runs in PR 5b.*
 
 **How ADR 0007's invariant holds.** A value from the question enters the `LogicalPlan` as an
 `Expr::Placeholder`, never as an `Expr::Literal`. The values stay beside the plan as the domain's
@@ -251,7 +253,8 @@ compared against the plan's parameter list* applies to each pushed statement.
   not measured.
 
 **Owner decision 2026-10-10 (Q3): `polyglot-sql` writes the pushed metric statement first, not
-DataFusion's unparser.** The two options were:
+DataFusion's unparser.** *Third amendment: no PR pushes a metric statement from an engine cut now,
+so no PR applies this decision.* The two options were:
 
 - (a) **sutura's own generator.** The planner maps each cut subtree back to a domain `LegPlan`, and
   `sutura_sql::generate_leg` writes it through `polyglot-sql`, as today. No second parser enters the
@@ -316,7 +319,7 @@ next PR, so that `just causality` can build the base.
 | 2  | The catalog's table schemas as typed columns, and a fully qualified name for each federated table. It deletes `Warehouse::table_schemas` with its DuckDB and Postgres overrides and its wrappers, the call site in the load, the method's `clippy.toml` row and the Postgres conformance cell. The pinned set (`PinnedSchemas`, `SchemaDigest`) stays, pinned by both digests, and takes its columns from the catalog | A column that the bundle names and the catalog lacks refuses the load. A refresh swaps the set. A question in flight keeps its set.                                                                                                                                                                                                      |
 | 3a | `datafusion-federation` 0.5.7 without `sql`, the two-call combiner port and the leg runner, with the cut fixed to today's legs and `compute_context()` = `ComputeContext::of(source, subject)`                                                                                                                                                                                                                        | Every federated golden gives the same answer as before. The ledger charges before any leg runs.                                                                                                                                                                                                                                          |
 | 3b | The leg runner's refusal of a leg that is not among the cut's own legs                                                                                                                                                                                                                                                                                                                                                | Two subjects' providers are not equal. An uncharged leg is refused.                                                                                                                                                                                                                                                                      |
-| 4  | DataFusion cuts the metric plan (decision 3), with `polyglot-sql` as the generator                                                                                                                                                                                                                                                                                                                                    | A differential against PR 3's answers on DuckDB and Postgres. One placeholder for each value in each pushed statement. A cut that the map does not accept is refused by name.                                                                                                                                                            |
+| 4  | *Not built.* Third amendment: the metric path takes no engine cut, and the crate's cut moves to PR 5b. Was: DataFusion cuts the metric plan (decision 3), with `polyglot-sql` as the generator                                                                                                                                                                                                                        | *None.* The differential against PR 3's answers is the existing federated golden suite, unchanged. Was: a differential against PR 3's answers on DuckDB and Postgres, one placeholder for each value in each pushed statement, and a cut that the map does not accept refused by name                                                    |
 | 5a | The new `RawRefusalReason` variant, which nothing produces yet, its enrolled variant count in `xtask check-refusal-coverage`, and a dated entry for it in `devco/raw-refusals-unprovoked-allow`                                                                                                                                                                                                                       | Nothing new to run                                                                                                                                                                                                                                                                                                                       |
 | 5b | `federation_allowed` on `run_sql` (decision 2), behind the `sql` cargo feature, and a gate that fails when `sqlparser` or `datafusion-sql` is in the default build's resolved tree. It removes 5a's allow entry                                                                                                                                                                                                       | `false`: a statement over two sources is the typed refusal. `true`: the same statement over DuckDB and Postgres gives the answer that one DuckDB with both tables gives. Each startup refusal. DDL and DML refused at planning. The raw guards per leg. No planner or driver text reaches a caller. The default build has neither crate. |
 
@@ -345,10 +348,11 @@ checks. `just validate` does not run them. PR 5b adds its resolved-tree gate to 
 
 What #828's milestones become:
 
-- **M1** is replaced by PRs 2 to 4.
+- **M1** is replaced by PRs 2 to 3b (*third amendment*: PR 4 is not built). Was: replaced by PRs 2 to 4.
 - **M2** (CI slice) is unchanged and does not depend on this record.
-- **M3** (plan-time heuristic) reads PR 4's cut (the legs, one or more for each source, and the local rest) and not
-  today's fixed two-leg split.
+- **M3** (plan-time heuristic) reads the cut that the port returns (the legs, one or more for each source, and the local rest; for a metric question these are today's legs, and the crate's cut,
+  for `run_sql`, comes from PR 5b) and not today's fixed two-leg split (*third amendment*, *Owner decision 2026-10-16*: no
+  engine cut now, the cut comes with PR 5b). Was: reads PR 4's cut.
 - **M4** (elastic multi-node) plugs in where the `FederationPlanner` runs the local rest. A worker
   must call the leg runner, so each guard of decision 4 still runs once per leg. A worker gets the
   caller's credential only through an RFC 8693 token exchange or the declared hop chain. The
@@ -438,3 +442,67 @@ it as `ClickHouseError::LegUnderExecuteAs` before it sends anything. A leg runs 
 `user` of a `shared-service-user` source, or signed in with the caller's `delegation` token.
 **Limit.** The adapter refuses that leg after the mint, so the answer fails with the adapter's
 error and not with the `federation_not_executable` refusal.
+
+## Third amendment, 2026-10-17: the metric path takes no engine cut, and the crate's cut moves to PR 5b
+
+**What is built.** PR 2 (#1389), PR 3a (#1358) and PR 3b (#1382). The two-call port is `Cut`,
+`LegRunner` and the provided `plan` and `execute`
+(`crates/sutura-domain/src/plan/federated/combiner.rs:185`, `:204`, `:317`). PR 4 is not built.
+
+**Decision.** PR 4 is not built as written, and decision 3 changes in one point: the metric question
+gets no engine cut. The splitter's legs stay the cut. The crate's optimizer rule first runs in
+PR 5b, on `run_sql`, where the statement is the caller's and the legs are not known before the plan.
+The rest of decision 3 holds: the domain names no engine, a value from the question is a bound
+parameter at each leg, and every guard of decision 4 runs once per leg. **Limit.** `SourceProvider`
+(`crates/sutura-exec-datafusion/src/combine/provider.rs`) answers `None` for its optimizer and no
+code runs the rule, so the crate cuts nothing today. That stays true until PR 5b.
+
+**Why: on the metric plan, the crate's cut gives what the splitter already gives.** The crate cuts
+the largest subtree whose scans share one provider (`datafusion-federation` 0.5.7,
+`src/optimizer/mod.rs:21-25`). The fact and the lookup sit on two different sources by construction
+(`FederatedPlanError::SameSource`, `crates/sutura-domain/src/plan/federated.rs:220`). Each leg
+already holds its same-source joins, filter and aggregate. So each leg is already the largest
+one-source subtree, and an engine cut could only reproduce it. This is the reason that Rejected row A
+gives for a seam with no new reach: *it pushes nothing down that today's legs do not*. **Limit.**
+This is a static read. A plan shape that the splitter does not emit is not part of the claim.
+
+**Owner decision 2026-10-16 (Q4): keep two statements for the two-fact join at one source.** A second
+fact may sit on the first fact's source (#780, `crates/sutura-domain/src/plan/federated.rs:224-230`).
+The domain keeps it as a second statement, and the combine joins the two facts locally, after it
+refuses a fan-out on the link and the bucket (`crates/sutura-exec-datafusion/src/combine.rs:385-391`).
+The crate would fuse those two scans into one node, because one subject's two scans of one source
+have equal providers. Pushed as one statement, the fan-out guard would move to the source, where
+nothing checks it. So the guard stays local. **Limit.** The cost is one more round trip to that
+source. A pushed two-fact join would need a new leg shape, the guard rebuilt at the source and an
+adapter capability. None is planned.
+
+**Four findings against PR 4 as written.** Each is read from the tree or from the pinned crates.
+
+| #  | This record says                                                                                                      | The tree or the crate does                                                                                                                                                                                                                                                                                                                                                 | Effect                                                                                                                                                                                                                                                                                                 |
+| -- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| F1 | Q3 (a): the planner maps each cut subtree back to a new `LegPlan`.                                                    | `Charged::spend` compares a leg's address (`crates/sutura-app/src/federated/leg.rs:182-185`). A clone of a leg is refused as `LegNotGivenOut` (`:221-227`), and the cell `an_equal_leg_the_charged_cut_never_held_is_refused` holds it (`crates/sutura-app/src/federated/tests/charged_leg_test.rs:183-184`), by the assertion in `refused_as_not_given_out` (`:160-170`). | Every new leg from a reverse map is refused. The map must choose the plan's own legs, or the token must compare by value.                                                                                                                                                                              |
+| F2 | Decision 3: each leg is a scan in the same plan, and not a `MemTable`.                                                | `FederatedPlanNode` holds an `Arc<dyn FederationPlanner>`, and the planner returns an `Arc<dyn ExecutionPlan>` (0.5.7 `src/plan_node.rs:22-25`, `:107-114`). Both are `'static`. The runner is borrowed (`leg.rs:196-203`), and `LegRunner::run` is synchronous (`combiner.rs:214`).                                                                                       | A leg in the engine's plan cannot hold the runner without an `Arc`, or a copy of the credentials in the engine. A synchronous leg inside the combiner's one current-thread runtime (`combine.rs:283`) blocks it. The fact and lookup legs run in parallel today (`combiner.rs:340-354`) and would not. |
+| F3 | Nothing.                                                                                                              | DataFusion checks the schema of an extension's plan by field name only. `matches_arrow_schema` zips the names, with no type check and no length check (`datafusion-common` 55.1.0 `src/dfschema.rs:594-600`, called for an extension's plan at `datafusion` 55.1.0 `src/physical_planner.rs:1815`; the check is defined at `:265-281`).                                    | A leg whose source types a column differently from the engine's typing of the subtree passes the planner's schema check with no refusal. What the operators above it then do with that column is not measured. Today the combine reads each leg's actual schema (`combine.rs:346-349`).                |
+| F4 | Decision 1: a table with a column that has no mapped type cannot be a provider, and its source stays on today's path. | `PinnedSchemas` gives a column with no mapped type the type `Utf8` and records the fall-back (`crates/sutura-domain/src/warehouse/schema.rs:3-7`).                                                                                                                                                                                                                         | A typed leg subtree over a measure that fell back to `Utf8` fails to plan (a sum over text). That is a refusal where today answers, unless a second path exists.                                                                                                                                       |
+
+**Limit.** Nothing ran for these four. F3 and F4 rest on reading the source of the pinned versions,
+and no cell shows either one fail.
+
+**What PR 5b inherits (Owner decision 2026-10-16, Q5: record F1 to F3 now as inputs of 5b).**
+
+- **F2.** 5b runs each cut node's leg through the leg runner first, and the engine then plans over
+  the batches that came back. The `FederationPlanner` holds no runner and no credential.
+- **F1.** 5b's legs come from the cut, so the set that the charge covers is not the plan's own
+  `LegPlan` addresses. What type that set takes is 5b's decision. The rule stays: a leg with no
+  charge is refused before its warehouse or its credential is read.
+- **F3.** 5b checks the actual schema of each node's batches against the engine's schema by name and
+  by type, and refuses a difference by name.
+
+A pre-fetch also avoids F4's plan failure, because the engine then plans over the batches as they
+came back. **Limit.** Not built. That is the design's claim, and no run measured it. M3 (decision 5)
+read PR 4's cut. It now reads the cut that the port returns, which is today's legs for a metric question, and the crate's cut,
+for `run_sql`, from 5b. This follows from the owner decision of 2026-10-16: no engine cut now, the cut comes with PR 5b.
+
+**What this changes in the record.** Decision 3 holds with the one point above. Q3 stays recorded and
+no PR applies it. If an engine cut returns to the metric path, it needs its own record that answers
+F1 to F4. The PR 4 row is marked not built. PRs 5a and 5b are as decision 5 says.
