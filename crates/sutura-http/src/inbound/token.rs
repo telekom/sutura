@@ -220,6 +220,8 @@ pub enum TokenRejected {
     /// Behind a gateway that declares single use, an assertion with no `jti` - `docs/adr/20261015094920`.
     #[error("the presented assertion carries no `jti`, and this deployment admits each assertion once by it")]
     NoAssertionId,
+    /// Behind a gateway that declares single use, a `jti` that is not a string of 1 to `limit` bytes.
+    /// The value is never rendered.
     #[error("the `jti` in the presented assertion is not a string of 1 to {limit} bytes")]
     UnusableAssertionId { limit: usize },
     /// The `jti` was admitted before and its assertion has not expired. The value is never rendered.
@@ -344,8 +346,9 @@ struct Claims {
     /// library already enforced.
     #[serde(default)]
     exp: i64,
-    /// The assertion's id, read only where single use is declared. A `Value`, so a `jti` that is not
-    /// a string cannot refuse a token on a deployment that does not read it.
+    /// The assertion's id, read only where single use is declared. A `Value`, so a `jti` of another
+    /// JSON type does not refuse a token on a deployment that does not read it - unless it nests
+    /// deeper than `serde_json`'s recursion limit, which refuses the whole document, as for `scp`.
     #[serde(default)]
     jti: Option<serde_json::Value>,
 }
@@ -750,4 +753,15 @@ fn chain_from(claim: &ActorClaim) -> Result<ActorChain, TokenRejected> {
 /// One actor identifier, parsed by the domain so a control character cannot reach an audit line.
 fn actor_of(raw: &str) -> Result<Actor, TokenRejected> {
     Actor::parse(raw).map_err(|cause| TokenRejected::UnusableActor { cause })
+}
+
+#[cfg(test)]
+mod tests {
+    use sutura_config::ProofLifetime;
+
+    #[test]
+    fn a_seen_entry_lives_the_ceiling_plus_the_leeway_on_both_ends() {
+        let ceiling = ProofLifetime::parse(120).expect("120 seconds is a lifetime");
+        assert_eq!(super::entry_window(ceiling), 180);
+    }
 }

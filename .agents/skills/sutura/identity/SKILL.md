@@ -139,8 +139,9 @@ directions. The non-obvious parts:
   *attempt* so a dead source is limited too. **The wording was right and the code was wrong against
   it once:** the check sat outside the lock and review measured three reads where two were required.
   A bound three documents state and concurrency breaks is a defect in the code, not the claim.
-- **Nothing binds an assertion to a request and nothing records what has been seen**, so inside the
-  lifetime ceiling an intercepted assertion replays. A regression test asserts the replay rather than
+- **Nothing binds an assertion to a request and nothing records what has been seen**, unless
+  `transit_single_use` is declared, which refuses a second presentation per process; otherwise
+  inside the lifetime ceiling an intercepted assertion replays. A regression test asserts the replay rather than
   pretending otherwise, and `docs/adr/0014` downgrades its own *"proof that the request transited"*
   wording to a *gateway-issued identity assertion* for that reason.
 

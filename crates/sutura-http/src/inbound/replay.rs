@@ -59,7 +59,9 @@ pub(crate) struct SeenAssertions {
 
 struct Seen {
     until: HashMap<AssertionId, i64>,
-    /// The earliest `until` held, so a full store of live entries is not swept on every request.
+    /// No later than the earliest `until` held, so a full store of live entries is not swept on every
+    /// request. It only falls on insert, so after a replaced entry it can start a sweep that drops
+    /// nothing.
     next_expiry: i64,
     /// The second until which a full store is not announced again.
     quiet_until: i64,
@@ -187,6 +189,19 @@ mod tests {
             seen.admit(id("c"), 150, 101),
             Ok(()),
             "a place frees once its assertion expires"
+        );
+    }
+
+    #[test]
+    fn a_sweep_keeps_an_entry_through_its_last_second() {
+        let seen = SeenAssertions::new(2, 180);
+        assert_eq!(seen.admit(id("a"), 100, 10), Ok(()));
+        assert_eq!(seen.admit(id("b"), 150, 10), Ok(()));
+        assert_eq!(seen.admit(id("c"), 200, 150), Ok(()), "the sweep at 150 frees `a`'s place");
+        assert_eq!(
+            seen.admit(id("b"), 150, 150),
+            Err(NotAdmitted::Replayed),
+            "and keeps `b` in its last second"
         );
     }
 

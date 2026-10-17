@@ -45,8 +45,9 @@
 //!    beside the claim.
 //! 3. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
 //!    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
-//!    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
-//!    store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
+//!    deployment chose - and inside that window an intercepted assertion replays, unless
+//!    `transit_single_use` is declared, which refuses a second presentation per process. Nothing
+//!    hashes a method, a path or a body into the assertion. That is why nothing here
 //!    calls it a proof that *this request* transited anything, and why the hop between the component
 //!    and this process is a trusted transport boundary rather than an incidental one.
 //!

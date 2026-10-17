@@ -326,7 +326,7 @@ pub struct TokenRequirement<'inbound> {
     /// [`InvalidInboundValue::LifetimeOutOfRange`]. The ceiling bounds the replay window of a captured
     /// assertion, not the assertion's binding to a request - see the module documentation.
     max_lifetime: Option<ProofLifetime>,
-    /// Whether each assertion is admitted once. `false` in `direct`, where the key is refused at load.
+    /// Whether each assertion is admitted once. `false` in `direct`, where `true` is refused at load.
     single_use: bool,
 }
 

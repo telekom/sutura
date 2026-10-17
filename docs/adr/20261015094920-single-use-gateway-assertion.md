@@ -26,8 +26,8 @@ The documentation of the setting states that window while the key is off.
   reuses one assertion across requests gets every request after the first refused. A component
   that mints one assertion per request loses nothing. Whether a given component mints one per
   request is not known here, so the documentation of the setting says to confirm it first.
-- **`behind-gateway` only.** A `direct` access token is reused across requests by design, so the
-  key in a `direct` block is refused at load, not ignored.
+- **`behind-gateway` only.** A `direct` access token is reused across requests by design, so `true`
+  in a `direct` block is refused at load, not ignored.
 - **With it on, an assertion without a `jti`, or with a `jti` over the length bound, is refused.**
   So is a `jti` this process has seen and still holds. Each refusal is the same `401` body as a bad
   signature or an expired assertion, so a caller cannot tell which check failed. A `jti` is never
@@ -50,8 +50,9 @@ which a component can do today. A binding is not built, and nothing here rules i
   moment the validator would refuse the assertion anyway. The store's own clock decides, and it never
   moves back: an assertion whose `exp` plus the leeway has passed by that clock is refused and not
   recorded. No entry outlives `transit_max_lifetime_seconds` plus 60 seconds.
-- **Expired entries are swept only when the store is full and one has expired.** No timer and no
-  background task, and a store full of unexpired entries is not swept again on each request.
+- **Expired entries are swept only when the store is full and the earliest expiry it knows has
+  passed.** No timer and no background task, and a store full of unexpired entries is not swept
+  again on each request.
 - **The number of entries has a fixed cap, and a full store fails closed.** When the store is full
   after the sweep, a new assertion is refused with `503 identity_unavailable`, and it is never
   admitted unrecorded. **No entry is evicted before its `exp` plus the leeway**, because an eviction
