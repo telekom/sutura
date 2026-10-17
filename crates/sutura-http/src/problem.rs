@@ -224,7 +224,8 @@ pub enum Failure {
     /// The data system did not answer. Distinguished from [`Self::Internal`] because it is the one
     /// failure that is worth retrying, and a caller cannot tell from a 500.
     Unavailable,
-    /// The credential broker did not answer, so nothing could be executed as the asking subject.
+    /// The credential broker did not answer, so nothing could be executed as the asking subject - or
+    /// the inbound key set could not be read when a token named a key id it does not hold.
     ///
     /// **Shares the status with [`Self::Unavailable`] and not the code.** Both are worth retrying, and
     /// the two are diagnosed in different places: one is a data system that is unwell and this is the

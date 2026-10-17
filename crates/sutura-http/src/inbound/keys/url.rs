@@ -136,14 +136,15 @@ mod tests {
     /// The server thread owns its listener, so it keeps answering after its handle is dropped; the
     /// bundle is loaded by `trusting`, so its scratch directory may go too.
     fn fetched(name: &str, answer: Scripted) -> Result<String, KeySetUnavailable> {
-        source_answering(name, answer).read()
+        source_answering(name, vec![answer]).read()
     }
 
-    fn source_answering(name: &str, answer: Scripted) -> UrlKeySet {
+    /// A source whose server answers each fetch with the next of `answers`, and then no more.
+    fn source_answering(name: &str, answers: Vec<Scripted>) -> UrlKeySet {
         let issued = issue();
         let scratch = Scratch::new(name);
         let anchors = sutura_tls::Anchors::Bundle(declared_bundle(&scratch, name, &issued));
-        let server = TlsFakeServer::start(&issued, vec![answer]);
+        let server = TlsFakeServer::start(&issued, answers);
         let url = KeySetUrl::parse(format!("{}/keys", server.endpoint())).expect("a loopback https URL parses");
         UrlKeySet::trusting(&url, Some(&anchors)).expect("a written bundle loads")
     }
@@ -210,5 +211,25 @@ mod tests {
             ),
             "{refused:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_key_id_while_the_url_does_not_answer_is_503_identity_unavailable() {
+        // The set is read once at start; the look an unknown key id triggers is answered `500`.
+        let issuer = crate::testing::an_issuer()
+            .also_holding("a-key-not-yet-read", sutura_dev::issuer::Curve::P256)
+            .expect("a mock issuer generates a second key");
+        let published = issuer.key_set_without("a-key-not-yet-read").into_bytes();
+        let source = source_answering("outage", vec![Scripted::raw(200, published), Scripted::status(500, "")]);
+        let gate = crate::testing::gate_around(Box::new(source));
+        let mint = |token| issuer.mint(&token).expect("the mock issuer signs");
+        let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
+        let (status, ref body, challenged) = crate::inbound::tests::guarded_answer(&gate, &unknown).await;
+        assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+        assert!(!challenged, "an outage carries no challenge to present a different token");
+        let known = mint(sutura_dev::issuer::Token::for_subject("someone@example.com"));
+        let (held, ref body, _) = crate::inbound::tests::guarded_answer(&gate, &known).await;
+        assert_eq!(held, axum::http::StatusCode::NO_CONTENT, "{body}");
     }
 }

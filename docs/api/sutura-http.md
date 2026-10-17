@@ -983,7 +983,7 @@ here can widen, narrow or parameterize what executes.
 | `keys` | the key set, its cache, the **rate-limited** refetch on an unknown key id, and the **age bound** that is what makes revocation bounded |
 | `token` | algorithm pinning, the audience check, and claims into a principal chain |
 | `caller` | `VerifiedCaller` and `Scopes` - the conclusion of a verification, as a type nothing can deserialize |
-| `gate` | the layer, and the `401` with its challenge |
+| `gate` | the layer, the `401` with its challenge, and the `503` while the key source is down |
 
 `sutura_config::inbound` owns the *declaration* - which mode, which issuer, which audience, which
 algorithms - and names no JWT library at all. The two vocabularies meet in exactly one function,
@@ -3199,7 +3199,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 - `Timeout` - The request took longer than the configured bound.
 - `Internal` - Something on our side went wrong. Carries nothing.
 - `Unavailable` - The data system did not answer. Distinguished from `Self::Internal` because it is the one failure that is worth retrying, and a caller cannot tell from a 500.
-- `IdentityUnavailable` - The credential broker did not answer, so nothing could be executed as the asking subject.
+- `IdentityUnavailable` - The credential broker did not answer, so nothing could be executed as the asking subject - or the inbound key set could not be read when a token named a key id it does not hold.
 
   **Shares the status with `Self::Unavailable` and not the code.** Both are worth retrying, and
   the two are diagnosed in different places: one is a data system that is unwell and this is the

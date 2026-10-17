@@ -648,5 +648,6 @@ roots. The cache, both re-read triggers and the revocation bound are the file so
 condition that an authorization server outage stay distinguishable from a dead data system is met
 this way: an unknown key id while the last look at the source failed is
 `503 identity_unavailable`, never `503 unavailable` and never `401`, and the keys already held keep
-verifying. A cache header is not read, so the issuer can neither lengthen nor shorten
+verifying. That holds for the file source too, which is a breaking change: an unreadable file and an
+unknown key id were `401 invalid_token` with a challenge. A cache header is not read, so the issuer can neither lengthen nor shorten
 `MAX_KEY_SET_AGE`.

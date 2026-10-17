@@ -213,8 +213,9 @@ const TAG: &str = "query";
             status = 503,
             description = "Worth retrying, and `code` says which of four things happened. \
                            `unavailable`: the data system did not answer. `identity_unavailable`: \
-                           the credential broker this deployment depends on did not answer, which \
-                           is a different dependency being unwell and is diagnosed elsewhere. \
+                           the credential broker or the key set this deployment depends on did not \
+                           answer, which is a different dependency being unwell and is diagnosed \
+                           elsewhere. \
                            `at_capacity`: every \
                            execution slot was taken for the whole admission window, so this \
                            question was shed rather than queued - that response carries a \

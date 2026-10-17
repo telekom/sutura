@@ -108,7 +108,8 @@ no default mode:
 | `behind-gateway` | A gateway authenticates the caller and sends a signed assertion in its own header or in `Authorization: Bearer` |
 
 [Inbound identity](integrations/identity.md) has the settings, the key set and its rotation. In `direct` mode, a
-refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed.
+refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed. A
+token with an unknown `kid` while the key set cannot be read gets `503 identity_unavailable` with no challenge.
 [Serving behind a gateway](serving-behind-a-gateway.md) covers a gateway that signs into `Authorization`.
 
 The `scope` claim of the token decides which operations the caller can use:

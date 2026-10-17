@@ -54,6 +54,31 @@ use fixtures::{
     signed, signed_as, transit,
 };
 
+/// What a route behind `gate` answers a bearer `token`: the status, the body, and whether a
+/// `WWW-Authenticate` challenge came with it.
+///
+/// `pub(super)`, so the cells beside each key set source reach it too.
+pub(super) async fn guarded_answer(gate: &Arc<InboundGate>, token: &str) -> (StatusCode, String, bool) {
+    let app = axum::Router::new()
+        .route("/guarded", get(|| async { StatusCode::NO_CONTENT }))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(gate),
+            crate::inbound::require_verified_caller,
+        ));
+    let mut request = Request::builder()
+        .uri("/guarded")
+        .body(Body::empty())
+        .expect("the test request builds");
+    *request.headers_mut() = bearer(token);
+    let response = app.oneshot(request).await.expect("the infallible router answers");
+    let challenged = response.headers().contains_key(axum::http::header::WWW_AUTHENTICATE);
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("a problem body reads");
+    (status, String::from_utf8_lossy(&body).into_owned(), challenged)
+}
+
 // ------------------------------------------------------- what a token establishes ----
 
 #[tokio::test]
@@ -792,37 +817,40 @@ async fn an_unknown_key_id_while_the_source_is_unreachable_is_503_identity_unava
         Duration::ZERO,
         Instant::now(),
     );
-    let app = axum::Router::new()
-        .route("/guarded", get(|| async { StatusCode::NO_CONTENT }))
-        .layer(middleware::from_fn_with_state(
-            Arc::new(InboundGate::over(&direct(), cache)),
-            crate::inbound::require_verified_caller,
-        ));
+    let gate = Arc::new(InboundGate::over(&direct(), cache));
     let unknown = signed(
         &pair,
         "a-key-not-yet-read",
         &claims("someone@example.com", RESOURCE, ISSUER, ""),
     );
-    let mut answers = Vec::new();
-    for token in [unknown, a_token(&pair)] {
-        let mut request = Request::builder()
-            .uri("/guarded")
-            .body(Body::empty())
-            .expect("the test request builds");
-        *request.headers_mut() = bearer(&token);
-        let response = app.clone().oneshot(request).await.expect("the infallible router answers");
-        let challenged = response.headers().contains_key(axum::http::header::WWW_AUTHENTICATE);
-        let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("a problem body reads");
-        answers.push((status, String::from_utf8_lossy(&body).into_owned(), challenged));
-    }
-    let (status, ref body, challenged) = answers[0];
+    let (status, ref body, challenged) = guarded_answer(&gate, &unknown).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
     assert!(!challenged, "an outage carries no challenge to present a different token");
-    assert_eq!(answers[1].0, StatusCode::NO_CONTENT, "{}", answers[1].1);
+    let (held, ref body, _) = guarded_answer(&gate, &a_token(&pair)).await;
+    assert_eq!(held, StatusCode::NO_CONTENT, "{body}");
+}
+
+#[tokio::test]
+async fn an_unknown_key_id_while_the_key_set_file_is_unreadable_is_503_identity_unavailable() {
+    // The file source's own outage: read once at start, then gone, so the look an unknown key id
+    // triggers fails. It was `401 invalid_token` with a challenge before the source was told apart.
+    let issuer = crate::testing::an_issuer()
+        .also_holding("a-key-not-yet-read", sutura_dev::issuer::Curve::P256)
+        .expect("a mock issuer generates a second key");
+    let path = std::env::temp_dir().join(format!("sutura-unreadable-jwks-{}.json", std::process::id()));
+    std::fs::write(&path, issuer.key_set_without("a-key-not-yet-read")).expect("the scratch key set is writable");
+    let gate = crate::testing::gate_around(Box::new(FileKeySet::at(&path)));
+    std::fs::remove_file(&path).expect("the scratch key set is removable");
+    let mint = |token| issuer.mint(&token).expect("the mock issuer signs");
+    let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
+    let (status, ref body, challenged) = guarded_answer(&gate, &unknown).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+    assert!(!challenged, "an outage carries no challenge to present a different token");
+    let known = mint(sutura_dev::issuer::Token::for_subject("someone@example.com"));
+    let (held, ref body, _) = guarded_answer(&gate, &known).await;
+    assert_eq!(held, StatusCode::NO_CONTENT, "{body}");
 }
 
 #[test]

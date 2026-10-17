@@ -12,7 +12,7 @@
 //! | [`keys`] | the key set, its cache, the **rate-limited** refetch on an unknown key id, and the **age bound** that is what makes revocation bounded |
 //! | [`token`] | algorithm pinning, the audience check, and claims into a principal chain |
 //! | [`caller`] | [`VerifiedCaller`] and [`Scopes`] - the conclusion of a verification, as a type nothing can deserialize |
-//! | [`gate`] | the layer, and the `401` with its challenge |
+//! | [`gate`] | the layer, the `401` with its challenge, and the `503` while the key source is down |
 //!
 //! `sutura_config::inbound` owns the *declaration* - which mode, which issuer, which audience, which
 //! algorithms - and names no JWT library at all. The two vocabularies meet in exactly one function,

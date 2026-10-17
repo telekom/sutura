@@ -77,8 +77,8 @@ its `kid` - see [Rotating the keys](../serving-behind-a-gateway.md#rotating-the-
 `key_set_url`, not both. The URL must be `https`, with no query or fragment. sutura does not follow a
 redirect, accepts only a `200` of at most 64 KiB, and gives up on one read after 10 seconds. It
 trusts `security.outbound.transport_anchors` when that is set, and the built-in web roots when not.
-If the URL does not answer and a token names an unknown `kid`, the answer is
-`503 identity_unavailable`, and the keys sutura already has keep verifying.
+If the file or the URL cannot be read and a token names an unknown `kid`, the answer is
+`503 identity_unavailable` with no challenge, and the keys sutura already has keep verifying.
 
 The file is a JWK set, or one PEM key: a single `PUBLIC KEY` block, or a certificate followed by its
 chain. A file that starts with `-----BEGIN ` is read as PEM. Only the first certificate is a key,
