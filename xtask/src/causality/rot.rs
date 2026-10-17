@@ -375,7 +375,8 @@ fn run_at(root: &Path, shard: Shard) -> Verdict {
 
     let total = list.len();
     let list = shard.take(list);
-    // For a person to read: the first dispatch's time divided by `k` is the time for each patch.
+    // For a person to read: the task's own time divided by `k` estimates the mean time for each patch,
+    // if the run checks all `k` (setup is in a dispatch's time; only the first patch pays the rebuild).
     println!(
         "xtask check-claim-mutation-kills: shard {shard}: {} of {total} patches",
         list.len()
@@ -856,6 +857,12 @@ mod tests {
         );
         let first: Shard = "1/2".parse().expect("a shard");
         assert_eq!(run_at(&root, first), Verdict::Fail, "shard 1/2 holds the one patch");
+        let args = ["--shard".to_owned(), "2/2".to_owned()];
+        assert_eq!(
+            run_from(&args, || Some(root)),
+            Verdict::Pass,
+            "run_from hands the parsed shard to run_at"
+        );
     }
 
     #[test]
@@ -871,6 +878,7 @@ mod tests {
             assert_eq!(shard_of(&args), Err(Verdict::Usage), "{bad:?}");
             assert_eq!(run_from(&args, || None), Verdict::Usage, "{bad:?}");
         }
+        assert_eq!(run_from(&[], || None), Verdict::Fail, "no repo root is a failure, not a pass");
     }
 
     #[test]
