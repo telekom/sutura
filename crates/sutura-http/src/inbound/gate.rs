@@ -101,6 +101,9 @@ impl InboundGate {
     ///
     /// **Called before the listener opens.** An unreadable or unusable key set is an error here, so it
     /// is a process that does not start rather than one that answers `401` to everybody.
+    ///
+    /// A `key_set_url` is fetched over the compiled-in web roots here, whatever `security.outbound`
+    /// declares; [`Self::from_declaration_trusting`] is the call that honours a declared bundle.
     pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable> {
         Self::from_declaration_trusting(inbound, None)
     }

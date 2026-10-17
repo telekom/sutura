@@ -5,8 +5,9 @@ description: The other half of the identity path - leg 1, from the caller to sut
 
 # How a caller proves who it is
 
-Status: **accepted, and the mechanism is built. Five things this record describes are not, and one
-sentence of it was wrong about what the code could support** - see *What is built, and what of this
+Status: **accepted, and the mechanism is built. Four things this record describes are not, and one
+sentence of it was wrong about what the code could support** - the ninth amendment built the first
+of the five *Not built* names - see *What is built, and what of this
 record is not* at the foot, and *The correction review forced* inside it. That section is the authority
 on the state: every "not built" in the body below it is older than the code, and Decision 1's wording
 about a *proof that the request transited* a component is corrected there rather than quietly rewritten
@@ -649,5 +650,8 @@ condition that an authorization server outage stay distinguishable from a dead d
 this way: an unknown key id while the last look at the source failed is
 `503 identity_unavailable`, never `503 unavailable` and never `401`, and the keys already held keep
 verifying. That holds for the file source too, which is a breaking change: an unreadable file and an
-unknown key id were `401 invalid_token` with a challenge. A cache header is not read, so the issuer can neither lengthen nor shorten
+unknown key id were `401 invalid_token` with a challenge. The `503` holds only while the last look at
+the source failed to read it: a document it reads and refuses is `401`, and the previous keys stay;
+an unknown key id inside the refetch window after a look that read the source is `401` too, even if
+the source has gone down since, because no look runs. A cache header is not read, so the issuer can neither lengthen nor shorten
 `MAX_KEY_SET_AGE`.

@@ -144,7 +144,9 @@ directions. The non-obvious parts:
   pretending otherwise, and `docs/adr/0014` downgrades its own *"proof that the request transited"*
   wording to a *gateway-issued identity assertion* for that reason.
 
-The other three limits: keys come from a file and there is no JWKS endpoint; of the two metadata
+The other three limits: keys come from `key_set_file` or an `https` `key_set_url` - a URL fetch
+trusts `security.outbound`'s anchors loaded once at start, presents no client identity, and an
+unknown `kid` is `503` only while the last look failed to read the source; of the two metadata
 documents `docs/adr/0014` describes, only protected-resource metadata is served, and only in direct
 mode; and scopes decide **operations**, not rows.
 
