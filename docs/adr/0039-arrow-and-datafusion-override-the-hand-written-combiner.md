@@ -472,14 +472,14 @@ Step 5 holds in 0.5.7: it was not re-read.
 `Cargo.lock`. `sutura-exec-datafusion` depends on it and implements its `FederationProvider` as
 `SourceProvider`, which gives each source and subject a compute context from
 `ComputeContext::of(source, subject)`. That came with #1358, and #1382 added the check that a leg
-is among the cut's own legs. So the sentences that call the crate "not a dependency" in the status
-table, step 4, step 5 and the third amendment were true when written and are corrected inline above.
+is among the cut's own legs. So the sentences that call the crate "not a dependency" in the
+requirements table, step 4, step 5 and the third amendment were true when written and are corrected inline above.
 `SourceProvider` names the crate, so the `unused-deps` task has a caller to find.
 
 **What did not land: a cut by the crate.** No code runs the crate's optimizer rule, and
 `SourceProvider::optimizer` answers `None`, so the crate cuts no subtree today. The metric path's
 legs are the splitter's own. `DataFusionCombiner::for_subject` has no production caller; a test is
-its only caller. So nothing in a served process compares two contexts yet. **Limit.** This is a
+its only caller. `SourceProvider::of` has none either: its only caller is its own cell. So nothing in a served process compares two contexts yet. **Limit.** This is a
 static read of the tree at this commit. Nothing was built for this record.
 
 **Where step 4's caller is now.** `docs/adr/20261010140559`'s third amendment moves the crate's cut

@@ -305,10 +305,10 @@ impl DataFusionCombiner {
     /// runs the crate's optimizer rule, and the provider has no optimizer of its own
     /// (`docs/adr/0039`, fourth amendment). So nothing in this process compares two contexts yet.
     /// What the method buys now is that the seam is the one a provider plugs into, and that the
-    /// value reaching it is a digest rather than a subject: the
-    /// context is interpolated into plan text by that crate, so a raw subject there would be a
-    /// person's identifier in `EXPLAIN` output. The type is what makes that unrepresentable -
-    /// `ComputeContext::of` takes a `Subject` and there is no other constructor.
+    /// value reaching it is a digest rather than a subject: the context is interpolated into plan
+    /// text by that crate, so a raw subject there would be a person's identifier in `EXPLAIN`
+    /// output. The type is what makes that unrepresentable - `ComputeContext::of` takes a `Subject`
+    /// and there is no other constructor.
     ///
     /// It is deliberately NOT part of [`FederationCombiner`]: a port method taking a subject would
     /// say the combine executes as one, and `crate::pool`'s process does not.

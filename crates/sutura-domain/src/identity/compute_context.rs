@@ -1,11 +1,11 @@
 //! The value a federation boundary keys per-caller isolation on.
 //!
 //! **What this build does NOT do, first, because everything below reads as if it did.**
-//! `datafusion-federation` is a dependency of `sutura_exec_datafusion`, and its `SourceProvider`
-//! implements that crate's `FederationProvider` with this type as the context. No crate here runs
-//! that crate's optimizer rule, and `SourceProvider` has no optimizer of its own. So nothing in this
-//! process compares two contexts, nothing pushes a sub-plan down to a remote, and there is no
-//! multi-node execution. What runs is a DataFusion-native LOCAL combine
+//! `datafusion-federation` is a dependency of `sutura_exec_datafusion`, and
+//! `sutura_exec_datafusion`'s `SourceProvider` implements that crate's `FederationProvider` with this
+//! type as the context. No crate here runs that crate's optimizer rule, and `SourceProvider` has no
+//! optimizer of its own. So nothing in this process compares two contexts, nothing pushes a sub-plan
+//! down to a remote, and there is no multi-node execution. What runs is a DataFusion-native LOCAL combine
 //! (`sutura_exec_datafusion::combine`) over legs the splitter already cut. The reasoning below is
 //! about that crate's rule because the provider is shaped to it (`docs/adr/0039`, fourth amendment:
 //! its first caller is PR 5b of `docs/adr/20261010140559`); it is a design constraint this type is
