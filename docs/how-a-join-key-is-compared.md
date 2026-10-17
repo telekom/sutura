@@ -10,10 +10,12 @@ refused.
 
 ADR 0007's *What is explicitly not decided* carried *"How a cross-source join key is
 declared and compared"* as an open question
-(`docs/adr/0007-federating-across-different-data-systems.md:1040-1042`). This page
+(`docs/adr/0007-federating-across-different-data-systems.md:1049-1052`). This page
 closes the comparison half: the plan-time refusal from the catalog's declared types and
 the runtime refusal from the legs' schemas. The declaration half - a catalog field
-saying two columns are comparable - is still open, and the last section says so.
+saying two columns are comparable - is still open, is tracked in
+`telekom/sutura#1482`, and the last sections say so. ADR 0007's *Fifteenth amendment*
+records the split.
 
 ## What is compared, and where
 
@@ -48,14 +50,14 @@ split is the whole of the design:
    refused; `ExactInteger` against `ExactDecimal` is refused; `Date` against `Text`
    is refused.
 
-The call site is `crates/sutura-exec-datafusion/src/combine.rs:346`:
+The call site is `crates/sutura-exec-datafusion/src/combine.rs:350`:
 
 ```rust
 agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
 ```
 
 A second fact leg, when one is present for a cross-model ratio, is checked the same
-way against the first fact leg at `combine.rs:360`.
+way against the first fact leg at `combine.rs:364`.
 
 ### Why kinds, not types
 
@@ -126,7 +128,7 @@ so a catalog that mis-declares a key refuses a join that would have matched.
 sides' kind as a prose word - *an exact integer*, *text*, *a date* - via
 `LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The combiner maps that to
 `FederatedAnswerRefusal::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine.rs:445`,
+(`crates/sutura-exec-datafusion/src/combine.rs:449`,
 `crates/sutura-domain/src/plan/federated/failure.rs:62-65`), and it reaches a
 caller inside `RefusalReason::FederatedAnswerNotWellFormed`.
 
@@ -162,11 +164,11 @@ the source called the column - and `LinkKind::declared` reads it only to refuse.
 
 `Relationship` carries a name, two models, a join type, and join keys - and no
 field saying the two sides are comparable
-(`crates/sutura-domain/src/catalog.rs:363-370`). A catalog author has no way to
+(`crates/sutura-domain/src/catalog.rs:402-408`). A catalog author has no way to
 declare that an `INTEGER` here and a `NUMBER(38)` there are intended to join, so
 the runtime check is the only thing that holds the pair. The declaration half of
-ADR 0007's open question - option (b) in the issue - is still open, and this page
-does not close it.
+ADR 0007's open question - option (b) in `telekom/sutura#138` - is still open and is
+tracked in `telekom/sutura#1482`. This page does not close it.
 
 ### Case and whitespace on a text key
 
@@ -175,6 +177,21 @@ or trailing whitespace are different keys, and `IdentifierCase` decides
 identifiers rather than values. No normalisation is applied, and none is planned:
 the rule is that a join key is compared exactly, and a text key that differs in
 case is a mismatch in the data rather than a defect in the comparison.
+
+Two cells in `crates/sutura-exec-datafusion/src/combine/tests.rs` hold it:
+`two_text_link_keys_that_differ_only_in_case_do_not_join` (`C1` against `c1`, and `c1`
+against `C1`) and
+`two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join` (`c1 ` against
+`c1`, and `c1` against `c1 `). Each pair is asked twice. A left join keeps the fact row
+with a null remote side. An inner join drops it. Both orders are held, so a fold or a
+trim on one side only fails too. Leading whitespace, a tab and a newline are not held. Each cell has a committed mutation under
+`devco/claim-mutations/` that folds or trims the key before the join, and each fails
+under it.
+
+Limits. The combiner already behaved this way, so the cells pin it and do not change
+it. They run the combiner over in-memory legs: what a source returns for a key is not
+read. Under the mutation each cell fails on its left-join assert first, so the
+inner-join assert is not killed on its own.
 
 ### Null link keys
 
@@ -189,19 +206,19 @@ covered by the type-mismatch refusal.
 
 A federated answer whose two legs sit on two different warehouse kinds is
 **reachable and served**. `sutura-cli`'s `kind::AnyWarehouse`
-(`crates/sutura-cli/src/serve/kind.rs:56`) is a closed enum - one variant per
+(`crates/sutura-cli/src/serve/kind.rs:60`) is a closed enum - one variant per
 adapter this build linked - implementing `Warehouse`. When `open_engine`
-(`crates/sutura-cli/src/serve.rs:800`) sees more than one kind group non-empty,
+(`crates/sutura-cli/src/serve.rs:864`) sees more than one kind group non-empty,
 it routes to `kind::open_mixed`, which opens each group and merges them into
 one `Warehouses<AnyWarehouse>`. `answer_federated<W, B, C>`
-(`crates/sutura-app/src/federated.rs:114`) is generic in `W: Warehouse`, and
+(`crates/sutura-app/src/federated.rs:115`) is generic in `W: Warehouse`, and
 `AnyWarehouse` implements `Warehouse`, so a fact leg on `files` and a lookup
 leg on `bigquery` reach the same combiner this page describes. ADR 0007's
 Second amendment
-(`docs/adr/0007-federating-across-different-data-systems.md:1169-1178`)
+(`docs/adr/0007-federating-across-different-data-systems.md:1176-1185`)
 records this: "rather than refusing at the kind mismatch as `one_kind` used
 to." `one_kind` is a *concept name* used in a comment
-(`crates/sutura-cli/src/catalog.rs:73`)
+(`crates/sutura-cli/src/catalog.rs:83`)
 to describe the single-kind fast path, not a function - there is no `fn
 one_kind` anywhere in the codebase. So the type-mismatch this page describes
 can fire across two different warehouse kinds, not only within one.
@@ -209,6 +226,6 @@ can fire across two different warehouse kinds, not only within one.
 What IS genuinely one-kind is the *catalog* kind (`CatalogKind::Markdown` vs
 `CatalogKind::Datahub`): a deployment naming both is refused at boot by
 `catalogs_of_more_than_one_kind_in_one_deployment_are_refused`
-(`crates/sutura-cli/src/serve/tests.rs:680`). That is a catalog-shape
+(`crates/sutura-cli/src/serve/tests.rs:776`). That is a catalog-shape
 refusal, not a warehouse-kind refusal, and has nothing to do with join-key
 comparison.

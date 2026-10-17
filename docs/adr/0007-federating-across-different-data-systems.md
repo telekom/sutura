@@ -1479,3 +1479,27 @@ leg at another. It makes these statements above false or narrower. They are left
 
 **What this amendment does not touch.** Arrow Flight SQL as the route to a data system. The new
 record keeps generic Flight SQL clients and servers out of its scope.
+
+## Fifteenth amendment, 2026-10-17: the plan-time join-key check is built, and a text key compares exactly
+
+The *Eighth amendment* says the classifier from `ColumnType` text to a kind "does not exist
+today". That sentence is false now. It is left as written.
+
+- **The classifier is built** (`telekom/sutura#1349`). `LinkKind::declared`, in
+  `crates/sutura-domain/src/plan/federated/link.rs`, reads a column's declared type and answers a
+  kind or nothing. `link_types_agree`, in `crates/sutura-semantic/src/plan/federated.rs`, is called
+  by `federated_plan`. When both key columns declare a type and the two kinds differ, the question
+  is refused before either leg runs, as `RefusalReason::FederationLinkTypeMismatch`. A type it
+  cannot classify, or a column with no declared type, is left to the check after the legs run. That
+  check is the one the *Eighth amendment* names.
+- **A text key compares exactly.** There is no ASCII case folding and no trimming of a trailing
+  space. Two cells hold it, each in both directions, in
+  `crates/sutura-exec-datafusion/src/combine/tests.rs`:
+  `two_text_link_keys_that_differ_only_in_case_do_not_join` and
+  `two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join`. Limits: no cell holds
+  leading whitespace, a tab or a newline. They run the combiner over in-memory legs, so a source's
+  own handling of a key is not covered.
+
+**What stays open is the declaration half**: a field on `Relationship` that says the two sides are
+comparable. `Relationship` carries none. It is tracked in `telekom/sutura#1482`.
+`docs/how-a-join-key-is-compared.md` is the record.

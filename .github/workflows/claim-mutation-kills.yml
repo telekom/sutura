@@ -14,14 +14,32 @@
 # `main`, and a run is not one. That second hold is the save condition AND this trigger list, and
 # no gate reads the trigger list - review holds it. Likewise `contents: read` on the job.
 #
-# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. If a patch takes about 1 minute, 514 patches
-# take about 8.6 hours, which is past the 6 hour limit, so one run may not finish inside it. The
-# time for each patch is not measured. A run stops at the first patch that no longer kills its
-# cell. A timeout is not a verdict. A shard input is the follow-up if the first run times out.
+# THE TIMEOUT IS THE HOSTED LIMIT, not an estimate. One run over every patch may not finish inside
+# it, because the set takes the patch count times the time for each patch, and that time is not
+# measured on the runner. The task prints the patch count when it starts.
+#
+# THE SHARD INPUT splits the set: `shard` is `<i>/<n>`, and `n` dispatches `1/n` to `n/n` cover every
+# patch once. Position `p`, counted from 0, of the sorted patch names goes to shard `p % n + 1`, so
+# dispatch all `n` from the same commit. As an estimate, not a bound: choose `n` of at least the
+# patch count divided by 300, rounded up. The 300 is 360 minutes less 60 for setup, at about 1 minute
+# for each patch. This repo records about 68 s for each isolated rebuild
+# (`xtask/src/causality/rot.rs`), and at that time 300 patches take about 340 minutes, which leaves
+# about 20 of the 360 for checkout, the nix install, the cache restore and the first build. For the
+# first dispatch use `n = 3`, and read the time for each patch from that run before choosing a
+# smaller `n`. The default `1/1` is the whole set. A malformed value is refused with exit 2, and
+# never runs the whole set.
+#
+# A run stops at the first patch that no longer kills its cell. A timeout is not a verdict.
 name: claim-mutation-kills
+run-name: claim-mutation-kills ${{ inputs.shard }}
 
 on:
   workflow_dispatch:
+    inputs:
+      shard:
+        description: "Which slice of the patches to run, as <i>/<n> with 1 <= i <= n, for example 2/4"
+        type: string
+        default: "1/1"
 
 permissions: {}
 
@@ -52,7 +70,9 @@ jobs:
           scope: ci
 
       - name: Check every committed claim mutation still kills its cell
-        run: nix run .#claim-mutation-kills
+        env:
+          SHARD: ${{ inputs.shard }}
+        run: nix run .#claim-mutation-kills -- --shard "$SHARD"
 
       - uses: $/.github/actions/nix-store-cache-report
         if: always()

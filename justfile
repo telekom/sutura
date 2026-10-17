@@ -430,13 +430,13 @@ causality base="origin/main":
 # than part of `hygiene` or `gates` - it recompiles this workspace once per committed patch, the
 # same isolated rebuild `just causality` itself pays per declared cell - so the release path or a
 # person re-verifying the set runs this by hand. `cargo xtask check-claim-mutations` is the cheap
-# apply-only half and IS in `just hygiene`.
-check-claim-mutation-kills:
+# apply-only half and IS in `just hygiene`. `--shard <i>/<n>` runs one of `n` slices of the patches.
+check-claim-mutation-kills *args:
     #!/usr/bin/env bash
     set -euo pipefail
     source nix/with-tier.sh
     sutura_tier_up
-    cargo run -q -p xtask -- check-claim-mutation-kills
+    cargo run -q -p xtask -- check-claim-mutation-kills {{ args }}
 
 # ---------------------------------------------------------------- artifacts ---
 
