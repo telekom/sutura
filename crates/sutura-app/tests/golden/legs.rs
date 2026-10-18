@@ -801,3 +801,62 @@ fn a_fact_leg_with_no_terms_projects_keys_rather_than_a_count() {
         }
     }
 }
+
+/// `voice_minutes`'s fact leg when the relationship it crosses truncates `usage_date` to a month.
+///
+/// The link groups by the truncation the time bucket renders, never by the raw column, so a day
+/// and the snapshot month it joins to carry one link value. Pinned per dialect and parse-checked
+/// there, in its own module so the shape list above stays the base's.
+mod truncated_link {
+    use sutura_domain::model::{Aggregate, Grain};
+    use sutura_domain::plan::{InternalLabel, LegPlan, PlanKey, ResultLabel, StatementTables};
+    use sutura_sql::{Dialect, generate_leg};
+
+    use super::{FACT_TABLE, column, definitional_bindings, june, metric, month_bucket, source, table, term};
+    use crate::shared::settings;
+
+    fn fact_truncated_link() -> LegPlan {
+        LegPlan::Fact {
+            source: source("local"),
+            metric: metric("voice_minutes"),
+            tables: StatementTables::only(table(FACT_TABLE)),
+            bucket: month_bucket(),
+            keys: vec![PlanKey::truncated(
+                ResultLabel::internal(InternalLabel::Link),
+                column(FACT_TABLE, "usage_date"),
+                Grain::Month,
+            )],
+            terms: vec![term(Aggregate::Sum, "voice_min", 0)],
+            bindings: definitional_bindings(),
+            range: june(),
+        }
+    }
+
+    fn renders_and_parses(dialect: Dialect, target: polyglot_sql::DialectType) {
+        let query = generate_leg(&fact_truncated_link(), dialect)
+            .unwrap_or_else(|e| panic!("the truncated link would not render for {dialect}: {e}"));
+        settings(dialect.as_str()).bind(|| {
+            insta::assert_snapshot!("leg_fact-truncated-link__sql", query.sql());
+        });
+        let parsed = polyglot_sql::parse(query.sql(), target);
+        assert!(
+            parsed.is_ok(),
+            "the truncated link for {dialect} is not valid there: {:?}\n{}",
+            parsed.err(),
+            query.sql()
+        );
+    }
+
+    macro_rules! truncated_cell {
+        ($name:ident, $dialect:expr, $target:expr) => {
+            mod $name {
+                #[test]
+                fn a_fact_leg_groups_by_its_link_truncated_to_the_grain() {
+                    super::renders_and_parses($dialect, $target);
+                }
+            }
+        };
+    }
+
+    crate::adapters::registered!(dialects: truncated_cell);
+}

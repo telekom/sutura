@@ -38,11 +38,11 @@
 use datafusion::common::JoinType as EngineJoin;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use sutura_domain::model::JoinType;
-use sutura_domain::plan::{LegPlan, PlanJoin};
+use sutura_domain::plan::{KeyValue, LegPlan, PlanJoin};
 
 use crate::DataFusionError;
 use crate::collect::outputs;
-use crate::translate::{bucket_expression, column, predicate, term_expression};
+use crate::translate::{bucket_expression, column, key_expression, predicate, term_expression};
 
 /// The same-source hops this leg keeps as joins of its own.
 ///
@@ -147,12 +147,10 @@ pub(crate) fn logical(
     let labels = leg.result_labels();
     let mut grouping: Vec<Expr> = Vec::with_capacity(labels.len());
     for (index, (key, label)) in leg.keys().iter().zip(&labels).enumerate() {
-        let reference = column(key.column());
-        let repeated = leg.keys().iter().take(index).any(|earlier| earlier.column() == key.column());
-        grouping.push(if repeated {
-            reference.alias(label.as_str())
-        } else {
-            reference
+        let repeated = leg.keys().iter().take(index).any(|earlier| earlier.value() == key.value());
+        grouping.push(match key.value() {
+            KeyValue::Column(over) if repeated => column(over).alias(label.as_str()),
+            _ => key_expression(key),
         });
     }
     let mut aggregates = Vec::new();

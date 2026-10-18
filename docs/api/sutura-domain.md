@@ -6774,43 +6774,6 @@ pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `struct PlanKey`
-
-```rust
-pub struct PlanKey
-```
-
-One group-by key.
-
-**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
-to be labelled with whatever text its producer computed, and what kept that out of the internal
-namespace a federated leg also projects into was a derivation held by review. The type is the
-mechanism now: `ResultLabel` carries the compile-fail pair that says so.
-
-#### Methods
-
-```rust
-pub const fn column(&self) -> &PlanColumn
-```
-
-```rust
-pub fn label(&self) -> &str
-```
-
-The text this key is projected under.
-
-Text rather than the `ResultLabel`, because every reader of a label renders it: the
-generator quotes it as an alias and the combiner looks a column up by it. What the type
-holds is the way IN.
-
-```rust
-pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
 ### `enum PlanTerm`
 
 ```rust
@@ -7671,6 +7634,22 @@ reached through this fake is a test that has drifted into the federated path, an
 loudly rather than passing over a fabricated number.
 
 Behind `fixtures`, so nothing published holds it.
+
+### `use KeyValue`
+
+What a `PlanKey` groups by.
+
+### `use PlanKey`
+
+One group-by key.
+
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
+**The column is read only through `PlanKey::value`**, a closed enum, so a renderer that groups
+by the raw column of a truncated key does not compile. A plain key serializes without a `grain`.
 
 ### `use ResultLabel`
 
@@ -9315,6 +9294,73 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### Module `key`
+
+One group-by key: a column, or a column truncated to a grain.
+
+#### `struct PlanKey`
+
+```rust
+pub struct PlanKey
+```
+
+One group-by key.
+
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
+**The column is read only through `PlanKey::value`**, a closed enum, so a renderer that groups
+by the raw column of a truncated key does not compile. A plain key serializes without a `grain`.
+
+##### Methods
+
+```rust
+pub fn label(&self) -> &str
+```
+
+The text this key is projected under.
+
+Text rather than the `ResultLabel`, because every reader of a label renders it: the
+generator quotes it as an alias and the combiner looks a column up by it. What the type
+holds is the way IN.
+
+```rust
+pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
+```
+
+```rust
+pub const fn truncated(label: ResultLabel, column: PlanColumn, grain: Grain) -> Self
+```
+
+A key on `column` truncated to `grain`.
+
+```rust
+pub const fn value(&self) -> KeyValue<'_>
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum KeyValue`
+
+```rust
+pub enum KeyValue<'key>
+```
+
+What a `PlanKey` groups by.
+
+##### Variants
+
+- `Column` - The column as stored.
+- `Truncated` - The column truncated to `grain`, with the function a time bucket and a truncated join use.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ### Module `label`
 

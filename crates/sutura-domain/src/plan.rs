@@ -31,6 +31,7 @@ mod anchor;
 pub mod bindings;
 mod ceiling;
 pub mod federated;
+pub mod key;
 pub mod label;
 pub mod leg;
 pub mod tables;
@@ -47,6 +48,7 @@ pub use crate::plan::federated::{
 };
 #[cfg(any(test, feature = "fixtures"))]
 pub use crate::plan::federated::{NothingCombined, RefusingCombiner};
+pub use crate::plan::key::{KeyValue, PlanKey};
 pub use crate::plan::label::ResultLabel;
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
@@ -331,40 +333,6 @@ impl PlanBucket {
     #[inline]
     pub const fn grain(&self) -> Grain {
         self.grain
-    }
-
-    #[inline]
-    pub const fn column(&self) -> &PlanColumn {
-        &self.column
-    }
-}
-
-/// One group-by key.
-///
-/// **The label is a [`ResultLabel`] and not a `String`, which is `telekom/sutura#337`.** A key used
-/// to be labelled with whatever text its producer computed, and what kept that out of the internal
-/// namespace a federated leg also projects into was a derivation held by review. The type is the
-/// mechanism now: `ResultLabel` carries the compile-fail pair that says so.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct PlanKey {
-    label: ResultLabel,
-    column: PlanColumn,
-}
-
-impl PlanKey {
-    #[inline]
-    pub const fn new(label: ResultLabel, column: PlanColumn) -> Self {
-        Self { label, column }
-    }
-
-    /// The text this key is projected under.
-    ///
-    /// Text rather than the [`ResultLabel`], because every reader of a label renders it: the
-    /// generator quotes it as an alias and the combiner looks a column up by it. What the type
-    /// holds is the way IN.
-    #[inline]
-    pub fn label(&self) -> &str {
-        self.label.as_str()
     }
 
     #[inline]

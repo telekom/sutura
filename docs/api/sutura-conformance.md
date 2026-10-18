@@ -982,6 +982,17 @@ pub fn leg_case() -> LegCase
 
 The one leg in the corpus.
 
+### `fn truncated_link_leg_case`
+
+```rust
+pub fn truncated_link_leg_case() -> LegCase
+```
+
+A leg whose link is `day` truncated to its month, bucketed by month over the same column.
+
+Both days of the range fall in one month, so the leg answers ONE row: a link that grouped by
+the raw day would answer two. The rows are literals from the fixture (800 + 1450 cents).
+
 ### `fn federated_cases`
 
 ```rust
@@ -1180,7 +1191,8 @@ A leg reaches the answer a whole plan reaches.
 Selected for an adapter that declares `EXECUTES_LEGS`. The leg reads the same table over the same
 range as one of the whole-plan cases and must answer that case's rows, which is what makes it a
 conformance claim rather than a smoke test: an adapter with a leg-rendering path of its own has
-to land on the number the whole-plan path lands on.
+to land on the number the whole-plan path lands on. A second leg links on a key truncated to a
+month, so the adapter's own truncation runs in a leg; its rows are literals.
 
 Content only. See this module's header for why a leg gets no order assertion.
 
