@@ -692,6 +692,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#single-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rotating-the-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3584,6 +3595,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#single-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rotating-the-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3650,6 +3672,23 @@ refuses to start with both.</p>
 <p>The assertion is a bearer that is not bound to one request. Keep the path from the gateway to sutura trusted and the
 lifetime short. With <code>tlsTermination: ingress</code>, the assertion crosses the pod network in clear text. See
 <a href="../integrations/identity/#settings-for-behind-gateway">Inbound identity</a>.</p>
+<h2 id="single-use">Single use<a class="headerlink" href="#single-use" title="Permanent link">&para;</a></h2>
+<p><code>transit_single_use: true</code> makes sutura admit each assertion once. An assertion must then carry a <code>jti</code> of 1 to 128
+bytes, and sutura refuses an assertion with a <code>jti</code> that it already admitted, until that assertion expires. The gateway
+must sign a new assertion, with a unique <code>jti</code>, for each request. If it uses one assertion for more than one request,
+sutura refuses each request after the first. Before you set it, make sure that your gateway does this.</p>
+<p>The setting is <code>false</code> by default. Then sutura accepts one assertion again until its <code>exp</code> plus 30 seconds: at most
+<code>transit_max_lifetime_seconds</code> plus 30 seconds after its <code>iat</code>, which is 150 seconds at the default lifetime.</p>
+<p>With the setting <code>true</code>:</p>
+<ul>
+<li>Each sutura process keeps its own list of the <code>jti</code> values that it admitted. With more than one replica, each replica
+  can admit the same assertion once. After a restart, sutura can admit an assertion again that it admitted before.</li>
+<li>A process keeps at most 262,144 assertions that have not expired. When the list is full, sutura refuses a new
+  assertion with <code>503 identity_unavailable</code> until some expire. It logs this once in each <code>transit_max_lifetime_seconds</code>
+  plus 60 seconds. A shorter
+  <code>transit_max_lifetime_seconds</code> lets a process admit more requests in the same time.</li>
+<li>Single use does not stop the first use of a stolen assertion. Keep the path from the gateway to sutura trusted.</li>
+</ul>
 <h2 id="rotating-the-keys">Rotating the keys<a class="headerlink" href="#rotating-the-keys" title="Permanent link">&para;</a></h2>
 <p>The gateway rotates its signing keys. The key set that sutura reads must follow the rotation:</p>
 <ul>

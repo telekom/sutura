@@ -4243,8 +4243,9 @@ infer it.</p>
    beside the claim.</li>
 <li><strong>Binding a gateway assertion to a request.</strong> Added by review: in the <code>behind-gateway</code> mode the
    replay <em>window</em> is bounded - an <code>iat</code> is required and <code>exp - iat</code> is capped by a value this
-   deployment chose - and inside that window an intercepted assertion replays. There is no nonce
-   store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
+   deployment chose - and inside that window an intercepted assertion replays, unless
+   <code>transit_single_use</code> is declared, which refuses a second presentation per process. Nothing
+   hashes a method, a path or a body into the assertion. That is why nothing here
    calls it a proof that <em>this request</em> transited anything, and why the hop between the component
    and this process is a trusted transport boundary rather than an incidental one.</li>
 </ol>
@@ -4664,7 +4665,8 @@ other request, because RFC 9728 section 3.3 requires a client to discard mismatc
 gateway assertion is minted by the component, not by an authorization server a client can use, so
 that mode offers no Bearer challenge - wherever the assertion arrives.</p>
 <p>An unknown key id while the key source is down is <code>503 identity_unavailable</code> instead, with no
-challenge: the token may be fine, and the outage is this deployment's.</p>
+challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+the store of seen assertions is full, where single use is declared.</p>
 <p>What the response does <strong>not</strong> say is which check failed. The log says - through the <code>#[source]</code>
 chain on <code>TokenRejected</code> - and the caller does not, because "the signature verified and the
 audience did not" tells somebody which half of a forgery to fix.</p>
@@ -5276,7 +5278,11 @@ and an error is not a place for credential material.</p>
   future is a clock that disagrees or a claim somebody wrote, and either way the lifetime bound
   above cannot be trusted to mean what it says.
 - <code>ClientNotNamed</code> - With <code>extra_scope_claims</code> set, a token whose <code>azp</code> is absent or is not a client id.
-- <code>ClientIsTheApi</code> - With <code>extra_scope_claims</code> set, a token whose <code>azp</code> is this deployment's own audience: the client must differ from the API.</p>
+- <code>ClientIsTheApi</code> - With <code>extra_scope_claims</code> set, a token whose <code>azp</code> is this deployment's own audience: the client must differ from the API.
+- <code>NoAssertionId</code> - Behind a gateway that declares single use, an assertion with no <code>jti</code> - the architecture decision.
+- <code>UnusableAssertionId</code> - Behind a gateway that declares single use, a <code>jti</code> that is not a string of 1 to <code>limit</code> bytes. The value is never rendered.
+- <code>Replayed</code> - The <code>jti</code> was admitted before and its assertion has not expired. The value is never rendered.
+- <code>SeenStoreFull</code> - Every place in the store of seen assertions is held by an unexpired one. A <code>503</code>, not a <code>401</code>: nothing is wrong with the caller's assertion, and none is admitted unrecorded.</p>
 <h5 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-notverified"><code>enum NotVerified</code><a class="headerlink" href="#enum-notverified" title="Permanent link">&para;</a></h4>

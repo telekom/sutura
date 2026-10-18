@@ -3906,6 +3906,12 @@ authenticates the deployment, and every question runs with the access of the dep
 <td><code>false</code></td>
 <td>Must be <code>true</code> for a lifetime above 300</td>
 </tr>
+<tr>
+<td><code>transit_single_use</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Admit each assertion once, by its <code>jti</code></td>
+</tr>
 </tbody>
 </table>
 <p>Some gateways authenticate the calling application, for example with its OAuth 2.0 client
@@ -3914,7 +3920,10 @@ gateway, set <code>transit_header: authorization</code>. sutura then reads the a
 scheme, and <code>security.access_token</code> cannot be set, because both use <code>Authorization: Bearer</code>. Behind
 such a gateway, the subject is the application that the gateway's assertion names.</p>
 <p>The gateway and sutura must be on a trusted network path. An assertion is not bound to one
-request, so keep its lifetime short.</p>
+request, so keep its lifetime short. With <code>transit_single_use: false</code>, sutura accepts one assertion
+again and again until its <code>exp</code> plus 30 seconds: at most <code>transit_max_lifetime_seconds</code> plus 30
+seconds after its <code>iat</code>, 150 seconds at the default. See
+<a href="../../serving-behind-a-gateway/#single-use">Single use</a>.</p>
 <h2 id="the-key-set">The key set<a class="headerlink" href="#the-key-set" title="Permanent link">&para;</a></h2>
 <p>sutura reads <code>key_set_file</code> before it opens the listener, and it does not start if the file is not
 a usable key set. It reads the file again 60 seconds after its last read, and when a token names an
