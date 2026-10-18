@@ -1503,3 +1503,19 @@ today". That sentence is false now. It is left as written.
 **What stays open is the declaration half**: a field on `Relationship` that says the two sides are
 comparable. `Relationship` carries none. It is tracked in `telekom/sutura#1482`.
 `docs/how-a-join-key-is-compared.md` is the record.
+
+## Sixteenth amendment, 2026-10-18: a crossing key truncated to a grain is refused
+
+A relationship may join its origin truncated to a grain (`month_of(a.x) = b.y`). The two legs of a
+federated plan link on raw column values and are not told the grain, so a crossing relationship with
+such a key joined on the raw value and gave a wrong answer. The planner now refuses it before any leg
+runs, under its own name: `FederationLinkTruncated` (HTTP `409`, code `federation_link_truncated`).
+
+The check sits at both places a link is read, beside the compound-key check: the first fact's
+crossing relationship, and the relationship the second fact of a cross-model ratio links through.
+Both cases have a cell in `crates/sutura-app/tests/differential/`. An operator removes the refusal by
+declaring an equality key against a column that already sits at the grain.
+
+**Limits.** The grain is not carried into a leg, so a truncated crossing key is refused and not
+answered; carrying it is a follow-up. A chain that stays on one data system still joins at the grain.
+The refusal reads the declared key, not the data.

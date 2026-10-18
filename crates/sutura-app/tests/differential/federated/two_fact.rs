@@ -145,6 +145,43 @@ fn the_two_fact_ratio_is_the_figure_its_rows_add_up_to() {
     }
 }
 
+/// **A second fact that links through a key truncated to a grain is refused by name before any leg
+/// runs.** The first fact's crossing key stays a plain pair, so the refusal is the second fact's own
+/// link - the one the first site's check does not read. The control is the unedited two-fact plan,
+/// which `the_two_fact_ratio_is_the_figure_its_rows_add_up_to` already answers.
+#[test]
+fn a_second_fact_linking_through_a_truncated_key_is_refused_before_any_leg_runs() {
+    let corpus = super::corpus::remote_products("federation-link-truncated-second-fact", "source: local");
+    let link = corpus.two_source.join("relationships/ticket_customer.md");
+    let text = std::fs::read_to_string(&link).expect("the derived catalog has the second fact's link");
+    let plain = "origin:\n  model: tickets\n  column: customer_key\ntarget:\n  model: customers\n  column: customer_key\n";
+    assert_eq!(
+        text.matches(plain).count(),
+        1,
+        "ticket_customer no longer declares its key as one plain pair, so this case would derive nothing"
+    );
+    std::fs::write(
+        &link,
+        text.replace(
+            plain,
+            "origin:\n  model: tickets\ntarget:\n  model: customers\nkeys:\n  - { origin: customer_key, grain: month, target: customer_key }\n",
+        ),
+    )
+    .expect("the derived catalog is writable");
+
+    let refused = compile(
+        &question(),
+        &ScopedView::everything(&bundle(&corpus.two_source)),
+        RowCeiling::DEFAULT,
+    )
+    .expect("the question compiles");
+    let Compiled::Refused { reason } = refused else {
+        panic!("{NAME}: a second fact's truncated link is refused, not planned: {refused:?}");
+    };
+    assert_eq!(reason.code(), "federation_link_truncated", "{reason:?}");
+    assert!(format!("{reason:?}").contains("ticket_customer"), "{reason:?}");
+}
+
 /// What one registered data system did with the two-fact question.
 pub(crate) enum TwoFact {
     /// Not available here, so never asked. The registry cell refuses this from a system

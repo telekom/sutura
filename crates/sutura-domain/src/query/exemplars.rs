@@ -110,6 +110,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             source: source("geo"),
             relationship: RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
         },
+        RefusalReason::FederationLinkTruncated {
+            relationship: RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
+        },
         RefusalReason::FederationLinkTypeMismatch {
             relationship: RelationshipName::parse("orders_customer").expect("a fixture relationship is a relationship"),
             fact_type: quoted("DATE"),
@@ -168,6 +171,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::FederationNotExecutable
             | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::FederationLinkCompound { .. }
+            | RefusalReason::FederationLinkTruncated { .. }
             | RefusalReason::FederationLinkTypeMismatch { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }

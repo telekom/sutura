@@ -139,6 +139,7 @@ impl RefusalReason {
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
+            Self::FederationLinkTruncated { .. } => "federation_link_truncated",
             Self::FederationLinkTypeMismatch { .. } => "federation_link_type_mismatch",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
             Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",

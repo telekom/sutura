@@ -58,3 +58,15 @@ fn guide_key_carries_every_variant() {
         assert_eq!(guide_for(&reason).reason, reason.code(), "the key is not this variant's code");
     }
 }
+
+/// A cross-source relationship with a truncated key is refused under its own code, and the corpus
+/// holds it: the guide cells above then check its guide.
+#[test]
+fn the_corpus_holds_the_truncated_crossing_key_refusal() {
+    assert!(
+        every_refusal()
+            .iter()
+            .any(|reason| reason.code() == "federation_link_truncated"),
+        "no refusal in the corpus carries the truncated-key code"
+    );
+}
