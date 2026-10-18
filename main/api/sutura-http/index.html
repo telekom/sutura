@@ -4866,8 +4866,11 @@ with it - and no record in this repository has decided that a deployment should 
 rather than keep verifying. So the bound and its limit, in one sentence: <strong>a removed key stops
 verifying within <code>MAX_KEY_SET_AGE</code> plus one read while refresh works - plus the rotated-out
 grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
-while it does not</strong> - the staleness is reported as <code>stale_for_ms</code> on every look that could not
-confirm the keys, and refused on by nothing.</p>
+while it does not</strong> - the staleness is reported as <code>stale_for_ms</code> on a <code>WARN</code> for every look whose
+read fails and returns to its caller and on an <code>ERROR</code> for a look that reads a refused document
+differing from the last one read (a look that reads the same bytes again is <code>Unchanged</code> and logs
+nothing, as does a look whose caller left or whose read has not returned), and refused on by
+nothing.</p>
 <h1 id="what-a-key-set-is-read-from">What a key set is read from<a class="headerlink" href="#what-a-key-set-is-read-from" title="Permanent link">&para;</a></h1>
 <p><code>FileKeySet</code> or <code>UrlKeySet</code>, behind <code>KeySetSource</code>, which hands back the document's
 <strong>bytes</strong>. A file is how a process with no egress rotates; a URL makes the issuer a runtime
