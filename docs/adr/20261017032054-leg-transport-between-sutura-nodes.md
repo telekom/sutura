@@ -238,7 +238,7 @@ another version than A's", and leaves that bullet as written.
    refuses a leg when one digest differs. It does not refuse because the bundle digest differs, or
    because a glossary entry, the contribution manifest or another metric differs. Two nodes that
    pin different bundle versions keep running every leg over a metric that is the same in both.
-   This is true only when both nodes run one sutura release, and only for this check. The digest is
+   This is sure only when both nodes run one sutura release, and only for this check. The digest is
    taken over sutura's serialized `Metric` (`definitions.rs:134`). A release that changes that form
    for a metric refuses every leg over that metric between a node on the release and a node that is
    not on it.
@@ -270,8 +270,8 @@ another version than A's", and leaves that bullet as written.
   that B declares with another type, a model that B has moved to another source, or other keys on a
   relationship, does not move the digest of a metric that did not change. Decision 3's check
   refuses only a name that B does not certify, or a missing required filter. It does not compare
-  the type of a column with A's type. B plans the leg with its own declarations, so such a leg
-  runs. Nothing in this record refuses that gap.
+  the type of a column with A's type. B plans the leg with its own declarations, so a leg with a
+  different column type runs. Nothing in this record refuses that gap.
 - It is not a control against a hostile sender. The digest is not a secret, and a holder of a token
   for B who can read B's definitions can send B's own digest. It detects a version gap between two
   honest nodes. The content of the leg is held by decision 3, and the rows by the source's grants
