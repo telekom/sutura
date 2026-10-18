@@ -504,6 +504,10 @@ pub(crate) struct RawInbound {
     /// Both modes: the `https` URL the signing keys are fetched from.
     #[serde(default)]
     pub(crate) key_set_url: Option<String>,
+    /// Both modes: how long the keys verify after a look last confirmed them, in seconds. Absent
+    /// means `KeySetMaxStale::DEFAULT_SECONDS`.
+    #[serde(default)]
+    pub(crate) key_set_max_stale_seconds: Option<u64>,
     /// Both modes: the algorithms this deployment will accept. Required and never defaulted, because
     /// pinning is the control and a default here would be this crate choosing it.
     #[serde(default)]

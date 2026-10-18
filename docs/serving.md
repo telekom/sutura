@@ -69,6 +69,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | A key set with no key of the kind that `security.inbound.algorithms` needs                                      | Add a key of that kind, or change the algorithms                                            |
 | `behind-gateway` with no `security.inbound.transit_token_type`                                                  | Write the `typ` of the gateway, or `any`                                                    |
 | `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`     | Use a value in range, or accept the long lifetime by name                                   |
+| `security.inbound.key_set_max_stale_seconds` outside 300 to 86400                                               | Use a value in range                                                                        |
 | `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                            | Keep the default `at+jwt`, or accept `any` by name                                          |
 | A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`          | Name the real proxy hops                                                                    |
 | `rate_limit.enabled: false`, in production or off-host                                                          | Set `rate_limit.enabled: true`                                                              |
@@ -111,7 +112,8 @@ no default mode:
 refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed. A
 token with an unknown `kid` while the last look at the key set failed to read it gets `503 identity_unavailable` with
 no challenge. A key set that sutura reads and refuses is `401`. An unknown `kid` less than 30 seconds after a
-look that read the key set is `401` too, because sutura does not look again so soon.
+look that read the key set is `401` too, because sutura does not look again so soon. When no look has read a usable
+key set for `key_set_max_stale_seconds`, every token gets `503 identity_unavailable` with no challenge.
 [Serving behind a gateway](serving-behind-a-gateway.md) covers a gateway that signs into `Authorization`.
 
 The `scope` claim of the token decides which operations the caller can use:

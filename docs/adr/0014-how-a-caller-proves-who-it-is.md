@@ -664,3 +664,21 @@ of seen assertions that section names: `security.inbound.transit_single_use: tru
 presentation of one assertion by its `jti`, in a bounded store per process. The key is off by
 default, so the replay window and the trusted transport boundary stand as written until a
 deployment declares it. A binding to the request is still not built.
+
+## Eleventh amendment, 2026-10-18: a failing key set source keeps verifying up to a declared ceiling
+
+**Status of the amendment: accepted.** It supersedes the second amendment's *"after no bounded time
+while it does not"* and its *"refused on by nothing"*. `security.inbound.key_set_max_stale_seconds`,
+in both modes and for both sources, is how long the held keys verify after a look last came back
+with a usable document. It defaults to 3600 s, and a value outside 300 to 86400 s does not start.
+There is no off switch. Past it, no held key verifies until a look succeeds, for a known or an
+unknown key id and for a source that cannot be read or holds a document the cache refuses. The
+caller gets `503 identity_unavailable` with no challenge, because a new token cannot help. Every
+look that does not confirm the keys logs `stale_for_ms` beside `max_stale_ms`, the same refused
+document read again included. The bound is now: a removed key stops verifying within
+`MAX_KEY_SET_AGE` plus one read while refresh works, and within the declared ceiling while it does
+not. This is a breaking change: a deployment whose source fails for an hour answered every caller
+before and answers none now. The limits: the ceiling measures the last usable read, not whether the
+source is current, so a file that stops being updated but stays readable never trips it. It is per
+process, and on the monotonic clock, which a suspended host does not advance. A restart with a dead
+source still does not start.
