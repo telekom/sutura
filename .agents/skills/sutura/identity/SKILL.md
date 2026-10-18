@@ -139,12 +139,15 @@ directions. The non-obvious parts:
   *attempt* so a dead source is limited too. **The wording was right and the code was wrong against
   it once:** the check sat outside the lock and review measured three reads where two were required.
   A bound three documents state and concurrency breaks is a defect in the code, not the claim.
-- **Nothing binds an assertion to a request and nothing records what has been seen**, so inside the
-  lifetime ceiling an intercepted assertion replays. A regression test asserts the replay rather than
+- **Nothing binds an assertion to a request and nothing records what has been seen**, unless
+  `transit_single_use` is declared, which refuses a second presentation per process; otherwise
+  inside the lifetime ceiling an intercepted assertion replays. A regression test asserts the replay rather than
   pretending otherwise, and `docs/adr/0014` downgrades its own *"proof that the request transited"*
   wording to a *gateway-issued identity assertion* for that reason.
 
-The other three limits: keys come from a file and there is no JWKS endpoint; of the two metadata
+The other three limits: keys come from `key_set_file` or an `https` `key_set_url` - a URL fetch
+trusts `security.outbound`'s anchors loaded once at start, presents no client identity, and an
+unknown `kid` is `503` only while the last look failed to read the source; of the two metadata
 documents `docs/adr/0014` describes, only protected-resource metadata is served, and only in direct
 mode; and scopes decide **operations**, not rows.
 

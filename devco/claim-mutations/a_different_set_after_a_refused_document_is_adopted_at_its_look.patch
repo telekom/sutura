@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -903,7 +903,7 @@
+     let examined = core::mem::replace(&mut cached.document, read);
+     match candidate {
+         Ok(keys) => {
+-            if cached.adopted.take().unwrap_or(examined) != cached.document {
++            if cached.adopted.take().is_none() && examined != cached.document {
+                 let outgoing = core::mem::replace(&mut cached.keys, keys);
+                 cached.retired = Retired::after(outgoing, grace, now);
+             }

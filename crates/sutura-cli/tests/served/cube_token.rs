@@ -8,15 +8,15 @@
 //! The warehouse (`sutura-exec-cube`) sends the same token when a question is asked, and the second
 //! cell reads that send and the question-time failure after it: a loopback Cube that answers the
 //! question, one that answers 401 and one that answers 500, the last two with a body naming the token,
-//! each asked through `/v1/query`.
+//! each asked through `/v1/query`; the third cell asks the 500 one through `/mcp`'s `ask_metric`.
 //! The example catalog is copied with every anchor but `recurring_revenue`'s removed, because a
 //! deployment verifies each anchor against Cube at boot and a scripted fake answers one certified
 //! number in order, not six.
 //!
 //! **The limit:** only the Cube warehouse is made to fail at question time here. A cause chain from
-//! another data system's driver is not read, and `/mcp` and `sutura mcp` are not asked. `/mcp` is
-//! mounted in the served router and was left out; `sutura mcp` (stdio) installs no tracing subscriber,
-//! so its log surface is standard error alone.
+//! another data system's driver is not read, and `sutura mcp` is not asked: it is a stdio process that
+//! installs no tracing subscriber, so its log surface is standard error alone. `/mcp` is asked for the
+//! 500 only, not for an answer or a 401.
 
 use std::path::{Path, PathBuf};
 
@@ -28,6 +28,9 @@ use crate::harness::{
     start_configured_with_environment, v1,
 };
 use crate::no_echo::{TRACE, bearer_echoed, echoed};
+
+#[cfg(feature = "agent")]
+use crate::harness::AGENT_LOOPBACK;
 
 /// The one metric whose anchor stays: Cube must answer it at boot, with the number it certifies.
 const ANCHORED: &str = "recurring_revenue.md";
@@ -214,5 +217,74 @@ fn a_cube_warehouse_token_is_held_out_of_every_reply_and_log_line_when_a_questio
         );
     }
     let leaked = echoed(&[("the cube token", CANARY)], &[&answered, &unauthorized, &failed], &lines);
+    assert!(leaked.is_empty(), "the cube token was sent back or logged: {leaked:?}");
+}
+
+/// The `initialize` and the `ask_metric` call that put `/v1/query`'s question to `/mcp`.
+#[cfg(feature = "agent")]
+fn mcp_bodies() -> [String; 2] {
+    let question: serde_json::Value = serde_json::from_str(&recurring_revenue_june()).expect("the question is JSON");
+    [
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                       "clientInfo": {"name": "sutura-cube-token", "version": "0.0.0"}}
+        }),
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "ask_metric", "arguments": question}
+        }),
+    ]
+    .map(|body| body.to_string())
+}
+
+/// The `initialize` reply and the `ask_metric` reply, every line the process wrote, and what Cube was sent.
+#[cfg(feature = "agent")]
+type Questioned = ([Reply; 2], Vec<String>, CapturedAuthorizations);
+
+/// What `/mcp` answers when Cube fails the question with a body naming the token.
+#[cfg(feature = "agent")]
+fn questioned_over_mcp(case: &str) -> Questioned {
+    let failure = Scripted::status(500, &format!(r#"{{"error":"{CANARY} was not accepted"}}"#));
+    let cube = FakeServer::start(booted_then(vec![meta(), failure]));
+    let kept = TokenDir::holding(case);
+    let settings = settings_over_cube(&kept, &cube).replace(LOOPBACK, AGENT_LOOPBACK);
+    let mut served = start_configured_with_environment(case, &settings, None, &TRACE, &[]);
+    let [initialize, call] = mcp_bodies();
+    let replies = [served.mcp(Some(TOKEN), &initialize), served.mcp(Some(TOKEN), &call)];
+    served.terminate();
+    (replies, served.log(), cube.finish())
+}
+
+#[cfg(feature = "agent")]
+#[test]
+fn a_cube_warehouse_token_is_held_out_of_every_mcp_reply_and_log_line_when_a_question_fails() {
+    let (replies, lines, sent) = questioned_over_mcp("cube-warehouse-mcp-failed");
+    let [initialized, called] = &replies;
+
+    let result = &called.json()["result"];
+    assert_eq!(
+        (
+            result["isError"].as_bool(),
+            result["content"].as_array().map(Vec::len),
+            result["content"][0]["text"].as_str(),
+            result.get("structuredContent"),
+        ),
+        (Some(true), Some(1), Some("the data system did not answer"), None),
+        "a failed question was not told as the fixed sentence alone: {}",
+        called.body
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("the agent surface could not answer")
+            && line.contains("Cube refused the request with 500")),
+        "the question-time cause chain was never logged, so its absence of the token proves nothing:\n{}",
+        lines.join("\n")
+    );
+    let bearer = format!("Bearer {CANARY}");
+    assert!(
+        sent.len() >= 4 && sent.iter().all(|request| request.authorization() == Some(bearer.as_str())),
+        "Cube was not sent the token at boot and again for the question, so its absence proves nothing: {sent:?}"
+    );
+    let leaked = echoed(&[("the cube token", CANARY)], &[initialized, called], &lines);
     assert!(leaked.is_empty(), "the cube token was sent back or logged: {leaked:?}");
 }

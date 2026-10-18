@@ -126,6 +126,7 @@ pub(crate) const SURFACES: &[Surface] = &[
             "nix/fuzz.nix",
             "nix/run-fuzz.sh",
             "crates/sutura-domain/src/query.rs",
+            "crates/sutura-domain/src/query/methods.rs",
             "crates/sutura-domain/src/model/**",
             "crates/sutura-domain/src/identity.rs",
             "crates/sutura-domain/src/identity/**",

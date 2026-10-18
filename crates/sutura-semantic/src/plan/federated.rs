@@ -9,10 +9,10 @@
 //! Nothing here decides which plan SHAPE a question gets - `super::plan` does that, and calls
 //! [`federated_plan`] only once it has already decided there is exactly one remote source.
 
-use sutura_domain::catalog::{ColumnType, Model, Relationship};
+use sutura_domain::catalog::{ColumnType, JoinKey, Model, Relationship};
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::ColumnName;
+use sutura_domain::model::{ColumnName, SourceName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, InternalLabel, LegPlan, LinkKind, PlanBucket, PlanColumn, PlanKey, PlanTerm, QuotedColumnType, ResultLabel,
@@ -88,19 +88,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
     let link_label = ResultLabel::internal(InternalLabel::Link);
 
-    // The combiner links the two legs on ONE column under ONE label. A single-key crossing
-    // relationship projects that one key on each side; a compound crossing one would need a label
-    // per key, which the lookup leg does not carry - refused BY NAME as
-    // `FederationLinkCompound` rather than reused from `FederationLinkAmbiguous`, which names two
-    // RELATIONSHIPS crossing at once and would tell a caller something untrue about one correctly
-    // declared relationship with more than one key.
-    if relationship.keys().len() != 1 {
-        return Err(PlanError::Refused(RefusalReason::FederationLinkCompound {
-            source: remote_source.clone(),
-            relationship: relationship.name().clone(),
-        }));
-    }
-    let crossing_key = relationship.keys().first();
+    let crossing_key = plain_crossing_key(relationship, remote_source)?;
     // Decided from the catalog's declared types before either leg runs, which is what makes the
     // refusal free: the combiner's own check needs both legs' schemas, which means running them.
     link_types_agree(relationship, link_model, first_join.model)?;
@@ -293,6 +281,31 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     })
 }
 
+/// The one key a crossing relationship links the two legs on, refusing every shape the legs cannot
+/// carry.
+///
+/// The combiner links the legs on ONE column under ONE label, so a compound crossing key would need
+/// a label per key: refused BY NAME as `FederationLinkCompound` rather than reused from
+/// `FederationLinkAmbiguous`, which names two RELATIONSHIPS crossing at once and would tell a caller
+/// something untrue about one correctly declared relationship. The legs also link on raw column
+/// values and are never told a grain, so a key truncated to one would join on the wrong value:
+/// refused as `FederationLinkTruncated` rather than answered wrongly.
+fn plain_crossing_key<'r>(relationship: &'r Relationship, source: &SourceName) -> Result<&'r JoinKey, PlanError> {
+    if relationship.keys().len() != 1 {
+        return Err(PlanError::Refused(RefusalReason::FederationLinkCompound {
+            source: source.clone(),
+            relationship: relationship.name().clone(),
+        }));
+    }
+    let key = relationship.keys().first();
+    if key.grain().is_some() {
+        return Err(PlanError::Refused(RefusalReason::FederationLinkTruncated {
+            relationship: relationship.name().clone(),
+        }));
+    }
+    Ok(key)
+}
+
 /// A column's declared type, when its model declares the column and a type for it.
 fn declared_type<'m>(model: &'m Model, column: &ColumnName) -> Option<&'m ColumnType> {
     model.column(column)?.data_type()
@@ -357,6 +370,7 @@ fn second_fact_leg(
             model: second.name().clone(),
         }));
     };
+    let link_key = plain_crossing_key(link, crossing.model.source())?;
     let tables = StatementTables::parse(
         second.table().clone(),
         vec![hop_join(cross.second_to_calendar, second.table_name(), cross.calendar)],
@@ -371,7 +385,7 @@ fn second_fact_leg(
         bucket: bucket.clone(),
         keys: vec![PlanKey::new(
             ResultLabel::internal(InternalLabel::Link),
-            PlanColumn::new(second.table_name().clone(), link.keys().first().origin().clone()),
+            PlanColumn::new(second.table_name().clone(), link_key.origin().clone()),
         )],
         terms: second_terms,
         bindings: super::range_only(resolution.range, bucket.column())?,

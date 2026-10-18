@@ -2,137 +2,20 @@
 //!
 //! A submodule of [`super`] rather than a fixture inside it, and the reason is the mechanical one
 //! [`super::column_zero`] gives: `cargo xtask max-lines` fails at a thousand lines under `crates/`
-//! and cannot be exempted, and that file was one line under it. The seam is a real one - this is a
-//! corpus rather than a helper, sixty lines of literals that no test reads except by asking for the
-//! whole list.
+//! and cannot be exempted, and that file was one line under it.
 //!
-//! **It names every variant, which is exactly why `cargo xtask check-refusal-coverage` counts it
-//! for none of them.** That gate treats a file naming every variant as a census; the provocations
-//! live where the refusals are produced. What this list buys is the second net the function below
-//! documents.
+//! The list itself is `sutura_domain::query::every_refusal`, beside the enum, so this file names no
+//! variant: a change that adds one need not edit it, and `just causality` can rebuild the base tree.
 
-use sutura_domain::model::{Grain, ModelName, SourceName, TableName};
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_METRICS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
+use sutura_domain::query::RefusalReason;
 
-use super::{dimension_name, metric_name};
-
-/// One instance of every refusal variant.
+/// One instance of every refusal variant, from the list beside the enum.
 ///
 /// The second net rather than the first: what forces an author to write a guide is `guide_for` in
-/// `prompt.rs` failing to compile. What this list adds is that once they have, the set of guides the
-/// prompt renders and the set `guide_for` can return are asserted to be the same.
+/// `prompt/refusal.rs` failing to compile. What this list adds is that once they have, the set of
+/// guides the prompt renders and the set `guide_for` can return are asserted to be the same.
 pub(super) fn every_refusal() -> Vec<RefusalReason> {
-    vec![
-        RefusalReason::MetricUnknown {
-            metric: metric_name("revenue"),
-        },
-        RefusalReason::MetricsSpanDifferentModels {
-            first: metric_name("revenue"),
-            other: metric_name("margin"),
-        },
-        RefusalReason::TooManyMetrics {
-            requested: 9,
-            limit: MAX_METRICS,
-        },
-        RefusalReason::DuplicateMetricName {
-            metric: metric_name("revenue"),
-        },
-        RefusalReason::MultiMetricFederationNotExecutable {
-            metrics: vec![metric_name("revenue"), metric_name("margin")],
-        },
-        RefusalReason::MultiMetricTopNotExecutable {
-            metrics: vec![metric_name("revenue"), metric_name("margin")],
-        },
-        RefusalReason::GrainNotSupported {
-            metric: metric_name("revenue"),
-            grain: Grain::Year,
-        },
-        RefusalReason::DimensionNotPermitted {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("region"),
-        },
-        RefusalReason::DimensionNotFilterable {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("tariff"),
-        },
-        RefusalReason::DimensionValueNotAllowed {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("region"),
-        },
-        RefusalReason::DuplicateDimension {
-            dimension: dimension_name("region"),
-        },
-        RefusalReason::TooManyDimensions {
-            requested: 9,
-            limit: MAX_DIMENSIONS,
-        },
-        RefusalReason::TooManyFilters {
-            requested: MAX_FILTERS + 1,
-            limit: MAX_FILTERS,
-        },
-        RefusalReason::ResultTooLarge {
-            bound: ResultBound::Rows { limit: 10_000 },
-        },
-        RefusalReason::TimeRangeTooLong {
-            days: 99_999,
-            limit: MAX_RANGE_DAYS,
-        },
-        // A gibibyte, which is the provisional default `sutura-config` writes. Any number would
-        // exercise the guide; this one is the one an operator will actually read in a log.
-        RefusalReason::ResourcesExhausted {
-            ceiling_bytes: 1024 * 1024 * 1024,
-        },
-        RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
-        RefusalReason::FederationNotExecutable,
-        RefusalReason::FederationLinkAmbiguous {
-            source: SourceName::parse("geo").expect("a test source is a source"),
-        },
-        RefusalReason::FederationLinkCompound {
-            source: SourceName::parse("geo").expect("a test source is a source"),
-            relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
-                .expect("a test relationship is a relationship"),
-        },
-        RefusalReason::FederationLinkTypeMismatch {
-            relationship: sutura_domain::model::RelationshipName::parse("orders_customer")
-                .expect("a test relationship is a relationship"),
-            fact_type: sutura_domain::plan::QuotedColumnType::from(
-                &sutura_domain::catalog::ColumnType::parse("DATE").expect("a test type is a type"),
-            ),
-            lookup_type: sutura_domain::plan::QuotedColumnType::from(
-                &sutura_domain::catalog::ColumnType::parse("BIGINT").expect("a test type is a type"),
-            ),
-        },
-        RefusalReason::FederatedAnswerNotWellFormed {
-            federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
-        },
-        RefusalReason::PlanTablesShareAnIdentifier {
-            table: TableName::parse("orders").expect("a test table is a table"),
-        },
-        RefusalReason::SourceUnavailable {
-            source: SourceName::parse("elsewhere").expect("a test source is a source"),
-        },
-        RefusalReason::SourceRefused {
-            source: SourceName::parse("warehouse").expect("a test source is a source"),
-        },
-        RefusalReason::CredentialUnavailable {
-            source: SourceName::parse("warehouse").expect("a test source is a source"),
-        },
-        RefusalReason::DeadlineExceeded { budget_seconds: 29 },
-        RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
-        RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
-        RefusalReason::CrossModelRatioWithoutSharedCalendar {
-            metric: metric_name("revenue_per_customer"),
-            model: ModelName::parse("customers").expect("a test model is a model"),
-        },
-        RefusalReason::CrossModelRatioSpansSources {
-            metric: metric_name("revenue_per_customer"),
-            model: ModelName::parse("customers").expect("a test model is a model"),
-        },
-        RefusalReason::CrossModelRatioWithoutSharedDimension {
-            metric: metric_name("revenue_per_customer"),
-            model: ModelName::parse("customers").expect("a test model is a model"),
-        },
-    ]
+    sutura_domain::query::every_refusal()
 }
 
 /// G4 - the witness pairing, driven by every variant in this corpus.
@@ -142,7 +25,7 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
 /// NOT make: it compares two SETS of reason strings, so swapping any two `Guide.reason` consts
 /// stays green. Asserting the pairing per variant - a guide's `reason` must be the variant's OWN
 /// machine code - reddens exactly that mutation, which is the witness G4 exists to hold.
-use super::super::refusal::guide_for;
+use super::super::refusal::{GUIDES, guide_for};
 
 /// A guide's `reason` is the domain's canonical `code()` for the variant it was matched from.
 #[test]
@@ -156,50 +39,34 @@ fn guide_key_carries_the_variant_it_was_matched_from() {
     }
 }
 
-/// Every variant's key is supplied to a no-wildcard match, so none can drift.
+/// The list beside the enum and the guides are the same size, and every key is its variant's code.
+///
+/// The exhaustive match is in `sutura_domain::query::every_refusal`, where a new variant fails to
+/// compile until it is named. What this cell holds at run time is the count: a variant with a guide
+/// and no entry in that list is a count that differs. A count misses a duplicate row that takes the
+/// place of the missing one; `every_refusal_a_caller_can_be_given_has_guidance_in_the_prompt` compares
+/// the two sets and holds that case.
 #[test]
 fn guide_key_carries_every_variant() {
-    for reason in every_refusal() {
-        let key = guide_for(&reason).reason;
-        // ONE arm, an or-pattern: a new `RefusalReason` variant fails to compile here until named.
-        match &reason {
-            RefusalReason::MetricUnknown { .. }
-            | RefusalReason::MetricsSpanDifferentModels { .. }
-            | RefusalReason::TooManyMetrics { .. }
-            | RefusalReason::DuplicateMetricName { .. }
-            | RefusalReason::MultiMetricFederationNotExecutable { .. }
-            | RefusalReason::MultiMetricTopNotExecutable { .. }
-            | RefusalReason::GrainNotSupported { .. }
-            | RefusalReason::DimensionNotPermitted { .. }
-            | RefusalReason::DimensionNotFilterable { .. }
-            | RefusalReason::DimensionValueNotAllowed { .. }
-            | RefusalReason::DuplicateDimension { .. }
-            | RefusalReason::TooManyDimensions { .. }
-            | RefusalReason::TooManyFilters { .. }
-            | RefusalReason::ResultTooLarge { .. }
-            | RefusalReason::TimeRangeTooLong { .. }
-            | RefusalReason::PlanSpansTooManySources { .. }
-            | RefusalReason::FederationNotExecutable
-            | RefusalReason::FederationLinkAmbiguous { .. }
-            | RefusalReason::FederationLinkCompound { .. }
-            | RefusalReason::FederationLinkTypeMismatch { .. }
-            | RefusalReason::FederatedAnswerNotWellFormed { .. }
-            | RefusalReason::PlanTablesShareAnIdentifier { .. }
-            | RefusalReason::SourceUnavailable { .. }
-            | RefusalReason::SourceRefused { .. }
-            | RefusalReason::ResourcesExhausted { .. }
-            | RefusalReason::CredentialUnavailable { .. }
-            | RefusalReason::DeadlineExceeded { .. }
-            | RefusalReason::BudgetExhausted { .. }
-            | RefusalReason::TopOverUncertifiedRows { .. }
-            | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
-            | RefusalReason::CrossModelRatioSpansSources { .. }
-            | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => {}
-        }
-        assert_eq!(
-            key,
-            reason.code(),
-            "the exhaustive match gave a key that is not this variant's code"
-        );
+    let all = every_refusal();
+    assert_eq!(
+        all.len(),
+        GUIDES.len(),
+        "a guide has no entry in the list, or an entry has no guide"
+    );
+    for reason in all {
+        assert_eq!(guide_for(&reason).reason, reason.code(), "the key is not this variant's code");
     }
+}
+
+/// A cross-source relationship with a truncated key is refused under its own code, and the corpus
+/// holds it: the guide cells above then check its guide.
+#[test]
+fn the_corpus_holds_the_truncated_crossing_key_refusal() {
+    assert!(
+        every_refusal()
+            .iter()
+            .any(|reason| reason.code() == "federation_link_truncated"),
+        "no refusal in the corpus carries the truncated-key code"
+    );
 }

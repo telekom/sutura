@@ -51,6 +51,12 @@ const TAG: &str = "catalog";
             body = crate::problem::ProblemBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
+        (
+            status = 503,
+            description = "Worth retrying: `identity_unavailable`, the key set this deployment \
+                           verifies tokens against could not be read.",
+            body = crate::problem::ProblemBody
+        ),
     )
 )]
 pub(crate) async fn catalog(

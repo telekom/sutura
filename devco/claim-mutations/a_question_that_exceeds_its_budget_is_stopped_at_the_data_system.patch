@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-exec-datafusion/src/lib.rs b/crates/sutura-exec-datafusion/src/lib.rs
+diff --git a/crates/sutura-exec-datafusion/src/warehouse.rs b/crates/sutura-exec-datafusion/src/warehouse.rs
 index 02a4ab06d..918fdcaab 100644
---- a/crates/sutura-exec-datafusion/src/lib.rs
-+++ b/crates/sutura-exec-datafusion/src/lib.rs
+--- a/crates/sutura-exec-datafusion/src/warehouse.rs
++++ b/crates/sutura-exec-datafusion/src/warehouse.rs
 @@ -733,7 +733,7 @@ impl Warehouse for DataFusionWarehouse {
          // Built INSIDE this `async move`, not handed to `block_on` directly: a `Sleep` registers on
          // CONSTRUCTION, before `block_on`'s own argument is even evaluated - measured as a panic.

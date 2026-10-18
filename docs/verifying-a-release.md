@@ -44,7 +44,7 @@ contains the publishing steps of that workflow. A dispatch runs the workflow as 
 It builds the same commit at the `release-performance` profile: assets
 `sutura-<triple>-performance.tar.gz`, leaf images `:<version>-performance-<triple>`, lists
 `:<version>-performance` and `:<version>-performance-musl`. The same signing, SBOM and provenance
-sequence runs over it, so the regexp-based `cosign` commands below apply unchanged. The bundle-mode
+sequence runs over it, so the `cosign` commands below apply unchanged. The bundle-mode
 `gh attestation verify` below does not. For an optimised asset its identity is
 `https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG`, and
 `$TAG` is the dispatched `v<version>`, not `v<version>-performance`. Its change list, licence
@@ -105,7 +105,8 @@ So you do not check *"somebody held the key"*. That claim stays true after a key
 somebody notices. You check *"this workflow, at this ref, in this repository"*. An attacker has
 nothing to steal here. **Every command below passes `--certificate-identity-regexp` and
 `--certificate-oidc-issuer`, because those two flags are the check.** Without them, the command only
-verifies that *somebody* signed the file.
+verifies that *somebody* signed the file. The regexp names the two release workflows of this
+repository, `release.yml` and `release-performance.yml`, at any tag.
 
 ## Verifying a release asset
 
@@ -116,7 +117,7 @@ From the bytes and the bundle:
 ```bash
 cosign verify-blob \
   --bundle sutura-x86_64-unknown-linux-gnu.tar.gz.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-identity-regexp '^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   sutura-x86_64-unknown-linux-gnu.tar.gz
 ```
@@ -174,7 +175,7 @@ meant when you ran it.
 ```bash
 cosign verify \
   ghcr.io/telekom/sutura@sha256:... \
-  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-identity-regexp '^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -197,14 +198,15 @@ reason the images give.
 ```bash
 cosign verify \
   ghcr.io/telekom/charts/sutura@sha256:... \
-  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-identity-regexp '^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The regexp pins the repository, not the tag. When you know the tag, use `--certificate-identity`
-in place of the regexp flag, with
+The regexp pins the two release workflows of this repository, at any tag. When you know the tag, use
+`--certificate-identity` in place of the regexp flag, with
 `https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/<tag>`, to pin the exact
-identity. You can run `cosign` from the flake pin with `nix run .#cosign`.
+tag as well. For an optimised release the file is `release-performance.yml`. You can run `cosign`
+from the flake pin with `nix run .#cosign`.
 
 The chart carries a signature and nothing else: no SBOM attestation, no SLSA provenance and no
 Sigstore bundle asset. No Helm `.prov` file exists, so `helm install --verify` does not apply.
@@ -218,7 +220,7 @@ disagree - attached to the release and, for CycloneDX, attached to the image its
 ```bash
 cosign verify-attestation --type cyclonedx \
   ghcr.io/telekom/sutura@sha256:... \
-  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-identity-regexp '^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -258,7 +260,7 @@ It is signed and carries provenance, so it verifies exactly like a binary tarbal
 ```bash
 cosign verify-blob \
   --bundle sutura-attribution.md.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-identity-regexp '^https://github\.com/telekom/sutura/\.github/workflows/release(-performance)?\.yml@refs/tags/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   sutura-attribution.md
 ```

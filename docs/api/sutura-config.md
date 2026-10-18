@@ -407,13 +407,8 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 The path a `KeySetLocation::File` key set is read from.
 
-**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
-runtime dependency and that an outage there must stay distinguishable from a dead data system.
-None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-when a key id is not in it, and that refetch is rate limited - and every one of those properties
-is the same whether the source is a file a sidecar rewrites or an endpoint. See
+A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+cache, both re-read triggers and the rate limit are the same whatever the source - see
 `sutura_http::inbound::keys`.
 
 ## `use KeySetLocation`
@@ -423,6 +418,13 @@ Where the signing keys are read from.
 **An enum, so a second source arrives as a variant every reader has to match** rather than as a
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
+
+## `use KeySetUrl`
+
+The `https` URL a `KeySetLocation::Url` key set is fetched from.
+
+The same strict parse as `crate::inbound::IssuerUrl`: `https` only, a host, no userinfo, and no
+`?` or `#`, so an endpoint that needs a query string is refused rather than half-read.
 
 ## `use PinnedAlgorithms`
 
@@ -2958,8 +2960,10 @@ carried it there first. Review found the wording overstating exactly that: a pro
 for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
 are now bounded - `ProofLifetime` caps `exp - iat` and an `iat` is required, so the replay window
 is a number this deployment chose rather than one it was handed. **Binding an assertion to a
-particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
-body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+particular request is not built**: nothing hashes a method, a path or a body into the proof, so
+inside the lifetime window an intercepted assertion replays - unless the deployment declares
+`TransitProof::SINGLE_USE_KEY`, which refuses a second presentation per process and never a
+first one by the wrong party (the architecture decision). That is why
 this module and the architecture decision now call it a *gateway-issued identity assertion* rather than a
 proof that the request transited anything, and why the trusted transport boundary - the hop between
 the component and this process - is load-bearing rather than incidental.
@@ -3077,6 +3081,12 @@ Every field is a validation input, and that is the point of the type: there is n
 holds an asserted identity. See this module's documentation for why.
 
 #### Methods
+
+```rust
+pub fn admitting_once(self, single_use: bool) -> Self
+```
+
+The same declaration, admitting each assertion once by its `jti` where `single_use` is `true`.
 
 ```rust
 pub fn granting_when_absent(self, grant: GrantedScopes) -> Self
@@ -3281,6 +3291,12 @@ The identifier RFC 9728's metadata and a challenge name, whatever `aud` is. `Non
 gateway, which publishes none.
 
 ```rust
+pub const fn single_use(&self) -> bool
+```
+
+Whether each assertion is admitted once, by its `jti`. See `TransitProof::SINGLE_USE_KEY`.
+
+```rust
 pub const fn token_type(&self) -> &'inbound RequiredTokenType
 ```
 
@@ -3305,6 +3321,13 @@ Where the signing keys are read from.
 **An enum, so a second source arrives as a variant every reader has to match** rather than as a
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
+
+### `use KeySetUrl`
+
+The `https` URL a `KeySetLocation::Url` key set is fetched from.
+
+The same strict parse as `crate::inbound::IssuerUrl`: `https` only, a host, no userinfo, and no
+`?` or `#`, so an endpoint that needs a query string is refused rather than half-read.
 
 ### `use InvalidAlgorithms`
 
@@ -3345,13 +3368,8 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 The path a `KeySetLocation::File` key set is read from.
 
-**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
-runtime dependency and that an outage there must stay distinguishable from a dead data system.
-None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-when a key id is not in it, and that refetch is rate limited - and every one of those properties
-is the same whether the source is a file a sidecar rewrites or an endpoint. See
+A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+cache, both re-read triggers and the rate limit are the same whatever the source - see
 `sutura_http::inbound::keys`.
 
 ### `use PinnedAlgorithms`

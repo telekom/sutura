@@ -146,10 +146,8 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
-        } => format!(
-            "the relationship `{relationship}` crossing into `{source}` declares more than one join \
-             key, and the two legs link on a single column"
-        ),
+        } => compound_link(source, relationship),
+        RefusalReason::FederationLinkTruncated { ref relationship } => truncated_link(relationship),
         RefusalReason::FederationLinkTypeMismatch {
             ref relationship,
             ref fact_type,
@@ -255,6 +253,20 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     (code, detail)
 }
 
+fn compound_link(source: &sutura_domain::model::SourceName, relationship: &sutura_domain::model::RelationshipName) -> String {
+    format!(
+        "the relationship `{relationship}` crossing into `{source}` declares more than one join key, and the two legs \
+         link on a single column"
+    )
+}
+
+fn truncated_link(relationship: &sutura_domain::model::RelationshipName) -> String {
+    format!(
+        "the relationship `{relationship}` crossing into the second data system joins on a key truncated to a grain, \
+         which the two legs do not carry"
+    )
+}
+
 /// Written for an agent: nothing in the question fixes where a cross-model ratio's models live.
 fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
@@ -336,6 +348,10 @@ mod tests {
             },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
+                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                    .expect("a test relationship is a relationship"),
+            },
+            RefusalReason::FederationLinkTruncated {
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                     .expect("a test relationship is a relationship"),
             },

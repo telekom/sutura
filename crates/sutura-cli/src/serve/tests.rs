@@ -885,3 +885,30 @@ fn v1_with_no_inbound_identity_does_not_start_over_an_impersonating_source() {
     let shared = settings_under("", &entry("local", "shared-service-user", ""));
     assert!(super::inbound_gate(&shared).is_ok_and(|gate| gate.is_none()));
 }
+
+/// A `key_set_url` is fetched over `security.outbound`'s anchors: the issuer's certificate is named
+/// only by the declared bundle, so the gate builds only if the root hands that bundle on.
+#[test]
+fn a_key_set_url_is_fetched_over_the_declared_outbound_anchors() {
+    use sutura_http_client::test_support::Scripted;
+    use sutura_http_client::tls_test_support::{Scratch, TlsFakeServer, declared_bundle, issue};
+
+    let issuer = sutura_dev::issuer::MockIssuer::generating("https://idp.example.com", "https://sutura.example.com", "the-key")
+        .expect("a mock issuer generates a key");
+    let leaf = issue();
+    let scratch = Scratch::new("inbound-key-set-url");
+    let bundle = declared_bundle(&scratch, "issuer", &leaf);
+    let server = TlsFakeServer::start(&leaf, vec![Scripted::raw(200, issuer.key_set().into_bytes())]);
+    let settings = settings_under(
+        &format!(
+            "  outbound:\n    transport_anchors: \"{}\"\n  inbound:\n    mode: \"direct\"\n    \
+             resource: \"https://sutura.example.com\"\n    authorization_server: \"https://idp.example.com\"\n    \
+             key_set_url: \"{}/keys\"\n    algorithms: [\"ES256\"]\n",
+            bundle.display(),
+            server.endpoint(),
+        ),
+        &entry("local", "shared-service-user", ""),
+    );
+    let gate = super::inbound_gate(&settings);
+    assert!(gate.as_ref().is_ok_and(Option::is_some), "{:?}", gate.err());
+}

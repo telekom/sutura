@@ -423,3 +423,12 @@ The second amendment's single connection is gone too: a connection is opened per
 after it, so there is still no pool to drain, and a rotated client pair is presented from the next
 call on. The channel is held by `tests/tls.rs`'s four tier cells and `Conninfo`'s unit cells; no
 cell observes a handshake's protocol or cipher.
+
+## Seventh amendment, 2026-10-17: the inbound key set fetch exists, and trusts `security.outbound`
+
+*Consequences* says the inbound JWKS fetch does not exist. It does now: `security.inbound.key_set_url`
+names an issuer's `jwks_uri`, and `sutura_http::inbound::UrlKeySet` reads it over the shared outbound client
+(ADR 0014, ninth amendment). It trusts `security.outbound.transport_anchors` when that is set, and the
+built-in web roots when not, so an issuer behind a private CA is the reuse case that sentence named.
+Two limits: the fetch presents no client identity, even when `security.outbound` declares one, and it
+loads the anchors once at start, so a rotated bundle reaches it on the next start, not on the poll.

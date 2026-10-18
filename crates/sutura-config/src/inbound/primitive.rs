@@ -181,13 +181,8 @@ pub struct IssuerUrl(String);
 
 /// The path a [`KeySetLocation::File`](crate::inbound::KeySetLocation::File) key set is read from.
 ///
-/// **A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-/// endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-/// its own failure mode - `docs/adr/0014` says plainly that the authorization server becomes a hard
-/// runtime dependency and that an outage there must stay distinguishable from a dead data system.
-/// None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-/// when a key id is not in it, and that refetch is rate limited - and every one of those properties
-/// is the same whether the source is a file a sidecar rewrites or an endpoint. See
+/// A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+/// cache, both re-read triggers and the rate limit are the same whatever the source - see
 /// `sutura_http::inbound::keys`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeySetFile(PathBuf);

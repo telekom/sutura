@@ -27,12 +27,16 @@
 //! gateway assertion is minted by the component, not by an authorization server a client can use, so
 //! that mode offers no Bearer challenge - wherever the assertion arrives.
 //!
+//! An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
+//! challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+//! the store of seen assertions is full, where single use is declared.
+//!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
 //! audience did not" tells somebody which half of a forgery to fix.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Request, State};
 use axum::http::HeaderMap;
@@ -44,7 +48,9 @@ use sutura_config::{InboundIdentity, KeySetLocation, ResourceIdentifier, TokenLo
 use sutura_runtime::Shutdown;
 
 use crate::inbound::caller::VerifiedCaller;
-use crate::inbound::keys::{FileKeySet, KeySetCache, KeySetUnavailable, MAX_KEY_SET_AGE};
+use crate::inbound::keys::{
+    FileKeySet, KeySetCache, KeySetClientUnusable, KeySetSource, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE, UrlKeySet,
+};
 use crate::inbound::token::{TokenRejected, TokenValidator};
 use crate::problem::Failure;
 
@@ -55,7 +61,7 @@ const BEARER: &str = "Bearer";
 /// Everything one deployment needs to establish who a caller is, built once at startup.
 ///
 /// **Built by the composition root and not by [`crate::ServiceState::new`]**, because building it
-/// reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+/// reads the key set: a constructor that could not fail would have to either swallow an unreadable key set
 /// or read it lazily on the first request, and both turn a refusal to start into a deployment that
 /// authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
 /// declare an inbound identity and whose state carries no gate, which is what makes forgetting to
@@ -84,10 +90,11 @@ pub struct InboundGate {
 
 /// The gate could not be built.
 #[derive(Debug, thiserror::Error)]
-#[error("the inbound identity declared by this deployment is not usable")]
-pub struct InboundNotUsable {
-    #[source]
-    cause: KeySetUnavailable,
+pub enum InboundNotUsable {
+    #[error("the inbound identity declared by this deployment is not usable")]
+    Unreadable(#[source] KeySetUnavailable),
+    #[error("the client for `security.inbound.key_set_url` could not be built")]
+    Client(#[source] KeySetClientUnusable),
 }
 
 impl InboundGate {
@@ -95,22 +102,43 @@ impl InboundGate {
     ///
     /// **Called before the listener opens.** An unreadable or unusable key set is an error here, so it
     /// is a process that does not start rather than one that answers `401` to everybody.
+    ///
+    /// A `key_set_url` is fetched over the compiled-in web roots here, whatever `security.outbound`
+    /// declares; [`Self::from_declaration_trusting`] is the call that honours a declared bundle.
     pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable> {
+        Self::from_declaration_trusting(inbound, None)
+    }
+
+    /// The same, fetching a key set URL over `anchors` - the deployment's `security.outbound`
+    /// trust - or, with none declared, the compiled-in web roots.
+    pub fn from_declaration_trusting(
+        inbound: &InboundIdentity,
+        anchors: Option<&sutura_tls::Anchors>,
+    ) -> Result<Self, InboundNotUsable> {
         let requirement = inbound.requirement();
-        let source = match requirement.key_set() {
-            KeySetLocation::File(file) => FileKeySet::at(file.path()),
+        let source: Box<dyn KeySetSource> = match requirement.key_set() {
+            KeySetLocation::File(file) => Box::new(FileKeySet::at(file.path())),
+            KeySetLocation::Url(url) => Box::new(UrlKeySet::trusting(url, anchors).map_err(InboundNotUsable::Client)?),
         };
         // The pinned family travels into the cache, so **every** path that adopts a key set - this one
         // and every later refresh - refuses one that holds no key of it. A deployment whose key set and
         // whose `algorithms` disagree about the kind of key starts and answers `401` to everybody
         // otherwise, which is the shape review asked to have refused.
         let keys = KeySetCache::primed(
-            Box::new(source),
+            source,
             requirement.algorithms().family(),
             requirement.algorithms().to_string(),
             Instant::now(),
         )
-        .map_err(|cause| InboundNotUsable { cause })?;
+        .map_err(InboundNotUsable::Unreadable)?;
+        if requirement.single_use() {
+            tracing::info!(
+                capacity = crate::inbound::replay::CAPACITY,
+                max_jti_bytes = crate::inbound::replay::MAX_ASSERTION_ID_BYTES,
+                "single use: each assertion is admitted once by its `jti`, per process - another replica or \
+                 a restart admits it again inside its lifetime, and a full store refuses with 503"
+            );
+        }
         Ok(Self::over(inbound, keys))
     }
 
@@ -134,7 +162,15 @@ impl InboundGate {
                     .map_or_else(|| requirement.audience().as_str(), ResourceIdentifier::as_str),
             ),
             validator: TokenValidator::new(&requirement),
-            keys: Arc::new(keys),
+            // `docs/adr/20261015095237`: only a mode with a lifetime ceiling has a grace, and it is that
+            // ceiling plus the leeway an old key's last assertion can still be accepted inside.
+            keys: Arc::new(
+                keys.with_grace(
+                    requirement
+                        .max_lifetime()
+                        .map(|ceiling| Duration::from_secs(ceiling.seconds()).saturating_add(TokenValidator::leeway())),
+                ),
+            ),
             header,
             bearer_prefixed,
             challenges,
@@ -307,12 +343,16 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
     }
 }
 
-/// The `401`, its challenge, and the one place the reason is written down.
+/// The `401` and its challenge - or a `503` when the key source is down or the store of seen
+/// assertions is full - and the one place the reason is written down.
 ///
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
 /// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
 fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, headers: &HeaderMap) -> Response {
+    if let Some(failure) = not_the_callers_fault(rejected) {
+        return failure.into_response();
+    }
     // The cause chain, not the variant alone: which of signature, expiry, issuer and audience failed is
     // what an operator needs, and it goes here rather than to the caller.
     tracing::warn!(
@@ -321,11 +361,30 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
         header = gate.header(),
         "no verified caller: the presented token did not establish one"
     );
+    if matches!(
+        rejected,
+        TokenRejected::NoKey {
+            cause: KeyUnavailable::SourceUnavailable { .. }
+        }
+    ) {
+        return Failure::IdentityUnavailable.into_response();
+    }
     let mut response = Failure::Unauthorized.into_response();
     if let Some(challenge) = gate.challenge(request_uri, headers) {
         challenged(&mut response, &challenge);
     }
     response
+}
+
+/// A refusal that is this process's state rather than the caller's credential, and is not a `401`.
+///
+/// A full store of seen assertions is announced once per window where it is raised, so it gets no
+/// line per request here: that would be a line per request of the flood that filled it.
+const fn not_the_callers_fault(rejected: &TokenRejected) -> Option<Failure> {
+    match *rejected {
+        TokenRejected::SeenStoreFull => Some(Failure::IdentityUnavailable),
+        _ => None,
+    }
 }
 
 /// Puts the challenge on a response, or says why it could not.
@@ -342,5 +401,19 @@ fn challenged(response: &mut Response, challenge: &str) {
             drop(response.headers_mut().insert(axum::http::header::WWW_AUTHENTICATE, value));
         }
         Err(cause) => tracing::error!(error = %cause, "the configured resource identifier is not a header value"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Failure, TokenRejected, not_the_callers_fault};
+
+    #[test]
+    fn a_full_seen_store_answers_identity_unavailable_and_a_replay_answers_401() {
+        assert!(matches!(
+            not_the_callers_fault(&TokenRejected::SeenStoreFull),
+            Some(Failure::IdentityUnavailable)
+        ));
+        assert!(not_the_callers_fault(&TokenRejected::Replayed).is_none());
     }
 }

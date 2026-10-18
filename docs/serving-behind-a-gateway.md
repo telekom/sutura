@@ -30,6 +30,26 @@ The assertion is a bearer that is not bound to one request. Keep the path from t
 lifetime short. With `tlsTermination: ingress`, the assertion crosses the pod network in clear text. See
 [Inbound identity](integrations/identity.md#settings-for-behind-gateway).
 
+## Single use
+
+`transit_single_use: true` makes sutura admit each assertion once. An assertion must then carry a `jti` of 1 to 128
+bytes, and sutura refuses an assertion with a `jti` that it already admitted, until that assertion expires. The gateway
+must sign a new assertion, with a unique `jti`, for each request. If it uses one assertion for more than one request,
+sutura refuses each request after the first. Before you set it, make sure that your gateway does this.
+
+The setting is `false` by default. Then sutura accepts one assertion again until its `exp` plus 30 seconds: at most
+`transit_max_lifetime_seconds` plus 30 seconds after its `iat`, which is 150 seconds at the default lifetime.
+
+With the setting `true`:
+
+- Each sutura process keeps its own list of the `jti` values that it admitted. With more than one replica, each replica
+  can admit the same assertion once. After a restart, sutura can admit an assertion again that it admitted before.
+- A process keeps at most 262,144 assertions that have not expired. When the list is full, sutura refuses a new
+  assertion with `503 identity_unavailable` until some expire. It logs this once in each `transit_max_lifetime_seconds`
+  plus 60 seconds. A shorter
+  `transit_max_lifetime_seconds` lets a process admit more requests in the same time.
+- Single use does not stop the first use of a stolen assertion. Keep the path from the gateway to sutura trusted.
+
 ## Rotating the keys
 
 The gateway rotates its signing keys. The key set that sutura reads must follow the rotation:
@@ -45,6 +65,16 @@ once every 30 seconds. It keeps the last key set that loaded when the new file d
 The key set can also be one PEM public key or certificate, such as the `tls.crt` that cert-manager writes. The key id
 is the RFC 7638 SHA-256 thumbprint of the key, so the gateway puts that thumbprint in the `kid` of each assertion it
 signs with that key. A PEM file holds one key, so it cannot hold the old key and the new key at the same time.
+
+So sutura keeps the key set that a rotation replaced. After sutura reads a new key set, the keys that left it verify for
+`transit_max_lifetime_seconds` plus 30 seconds more, and then stop. While the new file loads, a removed key therefore
+stops verifying within 60 seconds, plus one read, plus that time: 210 seconds at the default lifetime of 120 seconds.
+Only the key set just replaced is kept, so a second rotation in that time stops the oldest key at once. To stop a key
+at once, restart sutura with the new key set.
+
+sutura asks the new key set first. So a JWK set whose new key keeps the `kid` of the old key gives the old key no extra
+time: an assertion that the old key signed is refused from the read of the new set. A PEM file cannot do this, because
+its `kid` is the thumbprint of the key.
 
 ## With the chart
 

@@ -131,6 +131,59 @@ fn a_key_set_file_path_over_the_length_cap_is_refused_naming_the_key() {
     );
 }
 
+/// [`DIRECT_INBOUND`] with its key set file replaced by `url`.
+///
+/// The cells below read the location and the refusals through `Debug` and `Display`, so they build
+/// against a tree that has no URL source and fail there on their own assertions.
+fn direct_fetching(url: &str) -> Sources {
+    let written = DIRECT_INBOUND.replacen(
+        "key_set_file: \"/etc/sutura/jwks.json\"",
+        &format!("key_set_url: \"{url}\""),
+        1,
+    );
+    Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}"))
+}
+
+#[test]
+fn a_key_set_url_is_read_as_the_url_location() {
+    let settings =
+        Settings::load(&direct_fetching("https://issuer.example.com/keys")).map_err(|error| format!("{:?}", error.reason()));
+    let key_set = settings.map(|settings| {
+        format!(
+            "{:?}",
+            settings.security().inbound().map(|inbound| inbound.requirement().key_set())
+        )
+    });
+    assert_eq!(
+        key_set,
+        Ok(String::from(r#"Some(Url(KeySetUrl("https://issuer.example.com/keys")))"#))
+    );
+}
+
+#[test]
+fn a_cleartext_key_set_url_is_refused_naming_the_key() {
+    let refused = Settings::load(&direct_fetching("http://issuer.example.com/keys"))
+        .map(|_settings| ())
+        .map_err(|error| format!("{:?}", error.reason()));
+    assert_eq!(
+        refused,
+        Err(String::from(
+            r#"InboundValue { cause: NotHttps { key: "security.inbound.key_set_url" } }"#
+        ))
+    );
+}
+
+#[test]
+fn a_key_set_file_and_a_key_set_url_together_are_refused() {
+    let rendered = refusal(format!(
+        "security:\n{DIRECT_INBOUND}    key_set_url: \"https://issuer.example.com/keys\"\n"
+    ));
+    assert_eq!(
+        rendered,
+        "`security.inbound` names both `key_set_file` and `key_set_url` - one key set, one source"
+    );
+}
+
 #[test]
 fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads() {
     // The positive side, asserted through `Settings::load` rather than by constructing the types:
@@ -546,6 +599,20 @@ fn granted_scopes_is_read_behind_a_gateway_and_refused_in_direct() {
     let rendered = refused.reason().to_string();
     assert!(
         rendered.contains("`security.inbound.granted_scopes`") && rendered.contains("`behind-gateway`"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn transit_single_use_is_read_behind_a_gateway_and_refused_in_direct() {
+    const ONCE: &str = "    transit_single_use: true\n";
+    let _settings =
+        load_inbound_overlay(format!("security:\n{GATEWAY_INBOUND}{ONCE}")).expect("single use behind a gateway starts");
+    let refused =
+        load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}{ONCE}")).expect_err("single use in `direct` does not start");
+    let rendered = refused.reason().to_string();
+    assert!(
+        rendered.contains("`security.inbound.transit_single_use`") && rendered.contains("`behind-gateway`"),
         "{rendered}"
     );
 }
