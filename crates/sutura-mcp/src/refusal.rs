@@ -253,7 +253,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     (code, detail)
 }
 
-/// Written for an agent: nothing in the question fixes where a cross-model ratio's models live.
 fn compound_link(source: &sutura_domain::model::SourceName, relationship: &sutura_domain::model::RelationshipName) -> String {
     format!(
         "the relationship `{relationship}` crossing into `{source}` declares more than one join key, and the two legs \
@@ -268,6 +267,7 @@ fn truncated_link(relationship: &sutura_domain::model::RelationshipName) -> Stri
     )
 }
 
+/// Written for an agent: nothing in the question fixes where a cross-model ratio's models live.
 fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
         "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \

@@ -1517,5 +1517,5 @@ Both cases have a cell in `crates/sutura-app/tests/differential/`. An operator r
 declaring an equality key against a column that already sits at the grain.
 
 **Limits.** The grain is not carried into a leg, so a truncated crossing key is refused and not
-answered; carrying it is a follow-up. A chain that stays on one data system still joins at the grain.
-The refusal reads the declared key, not the data.
+answered; carrying it is a follow-up, `telekom/sutura#1489`. A chain that stays on one data system
+still joins at the grain. The refusal reads the declared key, not the data.
