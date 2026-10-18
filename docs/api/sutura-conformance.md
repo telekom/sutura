@@ -974,13 +974,21 @@ The file list is `FILES`, embedded at compile time by
 `include_str!`, so a file removed from disk is a compile error and a file removed from the list
 is caught by `the_loader_reads_every_case_file` in that module's own tests.
 
+### `fn leg_cases`
+
+```rust
+pub fn leg_cases() -> [LegCase; 2]
+```
+
+Every leg in the corpus: `leg_case` and `truncated_link_leg_case`.
+
 ### `fn leg_case`
 
 ```rust
 pub fn leg_case() -> LegCase
 ```
 
-The one leg in the corpus.
+The leg that answers `total-by-region-and-day`'s rows.
 
 ### `fn truncated_link_leg_case`
 

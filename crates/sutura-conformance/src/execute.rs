@@ -218,7 +218,7 @@ pub fn a_leg_is_executed<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    for case in [corpus::leg_case(), corpus::truncated_link_leg_case()] {
+    for case in corpus::leg_cases() {
         let answered = warehouse
             .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
             .map_err(|cause| Fault::NotAnswered {

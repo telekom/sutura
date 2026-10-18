@@ -387,7 +387,13 @@ pub fn cases() -> Vec<Case> {
     case_files::load()
 }
 
-/// The one leg in the corpus.
+/// Every leg in the corpus: [`leg_case`] and [`truncated_link_leg_case`].
+#[must_use]
+pub fn leg_cases() -> [LegCase; 2] {
+    [leg_case(), truncated_link_leg_case()]
+}
+
+/// The leg that answers `total-by-region-and-day`'s rows.
 #[must_use]
 pub fn leg_case() -> LegCase {
     // The same shape as `total-by-region-and-day`, expressed as one source's share of an answer
