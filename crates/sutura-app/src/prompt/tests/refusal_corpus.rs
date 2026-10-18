@@ -4,16 +4,16 @@
 //! [`super::column_zero`] gives: `cargo xtask max-lines` fails at a thousand lines under `crates/`
 //! and cannot be exempted, and that file was one line under it.
 //!
-//! The list itself is `sutura_domain::query::every_refusal`, beside the enum, so this file names no variant:
-//! a change that adds one never edits it, and `just causality` can rebuild the base tree.
+//! The list itself is `sutura_domain::query::every_refusal`, beside the enum, so this file names no
+//! variant: a change that adds one need not edit it, and `just causality` can rebuild the base tree.
 
 use sutura_domain::query::RefusalReason;
 
 /// One instance of every refusal variant, from the list beside the enum.
 ///
 /// The second net rather than the first: what forces an author to write a guide is `guide_for` in
-/// `prompt.rs` failing to compile. What this list adds is that once they have, the set of guides the
-/// prompt renders and the set `guide_for` can return are asserted to be the same.
+/// `prompt/refusal.rs` failing to compile. What this list adds is that once they have, the set of
+/// guides the prompt renders and the set `guide_for` can return are asserted to be the same.
 pub(super) fn every_refusal() -> Vec<RefusalReason> {
     sutura_domain::query::every_refusal()
 }
@@ -41,9 +41,11 @@ fn guide_key_carries_the_variant_it_was_matched_from() {
 
 /// The list beside the enum and the guides are the same size, and every key is its variant's code.
 ///
-/// The exhaustive match that used to sit here moved to `sutura_domain::query::every_refusal`, where
-/// a new variant still fails to compile until it is named. What stays here is the run-time half: a
-/// variant with a guide and no entry in that list is a count that differs.
+/// The exhaustive match is in `sutura_domain::query::every_refusal`, where a new variant fails to
+/// compile until it is named. What this cell holds at run time is the count: a variant with a guide
+/// and no entry in that list is a count that differs. A count misses a duplicate row that takes the
+/// place of the missing one; `every_refusal_a_caller_can_be_given_has_guidance_in_the_prompt` compares
+/// the two sets and holds that case.
 #[test]
 fn guide_key_carries_every_variant() {
     let all = every_refusal();

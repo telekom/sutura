@@ -10666,7 +10666,7 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 
 ### `use every_refusal`
 
-One instance of every variant, in declaration order.
+One instance of every variant.
 
 ### `use Filter`
 

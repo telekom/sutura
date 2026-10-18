@@ -40,7 +40,7 @@ fn quoted(raw: &str) -> QuotedColumnType {
     QuotedColumnType::from(&ColumnType::parse(raw).expect("a fixture type is a type"))
 }
 
-/// One instance of every variant, in declaration order.
+/// One instance of every variant.
 #[must_use]
 pub fn every_refusal() -> Vec<RefusalReason> {
     let all = vec![
