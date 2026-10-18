@@ -238,6 +238,10 @@ another version than A's", and leaves that bullet as written.
    refuses a leg when one digest differs. It does not refuse because the bundle digest differs, or
    because a glossary entry, the contribution manifest or another metric differs. Two nodes that
    pin different bundle versions keep running every leg over a metric that is the same in both.
+   This is true only when both nodes run one sutura release, and only for this check. The digest is
+   taken over sutura's serialized `Metric` (`definitions.rs:134`). A release that changes that form
+   for a metric refuses every leg over that metric between a node on the release and a node that is
+   not on it.
    A metric edited at A and not yet at B is refused, leg by leg, until B pins the same edit. That
    refusal is the point: the answer would be A's number under B's meaning.
 3. The refusal is `RemoteLegNotCertified { source }` of decision 3. It adds no variant, and A maps
@@ -248,9 +252,11 @@ another version than A's", and leaves that bullet as written.
    computes it for each metric an answer measured (`pinned.rs:475`), and `Provenance::metric_digests`
    carries it (`pinned.rs:203`). A reads the digests off its own pin, so a caller cannot choose one.
    `DefinitionDigest::of_metric` is `pub(crate)` (`crates/sutura-domain/src/definitions.rs:130`), so
-   B's side is a comparison on `PinnedDefinitions` that takes the sender's digest. B has no way to
-   hash a value that a sender supplies. The digest parses with `DefinitionDigest::parse`
-   (`definitions.rs:59`), which refuses a value that is not 64 hex digits.
+   B's side is a comparison on `PinnedDefinitions` that takes the sender's digest. No type stops B
+   from hashing a value that a sender supplies, because `PinnedDefinitions::pin` takes any
+   `Definitions`. Step 3 compares the sender's digest with B's own pin, and review holds that. The
+   digest parses with `DefinitionDigest::parse` (`definitions.rs:59`), which refuses a value that is
+   not 64 hex digits after it removes white space at the two ends.
 
 **What the digest holds, and what it does not.**
 
@@ -259,10 +265,13 @@ another version than A's", and leaves that bullet as written.
   description, audience and shared calendar (`crates/sutura-domain/src/catalog.rs:763-797`). A
   change to any of them moves it, a reworded description included. A leg over a metric whose
   description differs is refused until B pins the same wording.
-- It does not cover the model, table and column definitions that the leg reads, the glossary or the
-  contribution manifest. A column that B declares with another type, or a model that B has moved
-  to another source, does not move the digest of a metric that did not change. Decision 3's check of
-  the leg against B's own catalog is what holds those, and it stays.
+- It does not cover the model, table and column definitions that the leg reads, the relationships
+  that its dimensions reach through (`via`), the glossary or the contribution manifest. A column
+  that B declares with another type, a model that B has moved to another source, or other keys on a
+  relationship, does not move the digest of a metric that did not change. Decision 3's check
+  refuses only a name that B does not certify, or a missing required filter. It does not compare
+  the type of a column with A's type. B plans the leg with its own declarations, so such a leg
+  runs. Nothing in this record refuses that gap.
 - It is not a control against a hostile sender. The digest is not a secret, and a holder of a token
   for B who can read B's definitions can send B's own digest. It detects a version gap between two
   honest nodes. The content of the leg is held by decision 3, and the rows by the source's grants
@@ -273,8 +282,10 @@ another version than A's", and leaves that bullet as written.
 
 **Cells step 3 owes.** A leg whose metric digest differs is refused. A leg with no digest does not
 parse. A leg whose bundle digest differs and whose metric digests agree runs. The last cell is the
-only one that holds the word "only" in the decision. Each refusal also enrols in
-`check-refusal-coverage`, as the *Consequences* section says.
+only one that holds the word "only" in the decision. This adds no variant. So
+`check-refusal-coverage` does not see this refusal apart from decision 3's refusals: a test that
+names `RemoteLegNotCertified` for any cause satisfies it. Only the three cells above hold this
+refusal.
 
 **What this amendment does not touch.** Where the digest travels at the bytes level, the field's
 name and its serde shape: step 3 decides them under decision 3's `deny_unknown_fields` rule. A
