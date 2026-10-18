@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
+index 4d417a76a..d5887fa71 100644
+--- a/crates/sutura-domain/src/plan/federated.rs
++++ b/crates/sutura-domain/src/plan/federated.rs
+@@ -417,7 +417,8 @@ impl FederatedPlan {
+     #[inline]
+     #[must_use]
+     pub const fn with_link_comparison(mut self, comparison: Option<LinkKind>) -> Self {
+-        self.link_comparison = comparison;
++        self.link_comparison = None;
++        let _ = comparison;
+         self
+     }
+ 

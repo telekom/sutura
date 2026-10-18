@@ -127,6 +127,10 @@ pub struct FederatedPlan {
     /// truncates the combined answer after the combiner returns it. `None` when the
     /// question carries no `top`.
     top: Option<Top>,
+    /// How the link's two keys compare when the relationship declares it. `None` is equality of
+    /// kind, which is what every plan built before the declaration existed means.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_comparison: Option<LinkKind>,
 }
 
 /// Which leg's result an answer key is read from.
@@ -382,6 +386,7 @@ impl FederatedPlan {
             federation,
             keys,
             top: None,
+            link_comparison: None,
         })
     }
 
@@ -404,6 +409,22 @@ impl FederatedPlan {
     #[inline]
     pub const fn top(&self) -> Option<Top> {
         self.top
+    }
+
+    /// Records the comparison the link's relationship declares, for the combiner to read.
+    ///
+    /// A builder for [`Self::with_top`]'s reason: [`Self::new`] keeps its argument list.
+    #[inline]
+    #[must_use]
+    pub const fn with_link_comparison(mut self, comparison: Option<LinkKind>) -> Self {
+        self.link_comparison = comparison;
+        self
+    }
+
+    /// The comparison the link declares, or `None` for equality of kind.
+    #[inline]
+    pub const fn link_comparison(&self) -> Option<LinkKind> {
+        self.link_comparison
     }
 
     /// Every leg, in execution order: the fact leg, the second fact leg if present, then the

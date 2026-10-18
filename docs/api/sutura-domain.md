@@ -1226,6 +1226,12 @@ column of a compound key need identify a row on its own.
 #### Methods
 
 ```rust
+pub const fn comparison(&self) -> Option<LinkKind>
+```
+
+The kind the keys compare as, or `None` for equality of kind.
+
+```rust
 pub const fn join_type(&self) -> JoinType
 ```
 
@@ -1251,9 +1257,34 @@ pub const fn origin_model(&self) -> &ModelName
 pub const fn target_model(&self) -> &ModelName
 ```
 
+```rust
+pub fn with_comparison(self, comparison: LinkKind) -> Result<Self, InvalidComparison>
+```
+
+Declares the kind this relationship's two keys compare as, refusing a compound key.
+
+A federated link joins on one column, so a declaration on a compound key could only be read
+as applying to some of its keys. A truncated single key is not refused here.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidComparison`
+
+```rust
+pub enum InvalidComparison
+```
+
+Why a relationship cannot declare a comparison.
+
+#### Variants
+
+- `CompoundKey` - A federated link joins on one column, so a comparison has one key pair to apply to.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum JoinKey`
 
@@ -7621,6 +7652,9 @@ against a text column misses on every row by construction, and the hand-written 
 that silently as an empty inner answer or a left answer whose every fact row had a null remote
 side.
 
+**It is also the word a relationship declares its comparison in** (`compare_as`), so it is
+serialised in `snake_case` and an unknown word is a deserialisation error at the document edge.
+
 ### `use QuotedColumnType`
 
 A declared column type, quoted and escaped so a refusal may carry it.
@@ -8381,6 +8415,12 @@ A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins i
 link and the time bucket above the port.
 
 ```rust
+pub const fn link_comparison(&self) -> Option<LinkKind>
+```
+
+The comparison the link declares, or `None` for equality of kind.
+
+```rust
 pub const fn lookup(&self) -> &LegPlan
 ```
 
@@ -8452,6 +8492,14 @@ pub const fn top(&self) -> Option<Top>
 ```
 
 Case 2's `top`, if this plan carries one. See `Self::with_top`.
+
+```rust
+pub const fn with_link_comparison(self, comparison: Option<LinkKind>) -> Self
+```
+
+Records the comparison the link's relationship declares, for the combiner to read.
+
+A builder for `Self::with_top`'s reason: `Self::new` keeps its argument list.
 
 ```rust
 pub const fn with_top(self, top: Top) -> Self
@@ -8840,6 +8888,9 @@ What it must still refuse is a join across kinds - `telekom/sutura#138`: an inte
 against a text column misses on every row by construction, and the hand-written combine returned
 that silently as an empty inner answer or a left answer whose every fact row had a null remote
 side.
+
+**It is also the word a relationship declares its comparison in** (`compare_as`), so it is
+serialised in `snake_case` and an unknown word is a deserialisation error at the document edge.
 
 #### `use QuotedColumnType`
 

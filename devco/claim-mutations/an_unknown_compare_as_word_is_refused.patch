@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
+index 3621f94fa..f314e656d 100644
+--- a/crates/sutura-catalog-local/src/document.rs
++++ b/crates/sutura-catalog-local/src/document.rs
+@@ -424,7 +424,6 @@ pub enum InvalidRelationshipDocument {
+ }
+ 
+ #[derive(Debug, serde::Deserialize)]
+-#[serde(deny_unknown_fields)]
+ pub struct RelationshipDoc {
+     #[expect(
+         dead_code,
