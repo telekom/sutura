@@ -1610,10 +1610,14 @@ build, and not a wrong answer. `github.com/telekom/sutura#1490` lifts it.
   still cannot spell any of them.
 - `include_unmatched` is one flag for the plan today. It becomes one per lookup leg.
 - `HopCrossesSource` and `ChainLeavesItsSource` are deleted with their cells, not kept unreachable.
-  `chain::is_remote` and the planner's set of remote sources read a chain's last hop only. Once built, both read every crossing, and a cell holds that a chain that crosses and comes back is planned as federated legs and never as one statement. The two refusals are deleted only together with that change.
+  `chain::is_remote` and the planner's set of remote sources read a chain's last hop only. Once
+  built, both read every crossing, and a cell holds that a chain that crosses and comes back is
+  planned as federated legs and never as one statement. The two refusals are deleted only together
+  with that change.
 - A lookup leg is one crossing relationship. Two dimensions that reach one remote model through two
   relationships read it in two lookup legs, and each leg counts against the cap.
-  `FederationLinkAmbiguous` is deleted with its cells.
+  `FederationLinkAmbiguous` is deleted with its cells. Removing its wire code
+  `federation_link_ambiguous` is a breaking change too, and the build must say so.
 - A cross-model ratio keeps one lookup leg. Its second fact joins on one link (`FactKeyNotShared`).
   The build refuses a ratio that would need more as `RefusalReason::CrossModelRatioNeedsOneLookupLeg
   { metric }`, with the wire code `cross_model_ratio_needs_one_lookup_leg` and the 409 status of
@@ -1686,14 +1690,14 @@ a third lookup leg (risk 3).
 **Limits.**
 
 - Nothing is built. This amendment changes no `.rs` file, no test and no setting. The type, the
-  constant and the refusal do not exist at head, and `HopCrossesSource` and `ChainLeavesItsSource` still
-  refuse a chain that crosses twice.
+  constant and the two refusals do not exist at head, and `HopCrossesSource` and
+  `ChainLeavesItsSource` still refuse a chain that crosses twice.
 - Each leg is read in its own data system and the legs are joined above, so a chain reads a whole
   table where a semi-join would read the rows a key list names. The price is bytes, bounded only by
   the ceiling above.
 - The cap of three is the owner's choice and is not measured. Whether a chain of three crossings is
   worth its three legs is not measured either.
 - Out of scope: sequential legs that pass one source's keys to another (the semi-join, declined in
-  *Alternatives considered*), a crossing with a compound key (`github.com/telekom/sutura#1490`), a cross-model ratio with more than
-  one lookup leg (`github.com/telekom/sutura#1493`), an optional source at boot, a cap that an operator can set, and a change to the working-set
-  ceiling.
+  *Alternatives considered*), a crossing with a compound key (`github.com/telekom/sutura#1490`), a
+  cross-model ratio with more than one lookup leg (`github.com/telekom/sutura#1493`), an optional
+  source at boot, a cap that an operator can set, and a change to the working-set ceiling.
