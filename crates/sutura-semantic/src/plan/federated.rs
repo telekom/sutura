@@ -15,13 +15,13 @@ use sutura_domain::measure::Measure;
 use sutura_domain::model::{ColumnName, SourceName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, InternalLabel, LegPlan, LinkKind, PlanBucket, PlanColumn, PlanKey, PlanTerm, QuotedColumnType, ResultLabel,
-    StatementTables, labels,
+    FederatedPlan, InternalLabel, LegPlan, LinkKind, PlanBucket, PlanColumn, PlanJoin, PlanKey, PlanTerm, QuotedColumnType,
+    ResultLabel, StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
 
 use super::PlanError;
-use super::chain::{chain_joins, column_of, crossing, every_remote_dimension, hop_join, is_remote, lookup_joins};
+use super::chain::{chain_joins, column_of, crossing, every_remote_dimension, is_remote, lookup_joins};
 use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
 
 /// Splits a two-source question into a fact leg and a lookup leg.
@@ -188,7 +188,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // hop's target" is how one of them came to be qualified by the metric's table instead.
     let mut joins = chain_joins(resolution, own_table, model.source());
     if let Some(cross) = resolution.cross.as_ref() {
-        joins.push(hop_join(cross.own_to_calendar, own_table, cross.calendar));
+        joins.push(PlanJoin::hop(cross.own_to_calendar, own_table, cross.calendar));
     }
 
     let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
@@ -373,7 +373,7 @@ fn second_fact_leg(
     let link_key = plain_crossing_key(link, crossing.model.source())?;
     let tables = StatementTables::parse(
         second.table().clone(),
-        vec![hop_join(cross.second_to_calendar, second.table_name(), cross.calendar)],
+        vec![PlanJoin::hop(cross.second_to_calendar, second.table_name(), cross.calendar)],
     )
     .map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
         table: ambiguous.alias().clone(),
