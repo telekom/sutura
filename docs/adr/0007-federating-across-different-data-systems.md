@@ -1519,3 +1519,170 @@ declaring an equality key against a column that already sits at the grain.
 **Limits.** The grain is not carried into a leg, so a truncated crossing key is refused and not
 answered; carrying it is a follow-up, `telekom/sutura#1489`. A chain that stays on one data system
 still joins at the grain. The refusal reads the declared key, not the data.
+
+## Seventeenth amendment, 2026-10-18: a question may read up to three lookup legs, and a chain that crosses again adds one
+
+**Decision: shape B, fan-in, extended to a chain that crosses a data system boundary twice or more.**
+One question may carry one lookup leg for each remote dimension model, and each crossing of a chain
+starts a lookup leg in the data system it lands on. Every leg runs in its own data system as the
+caller and reads its own table. No leg takes another leg's keys, so the semi-join stays declined
+(*Alternatives considered*): no one source's key values reach another source's statement, query log
+or plan cache. DataFusion does all the combining: each lookup leg joins onto the leg its crossing
+starts from, which is the fact leg or an earlier lookup leg, in the combiner. This is an amendment to
+this record and not a new record. This record already says that more lookup legs change the
+`FederatedPlan` shape and the splitter's relationship check, and not the leg vocabulary (*Four
+dimensions and one hop mean at most five legs*).
+
+**What this supersedes, by quote.** The thirteenth amendment says *a later hop that lands anywhere
+else, back on the metric's own system or on a third, is refused* (`HopCrossesSource` at load,
+`ChainLeavesItsSource` at plan time), and it ends with *a chain whose crossing hop is a compound join does not
+federate*. The first refusal is retired by this amendment, and the compound refusal is not. The
+thirteenth amendment's *the chain is cut there* stays: the hops of a chain that stay on one data
+system still join inside one lookup leg, and a new leg starts only where the chain lands on another
+data system. Issue `github.com/telekom/sutura#1342` names the chain this serves.
+
+**What a chain adds to the plan.**
+
+- A lookup leg names what it joins onto: the fact leg, or a lookup leg that comes before it in the
+  plan. A leg can name only an earlier one, so the legs form a tree rooted at the fact leg and no
+  cycle can be written. A type holds it, once built.
+- The leg a crossing starts from projects that crossing's origin column, under the link label of the
+  leg that joins onto it. A leg that is joined onto and joins another carries two link labels.
+- `FederatedPlan::new` refuses a plan that names one data system on the fact leg and on the lookup
+  leg, because two legs of one system are one statement. That rule is kept for a leg and the leg it
+  joins onto. A chain that crosses to a second system and comes back to the first reads the first
+  system in two legs, which are not neighbours, and is served.
+- Each crossing is declared `many_to_one`, which load already checks per hop
+  (`JoinWouldDuplicateRows`) and the boot check holds against the data
+  (`crates/sutura-app/src/declared_keys.rs`). A later hop cannot repeat a row of an earlier leg, and
+  two lookup legs cannot multiply each other. That holds only while those checks hold, and the boot
+  check has limits (risk 2).
+- An INNER join on a later hop drops the fact rows an earlier hop left unmatched, as the same filter
+  does when the chain stays on one system. A LEFT join keeps them with NULL in the later leg's keys.
+  `docs/adr/0009` decides the direction, and it is decided for each lookup leg and not once for the
+  plan.
+
+**The bound.** Two bounds hold the cost of a question, and a refusal that has a type sits above each.
+
+- *The leg cap: a fixed three lookup legs.* The cap is a constant in `sutura-domain`, beside
+  `MAX_DIMENSIONS`, and not a setting. Changing it is an amendment. The owner chose three before a
+  chain was in scope, and a chain that crosses twice now spends two of them. No measurement in this
+  record shows that three is the right size. A question that needs more lookup legs is refused by a
+  new `RefusalReason`, `PlanNeedsTooManyLookupLegs { legs, limit }`, with the wire code
+  `plan_needs_too_many_lookup_legs` and the 409 status of the refusal it replaces. It replaces
+  `PlanSpansTooManySources`: its limit of two sources goes, and with at most three lookup legs a
+  count of sources cannot pass a limit of its own, so a refusal that nothing can reach is not kept. Removing that wire code is a breaking
+  change, and the build must say so. A caller can narrow the question, so this is a `RefusalReason`
+  and not a `PlanError`, for the reason `PlanError::NoRemoteJoin` gives. The `match` in each of
+  `crates/sutura-http/src/wire/refusal.rs` and `crates/sutura-mcp/src/refusal.rs` is exhaustive, so a
+  new variant does not compile until each names it. The cap is held by a `LookupLegs` newtype that
+  parses one to three legs and takes the place of `FederatedPlan`'s single `lookup` field. A plan with
+  none or with four does not exist. The cap lowers *at most five legs* above to four lookup and fact
+  legs; a cross-model ratio has a second fact leg and keeps one lookup leg (below).
+- *The byte budget.* The existing working-set ceiling is one budget for the whole question
+  (*The leg SIZE bound*), and a question above it is refused as `ResourcesExhausted`. A lookup leg is
+  not narrowed by the fact leg's keys, so a leg that starts from a chain's second crossing reads the
+  whole of its table that survives the question's own filters, and it competes with every other leg
+  for the same bytes. This amendment sets no per-leg size. The chain makes that bound bite sooner and
+  no new number is chosen.
+
+A question-wide bound over every leg of every metric belongs to `github.com/telekom/sutura#1471`. It
+counts all legs, and the lookup cap here stays in `FederatedPlan::new`.
+
+**A chain is not refused for its shape.** What still refuses it is a question whose answer could be
+wrong or whose cost passes a bound: a crossing with more than one key (`FederationLinkCompound`), a
+key truncated to a grain (`FederationLinkTruncated`), a pair of key types that do not compare
+(fifteenth amendment), a declared `many_to_one` that the data contradicts (boot check), legs above
+the cap, and bytes above the ceiling.
+
+**What changes when it is built.**
+
+- `FederatedPlan::new` takes `LookupLegs`. `Legs` (`crates/sutura-domain/src/plan/federated/combiner.rs`)
+  holds the same count and each leg's parent. `Legs::of`, which takes one pair, is deleted and not
+  kept beside a new one. A count of results that differs from the plan's count is
+  `ExecuteError::Miswired`, as a pair of the same side is today.
+- `InternalLabel::Link` is one reserved label today
+  (`crates/sutura-domain/src/plan/federated/label.rs`). It becomes one per lookup leg, and a question
+  still cannot spell any of them.
+- `include_unmatched` is one flag for the plan today. It becomes one per lookup leg.
+- `HopCrossesSource` and `ChainLeavesItsSource` are deleted with their cells, not kept unreachable.
+- A lookup leg is one remote model. Two dimensions that cross the same model through two different
+  relationships stay refused as `FederationLinkAmbiguous`, now counted for each model and not for the
+  whole question. This amendment does not decide whether that refusal can lift.
+- A cross-model ratio keeps one lookup leg. Its second fact joins on one link (`FactKeyNotShared`).
+  The build refuses a ratio that would need more, by a name this record does not pick.
+- A multi-metric question still never federates (`MultiMetricFederationNotExecutable`).
+- Two lookup legs may read one source, so the cap counts legs and not sources. That is the case for
+  a chain that comes back to a system it left.
+
+**The risks the issue lists, and what holds each.** Each is stated with what holds it today, what must
+hold it once built, and what is not held. No mechanism below exists yet for fan-in.
+
+1. **The combiner port takes exactly two legs, so this changes a port.** `FederationCombiner::combine`
+   takes `Legs`, and `Legs` is a fact, an optional second fact and one lookup. The implementors are
+   `DataFusionCombiner` (`crates/sutura-exec-datafusion/src/combine.rs`), `RefusingCombiner`,
+   `NothingCombined` and test fakes. `DataFusionCombiner` registers one lookup table and one join.
+   Once built, the type holds the leg count and each leg's parent, and the conformance run in
+   `crates/sutura-conformance/tests/federated_bound.rs` must run a plan with three lookup legs, and one
+   whose second lookup leg joins onto the first, for every combiner. **Not held yet:** all of it. No
+   port with N legs exists, and this record picks no layout for the DataFusion join.
+2. **The boot uniqueness check of each hop's target key becomes one check per source.** At head it is
+   already one check for each declared relationship, for every source the deployment opens. A chain
+   adds no check, and its limits stay the same. A relationship whose source has no open data system is
+   skipped. An adapter that takes the port's default answers `NotAsked` and passes, and BigQuery is
+   one (the module header). The check runs once, at boot, so a duplicate inserted later reaches a
+   caller as a wrong number. More lookup legs means more questions that depend on those limits, and
+   does not move them. **Not held yet:** the BigQuery gap and the window after boot.
+3. **The dry-run and the spend estimate must cover N legs.** At head `preflight_and_charge` dry-runs
+   each leg of the cut and charges the sum once, before any leg executes
+   (`crates/sutura-app/src/federated/leg.rs`). A leg that was not charged is refused when it runs
+   (`Charged::spend`). But the cut lists its legs by hand: `Cut::legs` names the fact, the lookup and
+   the second fact. Three other places list them by hand too: the credential request and the posture
+   record (`crates/sutura-app/src/federated.rs`) and the legs `execute` runs. A lookup leg left out of
+   the credential request or of the posture record is not caught by the charge token. Once built, all
+   four must read the one `LookupLegs`, and a cell with three lookup legs must count one dry-run for
+   each leg (the two-leg cell is `a_federated_answer_dry_runs_each_leg_exactly_once`). **Limit:** only
+   an adapter that prices a dry-run adds to the charge, and today that is BigQuery. For every other
+   adapter the estimate is not counted and is not zero.
+4. **A hop must never turn into a NULL-padded row when a later source fails mid-question.** At head
+   a leg that fails ends the answer: `execute` returns the leg's error before it combines
+   (`ExecuteError::Leg`), so the combine never sees a missing leg. The conformance cells
+   `a_fact_leg_that_does_not_answer_faults_on_the_fact_stage` and
+   `a_lookup_leg_that_does_not_answer_faults_on_the_lookup_stage` hold that for two legs. A NULL key
+   from a LEFT join is a different thing: it is a fact row with no match, which `docs/adr/0009`
+   decides. The two must never look the same, and in a chain a leg that did not answer must not read
+   as a hop with no match. Once built, `Legs` cannot be made without every result, and a new cell must
+   fail each lookup leg in turn, the second of a chain among them, while the others answer, and expect
+   a refusal with no rows. **Not held yet:** that cell. **I found no cell at head** that fails a lookup
+   leg at execute, after a clean pre-flight, through `answer_federated` and not through the
+   conformance run.
+5. **A source that is unreachable at boot needs a stated startup decision.** The decision is that this
+   adds no new rule. At head, a boot probe that returns an error refuses the bundle
+   (`NotValidated::DeclaredKeyNotCounted`). The table pre-flight treats *unreachable* as a warning and
+   the deployment serves (`crates/sutura-app/src/preflight.rs`). A source with no open data system
+   answers `SourceUnavailable` for a question that needs it. Each lookup source follows the same
+   rules. A deployment with three lookup sources has three more places where it can fail to start, and
+   this record gives no source a way to be optional at boot. **Not decided here and not built:** an
+   optional source. **Not measured:** how each adapter fails when its source is down at boot.
+
+**One more cost the issue does not list: identity.** One question may now read up to four data
+systems, and each is its own identity. Each lookup source needs its own posture declaration at boot
+(sixth amendment). The answer must still say which leg came from which. One charge still covers every
+leg, as the sixth amendment says. Credentials are minted in one request over the whole set of sources
+(`crates/sutura-app/src/federated.rs`), so that request must name every lookup source, and a source
+that two legs read must be asked for once and presented to each of its legs. Nothing holds that today for
+a third lookup leg (risk 3).
+
+**Limits.**
+
+- Nothing is built. This amendment changes no `.rs` file, no test and no setting. The type, the
+  constant and the refusal do not exist at head, and `HopCrossesSource` and `ChainLeavesItsSource` still
+  refuse a chain that crosses twice.
+- Each leg is read in its own data system and the legs are joined above, so a chain reads a whole
+  table where a semi-join would read the rows a key list names. The price is bytes, bounded only by
+  the ceiling above.
+- The cap of three is the owner's choice and is not measured. Whether a chain of three crossings is
+  worth its three legs is not measured either.
+- Out of scope: shape A, a crossing with a compound key, a cross-model ratio with more than one lookup
+  leg, an optional source at boot, a cap that an operator can set, and a change to the working-set
+  ceiling.
