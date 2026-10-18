@@ -50,8 +50,9 @@ pub(super) fn adopt(
 /// and so the levels are decided in one place: a rotation is `info`, a refused candidate is `error`
 /// because the deployment is now serving keys that disagree with the source, and a look that
 /// confirmed the keys says nothing - a quiet deployment must not emit a line a minute saying so.
-/// **Every look that did not confirm them logs**, the same refused bytes read again included, with
-/// `stale_for` beside the ceiling: the two numbers an operator alerts on before every caller is refused.
+/// **Every look that reaches here without confirming them logs**, the same refused bytes read again
+/// included, with `stale_for` beside the ceiling: the two numbers an operator alerts on before every
+/// caller is refused. A look whose caller left, or whose read has not returned, never reaches here.
 pub(super) fn announce(
     outcome: Refreshed,
     confirmed: bool,

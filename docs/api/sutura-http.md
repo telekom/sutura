@@ -1872,8 +1872,11 @@ can use*. An unreadable source and a refused document both leave the previous ke
 declared `security.inbound.key_set_max_stale_seconds` is compared against `Cached::last_success`,
 when a look last came back with a usable document and never the last attempt: past it no held
 key verifies, known `kid` or unknown, until a look succeeds, and the answer is
-`KeyUnavailable::Unconfirmed` - `503 identity_unavailable` at the gate. Every look that does not
-confirm the keys logs `stale_for_ms` beside `max_stale_ms`, so an operator can alert before it.
+`KeyUnavailable::Unconfirmed` - `503 identity_unavailable` at the gate. A look that returns to its
+caller without confirming the keys logs `stale_for_ms` beside `max_stale_ms`, so an operator can
+alert before it: a `WARN` when its read fails, an `ERROR` when it reads a refused document, the
+same refused bytes read again included. A look whose caller left, or whose read has not returned,
+logs nothing.
 
 The bound, whole: **a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while
 refresh works - plus the rotated-out grace behind a gateway, the lifetime ceiling and the

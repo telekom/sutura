@@ -91,7 +91,7 @@ a look that read the source is `401` too, because sutura does not look again so 
 The keys verify for at most `key_set_max_stale_seconds` after the last look that read a usable key
 set. After that, every token gets `503 identity_unavailable` with no challenge, whatever its `kid`,
 until a look reads a usable key set again. This is the same for a source that cannot be read and
-for a document sutura refuses. Each look that does not read a usable key set logs `stale_for_ms`
+for a document sutura refuses. Each look that finishes without a usable key set logs `stale_for_ms`
 and `max_stale_ms`, so you can alert before the limit.
 
 The file is a JWK set, or one PEM key: a single `PUBLIC KEY` block, or a certificate followed by its
