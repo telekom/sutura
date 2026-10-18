@@ -419,7 +419,7 @@ pub enum InvalidRelationshipDocument {
     #[error("a relationship must declare either one column pair or a `keys:` list")]
     Neither,
     /// The document declared `compare_as:` on a relationship whose join is not one key.
-    #[error("a relationship's `compare_as:` is refused")]
+    #[error("a relationship may declare `compare_as:` only on a one-key join")]
     Comparison(#[source] InvalidComparison),
 }
 

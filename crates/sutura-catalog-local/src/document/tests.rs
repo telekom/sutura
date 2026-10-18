@@ -844,16 +844,23 @@ fn an_empty_keys_list_is_refused() {
     );
 }
 
-/// `compare_as:` is the author's word for the kind the two keys compare as, and it reaches the
-/// domain relationship; a document without it declares nothing.
+/// `compare_as:` is the author's word for the kind the two keys compare as, and each of the five
+/// words reaches the domain relationship as its own kind; a document without it declares nothing.
 #[test]
 fn a_markdown_compare_as_reaches_the_relationship() {
-    let declared = format!("{SINGLE_PAIR_RELATIONSHIP}compare_as: exact_decimal\n");
-    let relationship = relationship_doc(&declared)
-        .expect("a known word parses")
-        .into_domain()
-        .expect("one key takes a comparison");
-    assert_eq!(relationship.comparison(), Some(LinkKind::ExactDecimal));
+    for (word, kind) in [
+        ("exact_integer", LinkKind::ExactInteger),
+        ("exact_decimal", LinkKind::ExactDecimal),
+        ("text", LinkKind::Text),
+        ("date", LinkKind::Date),
+        ("boolean", LinkKind::Boolean),
+    ] {
+        let relationship = relationship_doc(&format!("{SINGLE_PAIR_RELATIONSHIP}compare_as: {word}\n"))
+            .expect("a known word parses")
+            .into_domain()
+            .expect("one key takes a comparison");
+        assert_eq!(relationship.comparison(), Some(kind), "`compare_as: {word}`");
+    }
     let silent = relationship_doc(SINGLE_PAIR_RELATIONSHIP)
         .expect("a column pair is well-formed")
         .into_domain()

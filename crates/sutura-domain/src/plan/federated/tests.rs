@@ -572,23 +572,29 @@ fn joins_without_a_declaration_is_equality() {
 #[test]
 fn a_declaration_joins_a_cast_leg_only_to_an_anchor_of_its_own_kind() {
     use LinkKind::{ExactDecimal, ExactInteger, Text};
-    let cells = [
-        (ExactInteger, Text, ExactInteger, true),
-        (ExactInteger, ExactInteger, Text, true),
-        (ExactInteger, Text, Text, false),
-        (ExactInteger, ExactDecimal, ExactInteger, false),
-        (ExactDecimal, ExactInteger, ExactDecimal, true),
-        (ExactDecimal, ExactInteger, ExactInteger, false),
-        (ExactDecimal, Text, ExactDecimal, false),
-        (Text, ExactInteger, Text, false),
-    ];
-    for (declared, a, b, joins) in cells {
-        assert_eq!(
-            LinkKind::joins(Some(declared), a, b),
-            joins,
-            "{declared:?}: {a:?} against {b:?}"
-        );
-    }
+    let admitted: Vec<_> = KINDS
+        .into_iter()
+        .map(|kind| (kind, kind, kind))
+        .chain([
+            (ExactInteger, ExactInteger, Text),
+            (ExactInteger, Text, ExactInteger),
+            (ExactDecimal, ExactDecimal, ExactInteger),
+            (ExactDecimal, ExactInteger, ExactDecimal),
+        ])
+        .collect();
+    let wrong: Vec<_> = KINDS
+        .into_iter()
+        .flat_map(|declared| {
+            KINDS
+                .into_iter()
+                .flat_map(move |a| KINDS.into_iter().map(move |b| (declared, a, b)))
+        })
+        .filter(|&triple| LinkKind::joins(Some(triple.0), triple.1, triple.2) != admitted.contains(&triple))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "(declared, a, b) triples that disagree with the closed table: {wrong:?}"
+    );
 }
 
 #[test]

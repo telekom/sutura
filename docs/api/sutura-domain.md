@@ -7449,7 +7449,7 @@ named by which leg's result it is read from, in question order - bucketed and me
 metric's own name.
 
 **The `serde::Serialize` derive exists for the CLI's plan dump and nothing else.** A plan is
-serialized to be printed; nothing in the workspace gains `serde::Deserialize`, so a plan cannot
+serialized to be printed; `FederatedPlan` does not derive `serde::Deserialize`, so a plan cannot
 be reconstructed from its serialized form and no field here is a request a caller writes.
 
 ### `use FederatedPlanError`
@@ -8356,7 +8356,7 @@ named by which leg's result it is read from, in question order - bucketed and me
 metric's own name.
 
 **The `serde::Serialize` derive exists for the CLI's plan dump and nothing else.** A plan is
-serialized to be printed; nothing in the workspace gains `serde::Deserialize`, so a plan cannot
+serialized to be printed; `FederatedPlan` does not derive `serde::Deserialize`, so a plan cannot
 be reconstructed from its serialized form and no field here is a request a caller writes.
 
 ##### Methods

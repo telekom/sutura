@@ -415,7 +415,7 @@ pub struct Relationship {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidComparison {
     /// A federated link joins on one column, so a comparison has one key pair to apply to.
-    #[error("a comparison is declared on a one-key relationship, and this one has {keys} keys")]
+    #[error("a comparison may be declared only on a one-key relationship, and this one has {keys} keys")]
     CompoundKey { keys: usize },
 }
 
