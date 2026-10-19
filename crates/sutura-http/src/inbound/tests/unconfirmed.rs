@@ -14,7 +14,8 @@ use sutura_config::{
 use tracing::instrument::WithSubscriber as _;
 
 use super::fixtures::{
-    StubSource, a_token, bearer, cache_around, direct, gateway_declaring, jwks, key_pair, short_lived_assertion, transit,
+    StubSource, a_token, bearer, cache_around, claims, direct, gateway_declaring, jwks, key_pair, short_lived_assertion, signed,
+    transit,
 };
 use super::{IDENTITY_UNAVAILABLE, TRANSIT_HEADER, guarded_answer};
 use crate::inbound::gate::InboundGate;
@@ -61,8 +62,18 @@ fn presented(declaration: &InboundIdentity, pair: &rcgen::KeyPair) -> HeaderMap 
     }
 }
 
+/// The headers of a caller whose token names a key id the held set does not contain.
+fn presented_unknown(declaration: &InboundIdentity, pair: &rcgen::KeyPair) -> HeaderMap {
+    let token = signed(pair, "not-in-the-set", &claims("someone@example.com", RESOURCE, ISSUER, ""));
+    match *declaration {
+        InboundIdentity::Direct { .. } => bearer(&token),
+        InboundIdentity::BehindGateway { .. } => transit(&token),
+    }
+}
+
 /// The held key verifies one second inside `ceiling`, is refused at it, and verifies again once a
-/// look succeeds. `unconfirmed` is the look in between: `None` fails to read, `Some` is refused.
+/// look succeeds. So is a key id the set does not hold: it is refused as unconfirmed, never as a
+/// rate-limited re-read. `unconfirmed` is the look in between: `None` fails to read, `Some` is refused.
 async fn holds_until(declaration: &InboundIdentity, ceiling: u64, unconfirmed: Option<&str>) {
     let pair = key_pair();
     let good = jwks(KID, &pair);
@@ -77,6 +88,7 @@ async fn holds_until(declaration: &InboundIdentity, ceiling: u64, unconfirmed: O
     );
     let gate = InboundGate::over(declaration, cache);
     let headers = presented(declaration, &pair);
+    let unknown = presented_unknown(declaration, &pair);
     let at = |seconds| now + Duration::from_secs(seconds);
     drop(
         gate.establish(&headers, at(ceiling - 1))
@@ -88,11 +100,21 @@ async fn holds_until(declaration: &InboundIdentity, ceiling: u64, unconfirmed: O
         .await
         .expect_err("at the ceiling no held key verifies");
     let ms = ceiling * 1000;
+    let unconfirmed_for_ceiling = Some(format!(
+        "no look has confirmed the key set for {ms}ms, past the declared {ms}ms; no held key verifies until a look succeeds"
+    ));
     assert_eq!(
         core::error::Error::source(&refused).map(ToString::to_string),
-        Some(format!(
-            "no look has confirmed the key set for {ms}ms, past the declared {ms}ms; no held key verifies until a look succeeds"
-        )),
+        unconfirmed_for_ceiling,
+        "{declaration:?}"
+    );
+    let refused_unknown = gate
+        .establish(&unknown, at(ceiling))
+        .await
+        .expect_err("at the ceiling an unknown key id is refused too");
+    assert_eq!(
+        core::error::Error::source(&refused_unknown).map(ToString::to_string),
+        unconfirmed_for_ceiling,
         "{declaration:?}"
     );
     drop(
@@ -133,11 +155,15 @@ async fn the_ceiling_follows_the_declaration_for_either_source_in_either_mode() 
 
 #[tokio::test]
 async fn every_look_that_confirms_nothing_says_how_stale_the_keys_are() {
-    // The second look reads the same refused bytes, which `adopt` records as `Unchanged`.
+    // The first look reads the held document again and confirms it, which is silent. The third reads
+    // the same refused bytes as the second, which `adopt` records as `Unchanged`.
     let pair = key_pair();
     let now = Instant::now();
     let (cache, _source) = cache_around(
-        StubSource::scripted(vec![Some(jwks(KID, &pair)), Some(String::from(REFUSED))], None),
+        StubSource::scripted(
+            vec![Some(jwks(KID, &pair)), Some(jwks(KID, &pair)), Some(String::from(REFUSED))],
+            None,
+        ),
         KeyFamily::EllipticCurve,
         MIN_REFETCH_INTERVAL,
         MAX_KEY_SET_AGE,
@@ -153,7 +179,7 @@ async fn every_look_that_confirms_nothing_says_how_stale_the_keys_are() {
     let dispatch = tracing::Dispatch::new(
         sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber"),
     );
-    for look in 1..=2 {
+    for look in 1..=3 {
         let _outcome = cache
             .poll_once(now + MIN_REFETCH_INTERVAL * look)
             .with_subscriber(dispatch.clone())

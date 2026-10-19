@@ -128,7 +128,7 @@ directions. The non-obvious parts:
   stamps the *attempt* - so the age bound bounds nothing then. `key_set_max_stale_seconds` (3600 s
   default, 300 to 86400, no off switch) is compared against the last **success**, never the last
   attempt: past it no key verifies and every caller gets `503 identity_unavailable` - the
-  availability cost `docs/adr/0014`'s eleventh amendment accepts. The bound, stated whole: **a
+  availability cost `docs/adr/0014`'s twelfth amendment accepts. The bound, stated whole: **a
   removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while refresh works, and within
   the ceiling while it does not.** It measures the last usable read, not whether the source is
   current, and is per process. **Do not cite the age bound without the exclusion.**

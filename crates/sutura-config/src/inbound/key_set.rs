@@ -89,7 +89,7 @@ impl KeySetMaxStale {
     pub const DEFAULT_SECONDS: u64 = 3600;
 
     /// The floor, in seconds. A healthy source is up to about two minutes unconfirmed after one failed
-    /// read; below five, a few failed reads - a sidecar rewriting the file - refuse every caller.
+    /// read; below five minutes, a few failed reads - a sidecar rewriting the file - refuse every caller.
     pub const MIN_SECONDS: u64 = 300;
 
     /// The ceiling, in seconds. A day: past it the value is not a ceiling, and a millisecond count

@@ -138,7 +138,7 @@ pub enum InvalidInboundValue {
     )]
     LifetimeOutOfRange { found: u64, limit: u64 },
     #[error(
-        "{key} is {found} seconds, and it is between {min} and {max}. Below {min} a few failed reads \
+        "{key} is {found} seconds, and the ceiling is between {min} and {max}. Below {min} a few failed reads \
          refuse every caller; above {max} it is not a ceiling",
         key = KeySetMaxStale::KEY
     )]

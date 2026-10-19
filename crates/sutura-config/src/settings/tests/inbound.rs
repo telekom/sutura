@@ -699,7 +699,7 @@ fn a_key_set_max_stale_outside_its_range_does_not_start() {
         assert_eq!(
             cause.to_string(),
             format!(
-                "security.inbound.key_set_max_stale_seconds is {seconds} seconds, and it is between 300 and 86400. \
+                "security.inbound.key_set_max_stale_seconds is {seconds} seconds, and the ceiling is between 300 and 86400. \
                  Below 300 a few failed reads refuse every caller; above 86400 it is not a ceiling"
             ),
         );
