@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
---- a/crates/sutura-http/src/inbound/keys.rs
-+++ b/crates/sutura-http/src/inbound/keys.rs
-@@ -903,7 +903,7 @@
+diff --git a/crates/sutura-http/src/inbound/keys/look.rs b/crates/sutura-http/src/inbound/keys/look.rs
+--- a/crates/sutura-http/src/inbound/keys/look.rs
++++ b/crates/sutura-http/src/inbound/keys/look.rs
+@@ -31,7 +31,7 @@
      let examined = core::mem::replace(&mut cached.document, read);
      match candidate {
          Ok(keys) => {

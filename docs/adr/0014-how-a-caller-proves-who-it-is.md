@@ -673,3 +673,25 @@ whose read fails and returns to its caller logs a `WARN` with `stale_for_ms`. A 
 refused document differing from the last one read logs an `ERROR` with `stale_for_ms`; a later look
 that reads the same bytes is `Unchanged` and logs nothing. A look whose caller left, or whose read
 has not returned, logs nothing. Nothing refuses on `stale_for_ms`, as the second amendment says.
+
+## Twelfth amendment, 2026-10-19: a failing key set source keeps verifying up to a declared ceiling
+
+**Status of the amendment: accepted.** It supersedes the second amendment's *"the cached signing
+keys are retained for as long as it stays that way"*, *"there is no ceiling on it, and no record owns that decision"*, *"Nothing
+refuses on it"*, *"after no bounded time while it does not"* and *"refused on by nothing"*, and the
+eleventh amendment's *"a later look that reads the same bytes is `Unchanged` and logs nothing"* and
+*"Nothing refuses on `stale_for_ms`"*. `security.inbound.key_set_max_stale_seconds`, in both modes
+and for both sources, is how long the held keys verify after a look last came back with a usable
+document. It defaults to 3600 s, and a value outside 300 to 86400 s does not start. There is no off
+switch. Past it, no held key verifies until a look succeeds, for a known or an unknown key id and
+for a source that cannot be read or holds a document the cache refuses. The caller gets
+`503 identity_unavailable` with no challenge, because a new token cannot help. A look that returns
+to its caller without confirming the keys logs `stale_for_ms` beside `max_stale_ms`: a `WARN` when
+its read fails, an `ERROR` when it reads a refused document, the same refused bytes read again
+included. A look whose caller left, or whose read has not returned, still logs nothing. The bound is
+now: a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while refresh works, and
+within the declared ceiling while it does not. This is a breaking change: a deployment whose source
+fails for an hour answered every caller before and answers none now. The limits: the ceiling
+measures the last usable read, not whether the source is current, so a file that stops being updated
+but stays readable never trips it. It is per process, and on the monotonic clock, which a suspended
+host does not advance. A restart with a dead source still does not start.
