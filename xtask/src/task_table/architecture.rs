@@ -272,7 +272,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/sutura-config/src/settings/posture.rs",
-                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n}\n",
+                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n    S22,\n    S23,\n    S24,\n}\n",
                 ),
                 (
                     "crates/sutura-domain/src/pinned.rs",
@@ -292,7 +292,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/example/tests/second.snap",
-                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 V4 V5 V6 V7 W3 W4 W5 W6 W7 T3 T4 T5\n",
+                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 V4 V5 V6 V7 W3 W4 W5 W6 W7 T3 T4 T5\n",
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),
