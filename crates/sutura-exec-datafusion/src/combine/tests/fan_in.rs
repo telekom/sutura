@@ -75,3 +75,18 @@ fn a_second_lookup_leg_with_two_rows_for_one_link_value_is_ambiguous() {
         Some(FederatedAnswerRefusal::AmbiguousLink)
     );
 }
+
+/// A leg that joins onto an earlier lookup leg is typed on its own link: an integer `crm` link
+/// against `geo`'s text link is refused, not joined under coercion.
+#[test]
+fn a_second_lookup_leg_whose_link_kind_disagrees_with_its_onto_leg_is_refused() {
+    let crm = vec![vec![Value::Integer(1), text("emea")]];
+    let refused = try_combine_every(&fan_in_plan(), &legs(crm), UNBOUNDED).expect_err("a link kind mismatch refuses");
+    assert_eq!(
+        sutura_domain::plan::FederationCombiner::answer_not_well_formed(
+            &DataFusionCombiner::new().expect("a combiner builds"),
+            &refused
+        ),
+        Some(FederatedAnswerRefusal::LinkTypeMismatch)
+    );
+}

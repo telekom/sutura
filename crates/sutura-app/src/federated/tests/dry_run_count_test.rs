@@ -266,3 +266,44 @@ fn three_lookup_legs_dry_run_once_each() {
         );
     }
 }
+
+/// Every leg's capability is checked before any credential is minted: the last of three lookup
+/// legs cannot execute, so the answer is refused and the broker is never asked.
+#[test]
+fn a_three_lookup_answer_is_refused_before_minting_when_its_last_lookup_leg_cannot_execute() {
+    let shared = shared();
+    let [facts, geo, crm, ops] = ["facts", "geo", "crm", "ops"].map(|name| SourceName::parse(name).expect("a test source"));
+    let leg =
+        |source, result, can_execute_legs| AsymmetricLegWarehouse::answering(source, shared.clone(), result, can_execute_legs);
+    let warehouses = Warehouses::of(leg(facts, federated_fact_rows(), true))
+        .and(leg(geo, federated_lookup_rows(), true))
+        .and_then(|registry| registry.and(leg(crm, federated_lookup_rows(), true)))
+        .and_then(|registry| registry.and(leg(ops, federated_lookup_rows(), false)))
+        .expect("four sources, one registry");
+    let broker = crate::tests_support::CountingBroker::default();
+
+    let outcome = answer_federated(
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
+        &three_lookup_plan(),
+        &asked_by_a_person(),
+        &broker,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeilings::DEFAULT,
+    )
+    .map(crate::Answered::into_outcome);
+
+    assert!(
+        matches!(
+            outcome,
+            Ok(ToolOutcome::Refusal {
+                reason: RefusalReason::FederationNotExecutable
+            })
+        ),
+        "one lookup leg cannot execute, so the answer is refused: {outcome:?}"
+    );
+    assert_eq!(broker.asked(), 0, "a refused answer mints no credential");
+}
