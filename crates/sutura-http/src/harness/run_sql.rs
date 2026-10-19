@@ -290,3 +290,20 @@ async fn a_raw_statements_deadline_opens_before_it_waits_for_a_slot() {
         "the queued statement arrived with {left:?} of {budget:?} after queueing for {QUEUED:?}, so its deadline opened after admission"
     );
 }
+
+#[tokio::test]
+async fn a_bill_to_header_on_a_raw_statement_is_refused_never_dropped() {
+    let app = over(
+        bundle(),
+        fake_warehouse(),
+        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+    );
+    let mut sent = request("POST", "/v1/sql/run", None, Body::from(run_sql_body("select 1")));
+    drop(
+        sent.headers_mut()
+            .insert("sutura-bill-to", axum::http::HeaderValue::from_static("caller-pays-1")),
+    );
+    let (status, body) = call(&app, sent).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains(r#""code":"unusable_bill_to""#), "{body}");
+}

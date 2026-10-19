@@ -19,9 +19,7 @@ use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::ResultBatches;
-use sutura_exec_bigquery::transport::{
-    DatasetAddress, DatasetId, DryRunEstimate, HeldTables, JobIdentity, JobRequest, JobTransport, ProjectId,
-};
+use sutura_exec_bigquery::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobIdentity, JobRequest, JobTransport};
 use sutura_http_client::test_support::{FakeServer, Scripted};
 
 use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
@@ -161,8 +159,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let warehouse = sutura_exec_bigquery::BigQueryWarehouse::new(
         SourceName::parse("warehouse").expect("a test source is a source"),
         SourcePosture::ImpersonationAtSource,
-        ProjectId::parse("acme-analytics").expect("a test project is a project"),
-        DatasetId::parse("warehouse").expect("a test dataset is a dataset"),
+        sutura_exec_bigquery::JobBilling::CallerRun { caller_may_name: false },
         Recording(recording),
     );
     let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(

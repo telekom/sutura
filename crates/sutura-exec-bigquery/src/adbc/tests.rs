@@ -72,12 +72,10 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
     // ordering is observable without a driver: the identity is decided first.
     let assertion = Secret::new("a.caller.assertion");
     let project = project();
-    let dataset = dataset();
     let request = JobRequest::new(
         "SELECT 1",
         &[],
         &project,
-        &dataset,
         JobIdentity::AsSubject { assertion: &assertion },
         JobDeadline::Boot,
     );
@@ -95,12 +93,10 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
     // transport that refused every subject for any reason.
     let assertion = Secret::new("a.caller.assertion");
     let project = project();
-    let dataset = dataset();
     let request = JobRequest::new(
         "SELECT 1",
         &[],
         &project,
-        &dataset,
         JobIdentity::AsSubject { assertion: &assertion },
         JobDeadline::Boot,
     );
@@ -125,12 +121,10 @@ fn a_question_carrying_values_is_no_longer_refused_and_gets_as_far_as_the_driver
     // failure is the LOAD, over a path naming no `.so`.
     let params = [ParamValue::Text(String::from("north")), ParamValue::Date(day("2026-06-01"))];
     let project = project();
-    let dataset = dataset();
     let request = JobRequest::new(
         "SELECT ? AS region WHERE d >= ?",
         &params,
         &project,
-        &dataset,
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
@@ -150,8 +144,7 @@ fn a_request_this_transport_accepts_gets_as_far_as_the_driver_and_fails_there() 
     // A shared leg with no parameters is a request every guard accepts, so what it must fail on is
     // the LOAD - a different variant, reached only after all three guards let it through.
     let project = project();
-    let dataset = dataset();
-    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, JobDeadline::Boot);
+    let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
     let failed = endpoint(Impersonation::Disabled)
         .run(&request)
         .expect_err("no driver lives at this path");
@@ -233,7 +226,7 @@ fn only_a_declined_dry_run_reads_as_one_and_the_listing_it_cannot_do_does_not() 
     // assertable here at all.
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, JobDeadline::Boot);
+    let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
     let endpoint = endpoint(Impersonation::Disabled);
     let declined = endpoint.validate(&request).expect_err("this transport prices nothing");
     assert!(matches!(declined, AdbcError::NoDryRun), "{declined:?}");
@@ -242,7 +235,7 @@ fn only_a_declined_dry_run_reads_as_one_and_the_listing_it_cannot_do_does_not() 
     // `list_tables` answers `Uncovered` too, so a predicate keyed on a string would read a listing
     // this transport cannot do as a dry run it declined - which would turn a boot WARNING into a
     // pre-flight nobody made, and report `PreFlight::NotAsked` for a call that was not a dry run.
-    let at = DatasetAddress::of(project.clone(), project.clone(), dataset.clone());
+    let at = DatasetAddress::of(project.clone(), project.clone(), dataset);
     let listing = endpoint.list_tables(&at).expect_err("this transport cannot list a dataset");
     assert!(!endpoint.declined_to_dry_run(&listing), "{listing:?}");
     // And the other direction on the declined value, so a cell over a predicate answering `true` to
@@ -399,12 +392,10 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
     // reaching THIS one needs a trait, which is what `prepared` is generic over.
     let params = [ParamValue::Text(String::from("north")), ParamValue::Date(day("2026-06-01"))];
     let project = project();
-    let dataset = dataset();
     let request = JobRequest::new(
         "SELECT ? AS region WHERE d >= ?",
         &params,
         &project,
-        &dataset,
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
@@ -436,12 +427,10 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
     // Neutralise the `set_option` call in `prepared` - `if false { .. }`, `drop`, or a string value
     // instead of an integer - and this cell is the only thing that reddens.
     let project = project();
-    let dataset = dataset();
     let request = JobRequest::new(
         "SELECT total FROM t",
         &[],
         &project,
-        &dataset,
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
@@ -470,12 +459,10 @@ fn a_call_carrying_no_values_binds_nothing_at_all() {
     // code path when nothing is bound, so a transport that bound an empty batch on the boot path
     // would send an empty parameter list rather than none. `bind` must not be reached at all.
     let project = project();
-    let dataset = dataset();
     let request = JobRequest::new(
         "SELECT SESSION_USER()",
         &[],
         &project,
-        &dataset,
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
@@ -513,14 +500,15 @@ fn a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal() {
                 .expect("a reason is a reason"),
             ),
         },
-        project(),
-        dataset(),
+        crate::JobBilling::ServiceAccount(project()),
         nowhere(),
         Impersonation::Disabled,
         a_gibibyte(),
     );
-    let asked =
-        std::iter::once(sutura_domain::model::QualifiedTable::parse("dim_customer").expect("a test table path parses")).collect();
+    let asked = std::iter::once(
+        sutura_domain::model::QualifiedTable::parse("acme-analytics.warehouse.dim_customer").expect("a test table path parses"),
+    )
+    .collect();
     #[expect(clippy::disallowed_methods, reason = "the cell measures the adapter's own pre-flight")]
     let answered = sutura_domain::warehouse::Warehouse::preflight(&warehouse, &asked);
     let refused = answered.expect_err("a transport that cannot list a dataset answers an error");
@@ -605,11 +593,10 @@ fn a_request_time_statement_carries_what_is_left_of_its_deadline_as_the_job_time
     // completion on the service. Asserted by the option's exact KEY and VALUE for the reason the
     // bytes-billed cell above gives: a key reaching a different driver option would bound nothing.
     let project = project();
-    let dataset = dataset();
     let opened = Instant::now();
     let now = opened + Duration::from_millis(1_500);
     let port = JobDeadline::Port(deadline(opened, Duration::from_secs(30)));
-    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, port);
+    let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, port);
     let mut statement = Recording::new();
     super::prepared(&mut statement, &request, None, a_gibibyte(), now).expect("the recording statement accepts both bounds");
     assert_eq!(
@@ -631,7 +618,7 @@ fn a_request_time_statement_carries_what_is_left_of_its_deadline_as_the_job_time
     );
     // THE CONTROL: the boot path has no caller and no port deadline, so it carries no job timeout -
     // a cell that saw the option on every statement could pass over a hard-coded constant.
-    let boot = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, JobDeadline::Boot);
+    let boot = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
     let mut booting = Recording::new();
     super::prepared(&mut booting, &boot, None, a_gibibyte(), now).expect("the boot path accepts the ceiling");
     assert_eq!(booting.integer_options.len(), 1, "{:?}", booting.integer_options);
@@ -643,10 +630,9 @@ fn a_spent_deadline_sends_nothing_and_reads_as_the_deadline() {
     // refusal has to land before any statement is prepared, and it has to read as the deadline
     // rather than a service error.
     let project = project();
-    let dataset = dataset();
     let opened = Instant::now();
     let port = JobDeadline::Port(deadline(opened, Duration::from_secs(1)));
-    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, port);
+    let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, port);
     let mut statement = Recording::new();
     let spent = super::prepared(&mut statement, &request, None, a_gibibyte(), opened + Duration::from_secs(2))
         .expect_err("a spent deadline is refused");

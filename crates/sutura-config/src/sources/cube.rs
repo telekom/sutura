@@ -77,11 +77,9 @@ pub(super) fn refuse_elsewhere(
 
 /// The four keys a `cube` entry has no use for beside the dialled ones: the `files` key and the
 /// three `bigquery` keys. A workload-identity block is `super::parse_delegation`'s refusal.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: &impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 4] {
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: &impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 2] {
     [
         ("data_dir", written(entry.data_dir)),
-        ("billing_project", written(entry.billing_project)),
-        ("dataset", written(entry.dataset)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
     ]
 }
@@ -286,13 +284,6 @@ mod tests {
                     ..cube("m")
                 },
                 "password_file",
-            ),
-            (
-                RawSourceEntry {
-                    dataset: Some("d"),
-                    ..cube("m")
-                },
-                "dataset",
             ),
             (
                 RawSourceEntry {

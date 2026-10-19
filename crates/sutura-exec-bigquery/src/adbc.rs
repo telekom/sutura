@@ -451,16 +451,10 @@ impl AdbcBigQuery {
         // different code path inside the driver - see `sutura_adbc::parameter_batch`.
         let bound = sutura_adbc::parameter_batch(request.params()).map_err(|cause| AdbcError::Parameters { cause })?;
         let mut driver = load(&self.driver)?;
-        let opts = [
-            (
-                OptionDatabase::Other("bigquery.project_id".into()),
-                OptionValue::String(request.billing_project().as_str().to_owned()),
-            ),
-            (
-                OptionDatabase::Other("bigquery.dataset_id".into()),
-                OptionValue::String(request.default_dataset().as_str().to_owned()),
-            ),
-        ];
+        let opts = [(
+            OptionDatabase::Other("bigquery.project_id".into()),
+            OptionValue::String(request.billing_project().as_str().to_owned()),
+        )];
         let db = driver
             .new_database_with_opts(opts.into_iter().chain(authentication.options))
             .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;

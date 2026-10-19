@@ -202,7 +202,7 @@ fn a_bigquery_credential_file_is_refused_as_an_unknown_key() {
     // key rather than a path that reads as a control in place.
     let sources = Sources::defaults(Environment::Development).with_overlay(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\nsources:\n  warehouse:\n    \
-         kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+         kind: \"bigquery\"\n    billing:\n      service_account_project: \"acme-analytics\"\n    \
          credential_file: \"/etc/sutura/bigquery.json\"\n    max_bytes_billed: 1073741824\n    \
          posture: \"shared-service-user\"\n",
     );
@@ -255,8 +255,8 @@ fn a_workload_identity_impersonate_map_is_refused_as_an_unknown_key() {
 #[test]
 fn an_unknown_key_in_either_new_block_is_refused() {
     let bigquery = "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\n\
-                    sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
-                    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n";
+                    sources:\n  warehouse:\n    kind: \"bigquery\"\n    \
+                    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n";
     for (block, key) in [
         (
             "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
@@ -417,8 +417,8 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
 /// One impersonating `bigquery` source, `warehouse`, declaring the caller-identity `block`.
 fn impersonating_bigquery(block: &str) -> String {
     format!(
-        "sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
-         dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
+        "sources:\n  warehouse:\n    kind: \"bigquery\"\n    \
+         max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
     )
 }
 

@@ -22,9 +22,10 @@
 //! being in place.
 //!
 //! The two newtypes are declared here, in the settings tree that owns the value, and the adapter
-//! that sends `audience` holds its own copy - the same reason [`BillingProject`] is checked both
-//! here and in the transport that interpolates it: an adapter may not depend on the settings tree,
-//! so the format is checked where it is declared AND where it is sent.
+//! that sends `audience` holds its own copy - the same reason
+//! [`BillingProject`](crate::BillingProject) is checked both here and in the transport that
+//! interpolates it: an adapter may not depend on the settings tree, so the format is checked where
+//! it is declared AND where it is sent.
 
 /// The pool a subject's own assertion is federated against: a workload identity provider
 /// resource.

@@ -69,16 +69,13 @@ pub(super) fn open(
     _request_timeout: sutura_config::RequestTimeout,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
-    use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
-
     crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
 
     // Matched rather than read off accessors every kind would have to have, for the reason the files
     // arm gives at the same shape: the dispatcher has already decided which arm this is, and a second
     // openable kind should arrive as a compile error at this line too.
     let sutura_config::SourcePlacement::BigQuery {
-        ref billing_project,
-        ref dataset,
+        ref billing,
         max_bytes_billed,
     } = *configured.placement()
     else {
@@ -124,15 +121,11 @@ pub(super) fn open(
     // rather than become a failure on the one question it was launched to answer.
     sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
         .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
-    let project = ProjectId::parse(billing_project.as_str())
-        .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
-    let dataset = DatasetId::parse(dataset.as_str())
-        .map_err(|cause| format!("`sources.{source}.dataset` is not a usable dataset id: {cause}"))?;
+    let billing = crate::bigquery_driver::job_billing(source, billing)?;
     let engine = sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
         source.clone(),
         identity.posture().clone(),
-        project,
-        dataset,
+        billing,
         driver,
         // `Disabled`, and the match above is what makes that the whole truth here rather than a
         // default: this command refuses `impersonation-at-source` by name, so the only posture that

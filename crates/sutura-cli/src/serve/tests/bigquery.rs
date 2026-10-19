@@ -25,12 +25,12 @@ fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
     // separately; what this asserts is that the refusal survives `Settings::load` with its key
     // attached, which is the only part a composition root depends on.
     //
-    // `max_bytes_billed` and not `billing_project`, because it is the key with no default and the one
+    // `max_bytes_billed` and not `billing`, because it is the key with no default and the one
     // that bounds what a question may cost - see its own note in `sutura-config`.
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n{}",
-        "  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
-         \"warehouse\"\n    posture: \"shared-service-user\"\n"
+        "  warehouse:\n    kind: \"bigquery\"\n    billing:\n      service_account_project: \"acme-analytics\"\n    \
+         posture: \"shared-service-user\"\n"
     );
     let error = sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),

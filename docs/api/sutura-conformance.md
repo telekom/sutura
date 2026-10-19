@@ -354,6 +354,14 @@ ITEM, which is what keeps `clippy::result_large_err` off the adapter's own crate
 inspects a closure's return type at its definition site, and the one closure this needs is
 defined here, generic in the adapter's error, rather than once in every generated test.
 
+## `fn conduct_at`
+
+```rust
+pub fn conduct_at<W, E>(adapter: &str, behaviour: Behaviour, declared: Option<&str>, open: impl FnOnce() -> Fixture<W>, pack: impl FnOnce(&W, Option<&sutura_domain::model::TableQualifier>) -> Conformed<E>)
+```
+
+`conduct`, handing the pack the qualifier a `Fixture::Located` reads the corpus table under.
+
 ## `fn census`
 
 ```rust
@@ -974,6 +982,15 @@ The file list is `FILES`, embedded at compile time by
 `include_str!`, so a file removed from disk is a compile error and a file removed from the list
 is caught by `the_loader_reads_every_case_file` in that module's own tests.
 
+### `fn cases_at`
+
+```rust
+pub fn cases_at(at: Option<&sutura_domain::model::TableQualifier>) -> Vec<Case>
+```
+
+`cases`, every plan reading the corpus table under `at`: for a data system that addresses
+no table by its bare name.
+
 ### `fn leg_case`
 
 ```rust
@@ -981,6 +998,14 @@ pub fn leg_case() -> LegCase
 ```
 
 The one leg in the corpus.
+
+### `fn leg_case_at`
+
+```rust
+pub fn leg_case_at(at: Option<&sutura_domain::model::TableQualifier>) -> LegCase
+```
+
+`leg_case`, its leg reading the corpus table under `at`.
 
 ### `fn federated_cases`
 
@@ -1101,6 +1126,14 @@ an adapter that renamed or reordered a column has a defect in its projection rat
 number. `agree_on_content` would also catch it and would report it as a content disagreement,
 which is the less useful of the two readings.
 
+### `fn labels_are_the_plans_own_at`
+
+```rust
+pub fn labels_are_the_plans_own_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`labels_are_the_plans_own`, over the corpus table under `at`.
+
 ### `fn content_agrees_with_the_reference`
 
 ```rust
@@ -1111,6 +1144,14 @@ The rows are the reference's rows, as a multiset.
 
 THE conformance claim: one plan, one answer, whatever executed it. A multiset rather than a set,
 because a duplicated row is exactly what a fan-out defect produces.
+
+### `fn content_agrees_with_the_reference_at`
+
+```rust
+pub fn content_agrees_with_the_reference_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`content_agrees_with_the_reference`, over the corpus table under `at`.
 
 ### `fn order_agrees_with_the_reference`
 
@@ -1128,6 +1169,14 @@ collation over, and this is where that opt-out is read: the answer is still fetc
 adapter that cannot answer the case at all is still `Fault::NotAnswered`, but the order
 comparison itself is skipped for it.
 
+### `fn order_agrees_with_the_reference_at`
+
+```rust
+pub fn order_agrees_with_the_reference_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`order_agrees_with_the_reference`, over the corpus table under `at`.
+
 ### `fn one_plan_asked_twice_answers_the_same_way`
 
 ```rust
@@ -1141,6 +1190,14 @@ kept: it is what the reference comparison degenerates to for an adapter whose ro
 whose plan is non-deterministic - an unstable tie order, a cached result that went stale, a
 connection that reset the session between calls. Both halves are compared, so a stable answer in
 an unstable order is still a failure.
+
+### `fn one_plan_asked_twice_answers_the_same_way_at`
+
+```rust
+pub fn one_plan_asked_twice_answers_the_same_way_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`one_plan_asked_twice_answers_the_same_way`, over the corpus table under `at`.
 
 ### `fn a_preflight_that_accepts_is_followed_by_an_answer`
 
@@ -1169,6 +1226,14 @@ silent pass - closing the gap `Warehouse::PRICES_DRY_RUN`'s own doc names, that 
 require this port's `None`-vs-`Some(0)` distinction to mean what it says for any adapter this
 pack binds.
 
+### `fn a_preflight_that_accepts_is_followed_by_an_answer_at`
+
+```rust
+pub fn a_preflight_that_accepts_is_followed_by_an_answer_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`a_preflight_that_accepts_is_followed_by_an_answer`, over the corpus table under `at`.
+
 ### `fn a_leg_is_executed`
 
 ```rust
@@ -1183,6 +1248,14 @@ conformance claim rather than a smoke test: an adapter with a leg-rendering path
 to land on the number the whole-plan path lands on.
 
 Content only. See this module's header for why a leg gets no order assertion.
+
+### `fn a_leg_is_executed_at`
+
+```rust
+pub fn a_leg_is_executed_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`a_leg_is_executed`, over the corpus table under `at`.
 
 ### `fn a_leg_is_refused`
 
@@ -1205,6 +1278,14 @@ would be green for an adapter that failed for any reason at all, including one t
 its data system. Answering a whole plan immediately before is what makes the refusal evidence
 about the leg. The residual limit: the refusal is still only *an* error, so an adapter that
 refused a leg for the wrong reason passes.
+
+### `fn a_leg_is_refused_at`
+
+```rust
+pub fn a_leg_is_refused_at<W>(warehouse: &W, at: Option<&sutura_domain::model::TableQualifier>) -> crate::Conformed<<W as >::Error>
+```
+
+`a_leg_is_refused`, over the corpus table under `at`.
 
 ### `fn a_leg_is_refused_over`
 
@@ -1315,6 +1396,7 @@ merely declared, and the reason the harness cannot is a dependency rule that has
 #### Variants
 
 - `Standing` - It stood up. What an in-process or in-memory adapter always answers.
+- `Located` - It stood up, and addresses the corpus table only under this qualifier.
 - `Absent` - The environment this adapter needs is not here, so nothing was asked of it.
 
 #### Methods
@@ -1327,6 +1409,13 @@ Two warehouses and the combiner above them, standing only where both warehouses 
 
 The combiner is built only then, and the fact side's absence is the one reported when both
 are absent.
+
+```rust
+pub const fn located(warehouse: W, at: sutura_domain::model::TableQualifier) -> Self
+```
+
+It stood up, and reads the corpus table under `at`: for a data system that addresses no
+table by its bare name.
 
 ```rust
 pub const fn missing(&self) -> Option<&Missing>

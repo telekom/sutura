@@ -106,7 +106,9 @@ use std::sync::LazyLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, ColumnName, DimensionName, Grain, MetricName, QualifiedTable, SourceName, TableName, TableQualifier,
+};
 use sutura_domain::plan::{
     FederatedPlan, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm,
     PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
@@ -387,12 +389,30 @@ pub fn cases() -> Vec<Case> {
     case_files::load()
 }
 
+/// [`cases`], every plan reading the corpus table under `at`: for a data system that addresses
+/// no table by its bare name.
+#[must_use]
+pub fn cases_at(at: Option<&TableQualifier>) -> Vec<Case> {
+    case_files::load_at(at)
+}
+
+/// The corpus table, under `at` where a binding places it.
+fn located(at: Option<&TableQualifier>) -> QualifiedTable {
+    QualifiedTable::new(at.cloned(), table())
+}
+
 /// The one leg in the corpus.
 #[must_use]
 pub fn leg_case() -> LegCase {
+    leg_case_at(None)
+}
+
+/// [`leg_case`], its leg reading the corpus table under `at`.
+#[must_use]
+pub fn leg_case_at(at: Option<&TableQualifier>) -> LegCase {
     // The same shape as `total-by-region-and-day`, expressed as one source's share of an answer
     // rather than as a whole one - so the expected rows are that case's, unchanged.
-    let case = cases()
+    let case = cases_at(at)
         .into_iter()
         .find(|c| c.name() == "total-by-region-and-day")
         .expect("the corpus holds the total-by-region-and-day case");
@@ -401,7 +421,7 @@ pub fn leg_case() -> LegCase {
         leg: LegPlan::Fact {
             source: source(),
             metric: metric("amount_total"),
-            tables: StatementTables::only(table()),
+            tables: StatementTables::only(located(at)),
             bucket: bucket(),
             keys: vec![region_key()],
             terms: vec![LegTerm::new(

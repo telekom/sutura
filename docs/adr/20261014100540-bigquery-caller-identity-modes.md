@@ -132,3 +132,27 @@ record above does not hold.
   the deployment holds a credential that can act as any user in the domain for that scope.
 - **Only a `domain_delegation` source accepts a principal switch.** At every other BigQuery source a
   principal is still refused with `NoPrincipalSwitch`.
+
+## Third amendment, 2026-10-15: each job is billed to its caller's project
+
+**Status of the amendment: accepted** (issue #1439). A `bigquery` source has no `billing_project`
+and no `dataset`; both keys are refused at load with a message naming the key that replaces them.
+
+- **A caller-run source** (modes a, b and c) names each job's billing project in this order:
+  1. the project of the first `billing.by_group` entry whose group the caller's verified `groups`
+     claim holds. The list order is the operator's, so a caller in several mapped groups always
+     gets the same project, and a group the list does not name adds nothing;
+  2. else the one project of every table the query reads;
+  3. else the project the caller names in the `Sutura-Bill-To` header or the MCP `bill_to`
+     argument, read only when the source sets `billing.caller_may_name: true`. A value that is not
+     a project id is refused with a 400 that names the header or the argument;
+  4. else the query is refused with `no_billing_project`, and nothing runs.
+- **A shared source bills to its service account's project**, because there the service account is
+  the caller. `billing.service_account_project` is required on a shared `bigquery` source and refused
+  on a caller-run one; `billing.by_group` and `billing.caller_may_name` are refused on a shared one.
+  sutura reads no credential to find that project: the operator declares it.
+- **The deployment's own project never pays for a caller-run job.** No step above falls back to it.
+- **No location is sent.** BigQuery runs a query job where the tables it reads are.
+
+Why: one source project made every caller need `bigquery.jobs.create` in a project they do not
+otherwise hold, and billed one project for every caller's queries.

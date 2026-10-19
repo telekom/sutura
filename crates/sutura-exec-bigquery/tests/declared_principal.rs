@@ -68,12 +68,12 @@ mod declared_principal {
     mod support;
 
     use self::support::live_env;
-    use sutura_domain::identity::{Presented, Secret};
+    use sutura_domain::identity::{BillTo, BillingAccount, Presented, Secret};
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-    use sutura_exec_bigquery::BigQueryWarehouse;
     use sutura_exec_bigquery::adbc::{DriverLocation, Impersonation, WorkloadPool};
-    use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
+    use sutura_exec_bigquery::transport::ProjectId;
+    use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
 
     /// The one source alias this leg declares.
     fn source() -> SourceName {
@@ -98,14 +98,11 @@ mod declared_principal {
 
     /// The adapter, opened `impersonation-at-source` over the real driver at the real project.
     fn opened() -> BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
-        let project = ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
-        let dataset = DatasetId::parse(live_env("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
         let pool = WorkloadPool::parse(&live_env("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
         BigQueryWarehouse::over_adbc(
             source(),
             SourcePosture::ImpersonationAtSource,
-            project,
-            dataset,
+            JobBilling::CallerRun { caller_may_name: false },
             driver(),
             Impersonation::ThroughPool(pool),
             ceiling(),
@@ -124,9 +121,11 @@ mod declared_principal {
         let presented = Presented::SubjectToken {
             material: Secret::new(assertion),
         };
+        // The read names no table, so it bills the project the caller's group maps onto.
+        let group = BillingAccount::parse(&live_env("SUTURA_BQ_PROJECT")).expect("the declared project is an account");
         String::from(
             warehouse
-                .session_user(&presented)
+                .session_user(&presented, &BillTo::Group(group))
                 .expect("the dataset answered the identity read")
                 .as_str(),
         )
@@ -167,15 +166,16 @@ mod declared_principal {
             SourcePosture::SharedServiceUser {
                 declared: declared.clone(),
             },
-            ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
-            DatasetId::parse(live_env("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
+            JobBilling::ServiceAccount(
+                ProjectId::parse(live_env("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
+            ),
             driver(),
             Impersonation::Disabled,
             ceiling(),
         );
         let ours = String::from(
             shared
-                .session_user(&Presented::SharedServiceUser { declared })
+                .session_user(&Presented::SharedServiceUser { declared }, &BillTo::Unstated)
                 .expect("the dataset answered the identity read")
                 .as_str(),
         );

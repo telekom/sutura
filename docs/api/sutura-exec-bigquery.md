@@ -135,11 +135,8 @@ an owned `#[source]`.
 
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
-- `UnresolvableConnection` - A table path could not be resolved against this connection, or the resolved tables - taken together - answer to one identifier the statement cannot tell apart.
-
-  **Unreachable in practice**: see `UnresolvableConnection`'s own documentation for why. A
-  typed variant rather than a panic for the same reason every other "unreachable" case in
-  this workspace is one - the input reaching it is not bounded by the type system alone.
+- `TableNamesNoProject` - A table path names no project, and this source has no default to resolve it against.
+- `NoPayer` - A job no caller stated a payer for reads no single project, and no service account bills it.
 - `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, at a source that does not run one through domain-wide delegation.
 
   **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds
@@ -195,7 +192,7 @@ composition, and a generic keeps the transport's own error type visible in `BigQ
 ### Methods
 
 ```rust
-pub fn drop_table(&self, table: &TableName) -> Dropped<<T as >::Error>
+pub fn drop_table(&self, table: &QualifiedTable) -> Dropped<<T as >::Error>
 ```
 
 Removes one table from the connection's dataset.
@@ -226,7 +223,7 @@ still unverified by either cell; this only compares what an already-answered pre
 carried against the declaration.
 
 ```rust
-pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
+pub fn load_fixture(&self, table: &QualifiedTable, csv: &std::path::Path) -> Loaded<<T as >::Error>
 ```
 
 Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
@@ -254,20 +251,19 @@ parse's count and not the dataset's - nothing reads the table back - so a caller
 with the file measures the importer; what shows the rows landed is a query over them.
 
 ```rust
-pub const fn new(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, transport: T) -> Self
+pub const fn new(source: SourceName, posture: SourcePosture, billing: JobBilling, transport: T) -> Self
 ```
 
 Opens a dataset.
 
 **Every argument is required and none has a default**, which is the shape the port asks for and
 the reason is different for each: a defaulted posture would be a claim about who a query runs
-as that nobody made, and a defaulted billing project would be a project somebody else pays
-for. The billing project is the caller's to supply because there is nothing to infer it from -
-it is a path segment of the request that submits a job, and a federated identity has no project
-of its own.
+as that nobody made, and a defaulted payer would be a project somebody else pays for.
+`JobBilling` is who each job bills; there is no default dataset, so every table names its
+project.
 
 ```rust
-pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation, max_bytes_billed: adbc::BytesBilledCeiling) -> Self
+pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing: JobBilling, driver: adbc::DriverLocation, impersonation: adbc::Impersonation, max_bytes_billed: adbc::BytesBilledCeiling) -> Self
 ```
 
 Opens a dataset over the ADBC transport.
@@ -289,7 +285,7 @@ NOT bound - it is per JOB, and `governance.per_replica_spend_ceiling` is a diffe
 this adapter still does not reach.
 
 ```rust
-pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
+pub fn session_user(&self, presented: &Presented, bill_to: &BillTo) -> Result<SessionUser, BigQueryError<<T as >::Error>>
 ```
 
 Who this data system says the leg presenting `presented` is executing AS.
@@ -320,20 +316,20 @@ nothing that federates.
 `BigQueryError::NoIdentityInTheAnswer` where the answer is not one row of one text cell.
 Nothing here quotes what came back: see that variant.
 
+It reads no table, so it bills `bill_to`'s group project, else a shared source's service
+account project, else is refused `BigQueryError::NoPayer`.
+
 ### Implements
 
 `Debug`, `Warehouse`
 
-## `use UnresolvableConnection`
+## `use JobBilling`
 
-Why this connection's own billing project could not be read as the domain's project vocabulary.
+Who this source's jobs bill, as the composition root read it from the source's `billing` block.
 
-**Unreachable in practice, and a typed branch rather than an `.expect()` because a panic here
-would be reachable from a live query, not just a catalog file.**
-`sutura_config::sources::placement::BillingProject::parse` accepts 6 to 30 characters of
-`[a-z0-9-]`, starting with a letter and never ending in a hyphen - a strict subset of what
-`ProjectName::parse` accepts, so a billing project that reached this adapter at all already
-satisfies it.
+## `use TableNamesNoProject`
+
+A table path with no project, which nothing here resolves against a default.
 
 ## `use SessionUser`
 
@@ -830,17 +826,6 @@ pub const fn deadline(&self) -> JobDeadline
 
 Which clock this call answers to. See `JobDeadline` and the constructor's own doc for what
 each arm means to the transport's own submit.
-
-```rust
-pub const fn default_dataset(&self) -> &DatasetId
-```
-
-The dataset the statement's unqualified table names resolve in.
-
-**This is why the generated statement needs no qualifying**, and it is the reason the fourth
-dialect changed nothing about how a table is rendered: the endpoint's request carries a default
-dataset beside the SQL, so a bare backticked table name resolves there. The generator emits the
-same shape it emits for every other dialect.
 
 ```rust
 pub const fn identity(&self) -> JobIdentity<'_>

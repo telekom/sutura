@@ -112,12 +112,11 @@
 
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-#[cfg(feature = "fixtures")]
-use sutura_domain::model::TableName;
+use sutura_domain::identity::{BillTo, Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::billed::{Billed, BilledResult};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
@@ -131,8 +130,8 @@ mod preflight;
 #[cfg(feature = "adbc")]
 pub mod adbc;
 
-mod resolve;
-pub use resolve::UnresolvableConnection;
+mod billing;
+pub use billing::{JobBilling, TableNamesNoProject};
 
 pub mod transport;
 
@@ -148,7 +147,7 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
-use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
+use crate::transport::{JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -156,6 +155,9 @@ use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobTrans
 /// workspace tightened, and because the generic error is the point: erasing it would lose which
 /// transport failed.
 type Mapped<V, E> = Result<V, BigQueryError<E>>;
+
+/// [`Mapped`] for a billed call, named for the same threshold.
+type BilledMapped<V, E> = BilledResult<V, BigQueryError<E>>;
 
 /// Why this data system could not answer.
 ///
@@ -180,17 +182,18 @@ where
         #[source]
         cause: GenerateError,
     },
-    /// A table path could not be resolved against this connection, or the resolved tables -
-    /// taken together - answer to one identifier the statement cannot tell apart.
-    ///
-    /// **Unreachable in practice**: see [`UnresolvableConnection`]'s own documentation for why. A
-    /// typed variant rather than a panic for the same reason every other "unreachable" case in
-    /// this workspace is one - the input reaching it is not bounded by the type system alone.
-    #[error("a table path could not be resolved for this connection")]
-    UnresolvableConnection {
-        #[source]
-        cause: sutura_domain::plan::ResolveTablesError<UnresolvableConnection>,
+    /// A table path names no project, and this source has no default to resolve it against.
+    #[error("a table path names no project")]
+    TableNamesNoProject {
+        #[from]
+        cause: TableNamesNoProject,
     },
+    /// A job no caller stated a payer for reads no single project, and no service account bills it.
+    #[error(
+        "`{at}` cannot decide which project bills this job, which reads {projects:?}: map the caller's group in \
+         `billing.by_group`, or read the tables of one project"
+    )]
+    NoPayer { at: String, projects: Vec<String> },
     /// The leg presents a principal for the data system to switch to, at a source that does not run
     /// one through domain-wide delegation.
     ///
@@ -256,8 +259,7 @@ pub struct BigQueryWarehouse<T> {
     /// The deployment declares the posture and the adapter declares its *capability* - see
     /// [`Warehouse::IMPERSONATION`]. Kept so provenance is read off the thing that executed.
     posture: SourcePosture,
-    billing_project: ProjectId,
-    default_dataset: DatasetId,
+    billing: JobBilling,
     transport: T,
 }
 
@@ -269,22 +271,14 @@ where
     ///
     /// **Every argument is required and none has a default**, which is the shape the port asks for and
     /// the reason is different for each: a defaulted posture would be a claim about who a query runs
-    /// as that nobody made, and a defaulted billing project would be a project somebody else pays
-    /// for. The billing project is the caller's to supply because there is nothing to infer it from -
-    /// it is a path segment of the request that submits a job, and a federated identity has no project
-    /// of its own.
-    pub const fn new(
-        source: SourceName,
-        posture: SourcePosture,
-        billing_project: ProjectId,
-        default_dataset: DatasetId,
-        transport: T,
-    ) -> Self {
+    /// as that nobody made, and a defaulted payer would be a project somebody else pays for.
+    /// [`JobBilling`] is who each job bills; there is no default dataset, so every table names its
+    /// project.
+    pub const fn new(source: SourceName, posture: SourcePosture, billing: JobBilling, transport: T) -> Self {
         Self {
             source,
             posture,
-            billing_project,
-            default_dataset,
+            billing,
             transport,
         }
     }
@@ -322,44 +316,83 @@ where
             .map_err(|cause| BigQueryError::PresentedDisagreesWithPosture { cause })
     }
 
-    /// One query plan, resolved against this connection and rendered as one `GoogleSQL` statement.
-    ///
-    /// **The resolve step, and why it sits here rather than inside `generate`.** A path this plan
-    /// carries that names a dataset and no project is exactly the path `sutura_sql::generate`
-    /// would render as literal text, leaving `BigQuery`'s own request-level default to fill the
-    /// missing project in - silently, and not necessarily where the model actually lives.
-    /// [`crate::resolve::resolve`] closes that gap on the plan itself, before anything renders, so
-    /// the statement says which project rather than depending on a request field beside it.
-    ///
-    /// Shared with [`Self::verify_anchor`]'s own plan, so the boot-time reproduction and a live
-    /// question resolve identically rather than one of them keeping the old, unresolved behaviour.
-    fn render_query(&self, plan: &QueryPlan) -> Mapped<GeneratedQuery, T::Error> {
-        let resolved = plan
-            .clone()
-            .resolve_tables(|table| resolve::resolve(table, &self.billing_project))
-            .map_err(|cause| BigQueryError::UnresolvableConnection { cause })?;
-        generate(&resolved, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })
+    /// The plan, rendered as one `GoogleSQL` statement. The dialect is not a parameter: a `BigQuery`
+    /// adapter renders `BigQuery`. Every table already names its project - [`Self::payer_of`] and
+    /// [`Self::unstated_payer`]'s callers refuse one that does not before anything renders.
+    fn render(executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
+        match executable {
+            Executable::Query(plan) => generate(plan, Dialect::BigQuery),
+            Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery),
+        }
+        .map_err(|cause| BigQueryError::Render { cause })
     }
 
-    /// The plan, rendered as one `GoogleSQL` statement.
-    ///
-    /// The dialect is not a parameter: a `BigQuery` adapter renders `BigQuery`. One exhaustive match,
-    /// so a third plan shape cannot be answered by accident, and both arms render.
-    ///
-    /// **The leg arm does NOT go through [`Self::render_query`]'s resolve step, and that is a
-    /// decision with a bound rather than an omission.** `crate::resolve::resolve` writes THIS
-    /// CONNECTION's own project into a path that names a dataset and no project; the job the leg
-    /// becomes is submitted under that same project ([`Self::request`] carries
-    /// `self.billing_project`), so the path the service resolves is the path `resolve` would have
-    /// written. What is lost is only that the statement no longer SAYS which project - and
-    /// `crate::tests::results`' own cell pins the leg's text as `generate_leg`'s, so this
-    /// equivalence is a comparison rather than a paragraph. A leg whose table names its own
-    /// project is untouched by either path.
-    fn render(&self, executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
-        match executable {
-            Executable::Query(plan) => self.render_query(plan),
-            Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause }),
-        }
+    /// The project a job over `projects` bills when nobody stated a payer: the boot path and the
+    /// plain port calls.
+    fn unstated_payer(&self, projects: &BTreeSet<&str>) -> Mapped<ProjectId, T::Error> {
+        billing::payer(&self.billing, &BillTo::Unstated, projects).map_err(|_undecided| BigQueryError::NoPayer {
+            at: String::from(self.source.as_str()),
+            projects: projects.iter().map(|&project| String::from(project)).collect(),
+        })
+    }
+
+    /// The project `executable`'s job bills, in the order [`JobBilling`] declares.
+    fn payer_of(&self, executable: Executable<'_>, bill_to: &BillTo) -> BilledMapped<ProjectId, T::Error> {
+        let projects = billing::executable_projects(executable).map_err(|cause| Billed::Source(cause.into()))?;
+        billing::payer(&self.billing, bill_to, &projects).map_err(|no_payer| match no_payer {
+            billing::NoPayer::NotTaken => Billed::NotTaken { at: self.source.clone() },
+            billing::NoPayer::Undecided => Billed::Undecided { at: self.source.clone() },
+        })
+    }
+
+    /// The pre-flight, billed to `payer`.
+    fn dry_run_as(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        payer: &ProjectId,
+        deadline: Deadline,
+    ) -> Mapped<PreFlight, T::Error> {
+        self.deliverable(presented)?;
+        let query = Self::render(executable)?;
+        let asked = self.transport.validate(&Self::request(
+            &query,
+            payer,
+            self.job_identity(presented)?,
+            JobDeadline::Port(deadline),
+        ));
+        let estimated_bytes = match asked {
+            Ok(estimate) => estimate,
+            // **A transport with no dry run did not ask, and that is not a question that failed.**
+            // `NotAsked` and never `Accepted { estimated_bytes: None }`: the conformance pack
+            // compares `estimated_bytes.is_some()` against `PRICES_DRY_RUN` on an accepted one.
+            // **The limit:** nothing prices such a statement, so `sutura_app`'s spend ledger
+            // charges this source nothing and the per-subject byte ceiling does not bound it.
+            Err(ref cause) if self.transport.declined_to_dry_run(cause) => return Ok(PreFlight::NotAsked),
+            Err(cause) => return Err(BigQueryError::Endpoint { cause }),
+        };
+        Ok(PreFlight::Accepted { estimated_bytes })
+    }
+
+    /// The job, billed to `payer`. The ADBC driver's typed Arrow arrays ARE the port's currency since
+    /// `docs/adr/0039` step 2, so there is nothing to convert.
+    fn execute_as(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        payer: &ProjectId,
+        deadline: Deadline,
+    ) -> Mapped<ResultBatches, T::Error> {
+        self.deliverable(presented)?;
+        let query = Self::render(executable)?;
+        self.transport
+            .run(&Self::request(
+                &query,
+                payer,
+                self.job_identity(presented)?,
+                JobDeadline::Port(deadline),
+            ))
+            .map_err(|cause| BigQueryError::Endpoint { cause })
     }
 
     /// What one leg's presented credential means to a transport: three arms, or a refusal.
@@ -400,19 +433,12 @@ where
     /// `identity` is [`Self::job_identity`]'s reading of what the broker presented, and
     /// [`JobIdentity::Transport`] at the boot path, where there is no caller to present anything.
     fn request<'job>(
-        &'job self,
         query: &'job GeneratedQuery,
+        payer: &'job ProjectId,
         identity: JobIdentity<'job>,
         deadline: JobDeadline,
     ) -> JobRequest<'job> {
-        JobRequest::new(
-            query.sql(),
-            query.params(),
-            &self.billing_project,
-            &self.default_dataset,
-            identity,
-            deadline,
-        )
+        JobRequest::new(query.sql(), query.params(), payer, identity, deadline)
     }
 
     /// Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
@@ -439,7 +465,7 @@ where
     /// parse's count and not the dataset's - nothing reads the table back - so a caller comparing it
     /// with the file measures the importer; what shows the rows landed is a query over them.
     #[cfg(feature = "fixtures")]
-    pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<T::Error> {
+    pub fn load_fixture(&self, table: &QualifiedTable, csv: &std::path::Path) -> Loaded<T::Error> {
         let text = std::fs::read_to_string(csv).map_err(|cause| FixtureNotLoaded::Unreadable {
             path: csv.display().to_string(),
             cause,
@@ -448,25 +474,7 @@ where
             path: csv.display().to_string(),
             cause,
         })?;
-        let statement = fixture.create_statement(table);
-        // No parameters, deliberately, and the no-injection invariant is about exactly this
-        // position: a bind parameter carries a VALUE FROM A QUESTION, and there is no question here.
-        // What makes the literals safe is that each one was parsed - see `crate::importer`.
-        // And `JobIdentity::Transport` for the same reason: a `CREATE OR REPLACE TABLE` is a thing
-        // the identity this transport already holds does to its own dataset, so naming a subject
-        // here would run a write as whoever last asked a question. And no port
-        // `Deadline`: a fixture load has no caller and no request timeout - the boot path's own shape.
-        let request = JobRequest::new(
-            &statement,
-            &[],
-            &self.billing_project,
-            &self.default_dataset,
-            JobIdentity::Transport,
-            JobDeadline::Boot,
-        );
-        self.transport
-            .apply(&request)
-            .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
+        self.fixture_job(&fixture.create_statement(table), table)?;
         Ok(fixture.rows())
     }
 
@@ -483,22 +491,31 @@ where
     ///
     /// Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
     #[cfg(feature = "fixtures")]
-    pub fn drop_table(&self, table: &TableName) -> Dropped<T::Error> {
-        let statement = crate::importer::Fixture::drop_statement(table);
-        // No parameters and `JobIdentity::Transport`, exactly as the load: a DROP is a thing the
-        // identity this transport already holds does to its own dataset, like the `CREATE` that
-        // built it. And
-        // no port `Deadline`, for the same reason `load_fixture` carries none.
-        let request = JobRequest::new(
-            &statement,
-            &[],
-            &self.billing_project,
-            &self.default_dataset,
-            JobIdentity::Transport,
-            JobDeadline::Boot,
-        );
+    pub fn drop_table(&self, table: &QualifiedTable) -> Dropped<T::Error> {
+        self.fixture_job(&crate::importer::Fixture::drop_statement(table), table)
+    }
+
+    /// One fixture statement over `table`, billed like every boot job.
+    ///
+    /// No parameters, deliberately: a bind parameter carries a VALUE FROM A QUESTION, and there is
+    /// no question here - each literal was parsed, see `crate::importer`. `JobIdentity::Transport`,
+    /// because a `CREATE` or `DROP` is a thing the identity this transport holds does to its own
+    /// dataset, and naming a subject would run a write as whoever last asked. No port `Deadline`:
+    /// the boot path's own shape.
+    #[cfg(feature = "fixtures")]
+    fn fixture_job(&self, statement: &str, table: &QualifiedTable) -> Dropped<T::Error> {
+        let payer = billing::projects([table])
+            .map_err(BigQueryError::from)
+            .and_then(|projects| self.unstated_payer(&projects))
+            .map_err(|cause| FixtureNotLoaded::Unbilled { cause })?;
         self.transport
-            .apply(&request)
+            .apply(&JobRequest::new(
+                statement,
+                &[],
+                &payer,
+                JobIdentity::Transport,
+                JobDeadline::Boot,
+            ))
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })
     }
 
@@ -529,8 +546,11 @@ where
     /// [`BigQueryError::Unreadable`] where the one cell is not a text this workspace maps, and
     /// [`BigQueryError::NoIdentityInTheAnswer`] where the answer is not one row of one text cell.
     /// Nothing here quotes what came back: see that variant.
-    pub fn session_user(&self, presented: &Presented) -> Mapped<SessionUser, T::Error> {
-        identity_read::session_user(self, presented)
+    ///
+    /// It reads no table, so it bills `bill_to`'s group project, else a shared source's service
+    /// account project, else is refused [`BigQueryError::NoPayer`].
+    pub fn session_user(&self, presented: &Presented, bill_to: &BillTo) -> Mapped<SessionUser, T::Error> {
+        identity_read::session_user(self, presented, bill_to)
     }
     /// A job's result, as a domain result set.
     ///
@@ -554,7 +574,8 @@ where
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
-            | BigQueryError::UnresolvableConnection { .. }
+            | BigQueryError::TableNamesNoProject { .. }
+            | BigQueryError::NoPayer { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::Unreadable { .. } => false,
         }
@@ -590,8 +611,7 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     pub const fn over_adbc(
         source: SourceName,
         posture: SourcePosture,
-        billing_project: ProjectId,
-        default_dataset: DatasetId,
+        billing: JobBilling,
         driver: adbc::DriverLocation,
         impersonation: adbc::Impersonation,
         max_bytes_billed: adbc::BytesBilledCeiling,
@@ -599,8 +619,7 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         Self::new(
             source,
             posture,
-            billing_project,
-            default_dataset,
+            billing,
             adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed),
         )
     }
@@ -716,28 +735,21 @@ where
     /// **The limit:** that is a server-side, best-effort stop, and the ADBC transport declines the
     /// dry run this method exists for (see below).
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
-        self.deliverable(presented)?;
-        let query = self.render(executable)?;
-        let asked = self
-            .transport
-            .validate(&self.request(&query, self.job_identity(presented)?, JobDeadline::Port(deadline)));
-        let estimated_bytes = match asked {
-            Ok(estimate) => estimate,
-            // **A transport with no dry run did not ask, and that is not a question that failed.**
-            // `sutura_app::answer` turns any other `Err` here into a service error on every
-            // question, so before this arm existed an ADBC-backed source could answer nothing at
-            // all - `JobTransport::declined_to_dry_run` carries the measurement.
-            //
-            // `NotAsked` and never `Accepted { estimated_bytes: None }`: the port's own
-            // documentation is that a defaulted pre-flight reads as *this subject may run this
-            // plan*, and the conformance pack compares `estimated_bytes.is_some()` against
-            // `PRICES_DRY_RUN` on an accepted one. **The limit, where the claim is:** nothing
-            // prices such a statement, so `sutura_app`'s spend ledger charges this source nothing
-            // and the per-subject byte ceiling does not bound it.
-            Err(ref cause) if self.transport.declined_to_dry_run(cause) => return Ok(PreFlight::NotAsked),
-            Err(cause) => return Err(BigQueryError::Endpoint { cause }),
-        };
-        Ok(PreFlight::Accepted { estimated_bytes })
+        let payer = self.unstated_payer(&billing::executable_projects(executable)?)?;
+        self.dry_run_as(executable, presented, &payer, deadline)
+    }
+
+    /// [`Self::dry_run`], billed in [`JobBilling`]'s order with the payer the broker decided.
+    fn dry_run_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &BillTo,
+        deadline: Deadline,
+    ) -> BilledResult<PreFlight, Self::Error> {
+        let payer = self.payer_of(executable, bill_to)?;
+        self.dry_run_as(executable, presented, &payer, deadline)
+            .map_err(Billed::Source)
     }
 
     /// Carries the port's `Deadline` into the job request, which the ADBC transport sends as the
@@ -752,15 +764,21 @@ where
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        self.deliverable(presented)?;
-        let query = self.render(executable)?;
-        let answered = self
-            .transport
-            .run(&self.request(&query, self.job_identity(presented)?, JobDeadline::Port(deadline)))
-            .map_err(|cause| BigQueryError::Endpoint { cause })?;
-        // Nothing to convert: the ADBC driver's own typed Arrow arrays ARE the port's currency since
-        // `docs/adr/0039` step 2, so this adapter is the one that stopped paying rather than started.
-        Ok(answered)
+        let payer = self.unstated_payer(&billing::executable_projects(executable)?)?;
+        self.execute_as(executable, presented, &payer, deadline)
+    }
+
+    /// [`Self::execute`], billed like [`Self::dry_run_billed`].
+    fn execute_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &BillTo,
+        deadline: Deadline,
+    ) -> BilledResult<ResultBatches, Self::Error> {
+        let payer = self.payer_of(executable, bill_to)?;
+        self.execute_as(executable, presented, &payer, deadline)
+            .map_err(Billed::Source)
     }
 
     fn type_dialect(&self) -> Option<TypeDialect> {
@@ -781,10 +799,12 @@ where
     /// caller and no request timeout to read one from, so the job is bounded by this adapter's own
     /// configured job bounds instead - unchanged by this record.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        let query = self.render_query(plan.plan())?;
+        let executable = Executable::Query(plan.plan());
+        let payer = self.unstated_payer(&billing::executable_projects(executable)?)?;
+        let query = Self::render(executable)?;
         let answered = self
             .transport
-            .run(&self.request(&query, JobIdentity::Transport, JobDeadline::Boot))
+            .run(&Self::request(&query, &payer, JobIdentity::Transport, JobDeadline::Boot))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered).map(AnchorRows::of)
     }
@@ -832,7 +852,8 @@ where
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
-            | BigQueryError::UnresolvableConnection { .. }
+            | BigQueryError::TableNamesNoProject { .. }
+            | BigQueryError::NoPayer { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::Unreadable { .. } => false,
         }
@@ -879,7 +900,8 @@ where
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
-            | BigQueryError::UnresolvableConnection { .. }
+            | BigQueryError::TableNamesNoProject { .. }
+            | BigQueryError::NoPayer { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::Unreadable { .. } => false,
         }
@@ -898,7 +920,7 @@ mod principal_switch {
     use sutura_domain::source::SourcePosture;
 
     use crate::adbc::{AdbcBigQuery, BytesBilledCeiling, DelegatingAccount, DriverLocation, Impersonation, WorkloadPool};
-    use crate::transport::{DatasetId, JobIdentity, ProjectId};
+    use crate::transport::JobIdentity;
     use crate::{BigQueryError, BigQueryWarehouse};
 
     /// The real transport over a path naming no `.so`: the switch is decided before a driver loads.
@@ -906,8 +928,7 @@ mod principal_switch {
         BigQueryWarehouse::new(
             SourceName::parse("warehouse").expect("a test source is a source"),
             SourcePosture::ImpersonationAtSource,
-            ProjectId::parse("acme-analytics").expect("a test project is a project"),
-            DatasetId::parse("warehouse").expect("a test dataset is a dataset"),
+            crate::JobBilling::CallerRun { caller_may_name: false },
             AdbcBigQuery::new(
                 DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
                     .expect("an absolute path parses whether or not a file is there"),

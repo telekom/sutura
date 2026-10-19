@@ -95,7 +95,7 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
 /// The data systems this deployment declares.
 ///
 /// The map's keys are the aliases, so this only has to put them beside their entries in a stable order
-/// and let `SourceRegistry::parse_declared` do the parsing. `BTreeMap` iteration is sorted, which is what makes
+/// and let `SourceRegistry::parse_billed` do the parsing. `BTreeMap` iteration is sorted, which is what makes
 /// "an earlier entry" in the duplicate-alias refusal a deterministic phrase rather than one that
 /// depends on how the file was written.
 pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result<SourceRegistry, SettingsError> {
@@ -139,7 +139,12 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             (entry, blocks)
         })
         .collect();
-    SourceRegistry::parse_declared(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), mode)
+    let billing = raw
+        .sources
+        .iter()
+        .filter_map(|(written, source)| source.billing.as_ref().map(|billing| (written.as_str(), billing)))
+        .collect();
+    SourceRegistry::parse_billed(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), &billing, mode)
         .map_err(|cause| SettingsError::Sources { cause })
 }
 

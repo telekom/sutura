@@ -1343,7 +1343,7 @@ legitimate one.
 
 Every source this deployment declares, keyed by the alias a model's `source:` names.
 
-A newtype over the map rather than the map, so `Self::parse_declared` is the only way one
+A newtype over the map rather than the map, so `Self::parse_billed` is the only way one
 comes into existence and the duplicate-alias refusal cannot be skipped by building the map
 directly.
 
@@ -2686,6 +2686,12 @@ pub fn authenticating(self, at: SourceName, delegation: Delegation) -> Self
 Declares one impersonating source that opens each request's session with the token
 `delegation` exchanges the asker's verified assertion for. No principal is named and no
 caller is listed: the source resolves the token to its own user and decides what it may read.
+
+```rust
+pub fn billing(self, at: SourceName, billing: crate::sources::billing::SourceBilling) -> Self
+```
+
+Bills `at`'s caller-run legs by `billing`.
 
 ```rust
 pub fn count(&self) -> usize
@@ -5920,6 +5926,7 @@ convenience, and nothing needs to clone a startup refusal.
 - `IdentityModeNotForKind` - A `google_login` or `domain_delegation` block on a source that is not `bigquery`, which nothing would read.
 - `DomainDelegation` - The declared `domain_delegation` block is not usable.
 - `ImpersonateRemoved` - The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their verified subject, so a configuration still declaring a map is refused rather than read as if it still chose who runs as whom.
+- `Billing` - A source's `billing` block, or a removed payer key, is not usable.
 - `Delegation` - An `oracle`, `clickhouse` or `cube` source's `delegation` is missing, misplaced, or declared over a plaintext channel.
 - `CubeEndpointCredentials` - A `cube` source's `endpoint` carries an `@`.
 - `SubjectsRemoved` - The removed `subjects` allow-list: sutura keeps no list of callers, so a configuration still declaring one is refused rather than read as if it still narrowed who is served.
@@ -5961,7 +5968,7 @@ pub struct SourceRegistry
 
 Every source this deployment declares, keyed by the alias a model's `source:` names.
 
-A newtype over the map rather than the map, so `Self::parse_declared` is the only way one
+A newtype over the map rather than the map, so `Self::parse_billed` is the only way one
 comes into existence and the duplicate-alias refusal cannot be skipped by building the map
 directly.
 
@@ -6000,6 +6007,71 @@ Did this deployment declare any source at all?
 #### Implements
 
 `Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
+### Module `billing`
+
+Who a `bigquery` source's jobs are billed to.
+Who a `bigquery` source's jobs are billed to, read and refused.
+
+#### `enum SourceBilling`
+
+```rust
+pub enum SourceBilling
+```
+
+Who pays for a `bigquery` source's jobs, by posture.
+
+An enum, so a shared source with a group map, or a caller-run source with a fixed payer, cannot
+be written down.
+
+##### Variants
+
+- `CallerRun` - Each job runs as its caller and bills, in order: the first `by_group` entry whose group the caller holds, else the one project the tables are in, else - where `caller_may_name` - the project the caller named.
+- `ServiceAccount` - Every job runs as the deployment's service account and bills this project.
+
+##### Methods
+
+```rust
+pub const fn caller_may_name(&self) -> bool
+```
+
+Whether a caller may name the project a job bills.
+
+```rust
+pub fn for_groups(&self, groups: &sutura_domain::identity::CallerGroups) -> Option<&BillingAccount>
+```
+
+The account the first `by_group` entry the caller's groups hold maps onto.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidBilling`
+
+```rust
+pub enum InvalidBilling
+```
+
+Why a source's `billing` block, or a removed payer key on it, is refused.
+
+##### Variants
+
+- `BillingProjectRemoved`
+- `DatasetRemoved`
+- `BillingOnOtherKind`
+- `EmptyGroup`
+- `GroupProject`
+- `GroupAccount`
+- `GroupTwice`
+- `CallerBillingOnSharedSource`
+- `ServiceAccountProjectMissing`
+- `ServiceAccountProjectOnCallerRun`
+- `ServiceAccountProject`
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### Module `caller_identity`
 
@@ -6918,9 +6990,10 @@ what the caller may read (the architecture decision's option 3).
 being in place.
 
 The two newtypes are declared here, in the settings tree that owns the value, and the adapter
-that sends `audience` holds its own copy - the same reason `BillingProject` is checked both
-here and in the transport that interpolates it: an adapter may not depend on the settings tree,
-so the format is checked where it is declared AND where it is sent.
+that sends `audience` holds its own copy - the same reason
+`BillingProject` is checked both here and in the transport that
+interpolates it: an adapter may not depend on the settings tree, so the format is checked where
+it is declared AND where it is sent.
 
 #### `struct WifAudience`
 

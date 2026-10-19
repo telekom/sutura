@@ -25,11 +25,15 @@ the source kind is `bigquery`. It can run a query as the caller. See [Identity](
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                | Type    | Default  | Meaning                                                                            |
-| ------------------ | ------- | -------- | ---------------------------------------------------------------------------------- |
-| `billing_project`  | string  | required | The project that BigQuery bills the job to. 6 to 30 characters: `a-z`, `0-9`, `-`  |
-| `dataset`          | string  | required | The dataset where unqualified table names resolve. It must be in `billing_project` |
-| `max_bytes_billed` | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                          |
+| Key                               | Type    | Default  | Meaning                                                                                                       |
+| --------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `max_bytes_billed`                | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                                                     |
+| `billing.service_account_project` | string  | none     | `shared-service-user` only, and required there: the project that BigQuery bills every job to                  |
+| `billing.by_group`                | list    | none     | `impersonation-at-source` only: `group` and `project` pairs. The first group the caller holds names the payer |
+
+Every model names its table as `project.dataset.table`. A job on an `impersonation-at-source` source
+bills, in order: the project of the caller's first `billing.by_group` group, then the one project
+that the job's tables are in. If no step decides a payer, the question is refused.
 
 `impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
 `domain_delegation`. `workload_identity` has these keys:
@@ -107,8 +111,6 @@ The [multi player](../../examples/multi-player.md) example writes this source wi
 sources:
   warehouse:
     kind: "bigquery"
-    billing_project: "my-project"
-    dataset: "sutura_example"
     max_bytes_billed: 1073741824
     posture: "impersonation-at-source"
     workload_identity:
@@ -120,7 +122,8 @@ sources:
           audience: "sutura-gcp-pool"
 ```
 
-For one shared account, use `posture: shared-service-user` and leave out `workload_identity`. The
+For one shared account, use `posture: shared-service-user`, leave out `workload_identity` and set
+`billing.service_account_project`. The
 driver then uses the application default credentials of the process.
 
 ## Identity

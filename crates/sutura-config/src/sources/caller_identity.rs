@@ -251,8 +251,8 @@ mod tests {
             written: "warehouse",
             kind: "bigquery",
             data_dir: None,
-            billing_project: Some("acme-analytics"),
-            dataset: Some("warehouse"),
+            billing_project: None,
+            dataset: None,
             max_bytes_billed: Some(1024 * 1024 * 1024),
             posture: "impersonation-at-source",
             acknowledged_because: None,
@@ -390,8 +390,13 @@ mod tests {
             acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),
             ..bigquery_impersonating_entry()
         };
+        let billing = crate::raw::RawBilling {
+            service_account_project: Some(String::from("acme-analytics")),
+            ..crate::raw::RawBilling::default()
+        };
+        let billed = std::collections::BTreeMap::from([(entry.written, &billing)]);
         for (blocks, block) in each_bigquery_only_block(&login, &delegation) {
-            let error = parse_one_entry(&entry, blocks).expect_err(block);
+            let error = SourceRegistry::parse_billed([(&entry, blocks)], &billed, Some(&one_analyst())).expect_err(block);
             assert_eq!(
                 error,
                 InvalidSourceRegistry::IdentityModeNotImpersonating {

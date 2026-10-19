@@ -50,8 +50,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::identity::{
-    CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted, Presented,
-    PrincipalName, RequestContext, SourceSet, SubjectKey,
+    BillTo, CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted,
+    Presented, PrincipalName, RequestContext, SourceSet, SubjectKey,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
@@ -103,6 +103,8 @@ pub struct DeclaredPrincipalBroker {
     authenticating: BTreeMap<SourceName, Delegation>,
     /// Each source that runs a caller as the address their identity provider verified.
     addressing: BTreeSet<SourceName>,
+    /// Who pays for a `bigquery` source's caller-run jobs.
+    billing: BTreeMap<SourceName, crate::sources::billing::SourceBilling>,
 }
 
 impl DeclaredPrincipalBroker {
@@ -169,6 +171,26 @@ impl DeclaredPrincipalBroker {
     pub fn addressing(mut self, at: SourceName) -> Self {
         let _newly_declared = self.addressing.insert(at);
         self
+    }
+
+    /// Bills `at`'s caller-run legs by `billing`.
+    #[must_use]
+    pub fn billing(mut self, at: SourceName, billing: crate::sources::billing::SourceBilling) -> Self {
+        drop(self.billing.insert(at, billing));
+        self
+    }
+
+    /// The first group of the caller's the source maps, else the payer the caller named.
+    ///
+    /// A named payer is passed on for EVERY source, never dropped here: a source that does not let
+    /// callers name one refuses it, so a caller who named a payer is not billed elsewhere unaware.
+    fn bill_to(&self, at: &SourceName, context: &RequestContext) -> BillTo {
+        if let Some(account) = self.billing.get(at).and_then(|billing| billing.for_groups(context.groups())) {
+            return BillTo::Group(account.clone());
+        }
+        context
+            .named_payer()
+            .map_or(BillTo::Unstated, |named| BillTo::Named(named.clone()))
     }
 
     /// How many sources this broker can mint for at all.
@@ -332,8 +354,15 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // when a credential would age out mid-answer; what is here is the bound
         // `BoundToTheRequest::still_usable_at` compares against, so an assertion valid at the start of
         // a long answer and expired at the end is refused by Google rather than here.
+        let bill_to = sources
+            .iter()
+            .map(|source| (source.clone(), self.bill_to(source, context)))
+            .filter(|(_, bill_to)| *bill_to != BillTo::Unstated)
+            .collect();
         LegCredentials::minted(asked_by.clone(), Expiry::earliest(deadlines), sources, presented)
-            .map(|credentials| Minted::Granted { credentials })
+            .map(|credentials| Minted::Granted {
+                credentials: credentials.billed(bill_to),
+            })
             .map_err(|cause| DeclaredPrincipalsUnusable::Coverage { cause })
     }
 }

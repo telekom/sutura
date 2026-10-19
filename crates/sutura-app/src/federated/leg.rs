@@ -53,9 +53,11 @@ where
     // would on `execute` - never as the retryable `ServiceError::Warehouse` a dead data system
     // produces. `working_set_exhausted` and `result_did_not_fit` are deliberately not asked of the
     // pre-flight, mirroring the mono path: a check reads no data, so neither bound can have fired.
-    match warehouse.dry_run(Executable::Leg(leg), presented, deadline) {
+    let bill_to = credentials.bill_to_for(leg.source());
+    match warehouse.dry_run_billed(Executable::Leg(leg), presented, bill_to, deadline) {
         Ok(preflight) => Ok(preflight),
-        Err(cause) => {
+        Err(billed) => {
+            let cause = billed.into_source().map_err(LegError::Refusal)?;
             if warehouse.deadline_exceeded(&cause) {
                 return Err(LegError::Refusal(deadline_exceeded(deadline)));
             }
@@ -98,9 +100,15 @@ where
     if deadline.remaining_at(Instant::now()).is_none() {
         return Err(LegError::Refusal(deadline_exceeded(deadline)));
     }
-    match warehouse.execute(Executable::Leg(leg), presented, deadline) {
+    match warehouse.execute_billed(
+        Executable::Leg(leg),
+        presented,
+        credentials.bill_to_for(leg.source()),
+        deadline,
+    ) {
         Ok(rows) => Ok(rows),
-        Err(cause) => {
+        Err(billed) => {
+            let cause = billed.into_source().map_err(LegError::Refusal)?;
             // The two governance predicates the mono path asks of its own `execute`, asked here for
             // the same reasons (see `sutura_app::answer`), and in the same order: exhaustion is
             // refused first, then a result the data system would not return at once, otherwise the

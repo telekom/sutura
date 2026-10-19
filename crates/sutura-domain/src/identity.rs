@@ -37,12 +37,14 @@ use secrecy::{ExposeSecret as _, SecretString};
 /// stays inside the module that owns it: `SubjectKey::feed` is `pub(super)`, so no other module of
 /// this crate can reach the full value at all.
 mod address;
+mod billing;
 mod compute_context;
 mod credential;
 mod delegation;
 mod principal;
 
 pub use crate::identity::address::{InvalidAddress, VerifiedAddress};
+pub use crate::identity::billing::{BillTo, BillingAccount, CallerGroups, UnusableBillingAccount};
 pub use crate::identity::compute_context::ComputeContext;
 pub use crate::identity::credential::{
     Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,

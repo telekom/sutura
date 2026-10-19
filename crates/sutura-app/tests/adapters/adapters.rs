@@ -609,16 +609,26 @@ impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
 /// The provisioned dataset as a warehouse on source `name` - one address for the provisioning cell
 /// that loads it and every cell that reads it.
 pub(crate) fn bigquery_warehouse(name: SourceName) -> BigQueryWarehouse<AdbcBigQuery> {
+    bigquery_provisioned(name).0
+}
+
+/// [`bigquery_warehouse`], with the qualifier its tables are named under: there is no default
+/// dataset to resolve a bare name in.
+pub(crate) fn bigquery_provisioned(name: SourceName) -> (BigQueryWarehouse<AdbcBigQuery>, sutura_domain::model::TableQualifier) {
     let venue = bigquery_venue().expect("`available()` guards every bigquery open");
-    BigQueryWarehouse::over_adbc(
+    let qualifier = sutura_domain::model::TableQualifier::in_project(
+        sutura_domain::model::ProjectName::parse(venue.project.as_str()).expect("a project id is a project name"),
+        sutura_domain::model::DatasetName::parse(venue.dataset.as_str()).expect("a dataset id is a dataset name"),
+    );
+    let warehouse = BigQueryWarehouse::over_adbc(
         name,
         posture(),
-        venue.project.clone(),
-        venue.dataset.clone(),
+        sutura_exec_bigquery::JobBilling::ServiceAccount(venue.project.clone()),
         venue.driver.clone(),
         Impersonation::Disabled,
         BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
-    )
+    );
+    (warehouse, qualifier)
 }
 
 /// Where a provisioned `BigQuery` dataset is, read once from the job's environment.

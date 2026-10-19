@@ -123,7 +123,6 @@ pub struct JobRequest<'job> {
     statement: &'job str,
     params: &'job [ParamValue],
     billing_project: &'job ProjectId,
-    default_dataset: &'job DatasetId,
     identity: JobIdentity<'job>,
     deadline: JobDeadline,
 }
@@ -146,7 +145,6 @@ impl<'job> JobRequest<'job> {
         statement: &'job str,
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
-        default_dataset: &'job DatasetId,
         identity: JobIdentity<'job>,
         deadline: JobDeadline,
     ) -> Self {
@@ -154,7 +152,6 @@ impl<'job> JobRequest<'job> {
             statement,
             params,
             billing_project,
-            default_dataset,
             identity,
             deadline,
         }
@@ -225,18 +222,6 @@ impl<'job> JobRequest<'job> {
     #[must_use]
     pub const fn billing_project(&self) -> &ProjectId {
         self.billing_project
-    }
-
-    /// The dataset the statement's unqualified table names resolve in.
-    ///
-    /// **This is why the generated statement needs no qualifying**, and it is the reason the fourth
-    /// dialect changed nothing about how a table is rendered: the endpoint's request carries a default
-    /// dataset beside the SQL, so a bare backticked table name resolves there. The generator emits the
-    /// same shape it emits for every other dialect.
-    #[inline]
-    #[must_use]
-    pub const fn default_dataset(&self) -> &DatasetId {
-        self.default_dataset
     }
 }
 

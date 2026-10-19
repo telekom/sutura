@@ -9,7 +9,7 @@
 //!
 //! This module is also where the two `BigQuery` newtypes live, and their `parse` functions carry an
 //! argument that is **ours rather than the provider's format rules restated** - see
-//! [`BillingProject`].
+//! [`BillingProject`](crate::BillingProject).
 
 use std::path::{Path, PathBuf};
 
@@ -518,10 +518,8 @@ pub enum SourcePlacement {
     /// them; the limit is also stated in `docs/adr/0017`, and the change that adds the wire is the one
     /// that decides the fields.
     BigQuery {
-        /// Declared, never inferred. See [`BillingProject`].
-        billing_project: BillingProject,
-        /// Where an unqualified table name resolves. See [`DatasetId`].
-        dataset: DatasetId,
+        /// Who the source's jobs are billed to, by posture.
+        billing: crate::sources::billing::SourceBilling,
         /// The most one job may be billed for scanning. **Required, and sent to the data system as
         /// `BigQuery`'s own `maximumBytesBilled`.**
         ///
@@ -858,8 +856,9 @@ mod tests {
         );
         assert_eq!(
             SourcePlacement::BigQuery {
-                billing_project: BillingProject::parse("acme-analytics").expect("a test project is one"),
-                dataset: DatasetId::parse("warehouse").expect("a test dataset is one"),
+                billing: crate::sources::billing::SourceBilling::ServiceAccount {
+                    project: BillingProject::parse("acme-analytics").expect("a test project is one"),
+                },
                 max_bytes_billed: 1024 * 1024 * 1024,
             }
             .kind(),

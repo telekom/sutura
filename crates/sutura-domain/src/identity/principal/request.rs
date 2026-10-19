@@ -159,6 +159,10 @@ pub struct RequestContext {
     client: ClientClaims,
     /// The address the identity provider verified for this caller, if it did.
     address: Option<crate::identity::VerifiedAddress>,
+    /// The caller's verified group claim, which a source's billing map reads.
+    groups: crate::identity::CallerGroups,
+    /// The account the caller named on the request to be billed, if it named one.
+    named_payer: Option<crate::identity::BillingAccount>,
 }
 
 impl RequestContext {
@@ -172,6 +176,8 @@ impl RequestContext {
             audiences: crate::catalog::GrantedAudiences::none(),
             client: ClientClaims::of(None, None),
             address: None,
+            groups: crate::identity::CallerGroups::default(),
+            named_payer: None,
         }
     }
 
@@ -207,6 +213,8 @@ impl RequestContext {
             audiences: crate::catalog::GrantedAudiences::none(),
             client: ClientClaims::of(None, None),
             address: None,
+            groups: crate::identity::CallerGroups::default(),
+            named_payer: None,
         }
     }
 
@@ -225,6 +233,32 @@ impl RequestContext {
     pub fn addressed(mut self, address: Option<crate::identity::VerifiedAddress>) -> Self {
         self.address = address;
         self
+    }
+
+    /// The same context, carrying the caller's verified group claim.
+    #[inline]
+    #[must_use]
+    pub fn grouped(mut self, groups: crate::identity::CallerGroups) -> Self {
+        self.groups = groups;
+        self
+    }
+
+    /// The same context, carrying the account the caller named to be billed.
+    #[inline]
+    #[must_use]
+    pub fn naming(mut self, payer: Option<crate::identity::BillingAccount>) -> Self {
+        self.named_payer = payer;
+        self
+    }
+
+    #[inline]
+    pub const fn groups(&self) -> &crate::identity::CallerGroups {
+        &self.groups
+    }
+
+    #[inline]
+    pub const fn named_payer(&self) -> Option<&crate::identity::BillingAccount> {
+        self.named_payer.as_ref()
     }
 
     /// The caller's verified address: what a `domain_delegation` source runs the question as.

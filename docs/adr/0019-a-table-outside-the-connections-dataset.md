@@ -338,7 +338,7 @@ another project does not fail, it reads a different table or none, silently, und
 metric name. Proving BigQuery's own capacity to join across two projects would not have caught that -
 it is a documented platform property, not this codebase's claim to make.
 
-**The mechanism, and where it lives.** `crates/sutura-exec-bigquery/src/resolve.rs`'s own `resolve`
+**The mechanism, and where it lives.** `resolve.rs`'s own `resolve`
 is the one function that decides what a table's own path resolves to: a path naming a project already says
 everything there is to add and is left untouched; a bare path is already resolved, unambiguously, by
 the request's own `defaultDataset` field and is left untouched too; a path naming a **dataset and no
@@ -348,7 +348,12 @@ own billing project written into it, explicitly, before anything renders. `prefl
 live question becomes cannot resolve a partial path two different ways. It runs on the **plan**,
 before `sutura_sql::generate` - never inside the renderer, which stays a pure rendering of whatever
 path a `QueryPlan` already carries and is shared by every dialect this workspace targets, not only
-`BigQuery`'s.
+`BigQuery`'s. **Corrected, 2026-10-15:** by the third amendment a `bigquery` source has no default
+project or dataset, so nothing fills a partial path in and `resolve.rs` is deleted.
+`crates/sutura-exec-bigquery/src/billing.rs`'s `projects` refuses a path that names no project
+(`TableNamesNoProject`) before anything renders, still on the plan and never inside the renderer,
+and `preflight::addressed` reads the same rule as an absence, so the boot-time existence check and a
+live question cannot read a partial path two different ways.
 
 **What this still does not cover, stated exactly rather than folded into the claim above.** A
 cross-project READ remains unproved against a real second project, for the reason this record
@@ -362,3 +367,17 @@ executable. It waits on the same infrastructure this record already named, and n
 `resolve` changes that. **Corrected, 2026-09-24:** it waits on nothing - that infrastructure is not
 coming, and qualification is held hermetically by `resolve`'s own cells and the
 `qualified-cross-project-join` golden.
+
+## Third amendment, 2026-10-15: a source has no project, so every table names its own
+
+*Decision 2* said "a source is a credential plus a billing project". A `bigquery` source is now a
+credential only: each job is billed per caller, by the order in
+[the caller-identity modes record's third amendment](20261014100540-bigquery-caller-identity-modes.md).
+The second amendment's rule changes with it. There is no connection project to write into a path,
+and no `defaultDataset` to resolve a bare one, so a `bigquery` table path that does not name its
+project is refused: the boot pre-flight reports it absent before a listener binds, unless that
+pre-flight could not list a dataset at all (its `WARN`), and a question over it is refused before
+it renders. The wrong-answer class the second amendment
+closed by filling a project is now closed by refusing the path. A query over tables in two projects
+is still one source and one job: it bills to the caller's group project, else the caller-named one,
+else it is refused.

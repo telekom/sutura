@@ -91,8 +91,7 @@ fn build_bigquery(
 ) -> Result<super::BigQuerySource, String> {
     crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
     let sutura_config::SourcePlacement::BigQuery {
-        ref billing_project,
-        ref dataset,
+        ref billing,
         max_bytes_billed,
     } = *configured.placement()
     else {
@@ -153,14 +152,7 @@ fn build_bigquery(
     let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
     sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
         .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
-    // The two resource newtypes are parsed a SECOND time here, and that is not a redundant check: the
-    // settings tree's `BillingProject` and the transport's `ProjectId` are two types in two crates,
-    // and the one whose value is written into a request path is the transport's. Neither can be
-    // reached from the other without going through a `parse`.
-    let project = sutura_exec_bigquery::transport::ProjectId::parse(billing_project.as_str())
-        .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
-    let dataset = sutura_exec_bigquery::transport::DatasetId::parse(dataset.as_str())
-        .map_err(|cause| format!("`sources.{source}.dataset` is not a usable dataset id: {cause}"))?;
+    let billing = crate::bigquery_driver::job_billing(source, billing)?;
     // **Which of the two modes this source is, decided here and never per request.** They are XOR
     // rather than a ladder: a `shared-service-user` source runs on the deployment's own application
     // default credentials and impersonates nothing, and an `impersonation-at-source` source
@@ -182,8 +174,7 @@ fn build_bigquery(
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
         source.clone(),
         identity.posture().clone(),
-        project,
-        dataset,
+        billing,
         driver,
         impersonation,
         max_bytes_billed,
@@ -226,7 +217,7 @@ mod tests {
                        mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
                        authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
                        algorithms: [\"RS256\"]\nsources:\n  warehouse:\n    kind: \"bigquery\"\n    \
-                       billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    \
+                       max_bytes_billed: 1073741824\n    \
                        posture: \"impersonation-at-source\"\n    google_login:\n      \
                        token_endpoint: \"https://idp.example.com/realms/r/broker/google/token\"\n      \
                        client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
@@ -255,7 +246,7 @@ mod tests {
         use sutura_domain::pinned::PinnedDefinitions;
         use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation};
         use sutura_exec_bigquery::transport::{
-            DatasetAddress, DatasetId, DryRunEstimate, HeldTables, JobIdentity, JobRequest, JobTransport, ProjectId,
+            DatasetAddress, DryRunEstimate, HeldTables, JobIdentity, JobRequest, JobTransport,
         };
 
         const ADDRESS: &str = "Analyst.One@Example.com";
@@ -264,7 +255,7 @@ mod tests {
         fn ledger_bundle() -> PinnedDefinitions {
             use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
             use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-            use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, TableName};
+            use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, QualifiedTable};
             use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion};
 
             let invoice = ColumnName::parse("invoice_key").expect("a column");
@@ -273,7 +264,7 @@ mod tests {
             let model = Model::new(
                 ledger.clone(),
                 SourceName::parse("ledger").expect("a source"),
-                TableName::parse("fct_invoice").expect("a table"),
+                QualifiedTable::parse("acme-analytics.ledger.fct_invoice").expect("a table"),
                 std::collections::BTreeSet::from([invoice.clone(), billed_on.clone()]),
                 Description::default(),
             );
@@ -383,8 +374,8 @@ mod tests {
             let overlay = format!(
                 "security:\n  identity: \"multi-user\"\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
                  authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n\
-                 sources:\n  ledger:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
-                 dataset: \"ledger\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n    \
+                 sources:\n  ledger:\n    kind: \"bigquery\"\n    \
+                 max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n    \
                  domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n",
                 issuer.audience(),
                 issuer.issuer(),
@@ -405,8 +396,7 @@ mod tests {
             let warehouse = sutura_exec_bigquery::BigQueryWarehouse::new(
                 source,
                 sutura_domain::source::SourcePosture::ImpersonationAtSource,
-                ProjectId::parse("acme-analytics").expect("a project"),
-                DatasetId::parse("ledger").expect("a dataset"),
+                sutura_exec_bigquery::JobBilling::CallerRun { caller_may_name: false },
                 Recording { seen, adbc },
             );
             let broker = super::super::super::broker::build_broker(settings.sources(), None).expect("a broker");

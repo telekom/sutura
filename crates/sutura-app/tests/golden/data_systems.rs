@@ -537,7 +537,7 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         <BigQuery as DataSystemUnderTest>::available(),
         "SUTURA_BQ_DATASET is unset, so there is no dataset to provision"
     );
-    let warehouse = crate::adapters::bigquery_warehouse(crate::adapters::source());
+    let (warehouse, qualifier) = crate::adapters::bigquery_provisioned(crate::adapters::source());
     let mut committed: Vec<String> = std::fs::read_dir(data_root())
         .expect("the example data directory reads")
         .map(|entry| entry.expect("a directory entry is readable").path())
@@ -568,7 +568,10 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
                 csv
             },
         );
-        let table = sutura_domain::model::TableName::parse(name).expect("a dataset table is named");
+        let table = sutura_domain::model::QualifiedTable::new(
+            Some(qualifier.clone()),
+            sutura_domain::model::TableName::parse(name).expect("a dataset table is named"),
+        );
         let loaded = warehouse
             .load_fixture(&table, &csv)
             .unwrap_or_else(|e| panic!("{table} did not load:\n{}", chain(&e)));
@@ -580,7 +583,7 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         );
         eprintln!("provisioned {table}: the importer parsed {loaded} rows");
     }
-    if let Err(error) = warehouse.session_user(&crate::adapters::presented()) {
+    if let Err(error) = warehouse.session_user(&crate::adapters::presented(), &sutura_domain::identity::BillTo::Unstated) {
         let said = chain(&error);
         assert!(
             !said.contains("bigquery.readsessions.create"),
