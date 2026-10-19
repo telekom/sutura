@@ -31,8 +31,10 @@
 //! [`LegPlan`] the leg was executed from and takes no side from its caller, and [`Legs::assign`]
 //! checks every tag against the side of the plan's leg at its position and the count of results
 //! against the plan's count of legs. **The limit:** two lookup results swapped with each other
-//! carry one tag, so the order of lookup results is held by [`FederationCombiner::execute`], which
-//! runs [`FederatedPlan::legs`] in order, and by nothing for a caller that builds [`Legs`] itself.
+//! carry one tag, and so do the fact and the second fact ([`LegSide::Fact`]), so [`Legs::assign`]
+//! sees neither swap. The order of results within one side is held by
+//! [`FederationCombiner::execute`], which orders its results as [`FederatedPlan::legs`] does, and by
+//! nothing for a caller that builds [`Legs`] itself.
 
 use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide, LookupLeg};
 use crate::plan::leg::LegPlan;
