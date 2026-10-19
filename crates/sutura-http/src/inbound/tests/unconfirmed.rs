@@ -155,8 +155,8 @@ async fn the_ceiling_follows_the_declaration_for_either_source_in_either_mode() 
 
 #[tokio::test]
 async fn every_look_that_confirms_nothing_says_how_stale_the_keys_are() {
-    // The first look reads the held document again and confirms it, which is silent. The third reads
-    // the same refused bytes as the second, which `adopt` records as `Unchanged`.
+    // The first look reads the held document again and confirms it, and logs no staleness line. The
+    // third reads the same refused bytes as the second, which `adopt` records as `Unchanged`.
     let pair = key_pair();
     let now = Instant::now();
     let (cache, _source) = cache_around(
