@@ -151,7 +151,10 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
             )),
             zero_denominator: ZeroDenominator::Null,
         },
-        Vec::new(),
+        vec![RequiredFilter::Equals {
+            column: column("status"),
+            value: DimensionValue::parse("paid").expect("a test value is a value"),
+        }],
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         Vec::new(),
