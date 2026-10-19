@@ -616,8 +616,9 @@ impl LegCredentials {
     }
 
     /// Bills every source to the payer `context` names, if it names one: a broker that decides no
-    /// payer of its own passes the caller's on, so a source that takes none refuses it rather than
-    /// the caller being billed elsewhere unaware.
+    /// payer of its own passes the caller's on, so a source that takes none refuses it. A source that
+    /// takes one may still bill another payer first by its own declared order - a one-project
+    /// question bills that project - and the caller is not told.
     #[must_use]
     pub fn named_by(self, context: &RequestContext) -> Self {
         let bill_to = context.named_payer().map_or_else(BTreeMap::new, |named| {

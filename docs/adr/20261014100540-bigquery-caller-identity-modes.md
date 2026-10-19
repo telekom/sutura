@@ -145,8 +145,15 @@ and no `dataset`; both keys are refused at load with a message naming the key th
   2. else the one project of every table the query reads;
   3. else the project the caller names in the `Sutura-Bill-To` header or the MCP `bill_to`
      argument, read only when the source sets `billing.caller_may_name: true`. A value that is not
-     a project id is refused with a 400 that names the header or the argument;
+     a billing account name is refused with a 400 that names the header or the argument. A value
+     that is one but is not a project id is refused with `bill_to_not_allowed` (403) when this step
+     is reached;
   4. else the query is refused with `no_billing_project`, and nothing runs.
+
+  A payer named on a source without `billing.caller_may_name: true` is refused with
+  `bill_to_not_allowed`, also beside a mapped group or a one-project question: it is never dropped.
+  Where the source does take one, steps 1 and 2 come first, so a named payer can be replaced
+  without an answer that says so.
 - **A shared source bills to its service account's project**, because there the service account is
   the caller. `billing.service_account_project` is required on a shared `bigquery` source and refused
   on a caller-run one; `billing.by_group` and `billing.caller_may_name` are refused on a shared one.
