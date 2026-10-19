@@ -677,7 +677,7 @@ has not returned, logs nothing. Nothing refuses on `stale_for_ms`, as the second
 ## Twelfth amendment, 2026-10-19: a failing key set source keeps verifying up to a declared ceiling
 
 **Status of the amendment: accepted.** It supersedes the second amendment's *"the cached signing
-keys are retained for as long as it stays that way"*, *"there is no ceiling on it"*, *"Nothing
+keys are retained for as long as it stays that way"*, *"there is no ceiling on it, and no record owns that decision"*, *"Nothing
 refuses on it"*, *"after no bounded time while it does not"* and *"refused on by nothing"*, and the
 eleventh amendment's *"a later look that reads the same bytes is `Unchanged` and logs nothing"* and
 *"Nothing refuses on `stale_for_ms`"*. `security.inbound.key_set_max_stale_seconds`, in both modes
