@@ -3545,6 +3545,8 @@ before this crate existed.</p>
 <p>A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
 current - named because the spelled-out pair is over this workspace's <code>type_complexity</code>
 threshold.</p>
+<h2 id="use-rotatingagent"><code>use RotatingAgent</code><a class="headerlink" href="#use-rotatingagent" title="Permanent link">&para;</a></h2>
+<p>The rotating agent handle a request is sent over.</p>
 <h2 id="use-agent"><code>use agent</code><a class="headerlink" href="#use-agent" title="Permanent link">&para;</a></h2>
 <p><strong>The one way this workspace builds a <code>ureq::Agent</code></strong> - <code>clippy.toml</code> bans every other
 constructor, so an agent without the two pins below does not pass <code>just lint</code>.</p>
@@ -3737,6 +3739,8 @@ token for any subject whose inbound token they also hold. <code>Debug</code> pri
 <p>An RFC 8693 token exchange; <code>Self::granting</code> asks another way.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>DelegationExchange</code></p>
+<h3 id="use-brokeredlogin"><code>use BrokeredLogin</code><a class="headerlink" href="#use-brokeredlogin" title="Permanent link">&para;</a></h3>
+<p><code>LinkedLogin</code> over HTTP, at a <code>/realms/&lt;realm&gt;/broker/&lt;alias&gt;/token</code> endpoint.</p>
 <h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
 <p>A real local HTTP server - "ports get fakes, not mocked HTTP".</p>
 <p><code>pub</code> behind this crate's <code>test</code> feature so a reader's own tests AND a composition root's

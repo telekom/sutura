@@ -5784,6 +5784,9 @@ come from the variant, so two handlers cannot answer the same situation with dif
   the two stay distinguishable - a caller told the same sentence for both retries an outage that
   will clear the same way it retries one that will not.</p>
 <p>Carries nothing. Which issuer this deployment talks to is not the caller's business.
+- <code>IdentityNotLinked</code> - The caller has no account linked at the identity provider a source runs them through.</p>
+<p><strong><code>403</code>, not <code>503</code></strong>: retrying does not help, and the caller can act - link the account at
+  the identity provider. It is about the caller's own linking state only.
 - <code>AtCapacity</code> - Every execution slot was taken for the whole admission window, so the question was shed.</p>
 <p><strong><code>503</code> and not <code>429</code>, and the two say different things.</strong> A <code>429</code> is "you personally asked
   too often", which is a claim about the caller - and the rate limiter already makes it, keyed

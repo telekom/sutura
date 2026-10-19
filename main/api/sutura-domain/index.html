@@ -5994,6 +5994,9 @@ served caller of it is already on the blocking pool (<code>sutura_runtime::spawn
 <p><strong>No variant carries token material or the identity provider's free text.</strong> <code>error_description</code> is dropped
 because an identity provider may echo its input there; the RFC 6749 <code>error</code> code survives only when it is the
 registered shape (<code>[a-z_]</code>, at most 64 bytes), which no JWT can be.</p>
+<h3 id="use-linkedlogin"><code>use LinkedLogin</code><a class="headerlink" href="#use-linkedlogin" title="Permanent link">&para;</a></h3>
+<p>The port: the token the identity provider stored for the caller's linked external account.</p>
+<p>Synchronous for the reason <code>DelegationExchange</code> is.</p>
 <h3 id="use-requestedaudience"><code>use RequestedAudience</code><a class="headerlink" href="#use-requestedaudience" title="Permanent link">&para;</a></h3>
 <p>The audience the exchanged token must carry: the pool provider's client ID.</p>
 <p><strong>Stored exactly as written</strong>, as <code>ResourceIdentifier</code> is: an identity provider matches it byte for byte

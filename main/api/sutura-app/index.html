@@ -4360,6 +4360,8 @@ means rather than a field added to one.</p>
   states as a requirement rather than a preference: an authorization server that is down comes
   back, and a caller told the same sentence for both will retry a data-system outage the same
   way and learn nothing. A transport chooses a different code for it.
+- <code>NotLinked</code> - The broker answered that the caller has no account linked at the identity provider a source runs them through (<code>sutura_domain::identity::DelegationFailed::NotLinked</code>).</p>
+<p>Apart from <code>Self::Broker</code> because retrying does not help and the caller can act on it.
 - <code>Miswired</code> - Credentials came back that do not fit the request: a wiring defect on this side.</p>
 <p>Not a refusal - the question was fine - and not <code>Self::Broker</code> either, because a broker that
   answered and a broker that could not be reached are different things to whoever is paged. A
@@ -5584,6 +5586,7 @@ an answer as its row count.</p>
 <li><code>TimedOut</code> - The caller's whole wait ran out first.</li>
 <li><code>DataSystemUnavailable</code> - The data system did not answer.</li>
 <li><code>IdentityUnavailable</code> - The credential broker did not answer.</li>
+<li><code>IdentityNotLinked</code> - The caller has no account linked at the identity provider.</li>
 <li><code>Internal</code> - This deployment's own fault.</li>
 </ul>
 <h4 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h4>

@@ -3711,7 +3711,8 @@ and these keys:</p>
 </tbody>
 </table>
 <p><code>impersonation-at-source</code> needs exactly one of <code>workload_identity</code>, <code>google_login</code> or
-<code>domain_delegation</code>. sutura runs only <code>workload_identity</code>, with these keys:</p>
+<code>domain_delegation</code>. sutura runs <code>workload_identity</code> and <code>google_login</code>. <code>workload_identity</code> has
+these keys:</p>
 <table>
 <thead>
 <tr>
@@ -3771,8 +3772,11 @@ next hop exchanges the token from the hop before it. The token from the last hop
 the pool accepts. <code>delegation</code> needs <code>security.inbound.mode: direct</code>. Without <code>delegation</code>, sutura
 sends the caller's verified token to the pool as it is. Do not write <code>expected_issuer</code> or
 <code>expected_audience</code>: sutura refuses to start with them.</p>
-<p>sutura reads and checks the <code>google_login</code> and <code>domain_delegation</code> blocks, and then refuses to
-start with either of them:</p>
+<p>With <code>google_login</code>, the query runs as the Google account that the caller linked at the identity
+provider. sutura sends the caller's verified token to the identity provider's broker token
+endpoint (Keycloak's Identity Brokering API v2) and gives BigQuery the Google access token that
+comes back. <code>google_login</code> needs <code>security.inbound.mode: direct</code>. A caller who has not linked a
+Google account gets <code>403 identity_not_linked</code>. These are its keys:</p>
 <table>
 <thead>
 <tr>
@@ -3785,7 +3789,7 @@ start with either of them:</p>
 <tr>
 <td><code>google_login.token_endpoint</code></td>
 <td>URL</td>
-<td>The broker token endpoint of the identity provider. No <code>@</code></td>
+<td>The broker token endpoint: <code>https://&lt;host&gt;/realms/&lt;realm&gt;/broker/&lt;alias&gt;/token</code></td>
 </tr>
 <tr>
 <td><code>google_login.client_id</code></td>
@@ -3795,8 +3799,23 @@ start with either of them:</p>
 <tr>
 <td><code>google_login.client_secret_file</code></td>
 <td>absolute path</td>
-<td>A file that holds the client secret</td>
+<td>A file that holds the client secret. sutura reads it at startup</td>
 </tr>
+</tbody>
+</table>
+<p>The identity provider keeps the Google token and refreshes it. Its Google provider must store the
+token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
+it is and does not refresh it during a query.</p>
+<p>sutura reads and checks the <code>domain_delegation</code> block, and then refuses to start with it:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><code>domain_delegation.delegating_account</code></td>
 <td>string</td>

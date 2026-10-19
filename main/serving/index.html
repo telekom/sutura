@@ -4370,7 +4370,8 @@ definition version and digest that it came from:</p>
 deployment instead. The fix is a grant at the data system. A <code>403</code> with no <code>outcome</code> is <code>insufficient_scope</code>.</p>
 <p>Other failures have one shape, <code>{"code", "status", "detail"}</code>. These codes are common: <code>unauthorized</code> (<code>401</code>),
 <code>too_large</code> (<code>413</code>, the request body), <code>host_not_allowed</code> (<code>403</code>), <code>unavailable</code> and <code>identity_unavailable</code> (<code>503</code>),
-<code>rate_limited</code> (<code>429</code>), and <code>at_capacity</code> (<code>503</code> with <code>Retry-After</code>). A request that waits longer than <code>server.request_timeout_seconds</code> gets
+<code>rate_limited</code> (<code>429</code>), <code>at_capacity</code> (<code>503</code> with <code>Retry-After</code>), and <code>identity_not_linked</code> (<code>403</code>: the caller
+has not linked the account that a source runs them as at the identity provider). A request that waits longer than <code>server.request_timeout_seconds</code> gets
 <code>408</code>. A body with a key that the question does not declare, such as <code>sql</code>, gets <code>400</code> and the name of the key. A
 <code>500</code> has no detail.</p>
 <h2 id="capacity">Capacity<a class="headerlink" href="#capacity" title="Permanent link">&para;</a></h2>

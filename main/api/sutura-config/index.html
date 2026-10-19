@@ -7500,8 +7500,9 @@ Which one of three blocks says how an <code>impersonation-at-source</code> sourc
   verified address. The deployment vouches for the caller here, not the caller's own credential.</li>
 </ul>
 <p>Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-This build runs <code>workload_identity</code> only: <code>Settings::refusals</code> refuses to serve a source that
-declares either other block, so a block that nothing reads does not load as if it did.
+This build runs <code>workload_identity</code> and <code>google_login</code>: <code>Settings::refusals</code> refuses to serve a
+source that declares <code>domain_delegation</code>, so a block that nothing reads does not load as if it
+did.
 the architecture decision records the decision.</p>
 <h4 id="enum-calleridentity"><code>enum CallerIdentity</code><a class="headerlink" href="#enum-calleridentity" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-308-1"><a id="__codelineno-308-1" name="__codelineno-308-1" href="#__codelineno-308-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CallerIdentity</span>
@@ -7510,7 +7511,7 @@ the architecture decision records the decision.</p>
 <h5 id="variants_34">Variants<a class="headerlink" href="#variants_34" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>WorkloadIdentity</code> - The caller's own pool principal.</li>
-<li><code>GoogleLogin</code> - The caller's own Google login, brokered by the identity provider. Not served by this build.</li>
+<li><code>GoogleLogin</code> - The caller's own Google login, brokered by the identity provider.</li>
 <li><code>DomainDelegation</code> - A delegating service account acting as the caller's verified address. Not served by this build.</li>
 </ul>
 <h5 id="implements_85">Implements<a class="headerlink" href="#implements_85" title="Permanent link">&para;</a></h5>
