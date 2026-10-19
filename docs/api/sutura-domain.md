@@ -8499,7 +8499,7 @@ pub const fn with_link_comparison(self, comparison: Option<LinkKind>) -> Self
 
 Records the comparison the link's relationship declares, for the combiner to read.
 
-A builder for `Self::with_top`'s reason: `Self::new` keeps its argument list.
+A builder rather than a constructor argument, so `Self::new` keeps its argument list.
 
 ```rust
 pub const fn with_top(self, top: Top) -> Self

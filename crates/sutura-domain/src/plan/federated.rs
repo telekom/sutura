@@ -413,7 +413,7 @@ impl FederatedPlan {
 
     /// Records the comparison the link's relationship declares, for the combiner to read.
     ///
-    /// A builder for [`Self::with_top`]'s reason: [`Self::new`] keeps its argument list.
+    /// A builder rather than a constructor argument, so [`Self::new`] keeps its argument list.
     #[inline]
     #[must_use]
     pub const fn with_link_comparison(mut self, comparison: Option<LinkKind>) -> Self {
