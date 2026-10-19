@@ -805,8 +805,9 @@ fn a_fact_leg_with_no_terms_projects_keys_rather_than_a_count() {
 /// `voice_minutes`'s fact leg when the relationship it crosses truncates `usage_date` to a month.
 ///
 /// The link groups by the truncation the time bucket renders, never by the raw column, so a day
-/// and the snapshot month it joins to carry one link value. Pinned per dialect and parse-checked
-/// there, in its own module so the shape list above stays the base's.
+/// and the snapshot month it joins to carry one link value. The leg is pinned per dialect and
+/// parse-checked; a whole plan is held only by the `GROUP BY` it renders differing from a plain
+/// key's. Both live in their own module so the shape list above stays the base's.
 mod truncated_link {
     use sutura_domain::model::{Aggregate, DimensionName, Grain};
     use sutura_domain::plan::{InternalLabel, LegPlan, PlanKey, PlanMeasure, PlanTerm, QueryPlan, ResultLabel, StatementTables};
@@ -872,18 +873,30 @@ mod truncated_link {
         )
     }
 
+    fn group_by(sql: &str) -> &str {
+        let (_, after) = sql.split_once(" GROUP BY ").expect("a whole plan groups");
+        after.split_once(" ORDER BY ").map_or(after, |(group, _)| group)
+    }
+
     #[track_caller]
-    fn a_whole_plan_renders_its_key_truncated(dialect: Dialect) {
+    fn a_whole_plan_groups_by_its_key_truncated(dialect: Dialect) {
         let label = || ResultLabel::dimension(&DimensionName::parse("usage_month").expect("a fixture dimension is a dimension"));
         let usage_date = || column(FACT_TABLE, "usage_date");
         let render = |key| {
             generate(&whole_plan(key), dialect).unwrap_or_else(|e| panic!("the whole plan would not render for {dialect}: {e}"))
         };
         let truncated = render(PlanKey::truncated(label(), usage_date(), Grain::Month));
+        let plain = render(PlanKey::new(label(), usage_date()));
         assert_ne!(
             truncated.sql(),
-            render(PlanKey::new(label(), usage_date())).sql(),
+            plain.sql(),
             "the truncated key of a whole plan for {dialect} renders as its raw column"
+        );
+        assert_ne!(
+            group_by(truncated.sql()),
+            group_by(plain.sql()),
+            "the truncated key of a whole plan for {dialect} groups by its raw column:\n{}",
+            truncated.sql()
         );
     }
 
@@ -891,7 +904,7 @@ mod truncated_link {
     fn a_whole_plan_groups_by_its_key_truncated_to_the_grain() {
         macro_rules! check {
             ($name:ident, $dialect:expr, $target:expr) => {
-                a_whole_plan_renders_its_key_truncated($dialect);
+                a_whole_plan_groups_by_its_key_truncated($dialect);
             };
         }
         crate::adapters::registered!(dialects: check);
