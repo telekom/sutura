@@ -48,7 +48,7 @@ a set of arms that cannot be joined, with a typed error each:
 | an arm with other keys, or the same keys in another order | the join columns would not line up        |
 | an arm with another bucket label or grain                 | the join would compare unlike periods     |
 | a fact leg over another time range                        | a period one arm never read would be null |
-| a joined arm carrying a `top`                             | it cuts one arm, so the others get a null |
+| a joined arm carrying a `top`                             | it cuts one arm, so that arm gets a null  |
 | more than `MAX_LEGS` (6) legs                             | bounds the memory the legs hold           |
 
 A local arm refuses a leg that is not a fact leg, terms that are not its federation's leaves, a leaf

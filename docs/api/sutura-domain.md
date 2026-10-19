@@ -7357,9 +7357,9 @@ Two or more `Arm`s that share one set of keys, one bucket grain and one time ran
 
 The keys, the bucket and the range are the first arm's, and every later arm is checked against
 them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
-would leave the full join a null for a period it never read, which the answer reads as "no rows". Each arm's time column may differ: only the
-label and grain must agree, and what an Arrow kind mismatch between two buckets means is the
-combiner's to refuse.
+would leave the full join a null for a period it never read, which the answer reads as "no rows".
+Each arm's time column may differ: only the label and grain must agree, and what an Arrow kind
+mismatch between two buckets means is the combiner's to refuse.
 
 ### `use DrillAcrossPlanError`
 
@@ -8303,10 +8303,11 @@ aggregated on its own, so no leg reads two fact tables and the chasm trap stays 
 
 **What this type holds, and what it does not.** It holds the arms and refuses a set of arms that
 cannot be joined: two arms whose keys, bucket or time range differ, one metric twice, an arm
-carrying a `top`, or more legs than `MAX_LEGS`. A `top` cuts its arm before the join, so every
-other arm would answer a null that reads as "no rows"; a `top` for the whole question, for example
-by period after the join, is not built here. The plan names no join and no engine; the combine is
-a port's concern. Nothing builds this plan yet, so no question reaches it.
+carrying a `top`, or more legs than `MAX_LEGS`. A `top` cuts its arm before the join, so that arm
+answers a null for each group it cut that another arm has, and the answer reads that null as "no
+rows"; a `top` for the whole question, for example by period after the join, is not built here.
+The plan names no join and no engine; the combine is a port's concern. Nothing builds this plan
+yet, so no question reaches it.
 
 **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
@@ -8426,9 +8427,9 @@ Two or more `Arm`s that share one set of keys, one bucket grain and one time ran
 
 The keys, the bucket and the range are the first arm's, and every later arm is checked against
 them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
-would leave the full join a null for a period it never read, which the answer reads as "no rows". Each arm's time column may differ: only the
-label and grain must agree, and what an Arrow kind mismatch between two buckets means is the
-combiner's to refuse.
+would leave the full join a null for a period it never read, which the answer reads as "no rows".
+Each arm's time column may differ: only the label and grain must agree, and what an Arrow kind
+mismatch between two buckets means is the combiner's to refuse.
 
 ##### Methods
 
@@ -8499,7 +8500,7 @@ Why a drill-across plan, or one of its arms, could not be built.
 - `NotFact` - The leg of a local arm is not a fact leg.
 - `KeyNotOnLeg` - A local arm's leg does not project a key the arm needs.
 - `TermsDoNotMatchFederation` - A local arm's terms are not its federation's leaves.
-- `ArmCarriesTop` - A joined arm carries a `top`, which a drill-across question refuses: it cuts that arm before the join, so the other arms answer a null that reads as "no rows".
+- `ArmCarriesTop` - A joined arm carries a `top`, which a drill-across question refuses: it cuts that arm before the join, so that arm answers a null for each group it cut that another arm has, and the answer reads that null as "no rows".
 - `DuplicateMetric` - One metric is measured by two arms, which would emit one measure column twice.
 - `KeysDiffer` - An arm answers under other keys, or in another order, than the first arm.
 - `BucketDiffers` - An arm buckets by another label or grain than the first arm.
