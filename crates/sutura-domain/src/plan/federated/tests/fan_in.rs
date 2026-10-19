@@ -174,6 +174,15 @@ fn a_count_of_results_that_differs_from_the_plans_legs_is_miswired() {
             found: LegSide::Lookup
         })
     );
+    let mut twice = results.clone();
+    *twice.get_mut(1).expect("a second result") = results.first().cloned().expect("a fact result");
+    assert_eq!(
+        Legs::assign(&plan, &twice).map(|_| ()),
+        Err(LegsMiswired::WrongSide {
+            expected: LegSide::Lookup,
+            found: LegSide::Fact
+        })
+    );
 }
 
 /// Answers every leg but `failing`, which answers with its own source's name.
