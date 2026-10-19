@@ -210,9 +210,10 @@ Dependabot. They read what the IdP was offered, what the surface answered and wh
 host the driver dialled through a refusing proxy - never the token it carried, so a source handed
 the caller's own token instead of the exchanged one is held in-process only. A `direct`
 `workload_identity` source without one does not boot unless it writes
-`inbound_token_at_pool: accepted` (`NotFitToServe::InboundTokenAtPoolUnacknowledged`); with that,
-the inbound token is presented and each boot logs one `WARN`. The check reads configuration, never
-which audiences the pool's provider accepts. Oracle requires its delegation declaration.
+`inbound_token_at_pool: accepted` (`NotFitToServe::InboundTokenAtPoolUnacknowledged`,
+`docs/adr/0014`'s thirteenth amendment); with that, the inbound token is presented and each boot
+logs one `WARN`. The check reads configuration, never which audiences the pool's provider accepts.
+Oracle requires its delegation declaration.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
