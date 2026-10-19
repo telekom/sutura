@@ -59,23 +59,30 @@ exemption. A default build links none of this.
 # Identity
 
 `BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, and it is now true by
-construction rather than by this paragraph: the asking subject's **own verified assertion** is
-what the data system authenticates. `adbc` hands the driver a workload-identity credential
-document naming a loopback source for that assertion, so Google's token service verifies it
-against the pool the source declares and the question executes as whatever principal that pool
-resolves the subject to. `adbc`'s own `subject` module carries the mechanism and its exposure.
+construction rather than by this paragraph: what the data system authenticates is the asking
+subject's own credential, in the form the source's caller-identity block declares.
 
-**Two modes, and they are XOR rather than a ladder.** A source declares one posture and gets one
-mechanism:
+- `workload_identity`: `adbc` hands the driver a workload-identity credential document naming
+  a loopback source for the subject's **own verified assertion**, so Google's token service
+  verifies it against the pool the source declares and the question executes as whatever
+  principal that pool resolves the subject to. `adbc`'s own `subject` module carries the
+  mechanism and its exposure.
+- `google_login`: the driver gets the Google access token the identity provider stored when the
+  caller linked a Google account. The data system authenticates that token, so the question
+  executes as the Google account the caller linked.
+
+**Two postures, and they are XOR rather than a ladder.** A source declares one posture, an
+impersonating one also one caller-identity block, and gets one mechanism:
 
 | declared posture | mechanism | identity at the source |
 | --- | --- | --- |
 | `shared-service-user` | the deployment's own application default credentials, **mandatory** for this posture, impersonating nothing | the deployment |
-| `impersonation-at-source` | the subject's own assertion, federated against the declared pool | the asking subject |
+| `impersonation-at-source` with `workload_identity` | the subject's own assertion, federated against the declared pool | the subject's pool principal |
+| `impersonation-at-source` with `google_login` | the Google access token stored for the subject's linked account | the Google account the subject linked |
 
-**What does not exist is a path from the second to the first**, and that is the whole point: an
-impersonating source whose subject cannot be federated is REFUSED
-(`adbc::identity::authenticate`'s third arm), never answered as the deployment. The reverse is
+**What does not exist is a path from an impersonating row to the shared one**, and that is the
+whole point: an impersonating source whose subject cannot be federated is REFUSED
+(`adbc::identity::authenticate`'s last arm), never answered as the deployment. The reverse is
 refused one layer up, by `Presented::agrees_with`: a shared source handed a subject's
 credential is a posture disagreement before any transport sees it.
 
@@ -268,9 +275,9 @@ artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` c
 that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
 one pinned source.
 
-`impersonation` is whether this source impersonates and through which pool - the source's
-declared `workload_identity.audience`, or `adbc::Impersonation::Disabled` for a shared
-one. Taken here rather than read per request because it is a property of the source, and a
+`impersonation` is whether this source impersonates and how - through the pool of the
+source's declared `workload_identity.audience`, with the subject's own Google access token
+for `google_login`, or `adbc::Impersonation::Disabled` for a shared one. Taken here rather than read per request because it is a property of the source, and a
 pool the driver would refuse then fails before a listener is bound.
 
 `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
@@ -576,12 +583,12 @@ Only `driver_message.rs` itself can skip `of`.
 
 ### `use Impersonation`
 
-Whether this source impersonates at all, and against which pool when it does.
+Whether this source impersonates at all, and how when it does.
 
-**A two-variant type rather than an `Option<WorkloadPool>`, because the absence is a
-DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
-`workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
-which of these a transport holds is decided once, at composition, from a value an operator wrote.
+**An enum rather than an `Option<WorkloadPool>`, because the absence is a DECLARATION.** A
+source is opened shared or impersonating - `sutura_config` refuses a caller-identity block on a
+shared entry and refuses its absence on an impersonating one - so which of these a transport
+holds is decided once, at composition, from a value an operator wrote.
 
 ### `use UnusablePool`
 
@@ -771,14 +778,16 @@ POSTURE.
 
   The shared posture, and the boot path - see `JobDeadline::Boot` for the other half of what
   "no caller" means to a request.
-- `AsSubject` - The asking subject's own verified assertion.
+- `AsSubject` - The asking subject's own credential: its verified assertion, or, for a `google_login` source, the Google access token the identity provider stored for the account it linked.
 
-  **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
-  `crate::adbc` puts the assertion behind a workload-identity credential document, so
-  Google's own token service verifies it and returns a federated token for the declared pool's
-  `principal://.../subject/<sub>`. `BigQuery` evaluates its grants and row policies against that
-  principal. Nothing on that path runs the question under the deployment's identity, and there
-  is no second hop to another account.
+  **The subject's own credential and not a stand-in for it**, which is the whole of leg 2.
+  Through a pool, `crate::adbc` puts the assertion behind a workload-identity credential
+  document, so Google's own token service verifies it and returns a federated token for the
+  declared pool's `principal://.../subject/<sub>`. For `google_login`, it hands the driver the
+  stored token as the job's access token, with no credential document and no pool, so the
+  principal is the linked Google account. `BigQuery` evaluates its grants and row policies
+  against that principal. Nothing on either path runs the question under the deployment's
+  identity, and there is no second hop to another account.
 
 #### Implements
 
@@ -832,7 +841,8 @@ Who this job is to be executed as.
 never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
 ignored it would answer as itself while provenance reported the asker. It does not make the
 source execute as the asker on its own: `JobIdentity::AsSubject` carries the subject's
-assertion, and the declared pool is what resolves it to the subject's own principal.
+credential, and the declared pool resolves an assertion to the subject's own principal,
+where a `google_login` token already belongs to the linked Google account.
 
 ```rust
 pub const fn params(&self) -> &[ParamValue]

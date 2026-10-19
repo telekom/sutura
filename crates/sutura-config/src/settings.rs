@@ -530,7 +530,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
-        refusals.extend(self.delegation_refusals());
+        refusals.extend(delegation::refusals(self));
         refusals.extend(self.sources.each().filter_map(|(alias, source)| {
             let block = source.caller_identity()?.not_built()?;
             Some(NotFitToServe::CallerIdentityModeNotBuilt {
@@ -624,36 +624,6 @@ impl Settings {
             }
         }
         refusals
-    }
-
-    /// A declared delegation exchange on a deployment that verifies no `direct` caller - see
-    /// [`NotFitToServe::DelegationWithoutDirectInbound`].
-    fn delegation_refusals(&self) -> Vec<NotFitToServe> {
-        if matches!(self.security.inbound(), Some(InboundIdentity::Direct { .. })) {
-            return Vec::new();
-        }
-        self.sources
-            .each()
-            .filter_map(|(alias, source)| {
-                let alias = alias.clone();
-                if source.workload_identity().is_some_and(|wif| !wif.delegation().is_empty()) {
-                    Some(NotFitToServe::DelegationWithoutDirectInbound {
-                        alias,
-                        key: "workload_identity.delegation",
-                    })
-                } else if let crate::SourcePlacement::Oracle { ref delegation, .. }
-                | crate::SourcePlacement::Cube { ref delegation, .. } = *source.placement()
-                    && !delegation.is_empty()
-                {
-                    Some(NotFitToServe::DelegationWithoutDirectInbound {
-                        alias,
-                        key: "delegation",
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 
     /// Whether the raw SQL tool is enabled in `multi-user` mode with no acknowledged
@@ -990,6 +960,10 @@ mod posture;
 /// because this file hit the line limit again, on the seam the two above use: nothing there parses
 /// or refuses anything, it reads an environment and filters names.
 mod overlay;
+
+/// Which sources send the caller's own inbound token to an identity provider, and the refusal of
+/// each on a deployment that verifies no `direct` caller.
+mod delegation;
 
 pub use overlay::configuration_variables_from_process;
 

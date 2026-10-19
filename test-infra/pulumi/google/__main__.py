@@ -555,6 +555,37 @@ for tag, member in (("principal-a", principal_a), ("principal-b", principal_b)):
     )
 
 
+# Mode b (`google_login`): a query runs as the Google ACCOUNT a test user linked at the identity
+# provider, so that account needs the three grants a principal gets above, on the acceptance dataset.
+# Optional - unset, nothing is created, and no CI job runs mode b (its sign-in is a human's).
+#
+# **What this stack cannot create**, and why it is manual (see the README): the Google OAuth web
+# client and its consent screen. pulumi_gcp's only OAuth client resource is `iap.Client`, an
+# IAP-owned client whose pinned docstring says the IAP OAuth Admin APIs were deprecated on
+# 2025-01-22 and are shut down after 2026-03-19, and `iap.Brand` with it. The identity provider's
+# Google provider is the identity provider's own configuration, not a Google resource.
+google_login_user = cfg.get("google_login_user")
+if google_login_user:
+    google_login_member = f"user:{google_login_user}"
+    for role in ("jobUser", "readSessionUser"):
+        gcp.projects.IAMMember(
+            f"google-login-{role.lower()}",
+            project=project,
+            role=f"roles/bigquery.{role}",
+            member=google_login_member,
+            opts=pulumi.ResourceOptions(
+                provider=gcp_provider, depends_on=API_BOOTSTRAP
+            ),
+        )
+    gcp.bigquery.DatasetIamMember(
+        "google-login-dataviewer",
+        dataset_id=ci_dataset,
+        role="roles/bigquery.dataViewer",
+        member=google_login_member,
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Outputs - the values the CI job and sutura-config consume. Keys are secrets.
 # --------------------------------------------------------------------------- #

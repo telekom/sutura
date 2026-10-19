@@ -235,6 +235,11 @@ pub enum Failure {
     ///
     /// Carries nothing. Which issuer this deployment talks to is not the caller's business.
     IdentityUnavailable,
+    /// The caller has no account linked at the identity provider a source runs them through.
+    ///
+    /// **`403`, not `503`**: retrying does not help, and the caller can act - link the account at
+    /// the identity provider. It is about the caller's own linking state only.
+    IdentityNotLinked,
     /// Every execution slot was taken for the whole admission window, so the question was shed.
     ///
     /// **`503` and not `429`, and the two say different things.** A `429` is "you personally asked
@@ -257,7 +262,9 @@ impl Failure {
         use axum::http::StatusCode;
         match *self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed => StatusCode::FORBIDDEN,
+            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed | Self::IdentityNotLinked => {
+                StatusCode::FORBIDDEN
+            }
             Self::NotAQuestion { .. } => StatusCode::BAD_REQUEST,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -291,7 +298,8 @@ impl Failure {
             | Self::Timeout
             | Self::Internal
             | Self::Unavailable
-            | Self::IdentityUnavailable => None,
+            | Self::IdentityUnavailable
+            | Self::IdentityNotLinked => None,
         }
     }
 
@@ -309,6 +317,7 @@ impl Failure {
             Self::Internal => "internal",
             Self::Unavailable => "unavailable",
             Self::IdentityUnavailable => "identity_unavailable",
+            Self::IdentityNotLinked => "identity_not_linked",
             Self::AtCapacity { .. } => "at_capacity",
         }
     }
@@ -340,6 +349,9 @@ impl Failure {
             // Named for what it is without naming which issuer, and worth retrying - which is the one
             // thing a caller can act on and the reason it is not folded into the line above.
             Self::IdentityUnavailable => String::from("the identity provider this deployment depends on did not answer; retry"),
+            Self::IdentityNotLinked => String::from(
+                "your account is not linked at the identity provider this source runs you through; link it, then retry",
+            ),
             // No numbers. How many questions this deployment runs at once is its sizing, and a
             // caller who is being shed has no use for it - what they need is whether to retry,
             // which the status and `Retry-After` say.
@@ -499,6 +511,13 @@ mod tests {
         ] {
             assert_eq!(quiet.retry_after(), None, "{quiet:?} invented a retry hint");
         }
+    }
+
+    #[test]
+    fn a_caller_with_no_linked_account_is_a_403_identity_not_linked() {
+        let not_linked = Failure::IdentityNotLinked;
+        assert_eq!(not_linked.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(not_linked.code(), "identity_not_linked");
     }
 
     #[test]
