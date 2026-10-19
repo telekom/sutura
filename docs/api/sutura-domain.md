@@ -5452,63 +5452,6 @@ hole intact, because a function handed the definitions is not a function that re
 `crate::definitions` says what the twelve allowlisted crates bought, and `crate::pinned::manifest`
 is the fourth piece of content that made the digest cover the composition.
 
-### `struct DefinitionVersion`
-
-```rust
-pub struct DefinitionVersion
-```
-
-Which snapshot of the definitions this is.
-
-Free-form on purpose, because what identifies a snapshot differs per catalog: a commit id, a
-build number, an export timestamp. What is *not* free-form is its shape, because it is echoed
-into provenance and into an audit record, and a value with a newline in it can forge a second
-record.
-
-#### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidVersion>
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `PartialEq`, `Serialize`
-
-### `enum InvalidVersion`
-
-```rust
-pub enum InvalidVersion
-```
-
-Why a version label was rejected.
-
-#### Variants
-
-- `Empty` - Empty or whitespace-only. An unversioned snapshot must not be able to claim it is one.
-- `ControlCharacter` - Holds a control character. This is the one that matters: provenance is written to an audit sink line by line, so a newline here appends a record nobody wrote.
-- `InvisibleCharacter` - Holds an invisible or direction-changing code point. **The second half of the reason the variant above exists**, and it was missing: `char::is_control` is false for every one of these (general category `Cf`, not `Cc`), so the check that refuses a newline could not see a right-to-left override, and a version label carrying one passed.
-
-  That matters here for exactly the reason the control-character refusal states. A version
-  travels in `Provenance`, and provenance is written to an audit sink line by line, echoed
-  into the body of an answer, and printed by the compile command - so a label that renders as
-  `v2.1` in every one of those places and is a different string is a provenance record that
-  cannot be matched against the bundle it names. The digest is what makes an answer checkable;
-  two labels a reader cannot tell apart is the one way to make the version half of it useless.
-
-  The code is reported rather than the value, which is the opposite of the variant above: a
-  label whose only defect is a character that draws nothing would print as though it were
-  correct, so the message names the character instead.
-- `TooLong`
-
-#### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
 ### `struct MetricDigest`
 
 ```rust
@@ -5537,7 +5480,7 @@ The metric this entry certifies.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct Provenance`
 
@@ -5603,6 +5546,26 @@ pub const fn version(&self) -> &DefinitionVersion
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `enum NotAgreed`
+
+```rust
+pub enum NotAgreed
+```
+
+Why a digest another node sent does not agree with this pin.
+
+Typed, and it names a metric and no definition text: the digest is the whole of what travels.
+
+#### Variants
+
+- `MetricUnknown` - This pin defines no such metric, so there is no definition of it to agree with.
+- `Differs` - This pin defines the metric differently from the sender's pin.
+- `NotDigestible` - This pin's own digest of the metric could not be computed.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `struct PinnedDefinitions`
 
 ```rust
@@ -5629,6 +5592,17 @@ bundle. The architecture decision's *contribution manifest* section states both,
 is where the digest is taken over it.
 
 #### Methods
+
+```rust
+pub fn agrees_on(&self, theirs: &MetricDigest) -> Result<(), NotAgreed>
+```
+
+Whether this pin defines `theirs` as the sender did.
+
+**Per metric, never per bundle.** The bundle digest, the glossary, the contribution manifest
+and every other metric are not read, so two pins that differ there still agree on a metric
+that is the same in both (the architecture decision,
+amendment of 2026-10-18). Not a control against a hostile sender: the digest is not a secret.
 
 ```rust
 pub fn anchored_metrics(&self) -> impl Iterator<Item>
@@ -5663,6 +5637,15 @@ Which metadata sources composed this bundle, and what each declared.
 Under the digest, beside the definitions and the knowledge: a re-composition that assembles
 identically is a different bundle, which is the whole reason the manifest exists -
 `crate::pinned::manifest` and the architecture decision's contribution-manifest section.
+
+```rust
+pub fn metric_digest(&self, metric: &MetricName) -> Result<MetricDigest, NotDigestible>
+```
+
+The digest of one metric of this pin, with the metric's name.
+
+Computed here from the definitions this pin holds, which is why `MetricDigest` has no
+public constructor: a digest on the wire is this pin's own, never a value somebody chose.
 
 ```rust
 pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge, manifest: ContributionManifest) -> Result<Self, NotDigestible>
@@ -6189,6 +6172,19 @@ pinned digest - so the shape is what a deployment that declares availability fil
 diff brings back the second variant beside its producer. What is gone is the pre-built half, not
 the decision.
 
+### `use DefinitionVersion`
+
+Which snapshot of the definitions this is.
+
+Free-form on purpose, because what identifies a snapshot differs per catalog: a commit id, a
+build number, an export timestamp. What is *not* free-form is its shape, because it is echoed
+into provenance and into an audit record, and a value with a newline in it can forge a second
+record.
+
+### `use InvalidVersion`
+
+Why a version label was rejected.
+
 ### Module `manifest`
 
 The contribution manifest: which metadata sources composed a bundle, and what each declared.
@@ -6604,7 +6600,7 @@ pub const fn table(&self) -> &TableName
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct PlanJoin`
 
@@ -6615,6 +6611,16 @@ pub struct PlanJoin
 One join, as the plan will make it.
 
 #### Methods
+
+```rust
+pub fn hop(relationship: &Relationship, origin: &TableName, target: &Model) -> Self
+```
+
+The join one declared relationship makes, written from the relationship and nothing else.
+
+One definition for the splitter and for a node that receives a leg naming only the
+relationship: two copies of "one join per hop, the origin columns qualified by the table the
+hop starts at" is how one of them came to be qualified by the metric's table instead.
 
 ```rust
 pub const fn join_type(&self) -> JoinType
@@ -6836,7 +6842,7 @@ pub const fn column(&self) -> &PlanColumn
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum PlanMeasure`
 
@@ -6956,7 +6962,7 @@ The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too -
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum PredicateOrigin`
 
@@ -6979,7 +6985,7 @@ present.
 
 #### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct PlanFilter`
 
@@ -7005,7 +7011,7 @@ pub const fn predicate(&self) -> &PlanPredicate
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct QueryPlan`
 
@@ -9295,6 +9301,15 @@ The text this label carries in a leg's result.
 The one place the reserved namespace is spelled. A caller that needs it as a column name
 takes it from here, so no call site holds a second copy of the spelling.
 
+```rust
+pub fn parse(text: &str) -> Option<Self>
+```
+
+The label that spells exactly `text`, if any: the inverse of `Self::label`.
+
+Canonical spellings only, so `0_leaf_07` names nothing and a label read off the wire is the
+one this process would have written.
+
 ###### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
@@ -9972,6 +9987,182 @@ The one data system this runs against, whichever shape it is.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### Module `remote`
+
+A leg as it crosses from one node to another, and the parse that decides what the receiver runs.
+
+The architecture decision decides the shape: a typed leg
+crosses, never SQL text, and the receiving node parses it against **its own** certified
+definitions. `to_wire` is the sender's half and `LegWire::parse` the receiver's.
+
+**What the document names, and what it never carries.** It names a source, a table path, the
+relationships a statement joins through, columns, a grain and the metric a fact leg measures,
+with that metric's digest. It carries no join key, join type, joined table or statement: the
+receiver writes each join from its own relationship
+(`PlanJoin::hop`), so a sender cannot make the receiver join on a
+pair of columns the receiver never declared. Parameter values are not in it either - they
+travel beside it as the Arrow batch the ADR decides - so `parse` takes them as an argument and
+`PlanBindings::parse` holds the pair coherent.
+
+**The digest is per metric.** A fact leg names its metric as one `MetricDigest`, so a leg with
+no digest does not deserialize, and the receiver compares only that digest
+(`PinnedDefinitions::agrees_on`): a bundle digest that differs is not read.
+
+**Limits, stated where the parse is.** The digest detects a version gap between two honest
+nodes and is no control against a hostile sender. The parse does not compare a result label with
+the dimension it names, an aggregate with the metric's own, or a column's type with the
+sender's. It certifies that every name is one this node declares, that the metric is defined as
+the sender defined it, and that a required filter of this node's definition is present.
+
+#### `enum WireLabel`
+
+```rust
+pub enum WireLabel
+```
+
+What a result column is called, as it travels: an internal label or a dimension's name.
+
+There is no `Deserialize` on `ResultLabel`, by design, so the wire holds the two things a leg's
+column can be called and the receiver builds the label from the one it parsed.
+
+##### Variants
+
+- `Internal`
+- `Dimension`
+
+##### Methods
+
+```rust
+pub fn parse(text: &str) -> Result<Self, InvalidWireLabel>
+```
+
+The canonical constructor: `TryFrom<String>` and `Deserialize` route here.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct InvalidWireLabel`
+
+```rust
+pub struct InvalidWireLabel
+```
+
+Why a label on the wire is neither of the two things a leg's column can be called.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct WireKey`
+
+```rust
+pub struct WireKey
+```
+
+A group-by column and what it is projected under.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct WireTerm`
+
+```rust
+pub struct WireTerm
+```
+
+An aggregated term and what it is projected under.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct WireBucket`
+
+```rust
+pub struct WireBucket
+```
+
+The time bucket a fact leg groups by: its grain and the column it truncates.
+
+No label: a bucket is always projected under the one label the catalog reserves for it.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum LegWire`
+
+```rust
+pub enum LegWire
+```
+
+One leg as it crosses between nodes.
+
+Every field refuses an undeclared sibling (`deny_unknown_fields`, the shape `Query` has), so a
+field the receiver does not read is an error that names it rather than a value that rides along.
+
+##### Variants
+
+- `Fact` - One fact table's share of an answer, with the metric and its digest as one value.
+- `Lookup` - One remote dimension's share: its key and the columns the answer groups by.
+
+##### Methods
+
+```rust
+pub fn parse(self, pinned: &PinnedDefinitions, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified>
+```
+
+The leg this node runs, or the reason it does not.
+
+`params` are the values the leg's predicates bind, in placeholder order: the transport reads
+them off the Arrow batch beside the document. `pinned` is this node's own pin, and the only
+source of what a name means.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum NotSendable`
+
+```rust
+pub enum NotSendable
+```
+
+Why a leg cannot be written for the wire.
+
+##### Variants
+
+- `Digest` - The metric the leg measures has no digest in the sender's own pin.
+- `Label` - A result label the receiver could not read back.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `fn to_wire`
+
+```rust
+pub fn to_wire(leg: &crate::plan::LegPlan, pinned: &crate::pinned::PinnedDefinitions) -> Result<LegWire, NotSendable>
+```
+
+The leg as the sender writes it, with the digest of its metric read off the sender's own pin.
+
+The digest is `PinnedDefinitions::metric_digest`, never a value the caller supplies, so what
+a leg claims about its metric is what the sender planned under.
+
+#### `use LegNotCertified`
+
+Why this node does not run a leg it was sent.
+
+Typed, and it names catalog identifiers only: no column type, no row and no definition text
+crosses back to a sender, which is the closed-code rule of the architecture decision.
+
+#### `use LegPart`
+
+The part of a leg whose length is bounded before anything walks it.
 
 ### Module `tables`
 

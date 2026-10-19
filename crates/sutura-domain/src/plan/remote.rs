@@ -7,10 +7,11 @@
 //! **What the document names, and what it never carries.** It names a source, a table path, the
 //! relationships a statement joins through, columns, a grain and the metric a fact leg measures,
 //! with that metric's digest. It carries no join key, join type, joined table or statement: the
-//! receiver writes each join from its own relationship ([`PlanJoin::hop`]), so a sender cannot
-//! make the receiver join on a pair of columns the receiver never declared. Parameter values are
-//! not in it either - they travel beside it as the Arrow batch the ADR decides - so `parse` takes
-//! them as an argument and [`PlanBindings::parse`] holds the pair coherent.
+//! receiver writes each join from its own relationship
+//! ([`PlanJoin::hop`](crate::plan::PlanJoin::hop)), so a sender cannot make the receiver join on a
+//! pair of columns the receiver never declared. Parameter values are not in it either - they
+//! travel beside it as the Arrow batch the ADR decides - so `parse` takes them as an argument and
+//! [`PlanBindings::parse`](crate::plan::PlanBindings::parse) holds the pair coherent.
 //!
 //! **The digest is per metric.** A fact leg names its metric as one [`MetricDigest`], so a leg with
 //! no digest does not deserialize, and the receiver compares only that digest
