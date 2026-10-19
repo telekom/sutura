@@ -297,6 +297,67 @@ fn a_declared_pool_expectation_does_not_boot_because_nothing_in_this_build_reads
     assert!(error.contains("expected_audience"), "{error}");
 }
 
+/// Who the broker this root builds bills `warehouse`'s leg to, for a caller in the `finance` group
+/// naming `named`, on a source that maps `finance` onto `acme-finance`.
+#[cfg(feature = "bigquery")]
+fn billed_for_a_finance_caller(caller_may_name: bool, named: Option<&str>) -> sutura_domain::identity::BillTo {
+    let billing = format!(
+        "    billing:\n      caller_may_name: {caller_may_name}\n      by_group:\n        \
+         - group: \"finance\"\n          project: \"acme-finance\"\n"
+    );
+    let broker = super::super::broker::build_broker(
+        &registry(&bigquery_entry(
+            "warehouse",
+            "impersonation-at-source",
+            &format!("{}{billing}", wif_with("")),
+        )),
+        None,
+    )
+    .expect("a caller-run source with a group map builds a broker");
+    let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
+    let asked = SourceSet::of(warehouse.clone());
+    let subject = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    let context = RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new("assertion"), 4_102_444_800)
+        .grouped(sutura_domain::identity::CallerGroups::of(["finance"]))
+        .naming(named.map(account));
+    let Agreed::Granted { credentials } = broker
+        .mint(&context, &asked)
+        .expect("a verified caller is mintable")
+        .agreeing_with(&subject, &asked, 4_000_000_000)
+        .expect("the grant agrees with the request")
+    else {
+        panic!("a verified caller is granted");
+    };
+    credentials.bill_to_for(&warehouse).clone()
+}
+
+#[cfg(feature = "bigquery")]
+fn account(name: &str) -> sutura_domain::identity::BillingAccount {
+    sutura_domain::identity::BillingAccount::parse(name).expect("a test account is an account")
+}
+
+/// The declared order, through the broker this root builds: a mapped group pays, ahead of a named
+/// payer only where callers may name one. Elsewhere the named payer is passed on, not dropped, so the
+/// adapter refuses it as `bill_to_not_allowed` (`sutura_exec_bigquery`'s
+/// `a_payer_named_where_the_source_takes_none_is_refused_never_dropped`).
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_served_caller_in_a_mapped_group_bills_its_project_and_a_payer_named_beside_it_is_never_dropped() {
+    use sutura_domain::identity::BillTo;
+    for (caller_may_name, named, expected) in [
+        (false, None, BillTo::Group(account("acme-finance"))),
+        (true, None, BillTo::Group(account("acme-finance"))),
+        (true, Some("acme-other"), BillTo::Group(account("acme-finance"))),
+        (false, Some("acme-other"), BillTo::Named(account("acme-other"))),
+    ] {
+        assert_eq!(
+            billed_for_a_finance_caller(caller_may_name, named),
+            expected,
+            "caller_may_name: {caller_may_name}, named: {named:?}"
+        );
+    }
+}
+
 // The `direct`-mode half of the serve root's broker: a registry whose `security` block verifies
 // callers directly, so a declared delegation exchange is admitted and reached. Same shape as
 // `super::registry`, with the inbound block `sutura-config` requires of a `direct` deployment.

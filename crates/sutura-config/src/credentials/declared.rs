@@ -182,15 +182,20 @@ impl DeclaredPrincipalBroker {
 
     /// The first group of the caller's the source maps, else the payer the caller named.
     ///
-    /// A named payer is passed on for EVERY source, never dropped here: a source that does not let
-    /// callers name one refuses it, so a caller who named a payer is not billed elsewhere unaware.
+    /// A mapped group goes first only where the source lets callers name a payer. Elsewhere a named
+    /// payer is passed on, even beside a mapped group, so the source refuses it rather than billing
+    /// the group while the caller believes their payer was taken.
     fn bill_to(&self, at: &SourceName, context: &RequestContext) -> BillTo {
-        if let Some(account) = self.billing.get(at).and_then(|billing| billing.for_groups(context.groups())) {
+        let named = context.named_payer();
+        if let Some(account) = self
+            .billing
+            .get(at)
+            .filter(|billing| named.is_none() || billing.caller_may_name())
+            .and_then(|billing| billing.for_groups(context.groups()))
+        {
             return BillTo::Group(account.clone());
         }
-        context
-            .named_payer()
-            .map_or(BillTo::Unstated, |named| BillTo::Named(named.clone()))
+        named.map_or(BillTo::Unstated, |named| BillTo::Named(named.clone()))
     }
 
     /// How many sources this broker can mint for at all.

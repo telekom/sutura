@@ -82,6 +82,9 @@ pub(crate) fn build_broker(
         }
         #[cfg(feature = "bigquery")]
         {
+            if let sutura_config::SourcePlacement::BigQuery { ref billing, .. } = *source.placement() {
+                broker = broker.billing(alias.clone(), billing.clone());
+            }
             broker = federating(broker, alias, source, outbound)?;
         }
     }
