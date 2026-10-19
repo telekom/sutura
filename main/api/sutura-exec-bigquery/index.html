@@ -3608,7 +3608,7 @@ equivalent either, so there is nothing to build it out of.</p>
 <code>sutura-http</code>'s inbound gate bounds a gateway assertion's replay <em>window</em> and binds nothing to a
 request (<code>within_the_lifetime_ceiling</code>'s own doc), so inside that window a captured assertion is
 replayable - and Google would accept it, because it is the caller's real document. And the
-signing-key age bound <code>KeySetCache::stale_for</code> measures excludes a failing refresh. Neither is
+signing-key age bound excludes a failing refresh, which only <code>key_set_max_stale_seconds</code> bounds. Neither is
 this crate's to fix; both are cited here because <em>the limit belongs beside the claim</em>.</p>
 <h1 id="two-things-this-adapter-deliberately-does-not-offer">Two things this adapter deliberately does not offer<a class="headerlink" href="#two-things-this-adapter-deliberately-does-not-offer" title="Permanent link">&para;</a></h1>
 <p><strong>No arbitrary SQL entry point.</strong> <code>BigQueryWarehouse::execute</code> takes an <code>Executable</code> and

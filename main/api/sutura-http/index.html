@@ -4396,9 +4396,8 @@ minute per process, which is the same order as
 <code>crate::middleware::REAP_INTERVAL</code> and is nothing next to a signature verification.</p>
 <p><strong>What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
 it is that one.</strong> A read that fails and a document that is rejected both keep the previous keys
-verifying, so while refresh is unavailable this number bounds nothing.
-<code>KeySetCache::stale_for</code> is the measurement of that case; the module documentation is the
-argument for why nothing here refuses on it.</p>
+verifying, so while refresh is unavailable this number bounds nothing and the declared
+<code>key_set_max_stale_seconds</code> is what bounds it - see the module documentation.</p>
 <h3 id="use-min_refetch_interval"><code>use MIN_REFETCH_INTERVAL</code><a class="headerlink" href="#use-min_refetch_interval" title="Permanent link">&para;</a></h3>
 <p>How long after one attempt to reach the source another may be made.</p>
 <p><strong>The rate limit the architecture decision asks for</strong>, as a constant rather than a configuration key. It is
@@ -4411,8 +4410,8 @@ forged key id.</p>
 <h3 id="use-refreshed"><code>use Refreshed</code><a class="headerlink" href="#use-refreshed" title="Permanent link">&para;</a></h3>
 <p>What one look at the source did.</p>
 <p>Close to the outcomes <code>crate::tls::Renewed</code> has, and for the same reasons: a candidate that was
-examined and rejected is recorded as examined, so identical bytes on the next tick are silent
-rather than logging a rejection once per interval forever.</p>
+examined and rejected is recorded as examined, so identical bytes on the next look are
+<code>Self::Unchanged</code> rather than a second rejection.</p>
 <h3 id="use-urlkeyset"><code>use UrlKeySet</code><a class="headerlink" href="#use-urlkeyset" title="Permanent link">&para;</a></h3>
 <p>A JWK set at an <code>https</code> URL.</p>
 <h3 id="use-max_token_bytes"><code>use MAX_TOKEN_BYTES</code><a class="headerlink" href="#use-max_token_bytes" title="Permanent link">&para;</a></h3>
@@ -4665,7 +4664,8 @@ other request, because RFC 9728 section 3.3 requires a client to discard mismatc
 gateway assertion is minted by the component, not by an authorization server a client can use, so
 that mode offers no Bearer challenge - wherever the assertion arrives.</p>
 <p>An unknown key id while the key source is down is <code>503 identity_unavailable</code> instead, with no
-challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+challenge: the token may be fine, and the outage is this deployment's. So is any token once no look
+has confirmed the key set for the declared <code>key_set_max_stale_seconds</code>, and a new assertion while
 the store of seen assertions is full, where single use is declared.</p>
 <p>What the response does <strong>not</strong> say is which check failed. The log says - through the <code>#[source]</code>
 chain on <code>TokenRejected</code> - and the caller does not, because "the signature verified and the
@@ -4847,30 +4847,24 @@ Three different things bound three different growths:</p>
 </tr>
 </tbody>
 </table>
-<h1 id="the-revocation-bound-excludes-a-failing-refresh-and-there-is-no-freshness-ceiling">The revocation bound EXCLUDES a failing refresh, and there is no freshness ceiling<a class="headerlink" href="#the-revocation-bound-excludes-a-failing-refresh-and-there-is-no-freshness-ceiling" title="Permanent link">&para;</a></h1>
+<h1 id="a-failing-refresh-keeps-verifying-up-to-a-declared-ceiling-and-not-past-it">A failing refresh keeps verifying up to a declared ceiling, and not past it<a class="headerlink" href="#a-failing-refresh-keeps-verifying-up-to-a-declared-ceiling-and-not-past-it" title="Permanent link">&para;</a></h1>
 <p><code>MAX_KEY_SET_AGE</code> bounds revocation <em>while the source answers with a document this deployment
-can use</em>. It does not bound it while refresh is failing: an unreadable source and a rejected
-document both leave the previous keys verifying, and <code>KeySetCache::reserve</code> stamps the
-<strong>attempt</strong> - which is what the rate limit needs and says nothing about freshness. So a source
-that stays unreadable, or that holds a document this deployment will not adopt, retains the
-cached signing keys for as long as it stays that way.</p>
-<p><strong>What that permits, and what it does not.</strong> It permits continued trust in signing keys an
-earlier refresh established. It bypasses nothing else: a token still has to carry a signature one
-of those keys verifies, and still has to be inside its own expiry.</p>
-<p><strong>The measurement is here and there is no ceiling on it.</strong> <code>Cached::last_success</code> and
-<code>KeySetCache::stale_for</code> are the instant a look last came back with a usable document, which is
-the number a freshness ceiling would have to be compared against - deliberately not the last
-attempt. Nothing refuses on it, because refusing is an availability-breaking policy - a sidecar
-part-way through rewriting a mounted file would take a deployment's whole authentication down
-with it - and no record in this repository has decided that a deployment should degrade that way
-rather than keep verifying. So the bound and its limit, in one sentence: <strong>a removed key stops
-verifying within <code>MAX_KEY_SET_AGE</code> plus one read while refresh works - plus the rotated-out
-grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
-while it does not</strong> - the staleness is reported as <code>stale_for_ms</code> on a <code>WARN</code> for every look whose
-read fails and returns to its caller and on an <code>ERROR</code> for a look that reads a refused document
-differing from the last one read (a look that reads the same bytes again is <code>Unchanged</code> and logs
-nothing, as does a look whose caller left or whose read has not returned), and refused on by
-nothing.</p>
+can use</em>. An unreadable source and a refused document both leave the previous keys verifying, and
+<code>KeySetCache::reserve</code> stamps the <strong>attempt</strong>, which says nothing about freshness. So the
+declared <code>security.inbound.key_set_max_stale_seconds</code> is compared against <code>Cached::last_success</code>,
+when a look last came back with a usable document and never the last attempt: past it no held
+key verifies, known <code>kid</code> or unknown, until a look succeeds, and the answer is
+<code>KeyUnavailable::Unconfirmed</code> - <code>503 identity_unavailable</code> at the gate. A look that returns to its
+caller without confirming the keys logs <code>stale_for_ms</code> beside <code>max_stale_ms</code>, so an operator can
+alert before it: a <code>WARN</code> when its read fails, an <code>ERROR</code> when it reads a refused document, the
+same refused bytes read again included. A look whose caller left, or whose read has not returned,
+logs nothing.</p>
+<p>The bound, whole: <strong>a removed key stops verifying within <code>MAX_KEY_SET_AGE</code> plus one read while
+refresh works - plus the rotated-out grace behind a gateway, the lifetime ceiling and the
+clock-skew leeway - and within the declared ceiling while it does not.</strong> Its limits: it measures
+the last usable read and not whether the source is current, so a file a sidecar stopped updating
+never trips it; it is per process and on the monotonic clock, which a suspend does not advance; and
+past it every caller of this process is refused until the source answers.</p>
 <h1 id="what-a-key-set-is-read-from">What a key set is read from<a class="headerlink" href="#what-a-key-set-is-read-from" title="Permanent link">&para;</a></h1>
 <p><code>FileKeySet</code> or <code>UrlKeySet</code>, behind <code>KeySetSource</code>, which hands back the document's
 <strong>bytes</strong>. A file is how a process with no egress rotates; a URL makes the issuer a runtime
@@ -5012,7 +5006,8 @@ either a rotation this deployment has not caught up with or a caller guessing.</
   unauthenticated, which is true, and the retry window is on the log line rather than in the
   response - a caller does not need to know when this deployment will next talk to its issuer.
 - <code>UnknownKeyId</code> - The id is not in the set after a fresh read.
-- <code>SourceUnavailable</code> - The id is not in the set and the last look at the source failed: an outage to retry, not a bad token. The cause is that look's, shared by every caller refused until the next one.</p>
+- <code>SourceUnavailable</code> - The id is not in the set and the last look at the source failed: an outage to retry, not a bad token. The cause is that look's, shared by every caller refused until the next one.
+- <code>Unconfirmed</code> - No look has confirmed the key set for the declared ceiling, so no held key verifies - an outage to retry, like <code>Self::SourceUnavailable</code>, and not a bad token.</p>
 <h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-refreshed"><code>enum Refreshed</code><a class="headerlink" href="#enum-refreshed" title="Permanent link">&para;</a></h4>
@@ -5020,8 +5015,8 @@ either a rotation this deployment has not caught up with or a caller guessing.</
 </span></code></pre></div>
 <p>What one look at the source did.</p>
 <p>Close to the outcomes <code>crate::tls::Renewed</code> has, and for the same reasons: a candidate that was
-examined and rejected is recorded as examined, so identical bytes on the next tick are silent
-rather than logging a rejection once per interval forever.</p>
+examined and rejected is recorded as examined, so identical bytes on the next look are
+<code>Self::Unchanged</code> rather than a second rejection.</p>
 <h5 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Unchanged</code> - The document is byte-for-byte the one the last look examined.</li>
@@ -5067,8 +5062,8 @@ not wait. It answers from whatever is cached, which during a rotation may be an
 <code>KeyUnavailable::UnknownKeyId</code> for a key the winner is about to install, or - on the age path -
 one more use of a key the winner is about to remove. So revocation is bounded by
 <code>MAX_KEY_SET_AGE</code> plus the duration of one source read <strong>while the source keeps answering
-with a usable document, and by nothing while refresh is failing</strong> - see the module
-documentation for what that permits and for why there is no ceiling. A rotation can
+with a usable document, and by the declared ceiling while refresh is failing</strong> - past it both
+fast paths fall through and <code>Self::after_look</code> refuses. A rotation can
 cost a concurrent caller one <code>401</code> it can retry. Making it wait instead would put N request
 tasks behind one file read, which is the primitive this whole file is arranged against.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">poll_once</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">now</span><span class="p">:</span><span class="w"> </span><span class="nc">Instant</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Refreshed</span>
@@ -5098,11 +5093,9 @@ holds no key of the pinned family - see <code>InvalidKeySet::NoKeyOfThePinnedFam
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">stale_for</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">now</span><span class="p">:</span><span class="w"> </span><span class="nc">Instant</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>How long since a look at the source last came back with a document this deployment could use.</p>
-<p><strong>A measurement and not a policy</strong>: nothing here refuses on it, and the module documentation
-states the bound and its limit together. It is the number a freshness ceiling
-would be compared against, and it is deliberately not the last <em>attempt</em> - a reservation
-stamps the attempt before the read, so a source that has failed every time for an hour
-reports an attempt one window old and a success an hour old.</p>
+<p>The number the declared ceiling is compared against, and deliberately not the last <em>attempt</em> -
+a reservation stamps the attempt before the read, so a source that has failed every time for an
+hour reports an attempt one window old and a success an hour old.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">watch_until_shutdown</span><span class="p">(</span><span class="n">cache</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Arc</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">interval</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Polls on an interval until shutdown is asked for.</p>
@@ -5169,9 +5162,8 @@ minute per process, which is the same order as
 <code>crate::middleware::REAP_INTERVAL</code> and is nothing next to a signature verification.</p>
 <p><strong>What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
 it is that one.</strong> A read that fails and a document that is rejected both keep the previous keys
-verifying, so while refresh is unavailable this number bounds nothing.
-<code>KeySetCache::stale_for</code> is the measurement of that case; the module documentation is the
-argument for why nothing here refuses on it.</p>
+verifying, so while refresh is unavailable this number bounds nothing and the declared
+<code>key_set_max_stale_seconds</code> is what bounds it - see the module documentation.</p>
 <h3 id="module-token">Module <code>token</code><a class="headerlink" href="#module-token" title="Permanent link">&para;</a></h3>
 <p>Verifying one token, and turning its claims into a principal chain.</p>
 <h1 id="the-check-review-found-missing-and-it-is-the-serious-one">The check review found missing, and it is the serious one<a class="headerlink" href="#the-check-review-found-missing-and-it-is-the-serious-one" title="Permanent link">&para;</a></h1>

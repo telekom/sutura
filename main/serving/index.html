@@ -4008,6 +4008,10 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Use a value in range, or accept the long lifetime by name</td>
 </tr>
 <tr>
+<td><code>security.inbound.key_set_max_stale_seconds</code> outside 300 to 86400</td>
+<td>Use a value in range</td>
+</tr>
+<tr>
 <td><code>security.inbound.token_type: any</code> in <code>direct</code> without <code>accept_any_token_type: true</code></td>
 <td>Keep the default <code>at+jwt</code>, or accept <code>any</code> by name</td>
 </tr>
@@ -4098,7 +4102,8 @@ no default mode:</p>
 refused request gets <code>401</code> with a <code>WWW-Authenticate: Bearer</code> challenge. sutura does not say which check failed. A
 token with an unknown <code>kid</code> while the last look at the key set failed to read it gets <code>503 identity_unavailable</code> with
 no challenge. A key set that sutura reads and refuses is <code>401</code>. An unknown <code>kid</code> less than 30 seconds after a
-look that read the key set is <code>401</code> too, because sutura does not look again so soon.
+look that read the key set is <code>401</code> too, because sutura does not look again so soon. When no look has read a usable
+key set for <code>key_set_max_stale_seconds</code>, every token gets <code>503 identity_unavailable</code> with no challenge.
 <a href="../serving-behind-a-gateway/">Serving behind a gateway</a> covers a gateway that signs into <code>Authorization</code>.</p>
 <p>The <code>scope</code> claim of the token decides which operations the caller can use:</p>
 <table>

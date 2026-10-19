@@ -3809,6 +3809,12 @@ authenticates the deployment, and every question runs with the access of the dep
 <td>The <code>jwks_uri</code> of the identity provider, instead of <code>key_set_file</code></td>
 </tr>
 <tr>
+<td><code>key_set_max_stale_seconds</code></td>
+<td>integer</td>
+<td><code>3600</code></td>
+<td>How long the keys verify after the last look that read a usable key set, 300 to 86400</td>
+</tr>
+<tr>
 <td><code>algorithms</code></td>
 <td>list</td>
 <td>required</td>
@@ -3883,6 +3889,12 @@ authenticates the deployment, and every question runs with the access of the dep
 <td>The JWK set URL of the gateway, instead of <code>key_set_file</code></td>
 </tr>
 <tr>
+<td><code>key_set_max_stale_seconds</code></td>
+<td>integer</td>
+<td><code>3600</code></td>
+<td>As for <code>direct</code></td>
+</tr>
+<tr>
 <td><code>algorithms</code></td>
 <td>list</td>
 <td>required</td>
@@ -3939,6 +3951,11 @@ If the last look at the file or the URL failed to read it and a token names an u
 answer is <code>503 identity_unavailable</code> with no challenge, and the keys sutura already has keep
 verifying. A document sutura reads and refuses is <code>401</code>. An unknown <code>kid</code> less than 30 seconds after
 a look that read the source is <code>401</code> too, because sutura does not look again so soon.</p>
+<p>The keys verify for at most <code>key_set_max_stale_seconds</code> after the last look that read a usable key
+set. After that, every token gets <code>503 identity_unavailable</code> with no challenge, whatever its <code>kid</code>,
+until a look reads a usable key set again. This is the same for a source that cannot be read and
+for a document sutura refuses. Each look that finishes without a usable key set logs <code>stale_for_ms</code>
+and <code>max_stale_ms</code>, so you can alert before the limit.</p>
 <p>The file is a JWK set, or one PEM key: a single <code>PUBLIC KEY</code> block, or a certificate followed by its
 chain. A file that starts with <code>-----BEGIN</code> is read as PEM. Only the first certificate is a key,
 and its validity period is not checked. The key id of a PEM key is its RFC 7638 SHA-256 thumbprint,

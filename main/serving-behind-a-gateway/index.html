@@ -3698,7 +3698,9 @@ sutura refuses each request after the first. Before you set it, make sure that y
 <li>Do not add a key that is not a signing key of the gateway.</li>
 </ul>
 <p>sutura reads <code>key_set_file</code> again 60 seconds after its last read, and when an assertion names an unknown <code>kid</code>, at most
-once every 30 seconds. It keeps the last key set that loaded when the new file does not load.</p>
+once every 30 seconds. It keeps the last key set that loaded when the new file does not load, for at most
+<code>key_set_max_stale_seconds</code> (3600 by default) after the last read of a usable key set. After that, every assertion gets
+<code>503 identity_unavailable</code> until a read of the file gives a usable key set.</p>
 <p>The key set can also be one PEM public key or certificate, such as the <code>tls.crt</code> that cert-manager writes. The key id
 is the RFC 7638 SHA-256 thumbprint of the key, so the gateway puts that thumbprint in the <code>kid</code> of each assertion it
 signs with that key. A PEM file holds one key, so it cannot hold the old key and the new key at the same time.</p>
