@@ -31,7 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::inbound::{ExtraScopeClaims, TokenAudience};
+use crate::inbound::{ExtraScopeClaims, KeySetMaxStale, TokenAudience};
 
 /// The longest identifier, issuer or header name accepted.
 ///
@@ -137,6 +137,12 @@ pub enum InvalidInboundValue {
         key = ProofLifetime::KEY
     )]
     LifetimeOutOfRange { found: u64, limit: u64 },
+    #[error(
+        "{key} is {found} seconds, and the ceiling is between {min} and {max}. Below {min} a few failed reads \
+         refuse every caller; above {max} it is not a ceiling",
+        key = KeySetMaxStale::KEY
+    )]
+    KeySetMaxStaleOutOfRange { found: u64, min: u64, max: u64 },
     /// A value written as a path that is not an absolute one: a second leading `/`, which a URL
     /// reader takes for an authority, or an incomplete percent escape.
     #[error("{key} written as a path starts with exactly one `/` and holds complete percent escapes")]
@@ -185,7 +191,10 @@ pub struct IssuerUrl(String);
 /// cache, both re-read triggers and the rate limit are the same whatever the source - see
 /// `sutura_http::inbound::keys`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeySetFile(PathBuf);
+pub struct KeySetFile {
+    path: PathBuf,
+    max_stale: KeySetMaxStale,
+}
 
 /// The header a transit proof arrives in.
 ///
@@ -731,19 +740,30 @@ impl KeySetFile {
                 limit: MAX_LENGTH,
             });
         }
-        Ok(Self(PathBuf::from(trimmed)))
+        Ok(Self {
+            path: PathBuf::from(trimmed),
+            max_stale: KeySetMaxStale::default_ceiling(),
+        })
     }
 
     #[inline]
     #[must_use]
     pub fn path(&self) -> &Path {
-        &self.0
+        &self.path
+    }
+
+    pub(super) const fn max_stale(&self) -> KeySetMaxStale {
+        self.max_stale
+    }
+
+    pub(super) const fn set_max_stale(&mut self, max_stale: KeySetMaxStale) {
+        self.max_stale = max_stale;
     }
 }
 
 impl core::fmt::Display for KeySetFile {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0.display())
+        write!(f, "{}", self.path.display())
     }
 }
 

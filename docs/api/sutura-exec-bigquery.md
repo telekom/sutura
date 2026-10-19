@@ -102,7 +102,7 @@ equivalent either, so there is nothing to build it out of.
 `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing to a
 request (`within_the_lifetime_ceiling`'s own doc), so inside that window a captured assertion is
 replayable - and Google would accept it, because it is the caller's real document. And the
-signing-key age bound `KeySetCache::stale_for` measures excludes a failing refresh. Neither is
+signing-key age bound excludes a failing refresh, which only `key_set_max_stale_seconds` bounds. Neither is
 this crate's to fix; both are cited here because *the limit belongs beside the claim*.
 
 # Two things this adapter deliberately does not offer

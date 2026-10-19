@@ -1242,9 +1242,8 @@ minute per process, which is the same order as
 
 **What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
 it is that one.** A read that fails and a document that is rejected both keep the previous keys
-verifying, so while refresh is unavailable this number bounds nothing.
-`KeySetCache::stale_for` is the measurement of that case; the module documentation is the
-argument for why nothing here refuses on it.
+verifying, so while refresh is unavailable this number bounds nothing and the declared
+`key_set_max_stale_seconds` is what bounds it - see the module documentation.
 
 ### `use MIN_REFETCH_INTERVAL`
 
@@ -1265,8 +1264,8 @@ Why a string is not a key identifier.
 What one look at the source did.
 
 Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
-examined and rejected is recorded as examined, so identical bytes on the next tick are silent
-rather than logging a rejection once per interval forever.
+examined and rejected is recorded as examined, so identical bytes on the next look are
+`Self::Unchanged` rather than a second rejection.
 
 ### `use UrlKeySet`
 
@@ -1651,7 +1650,8 @@ gateway assertion is minted by the component, not by an authorization server a c
 that mode offers no Bearer challenge - wherever the assertion arrives.
 
 An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
-challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+challenge: the token may be fine, and the outage is this deployment's. So is any token once no look
+has confirmed the key set for the declared `key_set_max_stale_seconds`, and a new assertion while
 the store of seen assertions is full, where single use is declared.
 
 What the response does **not** say is which check failed. The log says - through the `#[source]`
@@ -1864,33 +1864,26 @@ Three different things bound three different growths:
 | how many looks start | one per window by `Cached::last_attempt`, and none while an `InFlight` exists - both decided in the acquisition that reserves | a read whose awaiter left keeps its pool thread until the source answers; nothing installs what it returns |
 | how long a caller waits for one | the deployment's own request timeout | nothing here: a second deadline beside a documented one is the defect, not the fix |
 
-# The revocation bound EXCLUDES a failing refresh, and there is no freshness ceiling
+# A failing refresh keeps verifying up to a declared ceiling, and not past it
 
 `MAX_KEY_SET_AGE` bounds revocation *while the source answers with a document this deployment
-can use*. It does not bound it while refresh is failing: an unreadable source and a rejected
-document both leave the previous keys verifying, and `KeySetCache::reserve` stamps the
-**attempt** - which is what the rate limit needs and says nothing about freshness. So a source
-that stays unreadable, or that holds a document this deployment will not adopt, retains the
-cached signing keys for as long as it stays that way.
+can use*. An unreadable source and a refused document both leave the previous keys verifying, and
+`KeySetCache::reserve` stamps the **attempt**, which says nothing about freshness. So the
+declared `security.inbound.key_set_max_stale_seconds` is compared against `Cached::last_success`,
+when a look last came back with a usable document and never the last attempt: past it no held
+key verifies, known `kid` or unknown, until a look succeeds, and the answer is
+`KeyUnavailable::Unconfirmed` - `503 identity_unavailable` at the gate. A look that returns to its
+caller without confirming the keys logs `stale_for_ms` beside `max_stale_ms`, so an operator can
+alert before it: a `WARN` when its read fails, an `ERROR` when it reads a refused document, the
+same refused bytes read again included. A look whose caller left, or whose read has not returned,
+logs nothing.
 
-**What that permits, and what it does not.** It permits continued trust in signing keys an
-earlier refresh established. It bypasses nothing else: a token still has to carry a signature one
-of those keys verifies, and still has to be inside its own expiry.
-
-**The measurement is here and there is no ceiling on it.** `Cached::last_success` and
-`KeySetCache::stale_for` are the instant a look last came back with a usable document, which is
-the number a freshness ceiling would have to be compared against - deliberately not the last
-attempt. Nothing refuses on it, because refusing is an availability-breaking policy - a sidecar
-part-way through rewriting a mounted file would take a deployment's whole authentication down
-with it - and no record in this repository has decided that a deployment should degrade that way
-rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
-verifying within `MAX_KEY_SET_AGE` plus one read while refresh works - plus the rotated-out
-grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
-while it does not** - the staleness is reported as `stale_for_ms` on a `WARN` for every look whose
-read fails and returns to its caller and on an `ERROR` for a look that reads a refused document
-differing from the last one read (a look that reads the same bytes again is `Unchanged` and logs
-nothing, as does a look whose caller left or whose read has not returned), and refused on by
-nothing.
+The bound, whole: **a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while
+refresh works - plus the rotated-out grace behind a gateway, the lifetime ceiling and the
+clock-skew leeway - and within the declared ceiling while it does not.** Its limits: it measures
+the last usable read and not whether the source is current, so a file a sidecar stopped updating
+never trips it; it is per process and on the monotonic clock, which a suspend does not advance; and
+past it every caller of this process is refused until the source answers.
 
 # What a key set is read from
 
@@ -2099,6 +2092,7 @@ either a rotation this deployment has not caught up with or a caller guessing.
   response - a caller does not need to know when this deployment will next talk to its issuer.
 - `UnknownKeyId` - The id is not in the set after a fresh read.
 - `SourceUnavailable` - The id is not in the set and the last look at the source failed: an outage to retry, not a bad token. The cause is that look's, shared by every caller refused until the next one.
+- `Unconfirmed` - No look has confirmed the key set for the declared ceiling, so no held key verifies - an outage to retry, like `Self::SourceUnavailable`, and not a bad token.
 
 ##### Implements
 
@@ -2113,8 +2107,8 @@ pub enum Refreshed
 What one look at the source did.
 
 Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
-examined and rejected is recorded as examined, so identical bytes on the next tick are silent
-rather than logging a rejection once per interval forever.
+examined and rejected is recorded as examined, so identical bytes on the next look are
+`Self::Unchanged` rather than a second rejection.
 
 ##### Variants
 
@@ -2180,8 +2174,8 @@ not wait. It answers from whatever is cached, which during a rotation may be an
 `KeyUnavailable::UnknownKeyId` for a key the winner is about to install, or - on the age path -
 one more use of a key the winner is about to remove. So revocation is bounded by
 `MAX_KEY_SET_AGE` plus the duration of one source read **while the source keeps answering
-with a usable document, and by nothing while refresh is failing** - see the module
-documentation for what that permits and for why there is no ceiling. A rotation can
+with a usable document, and by the declared ceiling while refresh is failing** - past it both
+fast paths fall through and `Self::after_look` refuses. A rotation can
 cost a concurrent caller one `401` it can retry. Making it wait instead would put N request
 tasks behind one file read, which is the primitive this whole file is arranged against.
 
@@ -2225,11 +2219,9 @@ pub async fn stale_for(&self, now: Instant) -> Duration
 
 How long since a look at the source last came back with a document this deployment could use.
 
-**A measurement and not a policy**: nothing here refuses on it, and the module documentation
-states the bound and its limit together. It is the number a freshness ceiling
-would be compared against, and it is deliberately not the last *attempt* - a reservation
-stamps the attempt before the read, so a source that has failed every time for an hour
-reports an attempt one window old and a success an hour old.
+The number the declared ceiling is compared against, and deliberately not the last *attempt* -
+a reservation stamps the attempt before the read, so a source that has failed every time for an
+hour reports an attempt one window old and a success an hour old.
 
 ```rust
 pub fn watch_until_shutdown(cache: &Arc<Self>, interval: Duration, shutdown: Shutdown)
@@ -2330,9 +2322,8 @@ minute per process, which is the same order as
 
 **What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
 it is that one.** A read that fails and a document that is rejected both keep the previous keys
-verifying, so while refresh is unavailable this number bounds nothing.
-`KeySetCache::stale_for` is the measurement of that case; the module documentation is the
-argument for why nothing here refuses on it.
+verifying, so while refresh is unavailable this number bounds nothing and the declared
+`key_set_max_stale_seconds` is what bounds it - see the module documentation.
 
 ### Module `token`
 

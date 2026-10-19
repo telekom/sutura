@@ -110,6 +110,9 @@ security:
   #       authorization_server: "https://issuer.example.com"  # the `iss` VALUE, exactly
   #       key_set_file: "/etc/sutura/keys/jwks.json"       # a JWK set, or one PEM key
   #       # key_set_url: "https://issuer.example.com/jwks"  # or the issuer's `jwks_uri`, instead of the file
+  #       # Optional, both modes; 3600 by default, 300 to 86400. Past this long since a look last read
+  #       # a usable key set, no key verifies and every caller gets `503 identity_unavailable`.
+  #       # key_set_max_stale_seconds: 3600
   #       algorithms: ["RS256"]         # pinned. `none` and every `HS*` are refused at startup
   #       # token_type is OPTIONAL and defaults to RFC 9068's `at+jwt`. Leaving it out is the safe
   #       # reading: without a class check, ANY JWT this issuer signed for this audience verifies -

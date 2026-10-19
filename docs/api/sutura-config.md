@@ -419,6 +419,15 @@ Where the signing keys are read from.
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
 
+## `use KeySetMaxStale`
+
+How long after a look last came back with a usable document the held keys keep verifying.
+
+Past it no held key verifies - known or unknown `kid`, an unreadable source or a refused
+document alike - until a look succeeds. That bounds how long a revoked key verifies while
+refresh fails, at the cost of answering every caller `503` past it. No off switch: a switch for a
+security bound only ever gets set wrong, and `Self::MAX_SECONDS` is the loosest value there is.
+
 ## `use KeySetUrl`
 
 The `https` URL a `KeySetLocation::Url` key set is fetched from.
@@ -3321,6 +3330,15 @@ Where the signing keys are read from.
 **An enum, so a second source arrives as a variant every reader has to match** rather than as a
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
+
+### `use KeySetMaxStale`
+
+How long after a look last came back with a usable document the held keys keep verifying.
+
+Past it no held key verifies - known or unknown `kid`, an unreadable source or a refused
+document alike - until a look succeeds. That bounds how long a revoked key verifies while
+refresh fails, at the cost of answering every caller `503` past it. No off switch: a switch for a
+security bound only ever gets set wrong, and `Self::MAX_SECONDS` is the loosest value there is.
 
 ### `use KeySetUrl`
 
