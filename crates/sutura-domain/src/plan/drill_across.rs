@@ -7,16 +7,19 @@
 //! aggregated on its own, so no leg reads two fact tables and the chasm trap stays impossible.
 //!
 //! **What this type holds, and what it does not.** It holds the arms and refuses a set of arms that
-//! cannot be joined: two arms whose keys or bucket differ, one metric twice, an arm carrying a `top`
-//! (a `top` names no metric to rank by), or more legs than [`MAX_LEGS`]. It names no join and no
-//! engine; the combine is a port's concern. Nothing builds this plan yet, so no question reaches it.
+//! cannot be joined: two arms whose keys, bucket or time range differ, one metric twice, an arm
+//! carrying a `top`, or more legs than [`MAX_LEGS`]. A `top` cuts its arm before the join, so every
+//! other arm would answer a null that reads as "no rows"; a `top` for the whole question, for example
+//! by period after the join, is not built here. The plan names no join and no engine; the combine is
+//! a port's concern. Nothing builds this plan yet, so no question reaches it.
 //!
 //! **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
-//! memory a question can hold grows with its leg count. [`MAX_LEGS`] bounds it at construction, and
-//! the splitter reads the same constant to name the refusal a caller sees.
+//! memory a question can hold grows with its leg count. [`MAX_LEGS`] bounds it at construction. The
+//! refusal a caller sees comes with the planner, which does not read the cap yet.
 //!
 //! `docs/adr/20261018144926-drill-across-for-several-metrics` records the decision and its limits.
 
+use crate::calendar::TimeRange;
 use crate::federation::Federation;
 use crate::model::{Grain, MetricName, SourceName};
 use crate::nonempty::NonEmpty;
@@ -40,9 +43,10 @@ pub enum Arm {
 
 /// A metric answered by one fact leg, which no lookup leg joins.
 ///
-/// The leg is grouped by the answer's keys and the bucket, so its rows are unique on them. Its
-/// metric, bucket and measure label are read off the leg and the metric rather than passed beside
-/// them, so no argument can disagree with the leg.
+/// Each answer key, and each distinct count's leaf key, is on the leg. The leg can group by more
+/// keys, so the combine aggregates it to the answer's keys and bucket. Its metric, bucket and
+/// measure label are read off the leg and the metric rather than passed beside them, so no argument
+/// can disagree with the leg.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LocalArm {
     metric: MetricName,
@@ -174,10 +178,11 @@ impl Arm {
     }
 }
 
-/// Two or more [`Arm`]s that share one set of keys and one bucket grain.
+/// Two or more [`Arm`]s that share one set of keys, one bucket grain and one time range.
 ///
-/// The keys and the bucket are the first arm's, and every later arm is checked against them, so the
-/// plan holds no copy that could disagree with an arm. Each arm's time column may differ: only the
+/// The keys, the bucket and the range are the first arm's, and every later arm is checked against
+/// them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
+/// would leave the full join a null for a period it never read, which the answer reads as "no rows". Each arm's time column may differ: only the
 /// label and grain must agree, and what an Arrow kind mismatch between two buckets means is the
 /// combiner's to refuse.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -194,7 +199,7 @@ impl DrillAcrossPlan {
     /// # Errors
     ///
     /// [`DrillAcrossPlanError`] for one metric in two arms, an arm carrying a `top`, an arm whose
-    /// keys or bucket differ from the first arm's, or more than [`MAX_LEGS`] legs.
+    /// keys, bucket or time range differ from the first arm's, or more than [`MAX_LEGS`] legs.
     pub fn new(first: Arm, second: Arm, rest: Vec<Arm>) -> Result<Self, DrillAcrossPlanError> {
         let every = || [&first, &second].into_iter().chain(&rest);
         let legs: usize = every().map(|arm| arm.legs().len()).sum();
@@ -202,6 +207,7 @@ impl DrillAcrossPlan {
             return Err(DrillAcrossPlanError::TooManyLegs { legs, limit: MAX_LEGS });
         }
         let (keys, bucket) = (first.keys(), first.bucket());
+        let range = ranges(&first).next();
         for (index, arm) in every().enumerate() {
             let metric = arm.metric();
             if let Arm::Joined(plan) = arm
@@ -217,6 +223,9 @@ impl DrillAcrossPlan {
             }
             if (arm.bucket().label(), arm.bucket().grain()) != (bucket.label(), bucket.grain()) {
                 return Err(DrillAcrossPlanError::BucketDiffers { metric: metric.clone() });
+            }
+            if ranges(arm).any(|leg_range| Some(leg_range) != range) {
+                return Err(DrillAcrossPlanError::RangeDiffers { metric: metric.clone() });
             }
         }
         let mut tail = vec![second];
@@ -258,6 +267,14 @@ impl DrillAcrossPlan {
     }
 }
 
+/// The time range of every fact leg of `arm`.
+fn ranges(arm: &Arm) -> impl Iterator<Item = &TimeRange> {
+    arm.legs().into_iter().filter_map(|leg| match leg {
+        LegPlan::Fact { range, .. } => Some(range),
+        LegPlan::Lookup { .. } => None,
+    })
+}
+
 /// Why a drill-across plan, or one of its arms, could not be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DrillAcrossPlanError {
@@ -270,8 +287,9 @@ pub enum DrillAcrossPlanError {
     /// A local arm's terms are not its federation's leaves.
     #[error("the leg of `{metric}` carries terms that do not match its federation")]
     TermsDoNotMatchFederation { metric: MetricName },
-    /// A joined arm carries a `top`, which a drill-across question refuses: it names no metric to rank by.
-    #[error("the arm of `{metric}` carries a top, which a question over several metrics never ranks by")]
+    /// A joined arm carries a `top`, which a drill-across question refuses: it cuts that arm before
+    /// the join, so the other arms answer a null that reads as "no rows".
+    #[error("the arm of `{metric}` carries a top, which cuts that arm before the join and leaves a null in the other arms")]
     ArmCarriesTop { metric: MetricName },
     /// One metric is measured by two arms, which would emit one measure column twice.
     #[error("`{metric}` is measured by more than one arm")]
@@ -282,6 +300,9 @@ pub enum DrillAcrossPlanError {
     /// An arm buckets by another label or grain than the first arm.
     #[error("the arm of `{metric}` buckets by another label or grain than the first arm")]
     BucketDiffers { metric: MetricName },
+    /// A fact leg reads another time range than the first arm's.
+    #[error("a fact leg of `{metric}` reads another time range than the first arm")]
+    RangeDiffers { metric: MetricName },
     /// The arms run more legs than one question may hold.
     #[error("the arms run {legs} legs, and a question may run at most {limit}")]
     TooManyLegs { legs: usize, limit: usize },
@@ -383,6 +404,18 @@ mod tests {
         }
     }
 
+    /// `leg` with its time range replaced.
+    fn ranged(mut leg: LegPlan, start: &str, end: &str) -> LegPlan {
+        if let LegPlan::Fact { range: leg_range, .. } = &mut leg {
+            *leg_range = TimeRange::new(
+                Date::parse(start).expect("a test start"),
+                Date::parse(end).expect("a test end"),
+            )
+            .expect("a test range");
+        }
+        leg
+    }
+
     fn link() -> PlanKey {
         key(ResultLabel::internal(InternalLabel::Link), "customer_key")
     }
@@ -448,6 +481,36 @@ mod tests {
         Arm::Local(Box::new(local_arm(name)))
     }
 
+    /// A metric reaching `region` through a second fact leg: both facts group by the link only, so
+    /// the answer's one key is the lookup's.
+    fn joined_over_two_facts(name: &str, second_start: &str, second_end: &str) -> Arm {
+        let federation = sum("amount");
+        let lookup = LegPlan::Lookup {
+            source: source("geo"),
+            table: table("dim_region").into(),
+            keys: vec![link(), key(dimension_label("region"), "region")],
+            bindings: PlanBindings::none(),
+        };
+        let second = ranged(
+            fact_leg(name, Grain::Month, vec![link()], Vec::new()),
+            second_start,
+            second_end,
+        );
+        let plan = FederatedPlan::new(
+            metric(name),
+            ResultLabel::measure(&metric(name)),
+            bucket(Grain::Month),
+            fact_leg(name, Grain::Month, vec![link()], terms_for(&federation)),
+            Some(second),
+            lookup,
+            true,
+            federation,
+            vec![AnswerKey::lookup(dimension_label("region"))],
+        )
+        .expect("two facts beside a lookup leg are a federated plan");
+        Arm::Joined(Box::new(plan))
+    }
+
     fn top() -> Top {
         Top::new(
             TopN::parse(3).expect("three is a row count"),
@@ -464,6 +527,10 @@ mod tests {
         assert_eq!(plan.bucket_label(), ResultLabel::bucket().as_str());
         assert_eq!(plan.grain(), Grain::Month);
         assert_eq!(plan.legs().len(), 3);
+        assert_eq!(
+            plan.arms().iter().map(Arm::measure_label).collect::<Vec<_>>(),
+            ["revenue", "usage"]
+        );
         assert_eq!(
             plan.sources().map(SourceName::as_str).collect::<Vec<_>>(),
             ["facts", "geo", "facts"]
@@ -529,13 +596,79 @@ mod tests {
     }
 
     #[test]
-    fn a_joined_arm_carrying_a_top_does_not_construct() {
-        let Arm::Joined(ranked) = joined("revenue") else {
-            panic!("joined builds a joined arm");
-        };
-        let plan = DrillAcrossPlan::new(Arm::Joined(Box::new((*ranked).with_top(top()))), local("usage"), Vec::new());
+    fn an_arm_with_another_bucket_label_of_the_same_grain_does_not_construct() {
+        let federation = sum("amount");
+        let mut leg = local_leg("usage", Grain::Month, &federation);
+        if let LegPlan::Fact { bucket: relabelled, .. } = &mut leg {
+            *relabelled = PlanBucket::new(
+                dimension_label("quarter"),
+                Grain::Month,
+                PlanColumn::new(table(FACT), column("month")),
+            );
+        }
+        let arm = LocalArm::new(leg, federation, answer_keys()).expect("a local arm under another bucket label");
+        let plan = DrillAcrossPlan::new(joined("revenue"), Arm::Local(Box::new(arm)), Vec::new());
+        assert_eq!(plan, Err(DrillAcrossPlanError::BucketDiffers { metric: metric("usage") }));
+    }
+
+    #[test]
+    fn an_arm_over_another_time_range_does_not_construct() {
+        let federation = sum("amount");
+        let later = LocalArm::new(
+            ranged(local_leg("usage", Grain::Month, &federation), "2026-03-01", "2026-04-01"),
+            federation,
+            answer_keys(),
+        )
+        .expect("a local arm over a later range");
+        let plan = DrillAcrossPlan::new(joined("revenue"), Arm::Local(Box::new(later)), Vec::new());
+        assert_eq!(plan, Err(DrillAcrossPlanError::RangeDiffers { metric: metric("usage") }));
+        let federation = sum("amount");
+        let keyed = LocalArm::new(
+            fact_leg(
+                "usage",
+                Grain::Month,
+                vec![key(dimension_label("region"), "region")],
+                terms_for(&federation),
+            ),
+            federation,
+            vec![dimension_label("region")],
+        )
+        .expect("a local arm over the lookup's key");
+        let second_fact = DrillAcrossPlan::new(
+            joined_over_two_facts("revenue", "2026-03-01", "2026-04-01"),
+            Arm::Local(Box::new(keyed)),
+            Vec::new(),
+        );
         assert_eq!(
-            plan,
+            second_fact,
+            Err(DrillAcrossPlanError::RangeDiffers {
+                metric: metric("revenue")
+            })
+        );
+    }
+
+    #[test]
+    fn a_metric_named_by_the_second_and_the_third_arm_does_not_construct() {
+        let plan = DrillAcrossPlan::new(joined("a"), joined("b"), vec![local("b")]);
+        assert_eq!(plan, Err(DrillAcrossPlanError::DuplicateMetric { metric: metric("b") }));
+    }
+
+    #[test]
+    fn a_joined_arm_carrying_a_top_does_not_construct() {
+        let ranked = |name: &str| {
+            let Arm::Joined(plan) = joined(name) else {
+                panic!("joined builds a joined arm");
+            };
+            Arm::Joined(Box::new((*plan).with_top(top())))
+        };
+        assert_eq!(
+            DrillAcrossPlan::new(ranked("revenue"), local("usage"), Vec::new()),
+            Err(DrillAcrossPlanError::ArmCarriesTop {
+                metric: metric("revenue")
+            })
+        );
+        assert_eq!(
+            DrillAcrossPlan::new(local("usage"), ranked("revenue"), Vec::new()),
             Err(DrillAcrossPlanError::ArmCarriesTop {
                 metric: metric("revenue")
             })

@@ -27,11 +27,13 @@ Two metrics never share a `FROM`, so the chasm trap stays impossible, and no new
   null-safe on the keys, so a null key from two arms is one row. DataFusion and Arrow do the join,
   as they do every other combine. Each leg runs in its own source as the caller, as today.
 - **A metric with no rows in a merged group answers null.** "No rows" stays visible, and a ratio arm
-  cannot fail the answer by dividing an invented zero.
+  cannot fail the answer by dividing an invented zero. Inside one arm, `docs/adr/0002`'s empty-set
+  rule still applies to each leaf. Across arms, a metric with no rows in a merged group answers null.
 - **Two metrics share a dimension when it ends on the same model and column.** A declared type is
   not enough, and a replicated dimension (one copy per source) is not conformed by this rule.
 - **Each metric buckets by its own time column.** The grain and the label must agree. Two bucket
-  columns of different Arrow kinds are refused by the combine, never cast.
+  columns of different Arrow kinds are refused by the combine, never cast. Every fact leg reads the
+  same time range.
 - **A question may run at most six legs, over every arm.** A leg's result is held whole before the
   combine, so the held memory grows with the leg count. The cap is a property of the plan type.
 
@@ -45,7 +47,8 @@ a set of arms that cannot be joined, with a typed error each:
 | one metric in two arms                                    | one measure column would be emitted twice |
 | an arm with other keys, or the same keys in another order | the join columns would not line up        |
 | an arm with another bucket label or grain                 | the join would compare unlike periods     |
-| a joined arm carrying a `top`                             | a `top` names no metric to rank by        |
+| a fact leg over another time range                        | a period one arm never read would be null |
+| a joined arm carrying a `top`                             | it cuts one arm, so the others get a null |
 | more than `MAX_LEGS` (6) legs                             | bounds the memory the legs hold           |
 
 A local arm refuses a leg that is not a fact leg, terms that are not its federation's leaves, a leaf
@@ -58,6 +61,8 @@ on another model, and an answer key (or a distinct count's key) the leg does not
   is not a port, so the join arrives with the DataFusion combiner that implements it.
 - **No conformance check, and no `QuestionNeedsTooManyLegs` refusal.** The plan type holds the cap;
   the refusal text a caller sees comes with the planner.
+- **No `top` for the whole question.** A `top` on one arm is refused. A `top` for the whole question,
+  for example by period after the join, is not built here.
 - **No calendar per source.** A cross-model ratio whose calendar is on another source stays refused
   (`docs/adr/0002`). It is a separate decision with its own amendment.
 

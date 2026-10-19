@@ -7353,10 +7353,11 @@ One metric's share of a drill-across question.
 
 ### `use DrillAcrossPlan`
 
-Two or more `Arm`s that share one set of keys and one bucket grain.
+Two or more `Arm`s that share one set of keys, one bucket grain and one time range.
 
-The keys and the bucket are the first arm's, and every later arm is checked against them, so the
-plan holds no copy that could disagree with an arm. Each arm's time column may differ: only the
+The keys, the bucket and the range are the first arm's, and every later arm is checked against
+them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
+would leave the full join a null for a period it never read, which the answer reads as "no rows". Each arm's time column may differ: only the
 label and grain must agree, and what an Arrow kind mismatch between two buckets means is the
 combiner's to refuse.
 
@@ -7368,9 +7369,10 @@ Why a drill-across plan, or one of its arms, could not be built.
 
 A metric answered by one fact leg, which no lookup leg joins.
 
-The leg is grouped by the answer's keys and the bucket, so its rows are unique on them. Its
-metric, bucket and measure label are read off the leg and the metric rather than passed beside
-them, so no argument can disagree with the leg.
+Each answer key, and each distinct count's leaf key, is on the leg. The leg can group by more
+keys, so the combine aggregates it to the answer's keys and bucket. Its metric, bucket and
+measure label are read off the leg and the metric rather than passed beside them, so no argument
+can disagree with the leg.
 
 ### `use MAX_LEGS`
 
@@ -8300,13 +8302,15 @@ is an `Arm::Local`, one fact leg grouped by the answer's keys and the bucket. Ev
 aggregated on its own, so no leg reads two fact tables and the chasm trap stays impossible.
 
 **What this type holds, and what it does not.** It holds the arms and refuses a set of arms that
-cannot be joined: two arms whose keys or bucket differ, one metric twice, an arm carrying a `top`
-(a `top` names no metric to rank by), or more legs than `MAX_LEGS`. It names no join and no
-engine; the combine is a port's concern. Nothing builds this plan yet, so no question reaches it.
+cannot be joined: two arms whose keys, bucket or time range differ, one metric twice, an arm
+carrying a `top`, or more legs than `MAX_LEGS`. A `top` cuts its arm before the join, so every
+other arm would answer a null that reads as "no rows"; a `top` for the whole question, for example
+by period after the join, is not built here. The plan names no join and no engine; the combine is
+a port's concern. Nothing builds this plan yet, so no question reaches it.
 
 **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
-memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction, and
-the splitter reads the same constant to name the refusal a caller sees.
+memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
+refusal a caller sees comes with the planner, which does not read the cap yet.
 
 The architecture decision records the decision and its limits.
 
@@ -8369,9 +8373,10 @@ pub struct LocalArm
 
 A metric answered by one fact leg, which no lookup leg joins.
 
-The leg is grouped by the answer's keys and the bucket, so its rows are unique on them. Its
-metric, bucket and measure label are read off the leg and the metric rather than passed beside
-them, so no argument can disagree with the leg.
+Each answer key, and each distinct count's leaf key, is on the leg. The leg can group by more
+keys, so the combine aggregates it to the answer's keys and bucket. Its metric, bucket and
+measure label are read off the leg and the metric rather than passed beside them, so no argument
+can disagree with the leg.
 
 ##### Methods
 
@@ -8417,10 +8422,11 @@ leg does not project.
 pub struct DrillAcrossPlan
 ```
 
-Two or more `Arm`s that share one set of keys and one bucket grain.
+Two or more `Arm`s that share one set of keys, one bucket grain and one time range.
 
-The keys and the bucket are the first arm's, and every later arm is checked against them, so the
-plan holds no copy that could disagree with an arm. Each arm's time column may differ: only the
+The keys, the bucket and the range are the first arm's, and every later arm is checked against
+them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
+would leave the full join a null for a period it never read, which the answer reads as "no rows". Each arm's time column may differ: only the
 label and grain must agree, and what an Arrow kind mismatch between two buckets means is the
 combiner's to refuse.
 
@@ -8468,7 +8474,7 @@ could hold fewer.
 # Errors
 
 `DrillAcrossPlanError` for one metric in two arms, an arm carrying a `top`, an arm whose
-keys or bucket differ from the first arm's, or more than `MAX_LEGS` legs.
+keys, bucket or time range differ from the first arm's, or more than `MAX_LEGS` legs.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -8493,10 +8499,11 @@ Why a drill-across plan, or one of its arms, could not be built.
 - `NotFact` - The leg of a local arm is not a fact leg.
 - `KeyNotOnLeg` - A local arm's leg does not project a key the arm needs.
 - `TermsDoNotMatchFederation` - A local arm's terms are not its federation's leaves.
-- `ArmCarriesTop` - A joined arm carries a `top`, which a drill-across question refuses: it names no metric to rank by.
+- `ArmCarriesTop` - A joined arm carries a `top`, which a drill-across question refuses: it cuts that arm before the join, so the other arms answer a null that reads as "no rows".
 - `DuplicateMetric` - One metric is measured by two arms, which would emit one measure column twice.
 - `KeysDiffer` - An arm answers under other keys, or in another order, than the first arm.
 - `BucketDiffers` - An arm buckets by another label or grain than the first arm.
+- `RangeDiffers` - A fact leg reads another time range than the first arm's.
 - `TooManyLegs` - The arms run more legs than one question may hold.
 
 ##### Implements
