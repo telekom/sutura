@@ -652,7 +652,7 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
     )
     .expect("a fact result under the fact leg's own labels");
     let lookup = RowSet::new(
-        plan.lookup().result_labels(),
+        the_lookup(&plan).result_labels(),
         vec![vec![Value::Text("c1".into()), Value::Text("north".into())]],
     )
     .expect("a lookup result under the lookup leg's own labels");
@@ -663,10 +663,11 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
         sutura_domain::warehouse::arrow::of_row_set(&fact).expect("a leg result converts"),
     );
     let lookup = sutura_domain::plan::LegResult::of(
-        plan.lookup(),
+        the_lookup(&plan),
         sutura_domain::warehouse::arrow::of_row_set(&lookup).expect("a leg result converts"),
     );
-    let legs = sutura_domain::plan::Legs::of(&fact, &lookup).expect("one of each is a pair");
+    let results = [fact, lookup];
+    let legs = sutura_domain::plan::Legs::assign(&plan, &results).expect("one result per leg, in plan order");
     let answer = sutura_domain::plan::FederationCombiner::combine(&combiner, &plan, legs, 1 << 20)
         .expect("a question whose dimension is named like the remote join column still combines")
         .to_rows()
@@ -690,7 +691,7 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
     // columns under one label in either leg, and a public dimension that lost its own name.
     for (side, labels) in [
         ("fact", plan.fact().result_labels()),
-        ("lookup", plan.lookup().result_labels()),
+        ("lookup", the_lookup(&plan).result_labels()),
     ] {
         let distinct: std::collections::BTreeSet<&String> = labels.iter().collect();
         assert_eq!(
@@ -788,4 +789,13 @@ fn a_federated_question_whose_fact_leg_would_read_two_tables_of_one_name_is_refu
         }
         ref other => panic!("a two-source question with no colliding join should still federate, got {other:?}"),
     }
+}
+
+/// The one lookup leg a plan of one crossing carries.
+fn the_lookup(plan: &sutura_domain::plan::FederatedPlan) -> &sutura_domain::plan::leg::LegPlan {
+    plan.lookups()
+        .legs()
+        .first()
+        .expect("a federated plan has a lookup leg")
+        .leg()
 }

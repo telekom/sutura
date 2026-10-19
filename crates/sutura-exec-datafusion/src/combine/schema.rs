@@ -18,9 +18,6 @@ use crate::combine::CombineError;
 /// Which side a refusal is about, as the word a message carries.
 pub(crate) const FACT: &str = "fact";
 
-/// The lookup leg, as the word a message carries.
-pub(crate) const LOOKUP: &str = "lookup";
-
 /// How a column may be re-aggregated, once a type no total or comparison is exact over is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LeafKind {

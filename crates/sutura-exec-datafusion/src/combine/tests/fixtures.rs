@@ -15,7 +15,7 @@ use sutura_domain::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::leg::{LegPlan, LegTerm};
 use sutura_domain::plan::{
-    AnswerKey, FederatedPlan, InternalLabel, LegResult, Legs, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm,
+    AnswerKey, FederatedPlan, InternalLabel, LegResult, Legs, LookupLeg, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm,
     ResultLabel, StatementTables, labels,
 };
 use sutura_domain::warehouse::arrow::of_row_set;
@@ -73,7 +73,7 @@ fn key(name: &str) -> PlanKey {
 
 /// The label the link column carries in either leg's result, from the type rather than spelled.
 pub(super) fn link() -> String {
-    InternalLabel::Link.label()
+    InternalLabel::Link(0).label()
 }
 
 /// The label the carried leaf at `position` carries in the fact leg's result.
@@ -83,7 +83,7 @@ pub(super) fn leaf(position: usize) -> String {
 
 fn link_key() -> PlanKey {
     PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link),
+        ResultLabel::internal(InternalLabel::Link(0)),
         PlanColumn::new(table(FACT), column("customer_key")),
     )
 }
@@ -165,15 +165,87 @@ pub(super) fn plan_for(measure_name: &str, measure: &Measure, include_unmatched:
         bucket(),
         fact_leg(&federation),
         None,
-        lookup_leg(),
-        include_unmatched,
+        sutura_domain::plan::LookupLegs::one(lookup_leg(), include_unmatched),
         federation,
         vec![
             AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
-            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+            AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region"))),
         ],
     )
     .expect("a test plan is a valid two-leg plan")
+}
+
+/// A key under `label` over `name`, for a fan-in leg.
+fn keyed(label: ResultLabel, name: &str) -> PlanKey {
+    PlanKey::new(label, PlanColumn::new(table(FACT), column(name)))
+}
+
+fn linked(leg: usize, name: &str) -> PlanKey {
+    keyed(ResultLabel::internal(InternalLabel::Link(leg)), name)
+}
+
+/// Three lookup legs: `geo` onto the fact, `crm` onto `geo` (INNER), `ops` onto the fact (LEFT).
+///
+/// The answer groups by `region` from `geo`, `area` from `crm` and `tier` from `ops`. `crm` joins
+/// on `region_code`, which only `geo` projects, so a combine that joined it onto the fact would
+/// find no such column there.
+pub(super) fn fan_in_plan() -> FederatedPlan {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let fact = LegPlan::Fact {
+        source: source("facts"),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys: vec![linked(0, "customer_key"), linked(2, "customer_key")],
+        terms: terms_for(&federation),
+        bindings: PlanBindings::none(),
+        range: range(),
+    };
+    let lookup = |on: &str, keys: Vec<PlanKey>| LegPlan::Lookup {
+        source: source(on),
+        table: table(FACT).into(),
+        keys,
+        bindings: PlanBindings::none(),
+    };
+    let label = |name: &str| ResultLabel::dimension(&dimension(name));
+    let lookups = sutura_domain::plan::LookupLegs::parse(vec![
+        LookupLeg::onto_fact(
+            lookup(
+                "geo",
+                vec![
+                    linked(0, "customer_key"),
+                    linked(1, "region_code"),
+                    keyed(label("region"), "region"),
+                ],
+            ),
+            true,
+        ),
+        LookupLeg::onto_lookup(
+            lookup("crm", vec![linked(1, "region_code"), keyed(label("area"), "area")]),
+            0,
+            false,
+        ),
+        LookupLeg::onto_fact(
+            lookup("ops", vec![linked(2, "customer_key"), keyed(label("tier"), "tier")]),
+            true,
+        ),
+    ])
+    .expect("three legs, one onto an earlier one, are a tree");
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact,
+        None,
+        lookups,
+        federation,
+        vec![
+            AnswerKey::lookup(0, label("region")),
+            AnswerKey::lookup(1, label("area")),
+            AnswerKey::lookup(2, label("tier")),
+        ],
+    )
+    .expect("a fan-in plan is a plan")
 }
 
 pub(super) fn sum_plan(include_unmatched: bool) -> FederatedPlan {
@@ -375,27 +447,39 @@ pub(super) fn combined(plan: &FederatedPlan, fact: &ResultBatches, lookup: &Resu
         .expect("a combined answer decodes")
 }
 
-/// One combine, un-judged, so a cell can assert on the refusal.
-///
-/// The pair is built OUTSIDE the `Result`-returning body, because `clippy::unwrap_in_result` is
-/// denied and `Legs::of` cannot fail here: the sides come off `plan.fact()` and `plan.lookup()`,
-/// which are the two variants by construction.
+/// One combine of a fact and one lookup result, un-judged, so a cell can assert on the refusal.
 pub(super) fn try_combine(
     plan: &FederatedPlan,
     fact: &ResultBatches,
     lookup: &ResultBatches,
     ceiling: u64,
 ) -> Result<ResultBatches, CombineError> {
-    use sutura_domain::plan::FederationCombiner as _;
-
-    let fact = LegResult::of(plan.fact(), fact.clone());
-    let lookup = LegResult::of(plan.lookup(), lookup.clone());
-    combiner().combine(plan, pair(&fact, &lookup), ceiling)
+    try_combine_every(plan, &[fact.clone(), lookup.clone()], ceiling)
 }
 
-/// The two leg results as a pair, which cannot fail for a pair taken off one plan's own legs.
-pub(super) fn pair<'a>(fact: &'a LegResult, lookup: &'a LegResult) -> Legs<'a> {
-    Legs::of(fact, lookup).expect("one of each is a pair")
+/// One combine of one result per [`FederatedPlan::legs`] entry, in that order, un-judged.
+///
+/// The legs are assigned OUTSIDE the `Result`-returning body, because `clippy::unwrap_in_result`
+/// is denied and `Legs::assign` cannot fail here: each result is tagged off the plan's own leg.
+pub(super) fn try_combine_every(
+    plan: &FederatedPlan,
+    every: &[ResultBatches],
+    ceiling: u64,
+) -> Result<ResultBatches, CombineError> {
+    use sutura_domain::plan::FederationCombiner as _;
+
+    let results: Vec<LegResult> = plan
+        .legs()
+        .into_iter()
+        .zip(every)
+        .map(|(leg, batches)| LegResult::of(leg, batches.clone()))
+        .collect();
+    combiner().combine(plan, assigned(plan, &results), ceiling)
+}
+
+/// The results assigned to the plan's legs, which cannot fail for results taken off them in order.
+pub(super) fn assigned<'a>(plan: &'a FederatedPlan, results: &'a [LegResult]) -> Legs<'a> {
+    Legs::assign(plan, results).expect("one result per leg of the plan, in its order")
 }
 
 /// The refusal a combine carries, or a panic naming what it answered instead.

@@ -206,7 +206,10 @@ fn a_chain_that_crosses_and_on_to_a_third_system_is_refused_at_plan_time() {
 fn a_chain_that_crosses_and_carries_on_joins_inside_the_lookup_leg() {
     let corpus = Corpus::placed("elsewhere", "elsewhere", "local");
     let planned = federated_by(&corpus, "region");
-    let (fact, lookup) = (planned.fact(), planned.lookup());
+    let (fact, lookup) = (
+        planned.fact(),
+        planned.lookups().legs().first().expect("one lookup leg").leg(),
+    );
     assert!(join_tables(fact).is_empty(), "hop 1 is the link and no fact join");
     assert_eq!(read_from(fact.keys().last()), pair("dim_facts", "customer_key"));
     assert_eq!(lookup.table_name().to_string(), "dim_customers");
@@ -224,7 +227,10 @@ fn a_chain_that_crosses_and_carries_on_joins_inside_the_lookup_leg() {
 fn a_chain_that_crosses_at_a_later_hop_links_through_the_hop_before_it() {
     let corpus = Corpus::placed("local", "local", "elsewhere");
     let planned = federated_by(&corpus, "brand");
-    let (fact, lookup) = (planned.fact(), planned.lookup());
+    let (fact, lookup) = (
+        planned.fact(),
+        planned.lookups().legs().first().expect("one lookup leg").leg(),
+    );
     assert_eq!(join_tables(fact), vec![pair("dim_facts", "dim_products")]);
     assert_eq!(read_from(fact.keys().last()), pair("dim_products", "brand_key"));
     assert_eq!(lookup.table_name().to_string(), "dim_brands");
@@ -247,7 +253,15 @@ fn a_filter_after_the_crossing_binds_on_the_table_it_reaches() {
     let Plan::Federated(planned) = plan(&resolution).expect("this resolution plans") else {
         panic!("a dimension on another data system is a federated plan");
     };
-    let filter = planned.lookup().filters().first().expect("the lookup leg carries the filter");
+    let filter = planned
+        .lookups()
+        .legs()
+        .first()
+        .expect("one lookup leg")
+        .leg()
+        .filters()
+        .first()
+        .expect("the lookup leg carries the filter");
     let PlanPredicate::Equals { column, .. } = filter.predicate() else {
         panic!("an equality filter plans as Equals, got {:?}", filter.predicate());
     };

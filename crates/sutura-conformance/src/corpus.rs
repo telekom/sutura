@@ -100,6 +100,8 @@
 )]
 
 mod case_files;
+/// The federated cases with more than one lookup leg.
+mod fan_in;
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -124,6 +126,10 @@ pub const TABLE: &str = "conformance_events";
 /// The second source a federated case's lookup leg reads, and its one table.
 const LOOKUP_SOURCE: &str = "conformance_lookup";
 const LOOKUP_TABLE: &str = "conformance_regions";
+
+/// A table on the fact's own source that codes each region name, which a chain that crosses to the
+/// lookup source and comes back reads.
+const REGION_CODES_TABLE: &str = "conformance_region_codes";
 
 /// One question, and the answer to it.
 ///
@@ -307,6 +313,21 @@ pub fn lookup_on_disk() -> PathBuf {
     static WRITTEN: LazyLock<PathBuf> =
         LazyLock::new(|| materialise(LOOKUP_TABLE, include_str!("../corpus/conformance_regions.csv")));
     WRITTEN.clone()
+}
+
+/// The region codes table on a filesystem, written as [`on_disk`] writes the corpus. A federated
+/// binding attaches it to the fact's engine.
+#[must_use]
+pub fn region_codes_on_disk() -> PathBuf {
+    static WRITTEN: LazyLock<PathBuf> =
+        LazyLock::new(|| materialise(REGION_CODES_TABLE, include_str!("../corpus/conformance_region_codes.csv")));
+    WRITTEN.clone()
+}
+
+/// The table [`region_codes_on_disk`] holds, on the fact's own source.
+#[must_use]
+pub fn region_codes_table() -> TableName {
+    TableName::parse(REGION_CODES_TABLE).expect("the region codes table name is a name")
 }
 
 /// The source a federated case's lookup leg resolves to - never [`source`], because
@@ -510,10 +531,12 @@ impl FederatedCase {
     }
 }
 
-/// Every federated question in the corpus, read from its `.case` file.
+/// Every federated question in the corpus: one per `.case` file, then the fan-in plans built in code.
 #[must_use]
 pub fn federated_cases() -> Vec<FederatedCase> {
-    case_files::load_federated()
+    let mut cases = case_files::load_federated();
+    cases.extend(fan_in::cases());
+    cases
 }
 
 #[cfg(test)]

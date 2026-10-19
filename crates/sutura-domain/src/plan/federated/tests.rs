@@ -28,6 +28,10 @@ use fixtures::*;
 #[cfg(test)]
 mod ranking;
 
+/// More than one lookup leg, and a lookup leg that joins onto another.
+#[cfg(test)]
+mod fan_in;
+
 #[test]
 fn a_plan_with_two_legs_on_one_source_does_not_construct() {
     // The constructor is the newtype convention: a plan that is not a fact leg beside a lookup
@@ -39,8 +43,7 @@ fn a_plan_with_two_legs_on_one_source_does_not_construct() {
         bucket(),
         lookup_leg(),
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
         vec![AnswerKey::fact(ResultLabel::dimension(&dimension("product_family")))],
     );
@@ -53,7 +56,7 @@ fn an_internal_label_is_in_a_namespace_no_question_can_name() {
     // Every rendering starts with a digit, which the identifier parser refuses as a FIRST character,
     // so it is one refusal for every spelling and length, not a list of reserved words to maintain.
     let widest = InternalLabel::Leaf(usize::MAX).label();
-    for label in [InternalLabel::Link.label(), InternalLabel::Leaf(0).label(), widest.clone()] {
+    for label in [InternalLabel::Link(0).label(), InternalLabel::Leaf(0).label(), widest.clone()] {
         assert!(
             matches!(DimensionName::parse(&label), Err(InvalidIdentifier::BadFirstCharacter { .. })),
             "{label} must not be a dimension name"
@@ -66,7 +69,7 @@ fn an_internal_label_is_in_a_namespace_no_question_can_name() {
     // Then the SPELLING, which this test owns: every other test here takes its labels from the type,
     // so a test that derived this expectation too would assert nothing about what the splitter and
     // the combiner actually agree on.
-    assert_eq!(InternalLabel::Link.label(), "0_link");
+    assert_eq!(InternalLabel::Link(0).label(), "0_link");
     assert_eq!(InternalLabel::Leaf(0).label(), "0_leaf_0");
     assert_eq!(InternalLabel::Leaf(7).label(), "0_leaf_7");
 
@@ -97,15 +100,14 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
         bucket(),
         fact_leg(Vec::new()),
         None,
-        unlinked,
-        true,
+        crate::plan::LookupLegs::one(unlinked, true),
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
         Vec::new(),
     );
     match plan {
         Err(FederatedPlanError::KeyNotOnLeg { side, ref label }) => {
-            assert!(matches!(side, crate::plan::LegSide::Lookup));
-            assert_eq!(*label, InternalLabel::Link.label());
+            assert!(matches!(side, crate::plan::LegAt::Lookup(0)));
+            assert_eq!(*label, InternalLabel::Link(0).label());
         }
         ref other => panic!("a lookup leg that projects no link is not a plan, got {other:?}"),
     }
@@ -116,7 +118,7 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
     // **The other arm of the same check, and the reachable one.** The test above builds an unlinked
     // LOOKUP leg, so `KeyNotOnLeg { side: Fact }` was the untested half - and the half that matters:
     // the fact leg is the one the splitter builds from the question's own keys, so a change there
-    // that stopped pushing `InternalLabel::Link` is what this arm catches. The only production
+    // that stopped pushing `InternalLabel::Link(0)` is what this arm catches. The only production
     // caller no longer erases the cause (`telekom/sutura#338`): it leaves as
     // `sutura_semantic::CompileFailure::NotAssembled`, keeping the side and label this reads.
     let unlinked = LegPlan::Fact {
@@ -135,15 +137,14 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
         bucket(),
         unlinked,
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
         Vec::new(),
     );
     match plan {
         Err(FederatedPlanError::KeyNotOnLeg { side, ref label }) => {
-            assert!(matches!(side, crate::plan::LegSide::Fact));
-            assert_eq!(*label, InternalLabel::Link.label());
+            assert!(matches!(side, crate::plan::LegAt::Fact));
+            assert_eq!(*label, InternalLabel::Link(0).label());
         }
         ref other => panic!("a fact leg that projects no link is not a plan, got {other:?}"),
     }
@@ -166,8 +167,7 @@ fn a_bucket_that_does_not_match_the_fact_legs_own_does_not_construct() {
         mismatched_bucket,
         fact_leg(terms_for(&federation)),
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -187,8 +187,7 @@ fn fact_terms_that_do_not_match_the_federations_labels_do_not_construct() {
         bucket(),
         fact_leg(Vec::new()),
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -206,8 +205,7 @@ fn matching_bucket_and_terms_construct_the_negative_control() {
         bucket(),
         fact_leg(terms_for(&federation)),
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -232,7 +230,7 @@ fn a_distinct_count_whose_key_the_fact_leg_does_not_project_does_not_construct()
     assert!(
         matches!(
             refused,
-            FederatedPlanError::KeyNotOnLeg { side: crate::plan::LegSide::Fact, ref label } if *label == InternalLabel::Leaf(0).label()
+            FederatedPlanError::KeyNotOnLeg { side: crate::plan::LegAt::Fact, ref label } if *label == InternalLabel::Leaf(0).label()
         ),
         "{refused:?}"
     );
@@ -323,8 +321,7 @@ fn a_leaf_naming_another_model_with_no_second_fact_does_not_construct() {
         bucket(),
         fact_leg(Vec::new()),
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -345,8 +342,7 @@ fn a_fact_side_key_beside_a_second_fact_does_not_construct() {
         bucket(),
         fact_leg(terms_for(&federation)),
         Some(second_fact_leg()),
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -368,8 +364,7 @@ fn two_facts_that_share_no_key_do_not_construct() {
         bucket(),
         fact_leg(terms_for(&federation)),
         Some(second_fact_leg_with_no_shared_key()),
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -400,15 +395,14 @@ fn a_second_fact_that_does_not_project_the_link_does_not_construct() {
         bucket(),
         fact_leg(terms_for(&federation)),
         Some(unlinked),
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
     match plan {
         Err(FederatedPlanError::KeyNotOnLeg { side, ref label }) => {
-            assert!(matches!(side, crate::plan::LegSide::Fact));
-            assert_eq!(*label, InternalLabel::Link.label());
+            assert!(matches!(side, crate::plan::LegAt::Fact));
+            assert_eq!(*label, InternalLabel::Link(0).label());
         }
         ref other => panic!("a second fact that projects no link is not a plan, got {other:?}"),
     }
@@ -425,8 +419,7 @@ fn two_facts_sharing_a_key_with_a_lookup_construct() {
         bucket(),
         linked_fact_leg(terms_for(&federation)),
         Some(second_fact_leg()),
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     );
@@ -449,8 +442,7 @@ fn a_two_fact_plan_legs_lists_the_second_fact_under_its_own_source() {
         bucket(),
         linked_fact_leg(terms_for(&federation)),
         Some(second_fact_leg()),
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     )
