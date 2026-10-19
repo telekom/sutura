@@ -157,6 +157,8 @@ pub struct RequestContext {
     audiences: crate::catalog::GrantedAudiences,
     /// The OAuth client the caller's token named, for the audit record - see [`ClientClaims`].
     client: ClientClaims,
+    /// The address the identity provider verified for this caller, if it did.
+    address: Option<crate::identity::VerifiedAddress>,
 }
 
 impl RequestContext {
@@ -169,6 +171,7 @@ impl RequestContext {
             assertion: None,
             audiences: crate::catalog::GrantedAudiences::none(),
             client: ClientClaims::of(None, None),
+            address: None,
         }
     }
 
@@ -203,6 +206,7 @@ impl RequestContext {
             )),
             audiences: crate::catalog::GrantedAudiences::none(),
             client: ClientClaims::of(None, None),
+            address: None,
         }
     }
 
@@ -213,6 +217,20 @@ impl RequestContext {
     pub fn granting(mut self, audiences: crate::catalog::GrantedAudiences) -> Self {
         self.audiences = audiences;
         self
+    }
+
+    /// The same context, carrying the address the transport read from a verified claim.
+    #[inline]
+    #[must_use]
+    pub fn addressed(mut self, address: Option<crate::identity::VerifiedAddress>) -> Self {
+        self.address = address;
+        self
+    }
+
+    /// The caller's verified address: what a `domain_delegation` source runs the question as.
+    #[inline]
+    pub const fn address(&self) -> Option<&crate::identity::VerifiedAddress> {
+        self.address.as_ref()
     }
 
     /// What this caller was granted, for [`crate::pinned::view::ScopedView::granted_by`].

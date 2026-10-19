@@ -445,6 +445,41 @@ fn a_google_login_source_is_refused_without_a_direct_caller() {
     );
 }
 
+/// [`impersonating_bigquery`] on a deployment that verifies `direct` callers.
+fn on_direct_inbound(block: &str) -> Sources {
+    Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        impersonating_bigquery(block)
+    ))
+}
+
+#[test]
+fn a_domain_delegation_source_boots_on_a_direct_deployment() {
+    let delegation =
+        "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
+    let settings = Settings::load(&on_direct_inbound(delegation)).expect("a domain_delegation source is served");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+}
+
+#[test]
+fn a_delegating_account_without_the_service_account_domain_is_refused_at_boot() {
+    let delegation = "    domain_delegation:\n      delegating_account: \"dwd@acme-analytics\"\n";
+    let error = Settings::load(&on_direct_inbound(delegation)).expect_err("a bare project is not a service account");
+    let SettingsError::Sources { ref cause } = *error.reason() else {
+        panic!("expected a sources refusal, got {error:?}");
+    };
+    assert!(
+        matches!(
+            *cause,
+            crate::sources::InvalidSourceRegistry::DomainDelegation {
+                cause: crate::sources::caller_identity::InvalidDelegatingAccount::Shape,
+                ..
+            }
+        ),
+        "{cause:?}"
+    );
+}
+
 #[test]
 fn a_google_login_source_boots_on_a_direct_deployment() {
     let direct = |block: &str| {
@@ -455,19 +490,6 @@ fn a_google_login_source_boots_on_a_direct_deployment() {
     };
     let settings = Settings::load(&direct(LOGIN_BLOCK)).expect("a google_login source is served");
     assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
-    let delegation =
-        "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
-    let error = Settings::load(&direct(delegation)).expect_err("domain_delegation is not built");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a boot refusal, got {error:?}");
-    };
-    assert_eq!(
-        *refusals,
-        vec![NotFitToServe::CallerIdentityModeNotBuilt {
-            alias: SourceName::parse("warehouse").expect("a legal identifier"),
-            block: "domain_delegation",
-        }]
-    );
 }
 
 #[test]

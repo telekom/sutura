@@ -32,8 +32,7 @@ and these keys:
 | `max_bytes_billed` | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                          |
 
 `impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
-`domain_delegation`. sutura runs `workload_identity` and `google_login`. `workload_identity` has
-these keys:
+`domain_delegation`. `workload_identity` has these keys:
 
 | Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -67,11 +66,28 @@ The identity provider keeps the Google token and refreshes it. Its Google provid
 token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
 it is and does not refresh it during a query.
 
-sutura reads and checks the `domain_delegation` block, and then refuses to start with it:
+With `domain_delegation`, the query runs as the Google account with the caller's verified email
+address. The deployment vouches for the caller: sutura takes the address from the `email` claim of
+the caller's verified token, and only when `email_verified` is `true`. sutura uses the address as
+it is written. A caller without a verified address is refused. The deployment's own application
+default credentials sign as the delegating account, which acts as that address with the scope
+`https://www.googleapis.com/auth/bigquery`. These are its keys:
 
 | Key                                    | Type   | Meaning                                                            |
 | -------------------------------------- | ------ | ------------------------------------------------------------------ |
 | `domain_delegation.delegating_account` | string | The service account: `<account>@<project>.iam.gserviceaccount.com` |
+
+`domain_delegation` has these requirements:
+
+- The identity provider must not let users edit their own email address. A user who can set their
+  email to another person's address runs queries as that person.
+- A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
+  for domain-wide delegation, with the scope `https://www.googleapis.com/auth/bigquery` only.
+- The deployment's own identity has `iam.serviceAccounts.signJwt` on the delegating account (the
+  role `roles/iam.serviceAccountTokenCreator`, granted on that account only).
+- Each caller's Google account has its own BigQuery grants. The delegating account can act as any
+  user in the domain, so protect the deployment's credential as you protect the domain's
+  administrator.
 
 The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
 build can select the feature:
@@ -114,7 +130,7 @@ This data system supports `shared-service-user` and secure-impersonation.
 With `shared-service-user`, every query runs as one identity: the application default
 credentials of the process.
 
-With `impersonation-at-source`, each caller has their own principal in the pool, and the query runs
+With `workload_identity`, each caller has their own principal in the pool, and the query runs
 with that principal's own grants. No service account is used at any step:
 
 1. sutura verifies the caller's token.
