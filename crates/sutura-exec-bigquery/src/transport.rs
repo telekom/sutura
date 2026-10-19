@@ -92,16 +92,19 @@ pub enum JobIdentity<'job> {
     /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
     /// "no caller" means to a request.
     Transport,
-    /// The asking subject's own verified assertion.
+    /// The asking subject's own credential: its verified assertion, or, for a `google_login`
+    /// source, the Google access token the identity provider stored for the account it linked.
     ///
-    /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
-    /// [`crate::adbc`] puts the assertion behind a workload-identity credential document, so
-    /// Google's own token service verifies it and returns a federated token for the declared pool's
-    /// `principal://.../subject/<sub>`. `BigQuery` evaluates its grants and row policies against that
-    /// principal. Nothing on that path runs the question under the deployment's identity, and there
-    /// is no second hop to another account.
+    /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2.
+    /// Through a pool, [`crate::adbc`] puts the assertion behind a workload-identity credential
+    /// document, so Google's own token service verifies it and returns a federated token for the
+    /// declared pool's `principal://.../subject/<sub>`. For `google_login`, it hands the driver the
+    /// stored token as the job's access token, with no credential document and no pool, so the
+    /// principal is the linked Google account. `BigQuery` evaluates its grants and row policies
+    /// against that principal. Nothing on either path runs the question under the deployment's
+    /// identity, and there is no second hop to another account.
     AsSubject {
-        /// What the pool verifies.
+        /// What the pool verifies, or, for `google_login`, the access token the driver sends.
         assertion: &'job Secret,
     },
 }
@@ -176,7 +179,8 @@ impl<'job> JobRequest<'job> {
     /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
     /// ignored it would answer as itself while provenance reported the asker. It does not make the
     /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
-    /// assertion, and the declared pool is what resolves it to the subject's own principal.
+    /// credential, and the declared pool resolves an assertion to the subject's own principal,
+    /// where a `google_login` token already belongs to the linked Google account.
     #[inline]
     #[must_use]
     pub const fn identity(&self) -> JobIdentity<'_> {

@@ -64,6 +64,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     label("at_capacity"),
     BUDGET_EXHAUSTED,
     label("host_not_allowed"),
+    label("identity_not_linked"),
     label("identity_unavailable"),
     label("insufficient_scope"),
     label("internal"),
@@ -168,6 +169,7 @@ impl QuestionOutcome {
             QuestionEnd::TimedOut => Self::failed(&Failure::Timeout),
             QuestionEnd::DataSystemUnavailable => Self::failed(&Failure::Unavailable),
             QuestionEnd::IdentityUnavailable => Self::failed(&Failure::IdentityUnavailable),
+            QuestionEnd::IdentityNotLinked => Self::failed(&Failure::IdentityNotLinked),
             QuestionEnd::Internal => Self::internal(),
         }
     }
@@ -396,6 +398,7 @@ mod tests {
             Failure::Internal,
             Failure::Unavailable,
             Failure::IdentityUnavailable,
+            Failure::IdentityNotLinked,
             Failure::AtCapacity { retry_after_seconds: 1 },
         ];
         for failure in &every {
@@ -413,6 +416,7 @@ mod tests {
                 | Failure::Internal
                 | Failure::Unavailable
                 | Failure::IdentityUnavailable
+                | Failure::IdentityNotLinked
                 | Failure::AtCapacity { .. } => {}
             }
             assert!(
@@ -487,6 +491,24 @@ mod tests {
         assert!(
             !rendered.contains("not_a_reason"),
             "an unregistered reason minted a series: {rendered}"
+        );
+    }
+
+    /// The agent surface's meter path: a not-linked failure counts under its own code.
+    #[test]
+    fn an_agent_question_from_a_caller_with_no_linked_account_counts_identity_not_linked() {
+        use sutura_app::question::{QuestionEnd, QuestionMeter as _};
+        use sutura_app::surface::{ErasedCause, SurfaceFailure};
+        let mut builder = RegistryBuilder::default();
+        let metrics = Metrics::install(&mut builder);
+        let failure = SurfaceFailure::NotLinked {
+            cause: ErasedCause::from("no account linked"),
+        };
+        metrics.completed(QuestionEnd::from(&failure), std::time::Duration::ZERO);
+        let rendered = builder.build().render();
+        assert!(
+            rendered.contains("sutura_questions_total{code=\"identity_not_linked\"} 1"),
+            "{rendered}"
         );
     }
 }

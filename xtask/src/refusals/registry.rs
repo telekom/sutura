@@ -71,7 +71,7 @@ const STARTUP: Subject = Subject {
     // that verifies no `direct` caller. 19: `AgentSurfaceWithoutInboundIdentity` and
     // `AgentSurfaceOverAnImpersonatingSource` (#1293), where `/mcp` may not run without leg 1. 21:
     // `QuerySurfaceWithoutInboundIdentity` and `QuerySurfaceOverAnImpersonatingSource` (#1400), where
-    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a `google_login` or
+    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a
     // `domain_delegation` block this build parses and does not run.
     variants: variants(22),
 };

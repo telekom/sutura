@@ -3217,6 +3217,10 @@ come from the variant, so two handlers cannot answer the same situation with dif
   will clear the same way it retries one that will not.
 
   Carries nothing. Which issuer this deployment talks to is not the caller's business.
+- `IdentityNotLinked` - The caller has no account linked at the identity provider a source runs them through.
+
+  **`403`, not `503`**: retrying does not help, and the caller can act - link the account at
+  the identity provider. It is about the caller's own linking state only.
 - `AtCapacity` - Every execution slot was taken for the whole admission window, so the question was shed.
 
   **`503` and not `429`, and the two say different things.** A `429` is "you personally asked

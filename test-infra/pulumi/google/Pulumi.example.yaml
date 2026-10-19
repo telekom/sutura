@@ -41,3 +41,8 @@ config:
   # Set this only to accept EXTRA audiences on top of that default; the default is appended
   # automatically if a configured list omits it.
   # sutura-google-test-infra:workload_allowed_audiences: '["//iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/sutura/providers/oidc"]'
+  # Optional - mode b (`google_login`): the Google account a test user links at the identity
+  # provider. The stack grants it jobUser, readSessionUser and dataViewer on `ci_dataset`. From the
+  # environment: SUTURA_GOOGLE_GOOGLE_LOGIN_USER. The OAuth client and the identity provider's
+  # Google provider are manual (test-infra/README.md).
+  # sutura-google-test-infra:google_login_user: "user@example.com"

@@ -249,7 +249,8 @@ deployment instead. The fix is a grant at the data system. A `403` with no `outc
 
 Other failures have one shape, `{"code", "status", "detail"}`. These codes are common: `unauthorized` (`401`),
 `too_large` (`413`, the request body), `host_not_allowed` (`403`), `unavailable` and `identity_unavailable` (`503`),
-`rate_limited` (`429`), and `at_capacity` (`503` with `Retry-After`). A request that waits longer than `server.request_timeout_seconds` gets
+`rate_limited` (`429`), `at_capacity` (`503` with `Retry-After`), and `identity_not_linked` (`403`: the caller
+has not linked the account that a source runs them as at the identity provider). A request that waits longer than `server.request_timeout_seconds` gets
 `408`. A body with a key that the question does not declare, such as `sql`, gets `400` and the name of the key. A
 `500` has no detail.
 

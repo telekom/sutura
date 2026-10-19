@@ -193,7 +193,12 @@ settings surface reads as a cache that is merely off.
 result - each request exchanges again, so two subjects have no store to collide in. A cache added
 later inherits the `PrincipalChain` key rule below. The `sutura_http_client::delegation` implementor decodes the issued JWT's
 `aud`/`exp` without verifying its signature - a misconfiguration check, not a defence against the
-IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
+IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`,
+except Keycloak's not-linked answer (`DelegationFailed::NotLinked`, matched on one fixed English
+description, so a changed message degrades to `503`), which is `403 identity_not_linked`. A
+`google_login` source is one `Delegation::linked` hop over `LinkedLogin`
+(`sutura_http_client::delegation::BrokeredLogin`): an opaque token, expiry from
+`accessTokenExpiration`, no refresh token kept, sent as `bigquery.auth.access_token`.
 `sutura serve` builds it from a `bigquery` source's ordered `workload_identity.delegation` hops or
 an Oracle source's ordered `delegation` hops (each `token_endpoint`, `client_id`,
 `client_secret_file`, `audience`, `grant`), each parsed at boot by the adapter's own type, and

@@ -751,6 +751,9 @@ means rather than a field added to one.
   states as a requirement rather than a preference: an authorization server that is down comes
   back, and a caller told the same sentence for both will retry a data-system outage the same
   way and learn nothing. A transport chooses a different code for it.
+- `NotLinked` - The broker answered that the caller has no account linked at the identity provider a source runs them through (`sutura_domain::identity::DelegationFailed::NotLinked`).
+
+  Apart from `Self::Broker` because retrying does not help and the caller can act on it.
 - `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.
 
   Not a refusal - the question was fine - and not `Self::Broker` either, because a broker that
@@ -2513,6 +2516,7 @@ How one question ended, as the series count it.
 - `TimedOut` - The caller's whole wait ran out first.
 - `DataSystemUnavailable` - The data system did not answer.
 - `IdentityUnavailable` - The credential broker did not answer.
+- `IdentityNotLinked` - The caller has no account linked at the identity provider.
 - `Internal` - This deployment's own fault.
 
 #### Implements
