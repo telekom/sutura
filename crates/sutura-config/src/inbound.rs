@@ -13,7 +13,7 @@
 //!
 //! | Written | What it means |
 //! | --- | --- |
-//! | no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. `docs/adr/0008` part 5a calls that a first-class shape rather than a degraded one |
+//! | no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish and the bearer token authenticates the deployment, so no key of this block becomes required. `sutura serve` starts `/v1` that way only with `security.identity: single-user` and its reason, and over no `impersonation-at-source` source. `docs/adr/0008` part 5a calls that a first-class shape rather than a degraded one |
 //! | a block with no `mode` | a deployment that meant to establish identity and did not say how. It does not start |
 //!
 //! **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
@@ -48,8 +48,10 @@
 //! for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
 //! are now bounded - [`ProofLifetime`] caps `exp - iat` and an `iat` is required, so the replay window
 //! is a number this deployment chose rather than one it was handed. **Binding an assertion to a
-//! particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
-//! body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+//! particular request is not built**: nothing hashes a method, a path or a body into the proof, so
+//! inside the lifetime window an intercepted assertion replays - unless the deployment declares
+//! [`TransitProof::SINGLE_USE_KEY`], which refuses a second presentation per process and never a
+//! first one by the wrong party (`docs/adr/20261015094920`). That is why
 //! this module and `docs/adr/0014` now call it a *gateway-issued identity assertion* rather than a
 //! proof that the request transited anything, and why the trusted transport boundary - the hop between
 //! the component and this process - is load-bearing rather than incidental.
@@ -63,10 +65,12 @@
 //! there is one place algorithm pinning and the audience check can be got wrong.
 
 mod audience;
+mod key_set;
 mod primitive;
 mod scope;
 
 pub use crate::inbound::audience::{ClientId, TokenAudience};
+pub use crate::inbound::key_set::{KeySetLocation, KeySetUrl};
 pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
     ResourceIdentifier, SigningAlgorithm, TokenType,
@@ -191,7 +195,7 @@ pub struct TransitProof {
     header: ProofHeader,
     issuer: IssuerUrl,
     audience: TokenAudience,
-    key_set: KeySetFile,
+    key_set: KeySetLocation,
     algorithms: PinnedAlgorithms,
     /// The class of token the component emits. See [`RequiredTokenType`].
     token_type: RequiredTokenType,
@@ -199,6 +203,8 @@ pub struct TransitProof {
     max_lifetime: ProofLifetime,
     /// What an assertion with no `scope` claim is granted. See [`GrantedScopes`].
     grant: Option<GrantedScopes>,
+    /// Whether each assertion is admitted once, by its `jti`. See [`TransitProof::SINGLE_USE_KEY`].
+    single_use: bool,
 }
 
 impl TransitProof {
@@ -215,7 +221,7 @@ impl TransitProof {
         header: ProofHeader,
         issuer: IssuerUrl,
         audience: TokenAudience,
-        key_set: KeySetFile,
+        key_set: KeySetLocation,
         algorithms: PinnedAlgorithms,
         token_type: RequiredTokenType,
         max_lifetime: ProofLifetime,
@@ -229,7 +235,19 @@ impl TransitProof {
             token_type,
             max_lifetime,
             grant: None,
+            single_use: false,
         }
+    }
+
+    /// The key that declares each assertion single use - `docs/adr/20261015094920`. Off by default:
+    /// a component that reuses one assertion across requests would have every request after the
+    /// first refused, and only the operator knows how the component mints.
+    pub const SINGLE_USE_KEY: &'static str = "security.inbound.transit_single_use";
+
+    /// The same declaration, admitting each assertion once by its `jti` where `single_use` is `true`.
+    #[must_use]
+    pub fn admitting_once(self, single_use: bool) -> Self {
+        Self { single_use, ..self }
     }
 
     /// The same declaration, granting `grant` to an assertion that carries no `scope` claim.
@@ -262,7 +280,7 @@ pub enum InboundIdentity {
     Direct {
         resource: ResourceIdentifier,
         authorization_server: IssuerUrl,
-        key_set: KeySetFile,
+        key_set: KeySetLocation,
         algorithms: PinnedAlgorithms,
         /// Which class of token, out of the `typ` header. Defaults to RFC 9068's `at+jwt`.
         token_type: RequiredTokenType,
@@ -295,7 +313,7 @@ pub struct TokenRequirement<'inbound> {
     /// What a token with no `scope` claim is granted. `Some` behind a gateway that declares one.
     grant: Option<&'inbound GrantedScopes>,
     extra_scope_claims: ExtraScopeClaims,
-    key_set: &'inbound KeySetFile,
+    key_set: &'inbound KeySetLocation,
     algorithms: &'inbound PinnedAlgorithms,
     token_type: &'inbound RequiredTokenType,
     /// The ceiling on `exp - iat`, where this deployment puts one.
@@ -306,9 +324,10 @@ pub struct TokenRequirement<'inbound> {
     /// calls the assertion short-lived, and [`ProofLifetime::parse`] enforces it: a configured value
     /// above [`ProofLifetime::MAX_SECONDS`] is refused at boot as
     /// [`InvalidInboundValue::LifetimeOutOfRange`]. The ceiling bounds the replay window of a captured
-    /// assertion, not the assertion's binding to a request - see the module documentation on why a
-    /// nonce store is still absent.
+    /// assertion, not the assertion's binding to a request - see the module documentation.
     max_lifetime: Option<ProofLifetime>,
+    /// Whether each assertion is admitted once. `false` in `direct`, where `true` is refused at load.
+    single_use: bool,
 }
 
 impl<'inbound> TokenRequirement<'inbound> {
@@ -363,7 +382,7 @@ impl<'inbound> TokenRequirement<'inbound> {
     /// Where the signing keys are read from.
     #[inline]
     #[must_use]
-    pub const fn key_set(&self) -> &'inbound KeySetFile {
+    pub const fn key_set(&self) -> &'inbound KeySetLocation {
         self.key_set
     }
 
@@ -386,6 +405,13 @@ impl<'inbound> TokenRequirement<'inbound> {
     #[must_use]
     pub const fn max_lifetime(&self) -> Option<ProofLifetime> {
         self.max_lifetime
+    }
+
+    /// Whether each assertion is admitted once, by its `jti`. See [`TransitProof::SINGLE_USE_KEY`].
+    #[inline]
+    #[must_use]
+    pub const fn single_use(&self) -> bool {
+        self.single_use
     }
 }
 
@@ -471,6 +497,7 @@ impl InboundIdentity {
                 key_set,
                 algorithms,
                 token_type,
+                single_use: false,
                 // No ceiling: an access token's lifetime belongs to the authorization server. See the
                 // field on `TokenRequirement` for why the two modes differ here.
                 max_lifetime: None,
@@ -490,6 +517,7 @@ impl InboundIdentity {
                 algorithms: &transit.algorithms,
                 token_type: &transit.token_type,
                 max_lifetime: Some(transit.max_lifetime),
+                single_use: transit.single_use,
             },
         }
     }

@@ -5,8 +5,9 @@ description: The other half of the identity path - leg 1, from the caller to sut
 
 # How a caller proves who it is
 
-Status: **accepted, and the mechanism is built. Five things this record describes are not, and one
-sentence of it was wrong about what the code could support** - see *What is built, and what of this
+Status: **accepted, and the mechanism is built. Four things this record describes are not, and one
+sentence of it was wrong about what the code could support** - the ninth amendment built item 1
+of *Not built* - see *What is built, and what of this
 record is not* at the foot, and *The correction review forced* inside it. That section is the authority
 on the state: every "not built" in the body below it is older than the code, and Decision 1's wording
 about a *proof that the request transited* a component is corrected there rather than quietly rewritten
@@ -628,7 +629,52 @@ claim is granted. It is never added to a `scope` that an assertion states, an em
 it cannot name `sutura:sql.run`, and start-up prints it at `WARN`. Neither source comes from the
 question, so Decision 4's argument holds. The subject and the audit record still come from `sub`.
 
-## Eighth amendment, 2026-10-15: `direct` requires a delegation hop by default
+## Eighth amendment, 2026-10-15: behind a gateway, a rotated-out key verifies for a bounded grace
+
+**Status of the amendment: accepted.** The *What is built* row on key rotation, and the second
+amendment, say a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while refresh
+works. That still holds in `direct`. In `behind-gateway` the key set a rotation replaced keeps
+verifying for `transit_max_lifetime_seconds` plus the 30 s clock-skew leeway, so a key set file that
+holds only the current key can rotate without refusing the assertions the old key signed. The bound
+there is now 60 s plus one read plus that grace. `docs/adr/20261015095237` decides it and states
+what it does not cover.
+
+## Ninth amendment, 2026-10-17: the key set may be read from an `https` URL
+
+**Status of the amendment: accepted.** *Not built* item 1 is built: `security.inbound.key_set_url`
+names an issuer's `jwks_uri`, exactly one of it and `key_set_file` is accepted, and the fetcher is in
+every build and reads nothing until the setting is written. It uses the shared outbound client, so
+it follows no redirect, and it trusts `security.outbound.transport_anchors` or the built-in web
+roots. The cache, both re-read triggers and the revocation bound are the file source's. The record's
+condition that an authorization server outage stay distinguishable from a dead data system is met
+this way: an unknown key id while the last look at the source failed is
+`503 identity_unavailable`, never `503 unavailable` and never `401`, and the keys already held keep
+verifying. That holds for the file source too, which is a breaking change: an unreadable file and an
+unknown key id were `401 invalid_token` with a challenge. The `503` holds only while the last look at
+the source failed to read it: a document it reads and refuses is `401`, and the previous keys stay;
+an unknown key id inside the refetch window after a look that read the source is `401` too, even if
+the source has gone down since, because no look runs. A cache header is not read, so the issuer can neither lengthen nor shorten
+`MAX_KEY_SET_AGE`.
+
+## Tenth amendment, 2026-10-17: a gateway assertion may be declared single use
+
+**Status of the amendment: accepted.** "The correction review forced" leaves a replay inside the
+lifetime window open. `docs/adr/20261015094920-single-use-gateway-assertion.md` decides the store
+of seen assertions that section names: `security.inbound.transit_single_use: true` refuses a second
+presentation of one assertion by its `jti`, in a bounded store per process. The key is off by
+default, so the replay window and the trusted transport boundary stand as written until a
+deployment declares it. A binding to the request is still not built.
+
+## Eleventh amendment, 2026-10-18: what a key-set look logs
+
+**Status of the amendment: accepted.** The second amendment says "The staleness is on a `WARN` for
+every look that could not confirm the keys". The code logs it in two cases, and only those. A look
+whose read fails and returns to its caller logs a `WARN` with `stale_for_ms`. A look that reads a
+refused document differing from the last one read logs an `ERROR` with `stale_for_ms`; a later look
+that reads the same bytes is `Unchanged` and logs nothing. A look whose caller left, or whose read
+has not returned, logs nothing. Nothing refuses on `stale_for_ms`, as the second amendment says.
+
+## Twelfth amendment, 2026-10-15: `direct` requires a delegation hop by default
 
 **Status of the amendment: accepted.** The fifth amendment said that "an impersonating source is not
 required to declare a delegation, and one without it presents the inbound token itself". That shape

@@ -82,9 +82,8 @@ whatever `ServiceState::with_agent_surface` attached, and no type ties that moun
   (`run_sql` only while `tools.run_sql.enabled` is on). No scope narrows the
   tool list, because there is no verified caller to read a scope from. That is `/v1`'s posture on
   the same deployment.
-- **`/v1` is unchanged.** A deployment with no `security.inbound` and an impersonating source still
-  starts, and `/v1` answers each question `credential_unavailable`. (3) is scoped to `/mcp`, the
-  surface this record opens.
+- **`/v1` is unchanged by this record.** (3) is scoped to `/mcp`, the surface this record opens; the
+  third amendment below holds `/v1` to leg 1 too.
 - The refusals read the configuration, not the command, so `sutura mcp` over stdio reading a file
   that sets `server.agent_surface.enabled` is refused by them too, as by every other `NotFitToServe`.
 - (2) reads the configuration, not the traffic. The first amendment below sets what it counts as
@@ -158,3 +157,70 @@ Limits:
   it.
 - A loopback bind behind a declared proxy with no `security.tls_termination` starts: what sits in
   front of that proxy is the proxy's own configuration.
+
+## Third amendment, 2026-10-15: `/v1` is refused without an inbound identity at the serve root
+
+**Status of the amendment: accepted** (issue #1293). With no `security.inbound`, `/v1` answers every
+caller as the deployment, so `sutura serve` now refuses to start it unless `security.identity` is
+`single-user` with its reason, and refuses it over any source whose posture is
+`impersonation-at-source`, which has no verified caller to run as:
+
+| Refusal                                 | Refuses                                                                       |
+| --------------------------------------- | ----------------------------------------------------------------------------- |
+| `QuerySurfaceWithoutInboundIdentity`    | no `security.inbound` and a `security.identity` that is not `single-user`     |
+| `QuerySurfaceOverAnImpersonatingSource` | no `security.inbound` and a source with `impersonation-at-source`, per source |
+
+Both come from `Settings::query_surface_refusals`, asked where `sutura serve` starts `/v1` and not
+by `Settings::refusals`: no key mounts `/v1`, so every command that loads settings would be refused
+by it. A deployment with no `security.inbound` and an impersonating source therefore no longer
+starts, and `/v1` no longer answers `credential_unavailable` for it.
+
+| Cell                                                                                    | Shows                                                      |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `serve::tests::v1_with_no_inbound_identity_starts_only_on_a_single_user_deployment`     | no mode and `multi-user` are refused; `single-user` starts |
+| `serve::tests::v1_with_no_inbound_identity_does_not_start_over_an_impersonating_source` | the impersonating source is refused; a shared one starts   |
+
+Limits:
+
+- The rule is asked at the serve root only. `sutura_http::router` does not ask it, so a router built
+  in process with no inbound gate is not refused; the `/mcp` rule is asked by the router's
+  `agent_subtree`.
+- `single-user` is declared, not measured, as above.
+
+## Fourth amendment, 2026-10-16: the router takes settings that passed the `/v1` check
+
+**Status of the amendment: accepted** (PR #1465). The third amendment's first limit is closed for an
+embedder: `sutura_http::ServiceState::new`, which `sutura_http::router` is assembled from, takes a
+`ServableSettings` and not bare settings, and only `ServableSettings::check` builds one. `check`
+asks `Settings::query_surface_refusals` of a deployment with no `security.inbound` and returns every
+reason it gives, as `NotServable`. A deployment that declares `security.inbound` passes without the
+rule, because the rule is about the deployment that does not; that deployment's gate is held at
+assembly by `RouterNotBuilt::InboundIdentityNotAttached`. `sutura serve` still refuses first, in
+`inbound_gate`, and `check` there refuses nothing new.
+
+| Cell                                                                                                                   | Shows                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `servable::tests::a_deployment_with_no_inbound_identity_and_no_impersonating_source_is_servable_only_when_single_user` | no mode and `multi-user` are refused; `single-user` is servable        |
+| `servable::tests::a_deployment_with_no_inbound_identity_over_an_impersonating_source_is_not_servable`                  | single-user is refused for the source; multi-user carries both reasons |
+| `servable::tests::a_deployment_that_declares_inbound_identity_is_servable_without_the_rule`                            | a declared inbound identity passes                                     |
+| `ServableSettings`' `compile_fail,E0423` doctest                                                                       | the private field cannot be built from outside the crate               |
+
+Limits:
+
+- **The guard is the type only in a build without `sutura-http/fixtures`.** With it on, a bare
+  `Arc<Settings>` converts to `ServableSettings`. A dev edge from `sutura-cli` turns it on, and the
+  Rust legs of `just lint`, `just test` and `just validate` all pass `--all-features`. The
+  `--all-targets` passes of `just check-default-features` do not; they unify that dev edge. A
+  revert of the `check` call at the serve root therefore compiles in all of them. Only a build
+  with no dev edges refuses it: the
+  `cross` link legs, `just shipped` and the release build. That rests on `nix/shipped.nix` building
+  `--package` with no dev edges and on a `cargo check -p sutura-cli` of the reverted call, which
+  gave `E0277`; the nix cross builds were not run.
+- `check-default-features` refuses `sutura-http/fixtures` in a shipped root's normal dependencies. It
+  resolves the default feature set, not the `--features` list a release passes, so a feature turned
+  on only there is not seen.
+- No `compile_fail` cell holds that the `From<Arc<Settings>>` impl is absent without the feature:
+  doctests run with `--all-features`. The `E0423` doctest holds only the private field.
+- `check` takes `Settings` by value, so a caller that holds an `Arc<Settings>` has to clone it.
+- The `/mcp` rule is not part of this type: it is asked by the router's `agent_subtree`.
+- `single-user` is declared, not measured, as above.

@@ -226,6 +226,14 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
     .map_err(|cause| unservable(&cause))
 }
 
+/// The trust material `security.outbound.transport_anchors` names, unread.
+pub(crate) fn anchors_of(declared: &sutura_config::OutboundAnchors) -> sutura_tls::Anchors {
+    match declared {
+        sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
+        sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
+    }
+}
+
 /// Reads `security.outbound`, once, and loads it - `github.com/telekom/sutura#125`/`#911`.
 ///
 /// `None` is the ordinary deployment: every fixed-host outbound client (today, the `BigQuery` wire and
@@ -247,10 +255,7 @@ pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Re
     let Some(declared) = settings.security().outbound() else {
         return Ok(None);
     };
-    let anchors = match declared {
-        sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
-        sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
-    };
+    let anchors = anchors_of(declared);
     // Fail-fast here, and return the DECLARATION: the rotating handles each consumer builds re-load
     // it on `sutura_tls::POLL_INTERVAL`, so the value handed onward is the thing they can re-read.
     sutura_tls::load_anchors(&anchors)

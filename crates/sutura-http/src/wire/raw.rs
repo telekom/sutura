@@ -153,8 +153,13 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
         // 409, the status `RefusalReason::PlanSpansTooManySources` gets: answerable in principle, and
-        // this deployment is arranged not to combine sources in one statement.
-        RawRefusalReason::PlanSpansMoreThanOneSource => StatusCode::CONFLICT,
+        // this deployment is arranged not to combine sources in one statement. The two deployment-
+        // shape refusals share it: the request is well formed and conflicts with how this deployment
+        // is arranged, which is neither a malformed request (400) nor a server fault (500), so the
+        // caller is told to ask the certified tools or the operator, never to retry.
+        RawRefusalReason::PlanSpansMoreThanOneSource
+        | RawRefusalReason::MoreThanOneSourceOpen
+        | RawRefusalReason::NoSourceAcceptsRawStatements => StatusCode::CONFLICT,
     }
 }
 
@@ -184,13 +189,13 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Four of the six; `TooManyRows`'s own status is pinned through the real router in
-    /// `crate::harness::run_sql`, and one more has no producer yet, so this file tests four variants
-    /// of `RawRefusalReason` (`ResultTooLarge`, `StatementFailed`, `SourceRefused`, `DeadlineExceeded`)
-    /// but not all six. A file naming EVERY variant of an enum is a census and supplies no evidence for
-    /// that enum, so a file naming fewer than all supplies evidence for those named.
+    /// Six of the eight; `TooManyRows`'s own status is pinned through the real router in
+    /// `crate::harness::run_sql`, and one more has no producer yet, so this file tests six variants
+    /// of `RawRefusalReason` but not all eight. A file naming EVERY variant of an enum is a census and
+    /// supplies no evidence for that enum, so a file naming fewer than all supplies evidence for those
+    /// named.
     #[test]
-    fn four_of_the_five_refusal_reasons_have_a_status() {
+    fn six_of_the_eight_refusal_reasons_have_a_status() {
         for (reason, status) in [
             (RawRefusalReason::ResultTooLarge, axum::http::StatusCode::PAYLOAD_TOO_LARGE),
             (
@@ -201,6 +206,11 @@ mod tests {
             (
                 RawRefusalReason::DeadlineExceeded { budget_seconds: 29 },
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (RawRefusalReason::MoreThanOneSourceOpen, axum::http::StatusCode::CONFLICT),
+            (
+                RawRefusalReason::NoSourceAcceptsRawStatements,
+                axum::http::StatusCode::CONFLICT,
             ),
         ] {
             let outcome = RunSqlOutcome::from(&RawOutcome::Refusal { reason });

@@ -131,5 +131,8 @@ affinity: {}
 extraVolumes: []
 # Volume mounts this chart does not model by name.
 extraVolumeMounts: []
-# Environment variables added to the container.
+# Environment variables added to the container. A name sutura reads as a `security` setting
+# (`SUTURA__SECURITY` then `__`, `.` or `[`, in any letter case) is refused: set it in
+# `config.environment`, or with `security.accessToken`, `security.metricsToken` or
+# `security.inbound.keySetSecretName`. A name sutura reads as a variable the chart sets is refused.
 extraEnv: []

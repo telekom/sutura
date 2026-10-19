@@ -187,6 +187,8 @@ pub enum Failure {
     /// for a route no scope can turn on would go obtain a grant that could never help. Checked
     /// BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
     /// is the reason a caller with every scope this surface issues still cannot reach the route.
+    ///
+    /// `capability` is the capability's id, and the switch the sentence names is `tools.<id>.enabled`.
     ToolNotEnabled { capability: &'static str },
     /// The request's `Host` is not one this deployment answers.
     ///
@@ -222,7 +224,8 @@ pub enum Failure {
     /// The data system did not answer. Distinguished from [`Self::Internal`] because it is the one
     /// failure that is worth retrying, and a caller cannot tell from a 500.
     Unavailable,
-    /// The credential broker did not answer, so nothing could be executed as the asking subject.
+    /// The credential broker did not answer, so nothing could be executed as the asking subject - or
+    /// the inbound key set could not be read when a token named a key id it does not hold.
     ///
     /// **Shares the status with [`Self::Unavailable`] and not the code.** Both are worth retrying, and
     /// the two are diagnosed in different places: one is a data system that is unwell and this is the
@@ -232,6 +235,11 @@ pub enum Failure {
     ///
     /// Carries nothing. Which issuer this deployment talks to is not the caller's business.
     IdentityUnavailable,
+    /// The caller has no account linked at the identity provider a source runs them through.
+    ///
+    /// **`403`, not `503`**: retrying does not help, and the caller can act - link the account at
+    /// the identity provider. It is about the caller's own linking state only.
+    IdentityNotLinked,
     /// Every execution slot was taken for the whole admission window, so the question was shed.
     ///
     /// **`503` and not `429`, and the two say different things.** A `429` is "you personally asked
@@ -254,7 +262,9 @@ impl Failure {
         use axum::http::StatusCode;
         match *self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed => StatusCode::FORBIDDEN,
+            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed | Self::IdentityNotLinked => {
+                StatusCode::FORBIDDEN
+            }
             Self::NotAQuestion { .. } => StatusCode::BAD_REQUEST,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -288,7 +298,8 @@ impl Failure {
             | Self::Timeout
             | Self::Internal
             | Self::Unavailable
-            | Self::IdentityUnavailable => None,
+            | Self::IdentityUnavailable
+            | Self::IdentityNotLinked => None,
         }
     }
 
@@ -306,6 +317,7 @@ impl Failure {
             Self::Internal => "internal",
             Self::Unavailable => "unavailable",
             Self::IdentityUnavailable => "identity_unavailable",
+            Self::IdentityNotLinked => "identity_not_linked",
             Self::AtCapacity { .. } => "at_capacity",
         }
     }
@@ -321,7 +333,10 @@ impl Failure {
             // Named for what it is: obtaining a scope will not help here, and saying
             // `insufficient_scope` would send a caller looking for a grant that does not exist.
             Self::ToolNotEnabled { capability } => {
-                format!("`{capability}` is not enabled on this deployment")
+                format!(
+                    "`{capability}` is not enabled on this deployment. The operator turns it on with \
+                     `tools.{capability}.enabled`."
+                )
             }
             Self::HostNotAllowed => String::from("this deployment does not answer this Host"),
             Self::NotAQuestion { ref detail } => detail.to_string(),
@@ -334,6 +349,9 @@ impl Failure {
             // Named for what it is without naming which issuer, and worth retrying - which is the one
             // thing a caller can act on and the reason it is not folded into the line above.
             Self::IdentityUnavailable => String::from("the identity provider this deployment depends on did not answer; retry"),
+            Self::IdentityNotLinked => String::from(
+                "your account is not linked at the identity provider this source runs you through; link it, then retry",
+            ),
             // No numbers. How many questions this deployment runs at once is its sizing, and a
             // caller who is being shed has no use for it - what they need is whether to retry,
             // which the status and `Retry-After` say.
@@ -496,6 +514,13 @@ mod tests {
     }
 
     #[test]
+    fn a_caller_with_no_linked_account_is_a_403_identity_not_linked() {
+        let not_linked = Failure::IdentityNotLinked;
+        assert_eq!(not_linked.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(not_linked.code(), "identity_not_linked");
+    }
+
+    #[test]
     fn an_identity_provider_outage_is_not_reported_as_a_data_system_outage() {
         // `docs/adr/0014` states this as a requirement rather than a nicety: the identity path is a
         // hard runtime dependency once a broker exchanges anything, and a caller told "the data
@@ -539,7 +564,7 @@ mod tests {
     #[test]
     fn a_deployment_switch_being_off_is_not_reported_as_a_missing_scope() {
         let off = Failure::ToolNotEnabled {
-            capability: sutura_app::Capability::RunSql.scope(),
+            capability: sutura_app::Capability::RunSql.id(),
         };
         assert_eq!(
             off.status(),
@@ -548,9 +573,12 @@ mod tests {
         );
         assert_ne!(off.code(), Failure::InsufficientScope { required: "x" }.code());
         assert_eq!(off.code(), "tool_not_enabled");
-        assert!(off.detail().contains("sutura:sql.run"), "{}", off.detail());
-        // Nothing here reads as "go get a scope" - the sentence a scope-refusal caller sees.
-        assert!(!off.detail().contains("credential"), "{}", off.detail());
+        // The id and the switch, never the scope: nothing here reads as "go get a scope". The same
+        // sentence as `/mcp` and stdio answer with, which `sutura-mcp`'s `not_enabled` writes itself.
+        assert_eq!(
+            off.detail(),
+            "`run_sql` is not enabled on this deployment. The operator turns it on with `tools.run_sql.enabled`."
+        );
     }
 
     #[test]

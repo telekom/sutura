@@ -32,6 +32,14 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "federation_link_compound",
         ),
         (
+            RefusalReason::FederationLinkTruncated {
+                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                    .expect("a test relationship is a relationship"),
+            },
+            StatusCode::CONFLICT,
+            "federation_link_truncated",
+        ),
+        (
             RefusalReason::FederationLinkTypeMismatch {
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                     .expect("a test relationship is a relationship"),

@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -275,7 +275,7 @@
+ ) -> Vec<ChangedFile> {
+     let moved = moves(&files, gone, base, read);
+     for (at, file) in files.iter_mut().enumerate() {
+-        if !is_built(&file.path, read) {
++        if !is_built(&file.path, read) && false {
+             continue;
+         }
+         file.added

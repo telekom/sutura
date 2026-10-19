@@ -28,6 +28,10 @@ const SKIP_DIRS: &[&str] = &[
     ".devenv",
     ".direnv",
     ".pixi",
+    // Gitignored provisioning state. The conformance corpus stages `<table>.<pid>.csv` here and
+    // renames it, so a walk that lists the staged name finds it gone by the time it reads or copies
+    // it - and only the walk fallback can see it, since git never lists an ignored path.
+    ".sutura-dev",
     "target",
     "result",
     "node_modules",

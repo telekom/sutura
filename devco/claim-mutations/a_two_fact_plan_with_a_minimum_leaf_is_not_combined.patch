@@ -1,6 +1,6 @@
-diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
---- a/crates/sutura-exec-datafusion/src/combine.rs
-+++ b/crates/sutura-exec-datafusion/src/combine.rs
+diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
+--- a/crates/sutura-exec-datafusion/src/combine/arm.rs
++++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
 @@ -579,7 +579,7 @@
              .carried()
              .iter()

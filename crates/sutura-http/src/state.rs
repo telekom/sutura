@@ -346,7 +346,8 @@ impl AgentMount {
 }
 
 impl ServiceState {
-    /// Builds the state from a started service and the settings it was started under.
+    /// Builds the state from a started service and the settings it was started under, which outside
+    /// a test fixture only [`crate::ServableSettings::check`] hands out.
     ///
     /// Takes the surface already behind an `Arc`, because the composition root owns it: the same
     /// service may be handed to a second transport later, and this crate must not be the one that
@@ -364,7 +365,8 @@ impl ServiceState {
     /// is what makes `/metrics` show the deployment rather than only its requests, and the builder is
     /// consumed here so no later caller can add a series to a registry a scrape is already reading.
     #[must_use]
-    pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>, admission: Admission) -> Self {
+    pub fn new(surface: Arc<dyn Surface>, settings: impl Into<crate::ServableSettings>, admission: Admission) -> Self {
+        let settings = settings.into().into_shared();
         let mut builder = RegistryBuilder::default();
         let metrics = crate::metrics::Metrics::install(&mut builder);
         // The capacity denominator is a property of this state's bound, not of a question, so it is

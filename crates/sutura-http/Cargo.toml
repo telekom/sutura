@@ -34,12 +34,23 @@ tls = ["dep:tokio-rustls", "sutura-config/tls"]
 # enables this feature; without it none of this compiles and the shipped set is unchanged.
 agent = []
 
+# `ServiceState::new` over bare `Arc<Settings>` that `ServableSettings::check` was never asked of,
+# for another crate's test fixtures - this crate's own tests have it under `cfg(test)`. Turned on
+# only by `sutura-cli`'s `[dev-dependencies]`. `check-default-features` refuses it in a shipped
+# root's normal dependencies; that preflight resolves the default feature set, not a `--features`
+# list, so a feature turned on only there is not seen.
+fixtures = []
+
 [dependencies]
 # The service, behind the ports. This crate calls `answer` and `verify_and_validate` and nothing
 # else; every rule about what may be answered lives on the other side of that call.
 sutura-app = { workspace = true }
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
+# The shared outbound client and its trust material, for one read: `security.inbound.key_set_url`.
+# No new package in the lock: the workspace already resolves both, and `ureq` below.
+sutura-http-client = { workspace = true }
+sutura-tls = { workspace = true }
 # For one value type - `Shutdown` - and not for anything this crate installs. `sutura-runtime` owns
 # the process-global setup and is called by the composition root; nothing here touches a subscriber,
 # a panic hook or a signal handler. The dependency exists so `serve` can arm its drain deadline
@@ -49,12 +60,20 @@ axum = { workspace = true }
 # Directly, for `middleware::StateInformationMiddleware` in the limiter's type. It is part of the
 # signature because emitting the remaining-quota headers is a construction-time choice.
 governor = { workspace = true }
+# A PEM key set (`inbound::keys::document`): `base64` decodes the armoured block, `spki` (and its
+# `der`) reads a certificate's subject public key and that key's algorithm and bits. Parse only; the
+# verifier is still the one `jsonwebtoken` builds from a JWK. The tests also write JWKs with `base64`.
+base64 = { workspace = true }
+spki = { workspace = true }
 # Leg 1: signature verification, `exp`/`nbf`, issuer and audience, and JWK decoding. See the note on
 # the workspace entry for why the version is what it is and what it adds to the lock. `sutura-config`
 # owns the DECLARATION - which algorithms, which issuer, which audience - and names none of this: the
 # mapping from `sutura_config::SigningAlgorithm` onto this library's own enum lives in
 # `crate::inbound::token` and is the only place the two vocabularies meet.
 jsonwebtoken = { workspace = true }
+# The single-use store's lock, held for one check and one insert with no `.await` inside, which
+# `clippy.toml` sends here rather than to `std::sync::Mutex`. Already linked through `governor`.
+parking_lot = { workspace = true }
 serde = { workspace = true }
 # The interface description is serialized once at startup and served from a clone, and the wire
 # shapes are asserted on as JSON in the tests, because the JSON is the contract.
@@ -72,6 +91,7 @@ tower_governor = { workspace = true }
 # from a task instead of from `accept`, and the workspace manifest for the feature choices.
 tokio-rustls = { workspace = true, optional = true }
 tracing = { workspace = true }
+ureq = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
@@ -83,15 +103,14 @@ utoipa-swagger-ui = { workspace = true }
 # over the port each transport would write its own. Adds no package to `Cargo.lock`: the feature is
 # a cfg, and this crate already depends on the domain.
 sutura-domain = { workspace = true, features = ["fixtures"] }
-# base64url, for writing a JWK in the leg 1 tests. See the workspace entry: test-only, and nothing in
-# a shipped path here encodes base64 first-party.
-base64 = { workspace = true }
 # TWO uses now, and they are the same argument. The TLS tests generate their certificates rather than
 # carrying one - see the workspace entry: a committed pair cannot express "this key does not match this
 # certificate", which is the case the reload path has to refuse. The leg 1 tests generate a signing key
 # for the same reason plus one more: a committed private key in a public repository is a committed
 # private key, whatever a comment beside it says, and `KeyPair::generate` costs a millisecond.
 rcgen = { workspace = true }
+# The loopback TLS server the key set URL cells fetch from.
+sutura-http-client = { workspace = true, features = ["tls-test"] }
 # The mock authorization server: a generated key pair, a JWK set it PUBLISHES to a path, and a token
 # minter every claim of which is a parameter.
 #

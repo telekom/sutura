@@ -12,7 +12,8 @@
 //! the whole argument, including why a loopback URL rather than a file or an executable, and what the
 //! open port's exposure actually is. The document names no second hop: the federated token Google's
 //! token service returns IS the subject's own pool principal, and `BigQuery`'s grants on that
-//! principal decide what it reads.
+//! principal decide what it reads. A Google-login source hands the driver the subject's own access
+//! token instead, which the identity provider stored when the subject signed in to Google.
 //!
 //! # No second hop
 //!
@@ -31,6 +32,7 @@
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
 use adbc_core::options::{OptionDatabase, OptionValue};
+use sutura_domain::identity::Secret;
 
 use crate::transport::JobIdentity;
 
@@ -59,24 +61,35 @@ const EXTERNAL_ACCOUNT: &str = "external_account";
 /// The driver option carrying the credential document itself.
 const AUTH_CREDENTIALS: &str = "bigquery.auth.credentials";
 
+/// The value of [`AUTH_TYPE`] that takes a bare access token, which the driver never refreshes.
+///
+/// The vendored driver patch's `OptionValueAuthTypeAccessToken` (`VENDOR.md`).
+const AUTH_TYPE_ACCESS_TOKEN: &str = "access_token";
+
+/// The driver option carrying that access token: the patch's `OptionAuthAccessToken`.
+const AUTH_ACCESS_TOKEN: &str = "bigquery.auth.access_token";
+
 /// The options one job's identity becomes, as the driver's database option pairs.
 ///
 /// Named because `Result<Vec<(OptionDatabase, OptionValue)>, AdbcError>` is over this workspace's
 /// `type_complexity` threshold - the same reason `crate::Mapped` exists.
 type DatabaseOptions = Vec<(OptionDatabase, OptionValue)>;
 
-/// Whether this source impersonates at all, and against which pool when it does.
+/// Whether this source impersonates at all, and how when it does.
 ///
-/// **A two-variant type rather than an `Option<WorkloadPool>`, because the absence is a
-/// DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
-/// `workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
-/// which of these a transport holds is decided once, at composition, from a value an operator wrote.
+/// **An enum rather than an `Option<WorkloadPool>`, because the absence is a DECLARATION.** A
+/// source is opened shared or impersonating - `sutura_config` refuses a caller-identity block on a
+/// shared entry and refuses its absence on an impersonating one - so which of these a transport
+/// holds is decided once, at composition, from a value an operator wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Impersonation {
     /// This source does not impersonate: every job runs as the identity the driver authenticates as.
     Disabled,
     /// This source impersonates, by federating the asking subject's assertion against this pool.
     ThroughPool(WorkloadPool),
+    /// This source impersonates with the access token the identity provider stored for the asking
+    /// subject's own Google login: the subject's credential is that token itself.
+    GoogleLogin,
 }
 
 /// Everything a job's identity puts on the database, and the loopback source it has to outlive.
@@ -113,6 +126,10 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
     match (identity, impersonation) {
         (JobIdentity::Transport, _) => Ok(JobAuthentication {
             options: Vec::new(),
+            source: None,
+        }),
+        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin) => Ok(JobAuthentication {
+            options: access_token_options(assertion),
             source: None,
         }),
         (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) => {
@@ -166,6 +183,26 @@ fn credential_options(source: &SubjectSource, pool: &WorkloadPool) -> DatabaseOp
     ]
 }
 
+/// The two options that hand the driver one subject's access token: the token and the auth type
+/// that selects it, only ever together - the driver reads the token under no other auth type.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a driver option is a plain string across the C ABI, so the token is exposed here \
+              once, into a value built and consumed inside `connect` and never logged"
+)]
+fn access_token_options(token: &Secret) -> DatabaseOptions {
+    vec![
+        (
+            OptionDatabase::Other(AUTH_TYPE.into()),
+            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),
+        ),
+        (
+            OptionDatabase::Other(AUTH_ACCESS_TOKEN.into()),
+            OptionValue::String(String::from(token.expose_secret())),
+        ),
+    ]
+}
+
 /// A compile-time guard that `JobAuthentication` does not implement `Debug`.
 ///
 /// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
@@ -203,7 +240,10 @@ mod no_debug {
 mod tests {
     use sutura_domain::identity::Secret;
 
-    use super::{AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, Impersonation, authenticate};
+    use super::{
+        AUTH_ACCESS_TOKEN, AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN, Impersonation,
+        authenticate,
+    };
     use crate::adbc::AdbcError;
     use crate::adbc::subject::WorkloadPool;
     use crate::transport::JobIdentity;
@@ -256,6 +296,56 @@ mod tests {
         );
     }
 
+    /// The options a Google-login leg puts on the database, as key and text value.
+    fn google_login_options(token: &str) -> Vec<(String, String)> {
+        let token = Secret::new(token);
+        authenticate(JobIdentity::AsSubject { assertion: &token }, &Impersonation::GoogleLogin)
+            .expect("a subject at a Google-login source is authenticated")
+            .options
+            .into_iter()
+            .map(|(key, value)| (format!("{key:?}"), format!("{value:?}")))
+            .collect()
+    }
+
+    #[test]
+    fn a_google_login_job_carries_the_access_token_option_and_no_credential_document() {
+        let sent = google_login_options("ya29.caller-google-token");
+        assert!(
+            sent.iter()
+                .any(|(key, value)| key.contains(AUTH_ACCESS_TOKEN) && value.contains("ya29.caller-google-token")),
+            "{sent:?}"
+        );
+        assert!(
+            !sent
+                .iter()
+                .any(|(key, _)| key.contains(AUTH_CREDENTIALS) || key.contains("impersonate")),
+            "{sent:?}"
+        );
+    }
+
+    #[test]
+    fn the_access_token_option_is_set_only_with_the_auth_type_that_selects_it() {
+        let sent = google_login_options("ya29.caller-google-token");
+        let auth_types: Vec<&String> = sent
+            .iter()
+            .filter(|(key, _)| key.contains(&format!("\"{AUTH_TYPE}\"")))
+            .map(|(_, value)| value)
+            .collect();
+        assert_eq!(auth_types.len(), 1, "{sent:?}");
+        assert!(
+            auth_types
+                .iter()
+                .all(|value| value.contains(&format!("\"{AUTH_TYPE_ACCESS_TOKEN}\""))),
+            "{sent:?}"
+        );
+        assert_eq!(
+            sent.iter().filter(|(key, _)| key.contains(AUTH_ACCESS_TOKEN)).count(),
+            1,
+            "{sent:?}"
+        );
+        assert_eq!(sent.len(), 2, "{sent:?}");
+    }
+
     #[test]
     fn a_subject_at_a_source_that_declares_no_pool_is_refused_rather_than_run_as_the_deployment() {
         // **THE XOR's own refusal, and the direction that matters.** There is no pool to federate
@@ -274,8 +364,8 @@ mod tests {
 
     #[test]
     fn the_two_modes_are_the_only_two_and_neither_degrades_into_the_other() {
-        // **The XOR as a cell rather than as a sentence.** `Impersonation` has two variants and
-        // `JobIdentity` has two arms that can reach this function, so the pairs are four and every
+        // **The XOR as a cell rather than as a sentence.** For `Disabled` and `ThroughPool` and
+        // the two arms of `JobIdentity` that can reach this function, the pairs are four and every
         // one is decided above: shared runs as the deployment, a subject federates, a subject with
         // no pool refuses, and the boot path runs as the deployment whatever the source declared.
         // What no pair produces is *a subject's question answered as the deployment* - there is no

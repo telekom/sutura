@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
 index 6eb25c777..457e34971 100644
---- a/crates/sutura-exec-datafusion/src/combine.rs
-+++ b/crates/sutura-exec-datafusion/src/combine.rs
+--- a/crates/sutura-exec-datafusion/src/combine/arm.rs
++++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
 @@ -588,7 +588,7 @@ async fn combine_plan(
              return Err(CombineError::UnsupportedAggregate { aggregate });
          }

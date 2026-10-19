@@ -69,9 +69,12 @@
 //! than silently dropping out. FAIL CLOSED on parsing none, for that gate's own stated reason: a
 //! parser that silently sees half a file is worse than no parser.
 //!
-//! Before compilation, a resolve-only preflight rejects `sutura-domain/agreement` and
-//! `sutura-domain/test-fakes` in each shipped root's normal target dependencies, for every target
-//! declared by the cross list and host mapping.
+//! Before compilation, a resolve-only preflight rejects `sutura-domain/agreement`,
+//! `sutura-domain/test-fakes` and `sutura-http/fixtures` in each shipped root's normal target
+//! dependencies, for every target declared by the cross list and host mapping. The last one is what
+//! lets `ServableSettings` be the guard rather than a convention: with `fixtures` on, a bare
+//! `Arc<Settings>` builds the state. Its limit is the other two's: it resolves the DEFAULT feature
+//! set, not the `--features` list a release passes, so a feature turned on only there is not seen.
 //! Build dependencies, proc-macro hosts and dev dependencies are outside that projection. This is
 //! resolved feature selection, not inspection of emitted code or proof of runtime data disclosure.
 //!
@@ -461,6 +464,9 @@ fn inspect_features(text: &str, root: &str) -> Result<(), &'static str> {
                 return Err("sutura-domain/test-fakes is enabled in normal target dependencies");
             }
         }
+        if row.package == "sutura-http" && row.features.split(',').any(|feature| feature == "fixtures") {
+            return Err("sutura-http/fixtures is enabled in normal target dependencies");
+        }
     }
     if !found_root || !found_domain {
         return Err("Cargo output omitted the selected root or enrolled sutura-domain subject");
@@ -722,6 +728,25 @@ mod tests {
             inspect_features(faked, "root"),
             Err("sutura-domain/test-fakes is enabled in normal target dependencies")
         );
+    }
+
+    /// `fixtures` lets a bare `Arc<Settings>` build the request state, past `ServableSettings::check`,
+    /// so a shipped root that resolves it is refused. A different package's `fixtures` is not.
+    #[test]
+    fn a_shipped_root_resolving_http_fixtures_is_refused() {
+        let base = "root v0.1.0|\nsutura-domain v0.1.0|\n";
+        let fixtures = format!("{base}sutura-http v0.1.0|agent,default,fixtures\n");
+        assert_eq!(
+            inspect_features(&fixtures, "root"),
+            Err("sutura-http/fixtures is enabled in normal target dependencies")
+        );
+        for clean in [
+            format!("{base}sutura-http v0.1.0|agent,default,tls\n"),
+            format!("{base}sutura-http v0.1.0| (*)\n"),
+            format!("{base}other v0.1.0|fixtures\n"),
+        ] {
+            assert_eq!(inspect_features(&clean, "root"), Ok(()), "{clean}");
+        }
     }
 
     #[test]

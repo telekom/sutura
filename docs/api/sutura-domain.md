@@ -209,6 +209,12 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
+pub const fn client(&self) -> Option<&ClientClaims>
+```
+
+The OAuth client the caller's token named. Recorded, never authorized on - see `ClientClaims`.
+
+```rust
 pub const fn executed_as(&self) -> Option<&ExecutedAs>
 ```
 
@@ -244,6 +250,12 @@ is what every credential the shipping broker mints answers, because it mints fro
 **Recording is not the control.** A credential whose deadline had passed never reached an
 adapter, and `crate::identity::Minted::agreeing_with` is where that is decided; this is what
 lets an incident ask afterwards how much life was left.
+
+```rust
+pub const fn naming_client(self, client: &'a ClientClaims) -> Self
+```
+
+The same record, naming the OAuth client the caller's token was issued to.
 
 ```rust
 pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome, executed_until: Option<Expiry>) -> Self
@@ -3491,6 +3503,12 @@ Why an exchange produced no usable token.
 because an identity provider may echo its input there; the RFC 6749 `error` code survives only when it is the
 registered shape (`[a-z_]`, at most 64 bytes), which no JWT can be.
 
+### `use LinkedLogin`
+
+The port: the token the identity provider stored for the caller's linked external account.
+
+Synchronous for the reason `DelegationExchange` is.
+
 ### `use RequestedAudience`
 
 The audience the exchanged token must carry: the pool provider's client ID.
@@ -3543,12 +3561,51 @@ absence to be handled rather than a case to name, and the case is the whole poin
 person and a call by an agent for that person are two different events, and a reader that cannot
 tell them apart is the failure this module exists to prevent.
 
+### `use ClientClaim`
+
+What one client claim of a verified token held.
+
+### `use ClientClaims`
+
+The OAuth client a verified token names, as its `azp` and RFC 9068 `client_id` claims each held it.
+
+**Both are kept**, so two claims that disagree are both on the record rather than one chosen.
+Audit only: nothing grants on it. Leg 1's own `azp` check reads the token, not this: with
+`extra_scope_claims` set, a token whose `azp` is absent or names the API is refused.
+
 ### `use InvalidPrincipalId`
 
 Why an identifier naming a principal was rejected.
 
 One error for all three newtypes below, because they are one parse. The variants carry only the
 shape of the rejected input; the principal itself is personal data and this error reaches logs.
+
+### `use OAuthClient`
+
+The OAuth client a verified token names - in the usual agent flow, the agent.
+
+**Recorded, never authorized on.** There is no `PartialEq`, `Eq`, `Hash`, `Ord` or `as_str`, so
+no grant, map key or comparison can read it; a sink renders it through `Display`:
+
+```compile_fail
+use sutura_domain::identity::OAuthClient;
+
+let client = OAuthClient::parse("agent-app").expect("a client id");
+assert!(client == OAuthClient::parse("agent-app").expect("a client id"));
+```
+
+The compiling twin, so the failure above is the missing `==` and not a typo - and the limit: a
+rendering is a `String`, which review alone keeps out of a decision.
+
+```
+use sutura_domain::identity::OAuthClient;
+
+let client = OAuthClient::parse("agent-app").expect("a client id");
+assert_eq!(client.to_string(), "agent-app");
+```
+
+Not masked, unlike `super::Actor`: it names an application registration, not a person. It goes
+through the same parse, so a control or invisible character cannot reach an audit line.
 
 ### `use PrincipalChain`
 
@@ -10321,6 +10378,13 @@ somebody else's input.
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+- `FederationLinkTruncated` - The relationship crossing into the remote data system joins on a key truncated to a grain.
+
+  The combiner links the two legs on the raw column values, so a truncated key (`month_of(a.x) =
+  b.y`) would join each row to the wrong lookup row or to none. Refused before either leg runs
+  rather than answered wrongly. A same-source chain keeps its grain and is not refused. Not
+  narrowable by the caller: the key is the catalog's, and declaring an equality against a column
+  that already sits at the grain removes the refusal.
 - `FederationLinkTypeMismatch` - The two columns the crossing relationship joins are declared as different kinds of value.
 
   Decided from the catalog before either leg runs, and only when BOTH types are declared and
@@ -10612,6 +10676,10 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 #### Implements
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
+
+### `use every_refusal`
+
+One instance of every variant.
 
 ### `use Filter`
 
@@ -11318,7 +11386,7 @@ merely undone by a rule somebody remembers to apply.
 the architecture decision's amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's six variants are exactly that list.
+answer about the statement, and this module's variants are exactly that list.
 
 # What this module does not decide
 
@@ -11441,6 +11509,15 @@ answer about the statement once it ran.
 
   Refused before any leg exists, so nothing reached a data system. Carries no source name: the
   caller already holds its own tool's source list.
+- `MoreThanOneSourceOpen` - This deployment opened more than one data system, and the raw tool runs a statement against exactly one.
+
+  Refused before a credential is minted, so nothing reached a data system. A deployment with two
+  open sources has no way to say which one the statement means, and guessing would run the
+  caller's text against a source they did not name.
+- `NoSourceAcceptsRawStatements` - The one data system this deployment opened does not accept a raw statement.
+
+  Refused before a credential is minted. The adapter, not the caller, decides this, so asking
+  again changes nothing.
 
 #### Methods
 

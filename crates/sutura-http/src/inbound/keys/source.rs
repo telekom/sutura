@@ -2,8 +2,8 @@
 //!
 //! Split off `super` at the thousand-line cap, at the seam the file already had: this module is
 //! *the source*, and nothing in it reads a clock, holds a lock or decides when a look happens -
-//! that is all [`super::KeySetCache`]. `docs/adr/0014`'s remaining half lands here too: a JWKS
-//! endpoint is a second implementor of [`KeySetSource`] and touches nothing else.
+//! that is all [`super::KeySetCache`]. A JWKS endpoint is the second implementor,
+//! [`super::UrlKeySet`], and touches nothing else.
 
 use std::path::{Path, PathBuf};
 
@@ -19,14 +19,12 @@ use super::InvalidKeySet;
 ///
 /// **It bounds an implementor and cannot bound the port.** [`KeySetSource::read`] hands back a
 /// `String`, so by the time [`super::KeySetCache`] sees a document the allocation has already happened.
-/// [`FileKeySet`] checks it; a second implementor carries its own check against this constant, and
-/// nothing in this module can make it.
+/// [`FileKeySet`] and [`super::UrlKeySet`] each check it, and nothing in this module can make a third.
 pub const MAX_KEY_SET_BYTES: usize = 64 * 1024;
 
 /// Where a key set is read from.
 ///
-/// One method, so a JWKS endpoint is a second implementor and nothing else in this module moves. See
-/// `super`'s module documentation for why the only implementor today reads a file.
+/// One method, so [`FileKeySet`] and [`super::UrlKeySet`] are interchangeable behind the cache.
 ///
 /// **It returns the document's BYTES rather than a parsed key set**, and that is what lets
 /// [`super::KeySetCache::poll_once`] tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
@@ -41,9 +39,9 @@ pub const MAX_KEY_SET_BYTES: usize = 64 * 1024;
 ///
 /// **Bounding the document is the IMPLEMENTOR's job and cannot be the cache's.** This returns an
 /// owned `String`, so an unbounded read has already allocated by the time anything above it could
-/// object. [`MAX_KEY_SET_BYTES`] is the number to check against, [`FileKeySet`] checks it, and
-/// nothing in this module makes a second implementor do the same - a type cannot express it, so this
-/// paragraph is the whole of the mechanism.
+/// object. [`MAX_KEY_SET_BYTES`] is the number to check against, both implementors check it, and
+/// nothing in this module makes a third do the same - a type cannot express it, so this paragraph is
+/// the whole of the mechanism.
 pub trait KeySetSource: Send + Sync + 'static {
     /// Reads the key set document as it is now, refusing one over [`MAX_KEY_SET_BYTES`].
     fn read(&self) -> Result<String, KeySetUnavailable>;
@@ -72,6 +70,12 @@ pub enum KeySetUnavailable {
     /// about size.
     #[error("the key set at {path} is larger than the {limit} bytes a key set may be")]
     TooLarge { path: PathBuf, limit: usize },
+    #[error("the key set at {url} could not be fetched")]
+    Fetch {
+        url: String,
+        #[source]
+        cause: super::FetchFailed,
+    },
 }
 
 /// A key set on the local filesystem.

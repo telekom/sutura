@@ -152,7 +152,7 @@ const TAG: &str = "query";
         (
             status = 409,
             description = "REFUSED - `outcome: refusal`. The question is answerable in principle \
-                           and this deployment will not answer it, so `code` says which of five \
+                           and this deployment will not answer it, so `code` says which of six \
                            things stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
                            systems. `plan_spans_too_many_sources`: it would read from more data \
@@ -160,7 +160,9 @@ const TAG: &str = "query";
                            dimensions join through more than one relationship. \
                            `federation_link_compound`: the one relationship crossing into the \
                            second data system declares more than one join key, and the combiner \
-                           links two legs on a single column. `federation_link_type_mismatch`: the \
+                           links two legs on a single column. `federation_link_truncated`: the same relationship \
+                           joins on a key truncated to a grain, which the legs do not carry. \
+                           `federation_link_type_mismatch`: the \
                            two columns that relationship joins are declared as different kinds of \
                            value, so no row can match. None is an outage and none is \
                            worth retrying unchanged; asking without the dimension on the second \
@@ -213,8 +215,9 @@ const TAG: &str = "query";
             status = 503,
             description = "Worth retrying, and `code` says which of four things happened. \
                            `unavailable`: the data system did not answer. `identity_unavailable`: \
-                           the credential broker this deployment depends on did not answer, which \
-                           is a different dependency being unwell and is diagnosed elsewhere. \
+                           the credential broker or the key set this deployment depends on did not \
+                           answer, which is a different dependency being unwell and is diagnosed \
+                           elsewhere. \
                            `at_capacity`: every \
                            execution slot was taken for the whole admission window, so this \
                            question was shed rather than queued - that response carries a \
@@ -388,6 +391,10 @@ pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
         SurfaceFailure::Broker { ref cause } => {
             tracing::error!(error = %cause, chain = ?chain, "the credential broker did not answer");
             Failure::IdentityUnavailable
+        }
+        SurfaceFailure::NotLinked { ref cause } => {
+            tracing::warn!(error = %cause, chain = ?chain, "the caller has no linked account at the identity provider");
+            Failure::IdentityNotLinked
         }
         // Our own wiring, so it carries nothing outward. An operator finds it in this line.
         SurfaceFailure::Miswired { ref cause } => {
@@ -737,5 +744,40 @@ mod tests {
         let mut filters = vec![serde_json::json!({"op": "eq", "dimension": "region", "value": "north"}); 17];
         filters[0]["dimension"] = serde_json::json!("bad name");
         count_is_refused_before_parsing(count_body(), "filters", serde_json::json!(filters), "too_many_filters").await;
+    }
+
+    /// A broker whose one delegation hop finds no account linked for the caller, the error chain
+    /// the declared broker builds.
+    struct LinksNoAccount;
+
+    impl sutura_domain::identity::CredentialBroker for LinksNoAccount {
+        type Error = sutura_config::DeclaredPrincipalsUnusable;
+
+        fn mint(
+            &self,
+            _context: &sutura_domain::identity::RequestContext,
+            _sources: &sutura_domain::identity::SourceSet,
+        ) -> Result<sutura_domain::identity::Minted, Self::Error> {
+            Err(sutura_config::DeclaredPrincipalsUnusable::Delegation {
+                source: crate::testing::source(),
+                cause: sutura_domain::identity::DelegationFailed::AtHop {
+                    hop: 1,
+                    cause: Box::new(sutura_domain::identity::DelegationFailed::NotLinked),
+                },
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_caller_with_no_linked_account_is_a_403_identity_not_linked_on_v1() {
+        let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the test settings load");
+        let app = crate::testing::serving(bundle(), crate::testing::fake_warehouse(), LinksNoAccount, settings, None);
+        let (status, body) = crate::testing::call(
+            &app,
+            crate::testing::request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains(r#""code":"identity_not_linked""#), "{body}");
     }
 }

@@ -40,11 +40,13 @@ runs:
   steps:
     - id: reclaim
       shell: bash
+      env:
+        MINIMUM_GB: ${{ inputs.minimum-gb }}
       run: |
         set -u
         avail() { df --output=avail -BG / | tail -1 | tr -dc '0-9'; }
         before=$(avail)
-        minimum='${{ inputs.minimum-gb }}'
+        minimum="$MINIMUM_GB"
 
         if [ "$minimum" -eq 0 ] || [ "$before" -ge "$minimum" ]; then
           printf 'reclaim-disk: %sG available, cleanup not needed\n' "$before"

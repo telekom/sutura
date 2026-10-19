@@ -6,10 +6,10 @@
 //! the implementation, so the tests for that parse sit beside the tests for everything else rather
 //! than inside them.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, ProofLifetime, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, KeySetFile, KeySetLocation, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -96,6 +96,95 @@ fn each_mode_requires_its_own_keys_and_the_refusal_names_the_mode() {
 }
 
 #[test]
+fn a_key_set_file_left_out_or_blank_is_refused_as_missing_naming_the_mode() {
+    // Blank is read as absent here, before the path parser sees it, so both name the key and mode.
+    for written in [
+        DIRECT_INBOUND.replacen("    key_set_file: \"/etc/sutura/jwks.json\"\n", "", 1),
+        DIRECT_INBOUND.replacen("\"/etc/sutura/jwks.json\"", "\"  \"", 1),
+    ] {
+        let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}")))
+            .expect_err("a direct block with no key set does not start");
+        let SettingsError::InboundKeyMissing { key, ref mode } = *error.reason() else {
+            panic!("expected a missing key, got {error:?}");
+        };
+        assert_eq!(key, KeySetFile::KEY);
+        assert_eq!(mode, "direct");
+    }
+}
+
+#[test]
+fn a_key_set_file_path_over_the_length_cap_is_refused_naming_the_key() {
+    let path = format!("/{}", "k".repeat(512));
+    let written = DIRECT_INBOUND.replacen("/etc/sutura/jwks.json", &path, 1);
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}")))
+        .expect_err("an over-long key set path does not start");
+    let SettingsError::InboundValue { ref cause } = *error.reason() else {
+        panic!("expected an inbound value refusal, got {error:?}");
+    };
+    assert_eq!(
+        *cause,
+        InvalidInboundValue::TooLong {
+            key: KeySetFile::KEY,
+            found: 513,
+            limit: 512
+        }
+    );
+}
+
+/// [`DIRECT_INBOUND`] with its key set file replaced by `url`.
+///
+/// The cells below read the location and the refusals through `Debug` and `Display`, so they build
+/// against a tree that has no URL source and fail there on their own assertions.
+fn direct_fetching(url: &str) -> Sources {
+    let written = DIRECT_INBOUND.replacen(
+        "key_set_file: \"/etc/sutura/jwks.json\"",
+        &format!("key_set_url: \"{url}\""),
+        1,
+    );
+    Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}"))
+}
+
+#[test]
+fn a_key_set_url_is_read_as_the_url_location() {
+    let settings =
+        Settings::load(&direct_fetching("https://issuer.example.com/keys")).map_err(|error| format!("{:?}", error.reason()));
+    let key_set = settings.map(|settings| {
+        format!(
+            "{:?}",
+            settings.security().inbound().map(|inbound| inbound.requirement().key_set())
+        )
+    });
+    assert_eq!(
+        key_set,
+        Ok(String::from(r#"Some(Url(KeySetUrl("https://issuer.example.com/keys")))"#))
+    );
+}
+
+#[test]
+fn a_cleartext_key_set_url_is_refused_naming_the_key() {
+    let refused = Settings::load(&direct_fetching("http://issuer.example.com/keys"))
+        .map(|_settings| ())
+        .map_err(|error| format!("{:?}", error.reason()));
+    assert_eq!(
+        refused,
+        Err(String::from(
+            r#"InboundValue { cause: NotHttps { key: "security.inbound.key_set_url" } }"#
+        ))
+    );
+}
+
+#[test]
+fn a_key_set_file_and_a_key_set_url_together_are_refused() {
+    let rendered = refusal(format!(
+        "security:\n{DIRECT_INBOUND}    key_set_url: \"https://issuer.example.com/keys\"\n"
+    ));
+    assert_eq!(
+        rendered,
+        "`security.inbound` names both `key_set_file` and `key_set_url` - one key set, one source"
+    );
+}
+
+#[test]
 fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads() {
     // The positive side, asserted through `Settings::load` rather than by constructing the types:
     // what a reviewer needs to know is that the keys an operator writes reach the validator.
@@ -108,7 +197,11 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     let requirement = inbound.requirement();
     assert_eq!(requirement.audience().as_str(), "https://sutura.example.com");
     assert_eq!(requirement.issuer().as_str(), "https://issuer.example.com");
-    assert_eq!(requirement.key_set().path(), PathBuf::from("/etc/sutura/jwks.json"));
+    assert!(
+        matches!(requirement.key_set(), KeySetLocation::File(file) if file.path() == Path::new("/etc/sutura/jwks.json")),
+        "{:?}",
+        requirement.key_set()
+    );
     assert_eq!(requirement.algorithms().count(), 1);
     assert!(inbound.reads_the_authorization_header());
 
@@ -506,6 +599,20 @@ fn granted_scopes_is_read_behind_a_gateway_and_refused_in_direct() {
     let rendered = refused.reason().to_string();
     assert!(
         rendered.contains("`security.inbound.granted_scopes`") && rendered.contains("`behind-gateway`"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn transit_single_use_is_read_behind_a_gateway_and_refused_in_direct() {
+    const ONCE: &str = "    transit_single_use: true\n";
+    let _settings =
+        load_inbound_overlay(format!("security:\n{GATEWAY_INBOUND}{ONCE}")).expect("single use behind a gateway starts");
+    let refused =
+        load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}{ONCE}")).expect_err("single use in `direct` does not start");
+    let rendered = refused.reason().to_string();
+    assert!(
+        rendered.contains("`security.inbound.transit_single_use`") && rendered.contains("`behind-gateway`"),
         "{rendered}"
     );
 }

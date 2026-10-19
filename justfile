@@ -430,13 +430,13 @@ causality base="origin/main":
 # than part of `hygiene` or `gates` - it recompiles this workspace once per committed patch, the
 # same isolated rebuild `just causality` itself pays per declared cell - so the release path or a
 # person re-verifying the set runs this by hand. `cargo xtask check-claim-mutations` is the cheap
-# apply-only half and IS in `just hygiene`.
-check-claim-mutation-kills:
+# apply-only half and IS in `just hygiene`. `--shard <i>/<n>` runs one of `n` slices of the patches.
+check-claim-mutation-kills *args:
     #!/usr/bin/env bash
     set -euo pipefail
     source nix/with-tier.sh
     sutura_tier_up
-    cargo run -q -p xtask -- check-claim-mutation-kills
+    cargo run -q -p xtask -- check-claim-mutation-kills {{ args }}
 
 # ---------------------------------------------------------------- artifacts ---
 
@@ -615,13 +615,13 @@ secrets:
     betterleaks dir . --config devco/gitleaks.toml --redact --verbose
 
 # Through nix, the only pin: these tools report findings, so their version is part of the verdict.
-# Static analysis of the workflows.
+# Static analysis of the workflows and the local composite actions.
 zizmor:
-    nix run .#zizmor -- .github/workflows
+    nix run .#zizmor -- .github/workflows .github/actions
 
 # Everything zizmor's default persona leaves out. Stylistic, so not a gate.
 zizmor-pedantic:
-    nix run .#zizmor -- --persona pedantic .github/workflows
+    nix run .#zizmor -- --persona pedantic .github/workflows .github/actions
 
 # A GLOB, not a list: it was two files here and one in ci.yml under a comment claiming "the glob is
 # the list", true of neither - and `nix/run-gate.sh`, which decides whether four gates run, was in

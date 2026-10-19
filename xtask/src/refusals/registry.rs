@@ -57,8 +57,9 @@ const QUERY: Subject = Subject {
     // pull-up REMOVED `MeasureDoesNotFederate` - a distinct count across two sources is answered
     // from the distinct keys the fact leg carries, so no site raises it any more. 32 since
     // `FederationLinkTypeMismatch`: a crossing whose two declared key types are different known
-    // kinds is refused at plan time.
-    variants: variants(32),
+    // kinds is refused at plan time. 33 since `FederationLinkTruncated`: a crossing key truncated to a
+    // grain is refused rather than joined on the raw value.
+    variants: variants(33),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
@@ -70,7 +71,7 @@ const STARTUP: Subject = Subject {
     // that verifies no `direct` caller. 19: `AgentSurfaceWithoutInboundIdentity` and
     // `AgentSurfaceOverAnImpersonatingSource` (#1293), where `/mcp` may not run without leg 1. 21:
     // `QuerySurfaceWithoutInboundIdentity` and `QuerySurfaceOverAnImpersonatingSource` (#1400), where
-    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a `google_login` or
+    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a
     // `domain_delegation` block this build parses and does not run. 24:
     // `InboundTokenAtPoolUnacknowledged` and `InboundTokenAtPoolWithoutEffect`, a `direct`
     // workload-identity source with no delegation hop and its acknowledgement. 25:
@@ -96,14 +97,15 @@ const VALIDATION: Subject = Subject {
 /// One refused raw statement: `docs/adr/0013`'s tool, off by default, with its own narrower
 /// vocabulary - a row cap, a data-system volume bound, a statement that did not complete, the
 /// data system refusing at the identity/authorization level, and (`telekom/sutura#1144`) the
-/// asker's own per-request deadline running out, and a statement over more than one source while
-/// federation is not allowed. Never `RefusalReason`'s: that vocabulary is keyed to a compiled plan,
-/// and a raw statement has none.
+/// asker's own per-request deadline running out, a statement over more than one source while
+/// federation is not allowed, and a deployment shape the raw tool does not serve (more than one open
+/// source, or one that takes no raw text). Never `RefusalReason`'s: that vocabulary is keyed to a
+/// compiled plan, and a raw statement has none.
 const RAW: Subject = Subject {
     name: "RawRefusalReason",
     declared_in: "crates/sutura-domain/src/raw.rs",
     allow_file: "devco/raw-refusals-unprovoked-allow",
-    variants: variants(6),
+    variants: variants(8),
 };
 
 /// One refused TLS configuration: the certificate and key `sutura_config::TlsMaterial` parsed are

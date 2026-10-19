@@ -238,6 +238,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref source,
             ref relationship,
         } => (StatusCode::CONFLICT, federation_link_compound(source, relationship)),
+        RefusalReason::FederationLinkTruncated { ref relationship } => (StatusCode::CONFLICT, truncated_link(relationship)),
         RefusalReason::FederationLinkTypeMismatch {
             ref relationship,
             fact_type: ref fact,
@@ -435,6 +436,12 @@ fn federation_link_compound(
     format!("`{relationship}` crossing into `{source}` declares more than one join key")
 }
 
+fn truncated_link(relationship: &sutura_domain::model::RelationshipName) -> String {
+    format!(
+        "`{relationship}` crossing into the second data system joins on a key truncated to a grain, which the two legs do not carry"
+    )
+}
+
 fn link_type_mismatch(
     relationship: &sutura_domain::model::RelationshipName,
     fact: &sutura_domain::plan::QuotedColumnType,
@@ -532,6 +539,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
+        | RefusalReason::FederationLinkTruncated { .. }
         | RefusalReason::FederationLinkTypeMismatch { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }

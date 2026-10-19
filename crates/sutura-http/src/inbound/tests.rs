@@ -54,6 +54,50 @@ use fixtures::{
     signed, signed_as, transit,
 };
 
+/// A `direct` gate over `source`, primed now, that looks at the source again for every unknown key
+/// id and holds what it read for the full `MAX_KEY_SET_AGE`.
+pub(super) fn gate_around(source: Box<dyn crate::inbound::keys::KeySetSource>) -> Arc<InboundGate> {
+    let keys = KeySetCache::primed_with_window(
+        source,
+        KeyFamily::EllipticCurve,
+        String::from("ES256"),
+        Duration::ZERO,
+        MAX_KEY_SET_AGE,
+        Instant::now(),
+    )
+    .expect("the first read is a key set");
+    Arc::new(InboundGate::over(&direct(), keys))
+}
+
+/// The whole `503` body an unknown key id gets while the key source is down: the code and a sentence,
+/// and nothing about the fetch that failed.
+pub(super) const IDENTITY_UNAVAILABLE: &str = r#"{"code":"identity_unavailable","status":503,"detail":"the identity provider this deployment depends on did not answer; retry"}"#;
+
+/// What a route behind `gate` answers a bearer `token`: the status, the body, and whether a
+/// `WWW-Authenticate` challenge came with it.
+///
+/// `pub(super)`, so the cells beside each key set source reach it too.
+pub(super) async fn guarded_answer(gate: &Arc<InboundGate>, token: &str) -> (StatusCode, String, bool) {
+    let app = axum::Router::new()
+        .route("/guarded", get(|| async { StatusCode::NO_CONTENT }))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(gate),
+            crate::inbound::require_verified_caller,
+        ));
+    let mut request = Request::builder()
+        .uri("/guarded")
+        .body(Body::empty())
+        .expect("the test request builds");
+    *request.headers_mut() = bearer(token);
+    let response = app.oneshot(request).await.expect("the infallible router answers");
+    let challenged = response.headers().contains_key(axum::http::header::WWW_AUTHENTICATE);
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("a problem body reads");
+    (status, String::from_utf8_lossy(&body).into_owned(), challenged)
+}
+
 // ------------------------------------------------------- what a token establishes ----
 
 #[tokio::test]
@@ -679,8 +723,8 @@ fn a_key_id_that_could_forge_a_record_line_does_not_parse() {
 
 #[tokio::test]
 async fn a_key_set_read_off_disk_verifies_a_token_and_a_missing_file_starts_no_gate() {
-    // The one test that touches a filesystem, because `FileKeySet` is the only source that ships and a
-    // fake of it would be asserting on the fake. The scratch file is named after the process and
+    // The one test that touches a filesystem, because `FileKeySet` reads one and a fake of it would
+    // be asserting on the fake. The scratch file is named after the process and
     // removed again.
     let pair = key_pair();
     let path = std::env::temp_dir().join(format!("sutura-jwks-{}.json", std::process::id()));
@@ -780,6 +824,54 @@ fn the_subject_a_verified_token_names_is_still_parsed_by_the_domain() {
     assert!(matches!(rejected, Err(TokenRejected::UnusableSubject { .. })), "{rejected:?}");
 }
 
+#[tokio::test]
+async fn an_unknown_key_id_while_the_source_is_unreachable_is_503_identity_unavailable() {
+    // An issuer outage is not a bad token: the caller is told to retry, and the keys already held
+    // keep verifying. Both windows are zero, so the request's own clock always reaches the source.
+    let pair = key_pair();
+    let (cache, _source) = fixtures::cache_around(
+        StubSource::scripted(vec![Some(jwks(KID, &pair)), None], None),
+        KeyFamily::EllipticCurve,
+        Duration::ZERO,
+        Duration::ZERO,
+        Instant::now(),
+    );
+    let gate = Arc::new(InboundGate::over(&direct(), cache));
+    let unknown = signed(
+        &pair,
+        "a-key-not-yet-read",
+        &claims("someone@example.com", RESOURCE, ISSUER, ""),
+    );
+    let (status, ref body, challenged) = guarded_answer(&gate, &unknown).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body, IDENTITY_UNAVAILABLE);
+    assert!(!challenged, "an outage carries no challenge to present a different token");
+    let (held, ref body, _) = guarded_answer(&gate, &a_token(&pair)).await;
+    assert_eq!(held, StatusCode::NO_CONTENT, "{body}");
+}
+
+#[tokio::test]
+async fn an_unknown_key_id_while_the_key_set_file_is_unreadable_is_503_identity_unavailable() {
+    // The file source's own outage: read once at start, then gone, so the look an unknown key id
+    // triggers fails. It was `401 invalid_token` with a challenge before the source was told apart.
+    let issuer = crate::testing::an_issuer()
+        .also_holding("a-key-not-yet-read", sutura_dev::issuer::Curve::P256)
+        .expect("a mock issuer generates a second key");
+    let path = std::env::temp_dir().join(format!("sutura-unreadable-jwks-{}.json", std::process::id()));
+    std::fs::write(&path, issuer.key_set_without("a-key-not-yet-read")).expect("the scratch key set is writable");
+    let gate = gate_around(Box::new(FileKeySet::at(&path)));
+    std::fs::remove_file(&path).expect("the scratch key set is removable");
+    let mint = |token| issuer.mint(&token).expect("the mock issuer signs");
+    let unknown = mint(sutura_dev::issuer::Token::for_subject("someone@example.com").signed_by("a-key-not-yet-read"));
+    let (status, ref body, challenged) = guarded_answer(&gate, &unknown).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body, IDENTITY_UNAVAILABLE);
+    assert!(!challenged, "an outage carries no challenge to present a different token");
+    let known = mint(sutura_dev::issuer::Token::for_subject("someone@example.com"));
+    let (held, ref body, _) = guarded_answer(&gate, &known).await;
+    assert_eq!(held, StatusCode::NO_CONTENT, "{body}");
+}
+
 #[test]
 fn an_invalid_principal_warning_keeps_shape_metadata_and_not_the_claim_value() {
     const RAW_SENTINEL: &str = "principal-leak-sentinel";
@@ -872,6 +964,9 @@ mod review;
 /// An `aud` other than the resource identifier, and the scopes an Entra token grants through it.
 #[cfg(test)]
 mod audience;
+/// The OAuth client a token names, on every audit line.
+#[cfg(test)]
+mod client;
 /// Leg 1 against an issuer that PUBLISHES its key set, so the rotation bound faces a source that changes.
 mod published;
 /// Where a refresh runs, what bounds it, and what the revocation bound does not cover - the cases
@@ -884,6 +979,9 @@ mod published;
 /// as `TestModule`, which the gate holds.
 #[cfg(test)]
 mod refresh;
+/// A gateway assertion declared single use - `docs/adr/20261015094920`.
+#[cfg(test)]
+mod replay;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;
 /// Refusal variants that were defined and raised but never provoked: each cell drives one variant

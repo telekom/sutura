@@ -8,14 +8,61 @@
 
 use axum::body::Body;
 use axum::http::StatusCode;
+use sutura_app::Capability;
 use sutura_config::Environment;
+use sutura_dev::issuer::{PublishedKeySet, Token};
 
 use super::{over, settings};
 use crate::constants::OPENAPI_JSON_PATH;
-use crate::testing::{Probed, RawDeadlineProbe, bundle, call, fake_warehouse, request, source, unanchored_bundle};
+use crate::testing::{
+    Probed, RawDeadlineProbe, WarehouseThatFailsToExecute, an_issuer, broker, bundle, call, declared_inbound, direct_overlay,
+    fake_warehouse, request, serving, settings_with, source, unanchored_bundle, warehouse_pretending_to_be,
+};
 
 fn run_sql_body(statement: &str) -> String {
     format!(r#"{{"statement":{statement:?}}}"#)
+}
+
+/// `POST /v1/sql/run` from a verified caller granted every scope but `sutura:sql.run`, on a
+/// deployment whose `tools` overlay is `tools`.
+async fn run_sql_asked_without_its_scope(label: &str, tools: &str) -> (StatusCode, String) {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, label).expect("the key set publishes");
+    let settings = settings_with(&format!(
+        "{tools}{}",
+        direct_overlay(&issuer, &published.path().to_string_lossy())
+    ));
+    let gate = crate::InboundGate::from_declaration(&declared_inbound(&settings)).expect("a published key set builds a gate");
+    let app = serving(bundle(), fake_warehouse(), broker(), settings, Some(gate));
+    let granted = [Capability::DescribeCatalog.scope(), Capability::AskMetric.scope()].join(" ");
+    let token = issuer
+        .mint(&Token::for_subject("someone@example.com").granting(&granted))
+        .expect("the issuer signs a token");
+    call(
+        &app,
+        request("POST", "/v1/sql/run", Some(&token), Body::from(run_sql_body("select 1"))),
+    )
+    .await
+}
+
+/// The switch, not the scope, is the reason while the switch is off - even for a caller that lacks
+/// the scope too, because obtaining it would still not help.
+#[tokio::test]
+async fn a_caller_without_the_sql_scope_is_told_of_the_switch_while_it_is_off() {
+    let (status, body) = run_sql_asked_without_its_scope("run-sql-off", "").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains(r#""code":"tool_not_enabled""#), "{body}");
+    assert!(body.contains("`tools.run_sql.enabled`"), "{body}");
+    assert!(!body.contains(Capability::RunSql.scope()), "{body}");
+}
+
+/// With the switch on, the scope is the reason, and the refusal names it.
+#[tokio::test]
+async fn a_caller_without_the_sql_scope_is_told_of_the_scope_while_the_switch_is_on() {
+    let (status, body) = run_sql_asked_without_its_scope("run-sql-on", "tools:\n  run_sql:\n    enabled: true\n").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains(r#""code":"insufficient_scope""#), "{body}");
+    assert!(body.contains(Capability::RunSql.scope()), "{body}");
 }
 
 #[tokio::test]
@@ -31,6 +78,7 @@ async fn a_default_deployment_refuses_run_sql_as_not_enabled_rather_than_as_a_mi
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body.contains(r#""code":"tool_not_enabled""#), "{body}");
+    assert!(body.contains("`tools.run_sql.enabled`"), "{body}");
     // NOT the scope-refusal code: obtaining `sutura:sql.run` would not help here, and the body must
     // not tell a caller to go get it.
     assert!(!body.contains("insufficient_scope"), "{body}");
@@ -97,6 +145,47 @@ async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape(
     assert!(body.contains(r#""code":"source_refused""#), "{body}");
 }
 
+/// `POST /v1/sql/run` on a deployment with the switch on, over `warehouses`, answered as a client
+/// error the caller can act on: a `409` refusal in the raw vocabulary, never a `500`.
+async fn run_sql_refused_as_a_conflict<W>(warehouses: sutura_app::Warehouses<W>, code: &str, advice: &str)
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    let app = over(
+        unanchored_bundle(),
+        warehouses,
+        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+    );
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/sql/run", None, Body::from(run_sql_body("select 1"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains(r#""outcome":"raw_refusal""#), "{body}");
+    assert!(body.contains(&format!(r#""code":"{code}""#)), "{body}");
+    assert!(body.contains(advice), "{body}");
+}
+
+#[tokio::test]
+async fn run_sql_over_two_open_sources_is_a_409_naming_the_cause_rather_than_a_500() {
+    let both = fake_warehouse()
+        .merge(warehouse_pretending_to_be("other"))
+        .expect("two distinct sources open together");
+    run_sql_refused_as_a_conflict(both, "more_than_one_source_open", "certified tools").await;
+}
+
+#[tokio::test]
+async fn run_sql_over_one_source_that_takes_no_raw_statement_is_a_409_naming_the_cause_rather_than_a_500() {
+    run_sql_refused_as_a_conflict(
+        WarehouseThatFailsToExecute::new(source()),
+        "no_source_accepts_raw_statements",
+        "tools.run_sql.enabled",
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn an_empty_statement_is_a_400_not_a_question_through_the_real_router() {
     // Refused by `RawStatement`'s own parse before admission, so no data system is reached: the
@@ -137,6 +226,11 @@ async fn the_served_document_omits_run_sql_when_the_switch_is_off_and_carries_it
     assert!(
         body.contains("/v1/sql/run"),
         "the served document is missing /v1/sql/run even though this deployment turned it on: {body}"
+    );
+    let document: serde_json::Value = serde_json::from_str(&body).expect("the served document is JSON");
+    assert!(
+        document["paths"]["/v1/sql/run"]["post"]["responses"]["409"].is_object(),
+        "the served document does not list the 409 a run_sql deployment-shape refusal answers: {body}"
     );
 }
 

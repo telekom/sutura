@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.inbound.mode is "Direct": sutura refuses to start with it, and takes exactly `direct` or `behind-gateway` (SettingsError::InboundModeUnknown)
+
+Use --debug flag to render out invalid YAML

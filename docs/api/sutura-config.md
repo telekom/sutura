@@ -405,16 +405,26 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 ## `use KeySetFile`
 
+The path a `KeySetLocation::File` key set is read from.
+
+A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+cache, both re-read triggers and the rate limit are the same whatever the source - see
+`sutura_http::inbound::keys`.
+
+## `use KeySetLocation`
+
 Where the signing keys are read from.
 
-**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
-runtime dependency and that an outage there must stay distinguishable from a dead data system.
-None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-when a key id is not in it, and that refetch is rate limited - and every one of those properties
-is the same whether the source is a file a sidecar rewrites or an endpoint. See
-`sutura_http::inbound::keys`.
+**An enum, so a second source arrives as a variant every reader has to match** rather than as a
+second optional field a reader can forget. The gate picks its key source out of this value, and
+the cache it feeds is the same whatever the source is.
+
+## `use KeySetUrl`
+
+The `https` URL a `KeySetLocation::Url` key set is fetched from.
+
+The same strict parse as `crate::inbound::IssuerUrl`: `https` only, a host, no userinfo, and no
+`?` or `#`, so an endpoint that needs a query string is refused rather than half-read.
 
 ## `use PinnedAlgorithms`
 
@@ -2915,7 +2925,7 @@ optional. Those are two different absences and the difference matters:
 
 | Written | What it means |
 | --- | --- |
-| no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. The architecture decisiona calls that a first-class shape rather than a degraded one |
+| no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish and the bearer token authenticates the deployment, so no key of this block becomes required. `sutura serve` starts `/v1` that way only with `security.identity: single-user` and its reason, and over no `impersonation-at-source` source. The architecture decisiona calls that a first-class shape rather than a degraded one |
 | a block with no `mode` | a deployment that meant to establish identity and did not say how. It does not start |
 
 **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
@@ -2950,8 +2960,10 @@ carried it there first. Review found the wording overstating exactly that: a pro
 for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
 are now bounded - `ProofLifetime` caps `exp - iat` and an `iat` is required, so the replay window
 is a number this deployment chose rather than one it was handed. **Binding an assertion to a
-particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
-body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+particular request is not built**: nothing hashes a method, a path or a body into the proof, so
+inside the lifetime window an intercepted assertion replays - unless the deployment declares
+`TransitProof::SINGLE_USE_KEY`, which refuses a second presentation per process and never a
+first one by the wrong party (the architecture decision). That is why
 this module and the architecture decision now call it a *gateway-issued identity assertion* rather than a
 proof that the request transited anything, and why the trusted transport boundary - the hop between
 the component and this process - is load-bearing rather than incidental.
@@ -3071,6 +3083,12 @@ holds an asserted identity. See this module's documentation for why.
 #### Methods
 
 ```rust
+pub fn admitting_once(self, single_use: bool) -> Self
+```
+
+The same declaration, admitting each assertion once by its `jti` where `single_use` is `true`.
+
+```rust
 pub fn granting_when_absent(self, grant: GrantedScopes) -> Self
 ```
 
@@ -3083,7 +3101,7 @@ pub const fn header(&self) -> &ProofHeader
 The header the proof arrives in.
 
 ```rust
-pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: TokenAudience, key_set: KeySetFile, algorithms: PinnedAlgorithms, token_type: RequiredTokenType, max_lifetime: ProofLifetime) -> Self
+pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: TokenAudience, key_set: KeySetLocation, algorithms: PinnedAlgorithms, token_type: RequiredTokenType, max_lifetime: ProofLifetime) -> Self
 ```
 
 Assembles a declaration from parts that have each already been parsed.
@@ -3248,7 +3266,7 @@ pub const fn issuer(&self) -> &'inbound IssuerUrl
 The issuer the `iss` claim must equal, byte for byte.
 
 ```rust
-pub const fn key_set(&self) -> &'inbound KeySetFile
+pub const fn key_set(&self) -> &'inbound KeySetLocation
 ```
 
 Where the signing keys are read from.
@@ -3273,6 +3291,12 @@ The identifier RFC 9728's metadata and a challenge name, whatever `aud` is. `Non
 gateway, which publishes none.
 
 ```rust
+pub const fn single_use(&self) -> bool
+```
+
+Whether each assertion is admitted once, by its `jti`. See `TransitProof::SINGLE_USE_KEY`.
+
+```rust
 pub const fn token_type(&self) -> &'inbound RequiredTokenType
 ```
 
@@ -3289,6 +3313,21 @@ A client id exactly as written: 1 to 128 letters, digits, `-`, `.` or `_`.
 ### `use TokenAudience`
 
 What `aud` must equal: an `https` URI, a client id, or - behind a gateway - an absolute path.
+
+### `use KeySetLocation`
+
+Where the signing keys are read from.
+
+**An enum, so a second source arrives as a variant every reader has to match** rather than as a
+second optional field a reader can forget. The gate picks its key source out of this value, and
+the cache it feeds is the same whatever the source is.
+
+### `use KeySetUrl`
+
+The `https` URL a `KeySetLocation::Url` key set is fetched from.
+
+The same strict parse as `crate::inbound::IssuerUrl`: `https` only, a host, no userinfo, and no
+`?` or `#`, so an endpoint that needs a query string is refused rather than half-read.
 
 ### `use InvalidAlgorithms`
 
@@ -3327,15 +3366,10 @@ it looked up. So the mixed list is refused at startup instead - see `PinnedAlgor
 
 ### `use KeySetFile`
 
-Where the signing keys are read from.
+The path a `KeySetLocation::File` key set is read from.
 
-**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
-endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
-its own failure mode - the architecture decision says plainly that the authorization server becomes a hard
-runtime dependency and that an outage there must stay distinguishable from a dead data system.
-None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
-when a key id is not in it, and that refetch is rate limited - and every one of those properties
-is the same whether the source is a file a sidecar rewrites or an endpoint. See
+A file is how a process with no egress rotates: a sidecar or a projected Secret rewrites it. The
+cache, both re-read triggers and the rate limit are the same whatever the source - see
 `sutura_http::inbound::keys`.
 
 ### `use PinnedAlgorithms`
@@ -5979,8 +6013,9 @@ Which one of three blocks says how an `impersonation-at-source` source runs its 
   verified address. The deployment vouches for the caller here, not the caller's own credential.
 
 Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-This build runs `workload_identity` only: `Settings::refusals` refuses to serve a source that
-declares either other block, so a block that nothing reads does not load as if it did.
+This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
+source that declares `domain_delegation`, so a block that nothing reads does not load as if it
+did.
 the architecture decision records the decision.
 
 #### `enum CallerIdentity`
@@ -5994,7 +6029,7 @@ How an `impersonation-at-source` source runs its caller - the one block it decla
 ##### Variants
 
 - `WorkloadIdentity` - The caller's own pool principal.
-- `GoogleLogin` - The caller's own Google login, brokered by the identity provider. Not served by this build.
+- `GoogleLogin` - The caller's own Google login, brokered by the identity provider.
 - `DomainDelegation` - A delegating service account acting as the caller's verified address. Not served by this build.
 
 ##### Implements

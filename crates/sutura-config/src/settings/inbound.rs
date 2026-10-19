@@ -6,8 +6,8 @@
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
 use crate::inbound::{
-    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
-    RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
+    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetUrl, PinnedAlgorithms,
+    ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
 };
 use crate::raw::RawInbound;
 use crate::settings::SettingsError;
@@ -38,8 +38,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
     };
     // Read before the branch, because both modes need both: one key set and one pinned family,
     // whoever authenticated the caller.
-    let key_set = KeySetFile::parse(required(written.key_set_file.as_deref(), KeySetFile::KEY, mode)?)
-        .map_err(|cause| SettingsError::InboundValue { cause })?;
+    let key_set = key_set(written, mode)?;
     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
     match mode {
         "behind-gateway" => {
@@ -78,7 +77,8 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     None => ProofLifetime::default_lifetime(),
                     Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
-            );
+            )
+            .admitting_once(written.transit_single_use);
             Ok(InboundIdentity::BehindGateway {
                 transit: match written.granted_scopes.as_deref() {
                     None => transit,
@@ -118,6 +118,8 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
 /// The resource identifier, with the audience and the extra scope claims `direct` reads beside it.
 fn direct_resource(written: &RawInbound, mode: &str) -> Result<ResourceIdentifier, SettingsError> {
     read_only_in(written.granted_scopes.is_some(), GrantedScopes::KEY, "behind-gateway")?;
+    // An access token is reused across requests by design, so single use is not offered here.
+    read_only_in(written.transit_single_use, TransitProof::SINGLE_USE_KEY, "behind-gateway")?;
     let value = |cause| SettingsError::InboundValue { cause };
     let mut resource =
         ResourceIdentifier::parse(required(written.resource.as_deref(), ResourceIdentifier::KEY, mode)?).map_err(value)?;
@@ -137,6 +139,19 @@ fn grant(written: &[String]) -> Result<GrantedScopes, SettingsError> {
         return Err(SettingsError::RawSqlGranted);
     }
     Ok(grant)
+}
+
+/// Exactly one key set source. A blank value counts as absent, for the reason [`required`] gives.
+fn key_set(written: &RawInbound, mode: &str) -> Result<KeySetLocation, SettingsError> {
+    fn given(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|value| !value.is_empty())
+    }
+    let parsed = match (given(written.key_set_file.as_deref()), given(written.key_set_url.as_deref())) {
+        (Some(_), Some(_)) => return Err(SettingsError::InboundKeySetTwice),
+        (None, Some(url)) => KeySetUrl::parse(url).map(KeySetLocation::Url),
+        (file, None) => KeySetFile::parse(required(file, KeySetFile::KEY, mode)?).map(KeySetLocation::File),
+    };
+    parsed.map_err(|cause| SettingsError::InboundValue { cause })
 }
 
 /// Refuses a key written under a mode that does not read it, naming the mode that does.

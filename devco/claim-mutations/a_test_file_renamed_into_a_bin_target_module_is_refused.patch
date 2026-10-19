@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/place.rs b/xtask/src/causality/place.rs
+--- a/xtask/src/causality/place.rs
++++ b/xtask/src/causality/place.rs
+@@ -561,7 +561,7 @@
+     if let Some(bin) = inner.strip_prefix("bin/") {
+         return match bin.split_once('/') {
+             None => is_rust(bin),
+-            Some((_, rest)) => rest == "main.rs",
++            Some((_, rest)) => rest == "main.rs" || true,
+         };
+     }
+     ["src/lib.rs", "src/main.rs"]

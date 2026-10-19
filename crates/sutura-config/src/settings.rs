@@ -271,6 +271,8 @@ pub enum SettingsError {
     /// audience or grant is a deployment that believes it says something it does not.
     #[error("`{key}` is read only when `security.inbound.mode` is `{mode}`")]
     InboundKeyNotForMode { key: &'static str, mode: &'static str },
+    #[error("`security.inbound` names both `key_set_file` and `key_set_url` - one key set, one source")]
+    InboundKeySetTwice,
     /// A configured grant of raw SQL. `run_sql` is enabled and acknowledged by name, never handed to
     /// every scopeless assertion a gateway signs.
     #[error(

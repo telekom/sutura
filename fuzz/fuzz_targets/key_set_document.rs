@@ -1,9 +1,9 @@
 //! `KeySet::parse` over arbitrary bytes.
 //!
 //! **The boundary.** A JWK set document is not written by this deployment: it is read from a
-//! local file an operator placed (`keys/source.rs`'s own header states there is no HTTPS fetcher
-//! shipped), so the document is only operator-adjacent, not caller-reachable - but it is one of the
-//! two places in this codebase where nobody proves who supplied the bytes before they are parsed.
+//! local file an operator placed, or fetched from the `https` URL an operator declared, so the
+//! document is only operator-adjacent, not caller-reachable - but nothing checks what the file or
+//! the issuer wrote before it is parsed: TLS proves which host answered, not what it sent.
 //! `KeySet::parse` runs `serde_json`, then `jsonwebtoken`'s JWK decode, then base64 over key
 //! material, then `KeyId::parse` - four parsers, none of them first-party, none of them reached by
 //! the workspace's panic lint table (`unwrap_used`/`expect_used`/`panic` are `deny` for first-party

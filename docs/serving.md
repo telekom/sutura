@@ -65,7 +65,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | No `security.inbound` and a source with `impersonation-at-source`                                               | Declare `security.inbound`                                                                  |
 | A `security.inbound` block with no `mode`                                                                       | Write `direct` or `behind-gateway`                                                          |
 | `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families           | Name algorithms of one asymmetric key family                                                |
-| A `security.inbound.key_set_file` that is unreadable or not a JWK set                                           | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
+| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                    | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
 | A key set with no key of the kind that `security.inbound.algorithms` needs                                      | Add a key of that kind, or change the algorithms                                            |
 | `behind-gateway` with no `security.inbound.transit_token_type`                                                  | Write the `typ` of the gateway, or `any`                                                    |
 | `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`     | Use a value in range, or accept the long lifetime by name                                   |
@@ -108,7 +108,10 @@ no default mode:
 | `behind-gateway` | A gateway authenticates the caller and sends a signed assertion in its own header or in `Authorization: Bearer` |
 
 [Inbound identity](integrations/identity.md) has the settings, the key set and its rotation. In `direct` mode, a
-refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed.
+refused request gets `401` with a `WWW-Authenticate: Bearer` challenge. sutura does not say which check failed. A
+token with an unknown `kid` while the last look at the key set failed to read it gets `503 identity_unavailable` with
+no challenge. A key set that sutura reads and refuses is `401`. An unknown `kid` less than 30 seconds after a
+look that read the key set is `401` too, because sutura does not look again so soon.
 [Serving behind a gateway](serving-behind-a-gateway.md) covers a gateway that signs into `Authorization`.
 
 The `scope` claim of the token decides which operations the caller can use:
@@ -165,14 +168,15 @@ caller identity and grants every tool the deployment turns on. `runtime.max_conc
 
 ### The raw SQL tool
 
-`tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`.
-A call to `/v1/sql/run` gets `403` with `code: tool_not_enabled`. A `run_sql` call over `/mcp` or `sutura mcp` gets
-the JSON-RPC error `-32601` with the message `` `run_sql` is not enabled on this deployment. The operator turns it on
-with `tools.run_sql.enabled`. ``. This holds for every caller, with or without the scope. When it is on, the caller
-needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with `code: insufficient_scope`, and `/mcp` gets
-`-32601` with a message that names the scope. The tool answers only where the deployment has one source. The row
-cap of a certified answer applies, and every call writes an audit record. The page of the data system says what
-bounds a statement: [Postgres](integrations/data-systems/postgres.md), [DuckDB](integrations/data-systems/duckdb.md).
+`tools.run_sql.enabled` is `false` by default. When it is off, `run_sql` is not in `tools/list` or in `/openapi.json`. A
+call to `/v1/sql/run` gets `403` with `code: tool_not_enabled` and a detail that names `tools.run_sql.enabled`. A
+`run_sql` call over `/mcp` or `sutura mcp` gets the JSON-RPC error `-32601` with the message `` `run_sql` is not enabled
+on this deployment. The operator turns it on with `tools.run_sql.enabled`. ``. This holds for every caller, with or
+without the scope. When it is on, the caller needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with
+`code: insufficient_scope`, and `/mcp` gets `-32601` with a message that names the scope. The tool answers only where
+the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record. The
+page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
+[DuckDB](integrations/data-systems/duckdb.md).
 
 ## Endpoints
 
@@ -228,15 +232,15 @@ A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentenc
 }
 ```
 
-| Status | `code`                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `404`  | `metric_unknown`                                                                                                                                                                                                                                                                                                                                                                         |
-| `403`  | `dimension_not_permitted`, `dimension_not_filterable`, `dimension_value_not_allowed`, `source_refused`, `credential_unavailable`                                                                                                                                                                                                                                                         |
-| `409`  | `plan_spans_too_many_sources`, `federation_not_executable`, `federation_link_ambiguous`, `federation_link_compound`, `federation_link_type_mismatch`, `federated_answer_not_well_formed`, `plan_tables_share_an_identifier`, `multi_metric_federation_not_executable`, `multi_metric_top_not_executable`, `cross_model_ratio_without_shared_calendar`, `cross_model_ratio_spans_sources` |
-| `413`  | `result_too_large`: more rows than the cap, more data than the data system returns at once, or more bytes than a response may hold                                                                                                                                                                                                                                                       |
-| `422`  | `metrics_span_different_models`, `too_many_metrics`, `duplicate_metric_name`, `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, `too_many_filters`, `duplicate_dimension`, `cross_model_ratio_without_shared_dimension`, `top_over_uncertified_rows`, `resources_exhausted`, `deadline_exceeded`                                                                      |
-| `429`  | `budget_exhausted`                                                                                                                                                                                                                                                                                                                                                                       |
-| `503`  | `source_unavailable`. This is the one refusal that is worth a retry                                                                                                                                                                                                                                                                                                                      |
+| Status | `code`                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `404`  | `metric_unknown`                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `403`  | `dimension_not_permitted`, `dimension_not_filterable`, `dimension_value_not_allowed`, `source_refused`, `credential_unavailable`                                                                                                                                                                                                                                                                                      |
+| `409`  | `plan_spans_too_many_sources`, `federation_not_executable`, `federation_link_ambiguous`, `federation_link_compound`, `federation_link_truncated`, `federation_link_type_mismatch`, `federated_answer_not_well_formed`, `plan_tables_share_an_identifier`, `multi_metric_federation_not_executable`, `multi_metric_top_not_executable`, `cross_model_ratio_without_shared_calendar`, `cross_model_ratio_spans_sources` |
+| `413`  | `result_too_large`: more rows than the cap, more data than the data system returns at once, or more bytes than a response may hold                                                                                                                                                                                                                                                                                    |
+| `422`  | `metrics_span_different_models`, `too_many_metrics`, `duplicate_metric_name`, `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, `too_many_filters`, `duplicate_dimension`, `cross_model_ratio_without_shared_dimension`, `top_over_uncertified_rows`, `resources_exhausted`, `deadline_exceeded`                                                                                                   |
+| `429`  | `budget_exhausted`                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `503`  | `source_unavailable`. This is the one refusal that is worth a retry                                                                                                                                                                                                                                                                                                                                                   |
 
 12 refusal reasons land on `422`. A client should expect a `422` to fail again on an unchanged request.
 
@@ -245,7 +249,8 @@ deployment instead. The fix is a grant at the data system. A `403` with no `outc
 
 Other failures have one shape, `{"code", "status", "detail"}`. These codes are common: `unauthorized` (`401`),
 `too_large` (`413`, the request body), `host_not_allowed` (`403`), `unavailable` and `identity_unavailable` (`503`),
-`rate_limited` (`429`), and `at_capacity` (`503` with `Retry-After`). A request that waits longer than `server.request_timeout_seconds` gets
+`rate_limited` (`429`), `at_capacity` (`503` with `Retry-After`), and `identity_not_linked` (`403`: the caller
+has not linked the account that a source runs them as at the identity provider). A request that waits longer than `server.request_timeout_seconds` gets
 `408`. A body with a key that the question does not declare, such as `sql`, gets `400` and the name of the key. A
 `500` has no detail.
 

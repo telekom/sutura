@@ -485,4 +485,31 @@ mod tests {
         expected.sort_unstable();
         assert_eq!(named, expected, "`paired-gate`'s filter must name exactly the per-gate cells");
     }
+
+    /// Every subject is in scope.
+    fn all_in_scope(_rel: &str) -> bool {
+        true
+    }
+
+    #[test]
+    fn a_staged_file_under_the_gitignored_state_directory_is_not_walked() {
+        let root = std::env::temp_dir().join(format!("sutura-walk-state-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("a scratch tree");
+        std::fs::create_dir_all(root.join(".sutura-dev/conformance")).expect("the state directory");
+        std::fs::write(root.join("src/lib.rs"), "// ours\n").expect("our file");
+        std::fs::write(root.join(".sutura-dev/conformance/orders.4242.csv"), "a,b\n").expect("a staged file");
+
+        let mut found = Vec::new();
+        crate::repo::collect_files(&root, &root, &["rs", "csv"])
+            .inspect(&[], all_in_scope, |rel, _| found.push(String::from(rel)))
+            .expect("the scratch tree holds one .rs file and nothing unreadable");
+
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(found, vec![String::from("src/lib.rs")], "{found:?}");
+        assert_eq!(
+            crate::repo::skip_dir_crossed(".sutura-dev/conformance/orders.4242.csv"),
+            Some(".sutura-dev")
+        );
+    }
 }

@@ -11,6 +11,7 @@ use sutura_domain::identity::{
     Agreed, BoundToTheRequest, CredentialBroker, Expiry, PresentedDisagreesWithPosture, RequestContext, SourceSet,
 };
 use sutura_domain::model::SourceName;
+use sutura_domain::raw::{RawOutcome, RawRefusalReason};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 
@@ -22,9 +23,8 @@ use crate::{exceeds_row_cap, now_in_unix_seconds};
 /// **Deliberately not [`ServiceError`](crate::ServiceError).** That type's `Compile` and
 /// `Federated` arms describe the compiler and the splitter, neither of which this path touches - a
 /// raw statement is unparsed text, end to end. What is left is the credential half
-/// [`answer`](crate::answer) also has, plus one arm of its own for a state the boot refusal is
-/// supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
-/// text at all.
+/// [`answer`](crate::answer) also has, plus one arm of its own for an adapter that declares it
+/// accepts raw text and then answers none.
 #[derive(Debug, thiserror::Error)]
 pub enum RunSqlError<M> {
     /// The credential broker did not answer.
@@ -45,14 +45,13 @@ pub enum RunSqlError<M> {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
-    /// No data system is registered under the raw tool's configured source, or the one registered
-    /// does not declare [`Warehouse::ACCEPTS_RAW_STATEMENTS`].
+    /// An adapter declared [`Warehouse::ACCEPTS_RAW_STATEMENTS`] and then answered no raw statement.
     ///
-    /// **A wiring defect, not a caller-facing refusal.** `sutura_config`'s boot refusal is what is
-    /// supposed to make this unreachable in a running deployment - the raw tool is refused at
-    /// startup over an adapter that cannot honour it - so reaching this arm at all means the
-    /// composition root and the boot check disagreed about what this build links.
-    #[error("the raw SQL tool is enabled, and no configured data system accepts a raw statement")]
+    /// **A wiring defect, not a caller-facing refusal.** [`run_sql`] has already refused, as a
+    /// [`RawRefusalReason`], every deployment whose one open
+    /// source does not declare it, so reaching this arm means an adapter contradicts its own
+    /// declaration.
+    #[error("a data system that declares it accepts a raw statement answered none")]
     NoAcceptingSource,
 }
 
@@ -106,10 +105,13 @@ impl AnsweredRaw {
 ///
 /// # PR1's scope, stated as a limit rather than left implicit
 ///
-/// **This targets the sole registered data system, and refuses `RunSqlError::NoAcceptingSource`
-/// where more than one is open or none is.** `docs/adr/0013`'s showcase is one Postgres source; a
-/// deployment naming which of several sources the raw tool may run over is future work, not a
-/// decision this function makes by omission - a second source is refused rather than guessed at.
+/// **This targets the sole registered data system, and refuses with
+/// `RawRefusalReason::MoreThanOneSourceOpen` where more than one is open, or
+/// `RawRefusalReason::NoSourceAcceptsRawStatements` where the one open does not accept raw text.**
+/// `docs/adr/0013`'s showcase is one Postgres source; a deployment naming which of several sources
+/// the raw tool may run over is future work, not a decision this function makes by omission - a
+/// second source is refused rather than guessed at. Both are answers to the caller, declined before
+/// the broker is asked, so each is audited and neither is a [`RunSqlError`].
 ///
 /// # Otherwise, this mirrors [`answer`](crate::answer)'s credential handling exactly
 ///
@@ -143,10 +145,9 @@ where
     W: Warehouse,
     B: CredentialBroker,
 {
-    use sutura_domain::raw::{RawOutcome, RawRefusalReason};
-
-    let Some((source, warehouse)) = single_raw_capable_warehouse(warehouses) else {
-        return Err(RunSqlError::NoAcceptingSource);
+    let (source, warehouse) = match single_raw_capable_warehouse(warehouses) {
+        Ok(sole) => sole,
+        Err(reason) => return Ok(AnsweredRaw::declined_before_minting(RawOutcome::Refusal { reason })),
     };
     let requested = SourceSet::of(source.clone());
     let minted = broker
@@ -227,20 +228,26 @@ where
     Ok(AnsweredRaw::under(&credentials, RawOutcome::Rows { columns, rows }))
 }
 
-/// The one data system this deployment opened that can accept raw text, if there is exactly one open
-/// at all.
+/// What [`single_raw_capable_warehouse`] finds: the one source and its adapter, or why there is none.
+type TheSoleRawSource<'a, W> = Result<(&'a SourceName, &'a W), RawRefusalReason>;
+
+/// The one data system this deployment opened, if it is exactly one and accepts raw text, or the
+/// refusal that says which is not the case.
 ///
-/// **`None` for zero OR for more than one**, deliberately: a deployment with two open sources has no
-/// way, in this PR, to say which one the raw tool means, and guessing would run a caller's statement
-/// against a source they did not name.
-fn single_raw_capable_warehouse<W>(warehouses: &Warehouses<W>) -> Option<(&SourceName, &W)>
+/// **More than one open source is refused, never narrowed**: a deployment with two has no way, in
+/// this PR, to say which one the raw tool means, and guessing would run a caller's statement against
+/// a source they did not name.
+fn single_raw_capable_warehouse<W>(warehouses: &Warehouses<W>) -> TheSoleRawSource<'_, W>
 where
     W: Warehouse,
 {
     if warehouses.count() != 1 {
-        return None;
+        return Err(RawRefusalReason::MoreThanOneSourceOpen);
     }
-    warehouses.each().find(|_| W::ACCEPTS_RAW_STATEMENTS)
+    if !W::ACCEPTS_RAW_STATEMENTS {
+        return Err(RawRefusalReason::NoSourceAcceptsRawStatements);
+    }
+    warehouses.each().next().ok_or(RawRefusalReason::NoSourceAcceptsRawStatements)
 }
 
 #[cfg(test)]

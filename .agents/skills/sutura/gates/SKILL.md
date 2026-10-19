@@ -817,9 +817,11 @@ panic-free.
   verdict computed from the rows would report *8 of 8 ran* over a run with two gates switched off.
   The denominator is derived from `.pre-commit-config.yaml`, and a declared hook with no row is a
   FAILED verdict. **What no filter reaches:** the shell inside `.github/actions/*/action.yml` -
-  `zizmor` is pointed at `.github/workflows`, `actionlint` cannot read a composite action at the
-  pinned version, and a `run:` block is not a `.sh` file. `just lint-workflows` is the only task
-  that reads it, and `ship-check` runs it when the diff touches one rather than reporting the gap.
+  `zizmor` reads it for injection hazards (template expansion, `GITHUB_ENV` writes), not for shell
+  correctness, `actionlint` cannot read a composite action at the pinned version, and a `run:` block
+  is not a `.sh` file. `just lint-actions` reads it for shell correctness, and `just lint-workflows`
+  runs the same `nix/lint-action-shell.sh`; `ship-check` runs `nix/lint-action-shell.sh` when the
+  diff touches one rather than reporting the gap.
 - **THE SAME GATE THEN REPORTED A FALSE FULL HOUSE THREE WAYS, and the transferable part is that a
   STATUS COLUMN IS NOT AN OBSERVATION.** All three were found in one review of the fix above, and
   each produced output a reader could not tell from a real run. (1) The loop was over the logs it

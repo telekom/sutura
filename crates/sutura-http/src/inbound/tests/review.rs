@@ -179,8 +179,8 @@ async fn a_gateway_assertion_with_no_iat_or_an_unbounded_lifetime_establishes_no
 
     // The positive side: an assertion inside the ceiling establishes a caller - **and replays.** That
     // is the limit review asked to have documented rather than claimed away: nothing binds an assertion
-    // to a request and there is no store of what has been seen, so what bounds a replay is the window
-    // and only the window.
+    // to a request and, with `transit_single_use` off as here, no store of what has been seen, so what
+    // bounds a replay is the window and only the window.
     let short = short_lived_assertion(&gateway);
     for _ in 0..2_u8 {
         drop(

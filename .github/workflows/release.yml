@@ -759,11 +759,11 @@ jobs:
             # reports SC2016 on it, reasonably: inside single quotes a backtick is exactly as
             # inert as it looks, and telling the two cases apart is not something a linter can do.
             issuer="https://token.actions.githubusercontent.com"
-            identity="'^https://github.com/${GITHUB_REPOSITORY}/'"
-            printf "| an asset is the bytes this workflow produced, offline | \`cosign verify-blob --bundle <asset>.sigstore.json --certificate-identity-regexp %s --certificate-oidc-issuer %s <asset>\` |\n" \
+            identity="'^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/release(-performance)?\.yml@refs/tags/'"
+            printf "| an asset is the bytes a release workflow of this repository produced, offline | \`cosign verify-blob --bundle <asset>.sigstore.json --certificate-identity-regexp %s --certificate-oidc-issuer %s <asset>\` |\n" \
               "$identity" "$issuer"
             printf "| the same, against this forge | \`gh attestation verify <asset> --repo %s\` |\n" "$GITHUB_REPOSITORY"
-            printf "| an image is the one this workflow pushed | \`cosign verify %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
+            printf "| an image is the one a release workflow of this repository pushed | \`cosign verify %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
               "$IMAGE" "$identity" "$issuer"
             printf "| what is inside an image | \`cosign verify-attestation --type cyclonedx %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
               "$IMAGE" "$identity" "$issuer"

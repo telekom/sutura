@@ -170,6 +170,26 @@ fn every_operation_describes_the_host_refusal_in_its_403() {
 }
 
 #[test]
+fn every_operation_declares_identity_unavailable_in_its_503() {
+    // The token gate runs in front of every governed operation, and it answers this `503` when the
+    // key set could not be read.
+    let rendered = document_json(true).expect("the document serializes");
+    let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("the document is JSON");
+    let mut read = 0_usize;
+    for (path, item) in parsed["paths"].as_object().expect("the document has paths") {
+        for (method, operation) in item.as_object().expect("a path item is an object") {
+            let unavailable = operation["responses"]["503"]["description"].as_str().unwrap_or_default();
+            assert!(
+                unavailable.contains("identity_unavailable"),
+                "{method} {path} does not describe it: {unavailable}"
+            );
+            read += 1;
+        }
+    }
+    assert_eq!(read, 3, "the governed operations this document describes");
+}
+
+#[test]
 fn no_security_scheme_is_declared() {
     // A shared deployment secret is not a caller authentication model.
     assert!(

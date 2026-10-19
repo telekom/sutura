@@ -201,6 +201,12 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
     remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
+const FEDERATION_LINK_TRUNCATED: Guide = Guide {
+    reason: "federation_link_truncated",
+    meaning: "the crossing relationship joins on a key truncated to a grain, which the two legs do not carry",
+    remedy: "Nothing you can change. Report it: it is a fact about how the relationship's key is declared.",
+};
+
 const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
     reason: "federation_link_type_mismatch",
     meaning: "the crossing relationship joins two columns the catalog declares as different kinds of value",
@@ -297,11 +303,10 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
 /// reader who stops early should have read the actionable ones.
 ///
-/// The exhaustiveness mechanism is in `prompt::tests`: a function there maps every
-/// `RefusalReason` variant to its entry with a total match,
-/// so a variant added to the domain does not compile until somebody opens this file. *What that does
-/// not force is the corpus in that test gaining a member, so the set equality it asserts is a second
-/// net rather than the first.*
+/// The exhaustiveness mechanism is `guide_for` below: a total match over every `RefusalReason`
+/// variant, so a variant added to the domain does not compile until somebody opens this file. *What
+/// that does not force is `sutura_domain::query::every_refusal` gaining a member, so the set equality
+/// `prompt::tests` asserts against it is a second net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
     &METRICS_SPAN_DIFFERENT_MODELS,
@@ -332,6 +337,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
+    &FEDERATION_LINK_TRUNCATED,
     &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
@@ -389,6 +395,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
+        RefusalReason::FederationLinkTruncated { .. } => &FEDERATION_LINK_TRUNCATED,
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,

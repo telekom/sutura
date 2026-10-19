@@ -24,34 +24,37 @@ authenticates the deployment, and every question runs with the access of the dep
 
 ## Settings for `direct`
 
-| Key                     | Type        | Default  | Meaning                                                                                                                       |
-| ----------------------- | ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `mode`                  | string      | required | `direct`                                                                                                                      |
-| `resource`              | `https` URI | required | The identifier that sutura publishes. `aud` must equal it exactly, unless `audience` is set                                   |
-| `audience`              | string      | none     | The value that `aud` must equal exactly instead: an `https` URI, or a client ID of letters, digits, `-`, `.` and `_`          |
-| `extra_scope_claims`    | list        | none     | More claims that grant scopes, beside `scope`: `scp`, `roles`, or both                                                        |
-| `authorization_server`  | `https` URI | required | The value that `iss` must equal exactly                                                                                       |
-| `key_set_file`          | path        | required | A JWK set file with the public keys of the identity provider                                                                  |
-| `algorithms`            | list        | required | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
-| `token_type`            | string      | `at+jwt` | The required `typ` header. `any` turns the check off                                                                          |
-| `accept_any_token_type` | boolean     | `false`  | Must be `true` beside `token_type: any`                                                                                       |
+| Key                     | Type        | Default                              | Meaning                                                                                                                       |
+| ----------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `mode`                  | string      | required                             | `direct`                                                                                                                      |
+| `resource`              | `https` URI | required                             | The identifier that sutura publishes. `aud` must equal it exactly, unless `audience` is set                                   |
+| `audience`              | string      | none                                 | The value that `aud` must equal exactly instead: an `https` URI, or a client ID of letters, digits, `-`, `.` and `_`          |
+| `extra_scope_claims`    | list        | none                                 | More claims that grant scopes, beside `scope`: `scp`, `roles`, or both                                                        |
+| `authorization_server`  | `https` URI | required                             | The value that `iss` must equal exactly                                                                                       |
+| `key_set_file`          | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the identity provider. Set this or `key_set_url`                          |
+| `key_set_url`           | `https` URL | none                                 | The `jwks_uri` of the identity provider, instead of `key_set_file`                                                            |
+| `algorithms`            | list        | required                             | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
+| `token_type`            | string      | `at+jwt`                             | The required `typ` header. `any` turns the check off                                                                          |
+| `accept_any_token_type` | boolean     | `false`                              | Must be `true` beside `token_type: any`                                                                                       |
 
 `direct` cannot be used with `security.access_token`, because both use `Authorization: Bearer`.
 
 ## Settings for `behind-gateway`
 
-| Key                            | Type        | Default  | Meaning                                                                       |
-| ------------------------------ | ----------- | -------- | ----------------------------------------------------------------------------- |
-| `mode`                         | string      | required | `behind-gateway`                                                              |
-| `transit_header`               | string      | required | The header that holds the assertion                                           |
-| `transit_issuer`               | `https` URI | required | The issuer that must sign the assertion                                       |
-| `transit_audience`             | string      | required | The `aud` of the assertion: an `https` URI or a path that starts with one `/` |
-| `granted_scopes`               | list        | none     | The scopes of an assertion that has no `scope` claim                          |
-| `key_set_file`                 | path        | required | A JWK set file with the public keys of the gateway                            |
-| `algorithms`                   | list        | required | The accepted algorithms, as for `direct`                                      |
-| `transit_token_type`           | string      | required | The `typ` that the gateway sets, or `any`                                     |
-| `transit_max_lifetime_seconds` | integer     | `120`    | The longest accepted `exp - iat`, 1 to 3600                                   |
-| `accept_long_transit_lifetime` | boolean     | `false`  | Must be `true` for a lifetime above 300                                       |
+| Key                            | Type        | Default                              | Meaning                                                                       |
+| ------------------------------ | ----------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| `mode`                         | string      | required                             | `behind-gateway`                                                              |
+| `transit_header`               | string      | required                             | The header that holds the assertion                                           |
+| `transit_issuer`               | `https` URI | required                             | The issuer that must sign the assertion                                       |
+| `transit_audience`             | string      | required                             | The `aud` of the assertion: an `https` URI or a path that starts with one `/` |
+| `granted_scopes`               | list        | none                                 | The scopes of an assertion that has no `scope` claim                          |
+| `key_set_file`                 | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the gateway               |
+| `key_set_url`                  | `https` URL | none                                 | The JWK set URL of the gateway, instead of `key_set_file`                     |
+| `algorithms`                   | list        | required                             | The accepted algorithms, as for `direct`                                      |
+| `transit_token_type`           | string      | required                             | The `typ` that the gateway sets, or `any`                                     |
+| `transit_max_lifetime_seconds` | integer     | `120`                                | The longest accepted `exp - iat`, 1 to 3600                                   |
+| `accept_long_transit_lifetime` | boolean     | `false`                              | Must be `true` for a lifetime above 300                                       |
+| `transit_single_use`           | boolean     | `false`                              | Admit each assertion once, by its `jti`                                       |
 
 Some gateways authenticate the calling application, for example with its OAuth 2.0 client
 credentials, and replace its token with their own assertion in `Authorization: Bearer`. For such a
@@ -60,14 +63,34 @@ scheme, and `security.access_token` cannot be set, because both use `Authorizati
 such a gateway, the subject is the application that the gateway's assertion names.
 
 The gateway and sutura must be on a trusted network path. An assertion is not bound to one
-request, so keep its lifetime short.
+request, so keep its lifetime short. With `transit_single_use: false`, sutura accepts one assertion
+again and again until its `exp` plus 30 seconds: at most `transit_max_lifetime_seconds` plus 30
+seconds after its `iat`, 150 seconds at the default. See
+[Single use](../serving-behind-a-gateway.md#single-use).
 
 ## The key set
 
 sutura reads `key_set_file` before it opens the listener, and it does not start if the file is not
-a usable JWK set. It reads the file again 60 seconds after its last read, and when a token names an
+a usable key set. It reads the file again 60 seconds after its last read, and when a token names an
 unknown `kid`, at most once every 30 seconds. To rotate keys, replace the file, and wait 60 seconds
-after the file holds the new key before the gateway signs with it.
+after the file holds the new key before the gateway signs with it. Behind a gateway, a key that leaves
+the file verifies for `transit_max_lifetime_seconds` plus 30 seconds more, unless the new key keeps
+its `kid` - see [Rotating the keys](../serving-behind-a-gateway.md#rotating-the-keys).
+
+`key_set_url` reads a JWK set from that URL the same way, at the same times. Set `key_set_file` or
+`key_set_url`, not both. The URL must be `https`, with no query or fragment. sutura does not follow a
+redirect, accepts only a `200` of at most 64 KiB, and gives up on one read after 10 seconds. It
+trusts `security.outbound.transport_anchors` when that is set, and the built-in web roots when not.
+If the last look at the file or the URL failed to read it and a token names an unknown `kid`, the
+answer is `503 identity_unavailable` with no challenge, and the keys sutura already has keep
+verifying. A document sutura reads and refuses is `401`. An unknown `kid` less than 30 seconds after
+a look that read the source is `401` too, because sutura does not look again so soon.
+
+The file is a JWK set, or one PEM key: a single `PUBLIC KEY` block, or a certificate followed by its
+chain. A file that starts with `-----BEGIN ` is read as PEM. Only the first certificate is a key,
+and its validity period is not checked. The key id of a PEM key is its RFC 7638 SHA-256 thumbprint,
+so a token must carry that thumbprint as its `kid`. A file with a private key, or with a second
+public key, does not load.
 
 ## Related settings
 

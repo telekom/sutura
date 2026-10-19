@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): security.inbound is declared (security.inbound.keySetSecretName, or a security.inbound block in config.base or config.environment) and no security.inbound.mode resolves: sutura refuses to start with it, because neither mode is safe to assume (SettingsError::InboundModeUndeclared) - set security.inbound.mode to `direct` or `behind-gateway`
+
+Use --debug flag to render out invalid YAML

@@ -178,14 +178,7 @@ fn build_bigquery(
     // measurement - so `sutura_config` refuses the key by name rather than carry a value that
     // reaches nothing. A value carried here and dropped later would be the shape this whole change
     // exists to remove.
-    let impersonation = match configured.workload_identity() {
-        None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
-        Some(workload) => sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
-            sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str()).map_err(|cause| {
-                format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
-            })?,
-        ),
-    };
+    let impersonation = impersonation_of(source, configured)?;
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
         source.clone(),
         identity.posture().clone(),
@@ -195,4 +188,57 @@ fn build_bigquery(
         impersonation,
         max_bytes_billed,
     ))
+}
+
+/// Which mode `configured` impersonates in, decided once at composition and never per request.
+#[cfg(feature = "bigquery")]
+pub(super) fn impersonation_of(
+    source: &sutura_domain::model::SourceName,
+    configured: &sutura_config::ConfiguredSource,
+) -> Result<sutura_exec_bigquery::adbc::Impersonation, String> {
+    Ok(match configured.caller_identity() {
+        None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
+        Some(sutura_config::sources::caller_identity::CallerIdentity::WorkloadIdentity(workload)) => {
+            sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
+                sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str()).map_err(|cause| {
+                    format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
+                })?,
+            )
+        }
+        Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(_)) => {
+            sutura_exec_bigquery::adbc::Impersonation::GoogleLogin
+        }
+        // `Settings::refusals` refuses to serve it; answered rather than unwrapped.
+        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(_)) => {
+            return Err(format!(
+                "`sources.{source}.domain_delegation` is a mode this build does not run"
+            ));
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(feature = "bigquery")]
+    fn a_google_login_source_is_opened_in_the_google_login_mode() {
+        let overlay = "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  inbound:\n    \
+                       mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+                       authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
+                       algorithms: [\"RS256\"]\nsources:\n  warehouse:\n    kind: \"bigquery\"\n    \
+                       billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    \
+                       posture: \"impersonation-at-source\"\n    google_login:\n      \
+                       token_endpoint: \"https://idp.example.com/realms/r/broker/google/token\"\n      \
+                       client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("a direct deployment admits a google_login source");
+        let warehouse = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
+        let configured = settings.sources().get(&warehouse).expect("the source is declared");
+        assert_eq!(
+            super::impersonation_of(&warehouse, configured),
+            Ok(sutura_exec_bigquery::adbc::Impersonation::GoogleLogin)
+        );
+    }
 }

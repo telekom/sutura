@@ -5,7 +5,8 @@
 # tools and between them they cover every line of shell this repository ships EXCEPT the shell
 # inside `.github/actions/*/action.yml`:
 #
-#   * `zizmor` is pointed at `.github/workflows`.
+#   * `zizmor` reads `.github/workflows` and `.github/actions`, but for injection hazards (template
+#     expansion, `GITHUB_ENV` writes), not for shell correctness.
 #   * `actionlint` is the one that would normally carry it - it shells each workflow's `run:` block
 #     out to shellcheck itself - and it CANNOT READ a composite action. MEASURED against the pinned
 #     1.7.12: handed `.github/actions/attest-and-sign/action.yml` it reports `"jobs" section is

@@ -113,7 +113,8 @@ mod harness;
 pub(crate) mod two_fact;
 
 use corpus::{
-    A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, remote_products, violated, with_null_keys,
+    A_DUPLICATED_KEY, A_TEXT_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, remote_products, violated,
+    with_a_text_key, with_null_keys,
 };
 use two_kinds::two_kinds;
 
@@ -439,6 +440,95 @@ fn two_sources_of_two_kinds_declaring_a_join_key_two_ways_are_refused_before_eit
         panic!("a join key declared as two kinds is refused, not answered: {outcome:?}");
     };
     assert_eq!(reason.code(), "federation_link_type_mismatch", "{reason:?}");
+}
+
+/// **A crossing relationship joining on a key truncated to a grain is refused by name before either
+/// leg runs, and the same question over the unedited catalog federates.**
+///
+/// The two legs link on raw column values, so the base answered over the untruncated key. The case
+/// rewrites ONE declaration - `subscription_customer`'s plain pair becomes a `keys:` list whose entry
+/// carries a grain - and nothing else, so the control and the refusal differ in that key alone.
+#[test]
+fn a_crossing_relationship_with_a_truncated_key_is_refused_before_either_leg_runs() {
+    let control = harness::compiled_dimensions(&harness::bundle(&derived().two_source), "region");
+    assert!(
+        matches!(control, Compiled::Federated { .. }),
+        "the control declares the key plainly and must federate, not {control:?}"
+    );
+
+    let corpus = corpus::remote_products("federation-link-truncated", "source: local");
+    let relationship = corpus.two_source.join("relationships/subscription_customer.md");
+    let text = std::fs::read_to_string(&relationship).expect("the derived catalog has the relationship");
+    let plain = "origin:\n  model: subscriptions\n  column: customer_key\ntarget:\n  model: customers\n  column: customer_key\n";
+    assert_eq!(
+        text.matches(plain).count(),
+        1,
+        "subscription_customer no longer declares its key as one plain pair, so this case would derive nothing"
+    );
+    std::fs::write(
+        &relationship,
+        text.replace(
+            plain,
+            "origin:\n  model: subscriptions\ntarget:\n  model: customers\nkeys:\n  - { origin: customer_key, grain: month, target: customer_key }\n",
+        ),
+    )
+    .expect("the derived catalog is writable");
+
+    let refused = harness::compiled_dimensions(&harness::bundle(&corpus.two_source), "region");
+    let Compiled::Refused { reason } = refused else {
+        panic!("a crossing key truncated to a grain is refused, not planned: {refused:?}");
+    };
+    assert_eq!(reason.code(), "federation_link_truncated", "{reason:?}");
+    assert!(format!("{reason:?}").contains("subscription_customer"), "{reason:?}");
+}
+
+/// **Two engines whose DATA reads one join key as an integer and as text refuse the question, once
+/// the legs have run** (`telekom/sutura#138`).
+///
+/// The catalog is the unedited one, so the key is declared `BIGINT` on both sides and the planner's
+/// check over declared types lets the question through; what refuses is the combiner, over the two
+/// legs' real schemas, which is the runtime arm that check defers to. The control asks the same
+/// question of the unedited corpus and must answer, so the refusal is the one appended row's and not
+/// a question this topology cannot answer.
+#[test]
+fn two_engines_whose_data_reads_a_join_key_two_ways_refuse_once_the_legs_have_run() {
+    let name = "recurring-revenue-by-region";
+    let (_, query) = corpus::every_question()
+        .into_iter()
+        .find(|(at, _)| at == name)
+        .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+
+    let control = harness::two_engines(harness::bundle(&derived().two_source));
+    let answered = harness::answered(&control, &query, name, &combiner).unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        matches!(answered, ToolOutcome::Answer { .. }),
+        "the control reads the key as an integer on both legs and must answer, not {answered:?}"
+    );
+
+    let corpus = with_a_text_key();
+    let text = std::fs::read_to_string(corpus.data.join(A_TEXT_KEY.0)).expect("the text-key corpus has a dimension file");
+    assert_eq!(
+        text.matches(A_TEXT_KEY.1.trim_end()).count(),
+        1,
+        "the text-key corpus must hold the non-numeric key row, or nothing below reads a key as text"
+    );
+    let (bundle, warehouses) = harness::validating_on_two_engines(&corpus.data, harness::bundle(&corpus.two_source));
+    let mismatched = harness::Side {
+        bundle: bundle.unwrap_or_else(|e| panic!("the declarations hold over data the anchors do not touch: {e}")),
+        warehouses,
+    };
+    let outcome = harness::answered(&mismatched, &query, name, &combiner);
+    let Ok(ToolOutcome::Refusal { reason }) = outcome else {
+        panic!("a join key read as an integer on one leg and as text on the other is refused, not {outcome:?}");
+    };
+    assert_eq!(
+        reason,
+        RefusalReason::FederatedAnswerNotWellFormed {
+            federated: sutura_domain::plan::FederatedAnswerRefusal::LinkTypeMismatch,
+        },
+        "the runtime arm, not the plan-time one: {reason:?}"
+    );
 }
 
 /// **A zero denominator in ONE subgroup, and the neighbours it must not reach.**

@@ -1,10 +1,13 @@
 //! The combination checks on what a source hands its data system's token service in place of the
-//! caller: the declared delegation hops, and the acknowledgement that a `direct` deployment declares
-//! none.
+//! caller: a source that sends the caller's own inbound token to an identity provider - a
+//! `workload_identity.delegation`, a `google_login`, or an Oracle or Cube `delegation` - on a
+//! deployment that verifies no `direct` caller, and the acknowledgement that a `direct` deployment
+//! declares no hop.
 
 use crate::inbound::InboundIdentity;
 use crate::settings::NotFitToServe;
 use crate::sources::SourceRegistry;
+use crate::sources::caller_identity::CallerIdentity;
 
 /// See [`NotFitToServe::DelegationWithoutDirectInbound`],
 /// [`NotFitToServe::InboundTokenAtPoolUnacknowledged`],
@@ -19,20 +22,25 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
     let mut refusals = Vec::new();
     for (alias, source) in sources.each() {
         let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());
-        let delegates = hops == Some(true)
-            || matches!(
-                *source.placement(),
-                crate::SourcePlacement::Oracle { ref delegation, .. }
-                    | crate::SourcePlacement::Cube { ref delegation, .. } if !delegation.is_empty()
-            );
-        if delegates && !direct {
+        let delegation = if hops == Some(true) {
+            Some("workload_identity.delegation")
+        } else if matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_))) {
+            Some("google_login")
+        } else if matches!(
+            *source.placement(),
+            crate::SourcePlacement::Oracle { ref delegation, .. }
+                | crate::SourcePlacement::Cube { ref delegation, .. } if !delegation.is_empty()
+        ) {
+            Some("delegation")
+        } else {
+            None
+        };
+        if let Some(key) = delegation
+            && !direct
+        {
             refusals.push(NotFitToServe::DelegationWithoutDirectInbound {
                 alias: alias.clone(),
-                key: if hops == Some(true) {
-                    "workload_identity.delegation"
-                } else {
-                    "delegation"
-                },
+                key,
             });
         }
         let hopless_direct = direct && hops == Some(false);

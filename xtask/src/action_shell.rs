@@ -4,7 +4,8 @@
 //! they cover every line of shell this repository ships EXCEPT the shell inside
 //! `.github/actions/*/action.yml`:
 //!
-//! * `zizmor` is pointed at `.github/workflows`.
+//! * `zizmor` reads `.github/workflows` and `.github/actions`, but for injection hazards, not shell
+//!   correctness.
 //! * `actionlint` - which is the one that would otherwise carry this, because it shells each
 //!   workflow's `run:` block out to `shellcheck` itself - **cannot read a composite action at all**
 //!   at the pinned version. MEASURED rather than assumed, against the pinned `actionlint`: handed

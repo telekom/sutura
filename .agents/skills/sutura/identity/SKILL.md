@@ -66,6 +66,13 @@ proof of impersonation.
   process started, and the answer names which leg came from which* - not *the operator opted in, so
   it is fine*. **And one budget over the two domains:** the spend charge sums both legs against one
   subject key whichever leg ran as whom.
+- **The OAuth client claims are recorded and grant nothing, by type plus review.** Each audit line
+  carries the token's `azp` and its RFC 9068 client id as two fields, unmasked, both kept when they
+  disagree, `unreadable` when present but not an identifier. `OAuthClient` has no `==`, hash or
+  `as_str`, so no grant can compare one; its `Display` string can still be compared, and only review
+  stops that. A client literally named `unreadable` renders like an unreadable claim. The one
+  exception is leg 1's own check: with `extra_scope_claims` set, a token whose `azp` is absent or
+  names the API is refused.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
@@ -132,12 +139,15 @@ directions. The non-obvious parts:
   *attempt* so a dead source is limited too. **The wording was right and the code was wrong against
   it once:** the check sat outside the lock and review measured three reads where two were required.
   A bound three documents state and concurrency breaks is a defect in the code, not the claim.
-- **Nothing binds an assertion to a request and nothing records what has been seen**, so inside the
-  lifetime ceiling an intercepted assertion replays. A regression test asserts the replay rather than
+- **Nothing binds an assertion to a request and nothing records what has been seen**, unless
+  `transit_single_use` is declared, which refuses a second presentation per process; otherwise
+  inside the lifetime ceiling an intercepted assertion replays. A regression test asserts the replay rather than
   pretending otherwise, and `docs/adr/0014` downgrades its own *"proof that the request transited"*
   wording to a *gateway-issued identity assertion* for that reason.
 
-The other three limits: keys come from a file and there is no JWKS endpoint; of the two metadata
+The other three limits: keys come from `key_set_file` or an `https` `key_set_url` - a URL fetch
+trusts `security.outbound`'s anchors loaded once at start, presents no client identity, and an
+unknown `kid` is `503` only while the last look failed to read the source; of the two metadata
 documents `docs/adr/0014` describes, only protected-resource metadata is served, and only in direct
 mode; and scopes decide **operations**, not rows.
 
@@ -183,7 +193,12 @@ settings surface reads as a cache that is merely off.
 result - each request exchanges again, so two subjects have no store to collide in. A cache added
 later inherits the `PrincipalChain` key rule below. The `sutura_http_client::delegation` implementor decodes the issued JWT's
 `aud`/`exp` without verifying its signature - a misconfiguration check, not a defence against the
-IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
+IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`,
+except Keycloak's not-linked answer (`DelegationFailed::NotLinked`, matched on one fixed English
+description, so a changed message degrades to `503`), which is `403 identity_not_linked`. A
+`google_login` source is one `Delegation::linked` hop over `LinkedLogin`
+(`sutura_http_client::delegation::BrokeredLogin`): an opaque token, expiry from
+`accessTokenExpiration`, no refresh token kept, sent as `bigquery.auth.access_token`.
 `sutura serve` builds it from a `bigquery` source's ordered `workload_identity.delegation` hops or
 an Oracle source's ordered `delegation` hops (each `token_endpoint`, `client_id`,
 `client_secret_file`, `audience`, `grant`), each parsed at boot by the adapter's own type, and
@@ -237,8 +252,9 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   CLI's attaching half is not built. A forgotten attachment cannot silently read every row as the
   deployment: the port refuses a source the broker holds neither half for as
   `credential_unavailable`.
-- `CredentialUnavailable` is reachable **through the served binary**: a served impersonating source
-  with no inbound gate answers `403 credential_unavailable` (no verified subject to serve), and a
+- A served impersonating source with no inbound gate is refused at start
+  (`NotFitToServe::QuerySurfaceOverAnImpersonatingSource`, asked at the serve root), so
+  `credential_unavailable` for want of a verified subject is not what `sutura serve` answers. A
   broker that cannot be reached gets `503` from `SurfaceFailure::Broker` - which is also what a
   refused delegation exchange answers, held behind the real router by `serve::tests::delegation_served`.
   None of that is an answer *under* an asker.

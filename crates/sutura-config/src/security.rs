@@ -520,7 +520,7 @@ impl SecuritySettings {
 
 #[cfg(test)]
 mod tests {
-    use crate::inbound::{IssuerUrl, KeySetFile, PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm};
+    use crate::inbound::{IssuerUrl, KeySetFile, KeySetLocation, PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm};
 
     use super::{
         AccessToken, DeploymentIdentity, InboundIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound,
@@ -535,7 +535,7 @@ mod tests {
         InboundIdentity::Direct {
             resource: ResourceIdentifier::parse("https://sutura.example.com").expect("a test resource is a resource"),
             authorization_server: IssuerUrl::parse("https://issuer.example.com").expect("a test issuer is an issuer"),
-            key_set: KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path"),
+            key_set: KeySetLocation::File(KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path")),
             algorithms: PinnedAlgorithms::of(SigningAlgorithm::Rs256),
             token_type: crate::inbound::RequiredTokenType::access_token(),
         }

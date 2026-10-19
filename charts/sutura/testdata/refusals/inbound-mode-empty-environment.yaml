@@ -1,0 +1,18 @@
+# The same as `inbound-mode-empty`, with the block in the environment file alone: the binary refuses
+# to start (`SettingsError::InboundModeUndeclared`).
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+  accessToken:
+    secretName: sutura-access-token
+config:
+  environment:
+    security:
+      inbound:
+        mode: ""
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        key_set_file: /etc/sutura/inbound-keys/jwks.json
+        algorithms: [RS256]

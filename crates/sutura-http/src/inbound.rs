@@ -12,7 +12,7 @@
 //! | [`keys`] | the key set, its cache, the **rate-limited** refetch on an unknown key id, and the **age bound** that is what makes revocation bounded |
 //! | [`token`] | algorithm pinning, the audience check, and claims into a principal chain |
 //! | [`caller`] | [`VerifiedCaller`] and [`Scopes`] - the conclusion of a verification, as a type nothing can deserialize |
-//! | [`gate`] | the layer, and the `401` with its challenge |
+//! | [`gate`] | the layer, the `401` with its challenge, and the `503` while the key source is down |
 //!
 //! `sutura_config::inbound` owns the *declaration* - which mode, which issuer, which audience, which
 //! algorithms - and names no JWT library at all. The two vocabularies meet in exactly one function,
@@ -31,25 +31,23 @@
 //! boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
 //! infer it.
 //!
-//! # The four things this does not build, and each is named rather than left to be discovered
+//! # The three things this does not build, and each is named rather than left to be discovered
 //!
 //! An overstated claim is itself the defect, so each of these is written down here rather than found:
 //!
-//! 1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
-//!    limit on it are built and are what a URL source would need anyway - see [`keys`] for the whole
-//!    argument and for the one property a file cannot have.
-//! 2. **Anything about client registration or client authentication.** Those are decisions for the
+//! 1. **Anything about client registration or client authentication.** Those are decisions for the
 //!    authorization server and for the client; this deployment is a resource server and validates what
 //!    arrives.
-//! 3. **A ceiling derived from a scope.** [`Scopes`] is now read by exactly one thing -
+//! 2. **A ceiling derived from a scope.** [`Scopes`] is now read by exactly one thing -
 //!    `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
 //!    decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
 //!    live behind, and `docs/adr/0013`'s raw tool is not built. See [`caller`] for the limit stated
 //!    beside the claim.
-//! 4. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+//! 3. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
 //!    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
-//!    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
-//!    store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
+//!    deployment chose - and inside that window an intercepted assertion replays, unless
+//!    `transit_single_use` is declared, which refuses a second presentation per process. Nothing
+//!    hashes a method, a path or a body into the assertion. That is why nothing here
 //!    calls it a proof that *this request* transited anything, and why the hop between the component
 //!    and this process is a trusted transport boundary rather than an incidental one.
 //!
@@ -98,13 +96,14 @@
 pub mod caller;
 pub mod gate;
 pub mod keys;
+mod replay;
 pub mod token;
 
 pub use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 pub use crate::inbound::gate::{InboundGate, InboundNotUsable, require_verified_caller};
 pub use crate::inbound::keys::{
-    FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetSource, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE,
-    MIN_REFETCH_INTERVAL, NotAKeyId, Refreshed,
+    FetchFailed, FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetClientUnusable, KeySetSource, KeySetUnavailable,
+    KeyUnavailable, MAX_KEY_SET_AGE, MIN_REFETCH_INTERVAL, NotAKeyId, Refreshed, UrlKeySet,
 };
 pub use crate::inbound::token::{MAX_TOKEN_BYTES, PresentedType, TokenRejected, TokenValidator};
 

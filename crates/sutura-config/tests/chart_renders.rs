@@ -25,7 +25,9 @@
 //!   would also refuse, is held by review alone.
 //! * **Secret and file contents.** A placeholder token is never empty, and `Settings::load` opens
 //!   no key-set or TLS file, so neither a Secret holding `""` nor a missing mount is seen.
-//! * **`extraEnv`**, beyond what a golden's values file happens to set.
+//! * **`extraEnv`**, beyond the names the chart refuses (one the binary reads under `security`, or as a
+//!   variable the chart sets) and what a golden's values file happens to set: no guard reads another
+//!   `SUTURA__*` variable, a source's posture included.
 //! * **A binary without `tls`.** Gated on the feature: the chart's `tls.enabled` render assumes a
 //!   binary that can terminate TLS, and every venue that runs this crate's tests enables it.
 
@@ -242,6 +244,36 @@ mod tests {
         );
     }
 
+    /// The key set volume projects the one entry `SUTURA__SECURITY__INBOUND__KEY_SET_FILE` names, so
+    /// no other entry of the Secret reaches the pod.
+    #[test]
+    fn the_key_set_volume_projects_only_the_key_set_entry() {
+        let mut checked = Vec::new();
+        for path in goldens() {
+            let docs = documents(&std::fs::read_to_string(&path).expect("a readable golden"));
+            let pod = &of_kind(&docs, "Deployment")["spec"]["template"]["spec"];
+            let Some(volume) = pod["volumes"]
+                .as_sequence()
+                .and_then(|volumes| volumes.iter().find(|volume| volume["name"].as_str() == Some("inbound-keys")))
+            else {
+                continue;
+            };
+            let file = pod["containers"][0]["env"]
+                .as_sequence()
+                .and_then(|env| {
+                    env.iter()
+                        .find(|entry| entry["name"].as_str() == Some("SUTURA__SECURITY__INBOUND__KEY_SET_FILE"))
+                })
+                .and_then(|entry| entry["value"].as_str())
+                .and_then(|value| value.strip_prefix("/etc/sutura/inbound-keys/"))
+                .unwrap_or_else(|| panic!("{}: the key set file is under the mount", path.display()));
+            let only: Value = serde_norway::from_str(&format!("[{{key: {file}, path: {file}}}]")).expect("a YAML list");
+            assert_eq!(volume["secret"]["items"], only, "{}", path.display());
+            checked.push(path);
+        }
+        assert!(!checked.is_empty(), "no golden mounts a key set");
+    }
+
     #[test]
     fn every_chart_render_is_a_configuration_the_binary_starts_with() {
         let goldens = goldens();
@@ -283,7 +315,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 19] = [
+    const REFUSALS: [(&str, Binary); 33] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -309,6 +341,10 @@ mod tests {
                     }
                 )
             }),
+        ),
+        (
+            "behind-gateway-authorization-in-base-with-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
         ),
         (
             "behind-gateway-authorization-with-access-token",
@@ -346,6 +382,41 @@ mod tests {
             Binary::Accepts("the binary reads any letter case; the chart names the config file by the exact spelling"),
         ),
         (
+            "extra-env-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "extra-env-chart-environment",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
+        ),
+        (
+            "extra-env-chart-port",
+            Binary::Accepts("the binary folds both names into one key; the chart refuses an order it cannot fix"),
+        ),
+        (
+            "extra-env-dotted-access-token",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "extra-env-inbound-mode",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
+            "extra-env-indexed-access-token",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::AccessToken {
+                        cause: InvalidAccessToken::Untrimmed
+                    }
+                )
+            }),
+        ),
+        (
+            "extra-env-transit-header",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
+        ),
+        (
             "identity-undeclared-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
@@ -356,6 +427,30 @@ mod tests {
         (
             "impersonating-source-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceOverAnImpersonatingSource { .. })),
+        ),
+        (
+            "inbound-mode-empty",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-empty-environment",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-null-override",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-undeclared",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUndeclared)),
+        ),
+        (
+            "inbound-mode-unknown-spelling",
+            Binary::Fails(|error| matches!(error, SettingsError::InboundModeUnknown { .. })),
+        ),
+        (
+            "inbound-null-override",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
         ),
         ("memory-limit-unparseable", Binary::Derivation),
         (

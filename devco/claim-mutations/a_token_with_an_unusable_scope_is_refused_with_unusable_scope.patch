@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
 --- a/crates/sutura-http/src/inbound/token.rs
 +++ b/crates/sutura-http/src/inbound/token.rs
-@@ -418,9 +418,7 @@
+@@ -438,9 +438,7 @@
          if let Some(ref actor) = claims.act {
              chain = chain.acting(chain_from(actor)?);
          }
@@ -9,6 +9,6 @@ diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/in
 -            .scopes_of(&claims)
 -            .map_err(|cause| TokenRejected::UnusableScope { cause })?;
 +        let scopes = self.scopes_of(&claims).ok().ok_or(TokenRejected::NoKeyId)?;
+         let client = client_of(&claims);
          let groups = match claims.groups {
              None => Groups::none(),
-             Some(claimed) => Groups::parse(claimed).map_err(|cause| TokenRejected::UnusableGroups { cause })?,

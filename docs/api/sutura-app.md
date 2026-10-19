@@ -529,9 +529,8 @@ Why running a raw statement did not produce an outcome.
 **Deliberately not `ServiceError`.** That type's `Compile` and
 `Federated` arms describe the compiler and the splitter, neither of which this path touches - a
 raw statement is unparsed text, end to end. What is left is the credential half
-`answer` also has, plus one arm of its own for a state the boot refusal is
-supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
-text at all.
+`answer` also has, plus one arm of its own for an adapter that declares it
+accepts raw text and then answers none.
 
 ## `use RunningRaw`
 
@@ -543,10 +542,13 @@ Runs one literal statement against the deployment's configured source, or says w
 
 # PR1's scope, stated as a limit rather than left implicit
 
-**This targets the sole registered data system, and refuses `RunSqlError::NoAcceptingSource`
-where more than one is open or none is.** The architecture decision's showcase is one Postgres source; a
-deployment naming which of several sources the raw tool may run over is future work, not a
-decision this function makes by omission - a second source is refused rather than guessed at.
+**This targets the sole registered data system, and refuses with
+`RawRefusalReason::MoreThanOneSourceOpen` where more than one is open, or
+`RawRefusalReason::NoSourceAcceptsRawStatements` where the one open does not accept raw text.**
+the architecture decision's showcase is one Postgres source; a deployment naming which of several sources
+the raw tool may run over is future work, not a decision this function makes by omission - a
+second source is refused rather than guessed at. Both are answers to the caller, declined before
+the broker is asked, so each is audited and neither is a `RunSqlError`.
 
 # Otherwise, this mirrors `answer`'s credential handling exactly
 
@@ -749,6 +751,9 @@ means rather than a field added to one.
   states as a requirement rather than a preference: an authorization server that is down comes
   back, and a caller told the same sentence for both will retry a data-system outage the same
   way and learn nothing. A transport chooses a different code for it.
+- `NotLinked` - The broker answered that the caller has no account linked at the identity provider a source runs them through (`sutura_domain::identity::DelegationFailed::NotLinked`).
+
+  Apart from `Self::Broker` because retrying does not help and the caller can act on it.
 - `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.
 
   Not a refusal - the question was fine - and not `Self::Broker` either, because a broker that
@@ -2511,6 +2516,7 @@ How one question ended, as the series count it.
 - `TimedOut` - The caller's whole wait ran out first.
 - `DataSystemUnavailable` - The data system did not answer.
 - `IdentityUnavailable` - The credential broker did not answer.
+- `IdentityNotLinked` - The caller has no account linked at the identity provider.
 - `Internal` - This deployment's own fault.
 
 #### Implements

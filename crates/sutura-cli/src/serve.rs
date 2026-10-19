@@ -415,7 +415,8 @@ pub(crate) fn run() -> Result<(), String> {
     // The poll and the transports are two owners of one service: this is the Arc that earns its
     // place, not a clone to satisfy the borrow checker.
     let refreshing = Arc::clone(&service);
-    let mut state = ServiceState::new(service, Arc::new(settings), admission);
+    let servable = sutura_http::ServableSettings::check(settings).map_err(flatten)?;
+    let mut state = ServiceState::new(service, servable, admission);
     let coverage = state.catalog_coverage();
     #[cfg(feature = "agent")]
     let agent_mount = agent_mount(&state)?;
@@ -501,7 +502,8 @@ fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>,
             Err(flatten(sutura_config::SettingsError::NotFitToServe { refusals }))
         };
     };
-    let gate = sutura_http::InboundGate::from_declaration(declared).map_err(flatten)?;
+    let anchors = settings.security().outbound().map(crate::sources::anchors_of);
+    let gate = sutura_http::InboundGate::from_declaration_trusting(declared, anchors.as_ref()).map_err(flatten)?;
     tracing::info!(
         inbound_mode = declared.mode(),
         header = gate.header(),
