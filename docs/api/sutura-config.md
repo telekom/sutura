@@ -6005,8 +6005,9 @@ Which one of three blocks says how an `impersonation-at-source` source runs its 
   verified address. The deployment vouches for the caller here, not the caller's own credential.
 
 Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-This build runs `workload_identity` only: `Settings::refusals` refuses to serve a source that
-declares either other block, so a block that nothing reads does not load as if it did.
+This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
+source that declares `domain_delegation`, so a block that nothing reads does not load as if it
+did.
 the architecture decision records the decision.
 
 #### `enum CallerIdentity`
@@ -6020,7 +6021,7 @@ How an `impersonation-at-source` source runs its caller - the one block it decla
 ##### Variants
 
 - `WorkloadIdentity` - The caller's own pool principal.
-- `GoogleLogin` - The caller's own Google login, brokered by the identity provider. Not served by this build.
+- `GoogleLogin` - The caller's own Google login, brokered by the identity provider.
 - `DomainDelegation` - A delegating service account acting as the caller's verified address. Not served by this build.
 
 ##### Implements

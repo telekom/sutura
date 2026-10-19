@@ -58,6 +58,10 @@ A reader's rotating agent handle and (when a declaration exists) the poll handle
 current - named because the spelled-out pair is over this workspace's `type_complexity`
 threshold.
 
+## `use RotatingAgent`
+
+The rotating agent handle a request is sent over.
+
 ## `use agent`
 
 **The one way this workspace builds a `ureq::Agent`** - `clippy.toml` bans every other
@@ -358,6 +362,10 @@ An RFC 8693 token exchange; `Self::granting` asks another way.
 #### Implements
 
 `Debug`, `DelegationExchange`
+
+### `use BrokeredLogin`
+
+`LinkedLogin` over HTTP, at a `/realms/<realm>/broker/<alias>/token` endpoint.
 
 ## Module `test_support`
 

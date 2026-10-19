@@ -47,7 +47,7 @@ pub use crate::identity::credential::{
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
 };
 pub use crate::identity::delegation::{
-    Delegated, Delegation, DelegationExchange, DelegationFailed, RequestedAudience, UnusableAudience,
+    Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, RequestedAudience, UnusableAudience,
 };
 pub use crate::identity::principal::{
     Actor, ActorChain, ActorsInOrder, Attribution, ClientClaim, ClientClaims, InvalidPrincipalId, OAuthClient, PrincipalChain,

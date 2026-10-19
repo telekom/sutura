@@ -1886,8 +1886,11 @@ with it - and no record in this repository has decided that a deployment should 
 rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
 verifying within `MAX_KEY_SET_AGE` plus one read while refresh works - plus the rotated-out
 grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
-while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
-confirm the keys, and refused on by nothing.
+while it does not** - the staleness is reported as `stale_for_ms` on a `WARN` for every look whose
+read fails and returns to its caller and on an `ERROR` for a look that reads a refused document
+differing from the last one read (a look that reads the same bytes again is `Unchanged` and logs
+nothing, as does a look whose caller left or whose read has not returned), and refused on by
+nothing.
 
 # What a key set is read from
 
@@ -3214,6 +3217,10 @@ come from the variant, so two handlers cannot answer the same situation with dif
   will clear the same way it retries one that will not.
 
   Carries nothing. Which issuer this deployment talks to is not the caller's business.
+- `IdentityNotLinked` - The caller has no account linked at the identity provider a source runs them through.
+
+  **`403`, not `503`**: retrying does not help, and the caller can act - link the account at
+  the identity provider. It is about the caller's own linking state only.
 - `AtCapacity` - Every execution slot was taken for the whole admission window, so the question was shed.
 
   **`503` and not `429`, and the two say different things.** A `429` is "you personally asked

@@ -85,8 +85,11 @@
 //! rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
 //! verifying within [`MAX_KEY_SET_AGE`] plus one read while refresh works - plus the rotated-out
 //! grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
-//! while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
-//! confirm the keys, and refused on by nothing.
+//! while it does not** - the staleness is reported as `stale_for_ms` on a `WARN` for every look whose
+//! read fails and returns to its caller and on an `ERROR` for a look that reads a refused document
+//! differing from the last one read (a look that reads the same bytes again is `Unchanged` and logs
+//! nothing, as does a look whose caller left or whose read has not returned), and refused on by
+//! nothing.
 //!
 //! # What a key set is read from
 //!

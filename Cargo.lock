@@ -4253,6 +4253,7 @@ dependencies = [
  "base64 0.23.1",
  "rcgen",
  "rustls",
+ "serde",
  "serde_json",
  "sutura-dev",
  "sutura-domain",

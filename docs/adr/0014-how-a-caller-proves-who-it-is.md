@@ -664,3 +664,12 @@ of seen assertions that section names: `security.inbound.transit_single_use: tru
 presentation of one assertion by its `jti`, in a bounded store per process. The key is off by
 default, so the replay window and the trusted transport boundary stand as written until a
 deployment declares it. A binding to the request is still not built.
+
+## Eleventh amendment, 2026-10-18: what a key-set look logs
+
+**Status of the amendment: accepted.** The second amendment says "The staleness is on a `WARN` for
+every look that could not confirm the keys". The code logs it in two cases, and only those. A look
+whose read fails and returns to its caller logs a `WARN` with `stale_for_ms`. A look that reads a
+refused document differing from the last one read logs an `ERROR` with `stale_for_ms`; a later look
+that reads the same bytes is `Unchanged` and logs nothing. A look whose caller left, or whose read
+has not returned, logs nothing. Nothing refuses on `stale_for_ms`, as the second amendment says.

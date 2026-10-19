@@ -7,8 +7,9 @@
 //!   verified address. The deployment vouches for the caller here, not the caller's own credential.
 //!
 //! Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-//! This build runs `workload_identity` only: `Settings::refusals` refuses to serve a source that
-//! declares either other block, so a block that nothing reads does not load as if it did.
+//! This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
+//! source that declares `domain_delegation`, so a block that nothing reads does not load as if it
+//! did.
 //! `docs/adr/20261014100540-bigquery-caller-identity-modes.md` records the decision.
 
 use std::path::{Path, PathBuf};
@@ -34,7 +35,7 @@ pub(crate) struct CallerIdentityBlocks<'raw> {
 pub enum CallerIdentity {
     /// The caller's own pool principal.
     WorkloadIdentity(WorkloadIdentityConfig),
-    /// The caller's own Google login, brokered by the identity provider. Not served by this build.
+    /// The caller's own Google login, brokered by the identity provider.
     GoogleLogin(GoogleLogin),
     /// A delegating service account acting as the caller's verified address. Not served by this
     /// build.
@@ -45,8 +46,7 @@ impl CallerIdentity {
     /// The block of a mode this build does not serve - see `NotFitToServe::CallerIdentityModeNotBuilt`.
     pub(crate) const fn not_built(&self) -> Option<&'static str> {
         match *self {
-            Self::WorkloadIdentity(_) => None,
-            Self::GoogleLogin(_) => Some(GOOGLE_LOGIN),
+            Self::WorkloadIdentity(_) | Self::GoogleLogin(_) => None,
             Self::DomainDelegation(_) => Some(DOMAIN_DELEGATION),
         }
     }
@@ -534,8 +534,6 @@ mod tests {
         ))
     }
 
-    const LOGIN_YAML: &str = "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
-                              client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
     const DELEGATION_YAML: &str =
         "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
 
@@ -545,17 +543,6 @@ mod tests {
             panic!("expected a boot refusal, got {error:?}");
         };
         refusals.clone()
-    }
-
-    #[test]
-    fn a_google_login_source_is_refused_at_boot_as_not_built() {
-        assert_eq!(
-            refused_at_boot(LOGIN_YAML),
-            vec![NotFitToServe::CallerIdentityModeNotBuilt {
-                alias: warehouse_alias(),
-                block: "google_login",
-            }]
-        );
     }
 
     #[test]
