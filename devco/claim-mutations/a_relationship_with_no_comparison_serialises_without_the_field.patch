@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/catalog.rs b/crates/sutura-domain/src/catalog.rs
+index 2d0c742b1..e86b49ad5 100644
+--- a/crates/sutura-domain/src/catalog.rs
++++ b/crates/sutura-domain/src/catalog.rs
+@@ -407,7 +407,6 @@ pub struct Relationship {
+     join_type: JoinType,
+     keys: JoinKeys,
+     /// The kind the two keys compare AS, when the author declared one. `None` is equality of kind.
+-    #[serde(skip_serializing_if = "Option::is_none")]
+     comparison: Option<LinkKind>,
+ }
+ 

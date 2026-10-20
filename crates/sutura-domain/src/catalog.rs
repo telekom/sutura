@@ -38,6 +38,7 @@ use crate::measure::RequiredFilter;
 use crate::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName, TableName,
 };
+use crate::plan::LinkKind;
 
 /// The label a generated projection gives the truncated time column.
 ///
@@ -405,6 +406,17 @@ pub struct Relationship {
     target_model: ModelName,
     join_type: JoinType,
     keys: JoinKeys,
+    /// The kind the two keys compare AS, when the author declared one. `None` is equality of kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comparison: Option<LinkKind>,
+}
+
+/// Why a relationship cannot declare a comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidComparison {
+    /// A federated link joins on one column, so a comparison has one key pair to apply to.
+    #[error("a comparison may be declared only on a one-key relationship, and this one has {keys} keys")]
+    CompoundKey { keys: usize },
 }
 
 impl Relationship {
@@ -421,7 +433,28 @@ impl Relationship {
             target_model,
             join_type,
             keys,
+            comparison: None,
         }
+    }
+
+    /// Declares the kind this relationship's two keys compare as, refusing a compound key.
+    ///
+    /// A federated link joins on one column, so a declaration on a compound key could only be read
+    /// as applying to some of its keys. A truncated single key is not refused here.
+    pub fn with_comparison(mut self, comparison: LinkKind) -> Result<Self, InvalidComparison> {
+        match self.keys.len() {
+            1 => {
+                self.comparison = Some(comparison);
+                Ok(self)
+            }
+            keys => Err(InvalidComparison::CompoundKey { keys }),
+        }
+    }
+
+    /// The kind the keys compare as, or `None` for equality of kind.
+    #[inline]
+    pub const fn comparison(&self) -> Option<LinkKind> {
+        self.comparison
     }
 
     #[inline]

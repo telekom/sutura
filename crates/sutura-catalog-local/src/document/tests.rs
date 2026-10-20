@@ -8,12 +8,14 @@ use super::{
     ModelDoc, RelationshipDoc,
 };
 use sutura_domain::catalog::{
-    Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain,
+    Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidComparison, InvalidDimensionValue, InvalidJoinKeys,
+    InvalidViaChain,
 };
 use sutura_domain::expression::InvalidComputation;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::AudienceId;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, RelationshipName};
+use sutura_domain::plan::LinkKind;
 
 fn metric_doc(yaml: &str) -> Result<MetricDoc, serde_norway::Error> {
     serde_norway::from_str(yaml)
@@ -839,6 +841,54 @@ fn an_empty_keys_list_is_refused() {
             InvalidRelationshipDocument::EmptyKeys(InvalidJoinKeys::Empty)
         ),
         "an empty keys list must reach the domain's own empty-set refusal"
+    );
+}
+
+/// `compare_as:` is the author's word for the kind the two keys compare as, and each of the five
+/// words reaches the domain relationship as its own kind; a document without it declares nothing.
+#[test]
+fn a_markdown_compare_as_reaches_the_relationship() {
+    for (word, kind) in [
+        ("exact_integer", LinkKind::ExactInteger),
+        ("exact_decimal", LinkKind::ExactDecimal),
+        ("text", LinkKind::Text),
+        ("date", LinkKind::Date),
+        ("boolean", LinkKind::Boolean),
+    ] {
+        let relationship = relationship_doc(&format!("{SINGLE_PAIR_RELATIONSHIP}compare_as: {word}\n"))
+            .expect("a known word parses")
+            .into_domain()
+            .expect("one key takes a comparison");
+        assert_eq!(relationship.comparison(), Some(kind), "`compare_as: {word}`");
+    }
+    let silent = relationship_doc(SINGLE_PAIR_RELATIONSHIP)
+        .expect("a column pair is well-formed")
+        .into_domain()
+        .expect("one column pair is a non-empty set");
+    assert_eq!(silent.comparison(), None, "an absent `compare_as:` is equality of kind");
+}
+
+/// A word that is not a kind is a parse error at the document edge, naming the word, and a
+/// misspelt key stays refused by `deny_unknown_fields`.
+#[test]
+fn an_unknown_compare_as_word_is_refused() {
+    let error =
+        relationship_doc(&format!("{SINGLE_PAIR_RELATIONSHIP}compare_as: float\n")).expect_err("`float` is not a link kind");
+    assert!(error.to_string().contains("float"), "the error must name the word: {error}");
+    relationship_doc(&format!("{SINGLE_PAIR_RELATIONSHIP}compare_a: text\n"))
+        .expect_err("a misspelt `compare_as` is an unknown field");
+}
+
+/// A comparison applies to one key pair, so a compound relationship that declares one is refused.
+#[test]
+fn a_compare_as_on_a_compound_relationship_is_refused() {
+    let declared = format!("{COMPOUND_RELATIONSHIP}compare_as: text\n");
+    assert_eq!(
+        relationship_doc(&declared)
+            .expect("the shape parses; the refusal is `into_domain`'s")
+            .into_domain()
+            .unwrap_err(),
+        InvalidRelationshipDocument::Comparison(InvalidComparison::CompoundKey { keys: 2 }),
     );
 }
 

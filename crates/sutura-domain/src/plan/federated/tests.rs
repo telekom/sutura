@@ -537,3 +537,77 @@ fn a_quoted_column_type_escapes_its_quotes_and_backslashes() {
     let hostile = ColumnType::parse(r#"VARCHAR(") a \" b")"#).expect("a hostile type still parses");
     assert_eq!(QuotedColumnType::from(&hostile).to_string(), r#""VARCHAR(\") a \\\" b\")""#);
 }
+
+const KINDS: [LinkKind; 5] = [
+    LinkKind::ExactInteger,
+    LinkKind::ExactDecimal,
+    LinkKind::Text,
+    LinkKind::Date,
+    LinkKind::Boolean,
+];
+
+#[test]
+fn the_cast_table_admits_exactly_two_pairs() {
+    let casts = [
+        (LinkKind::ExactInteger, LinkKind::Text),
+        (LinkKind::ExactDecimal, LinkKind::ExactInteger),
+    ];
+    let wrong: Vec<_> = KINDS
+        .into_iter()
+        .flat_map(|to| KINDS.into_iter().map(move |from| (to, from)))
+        .filter(|&(to, from)| to.reaches(from) != (to == from || casts.contains(&(to, from))))
+        .collect();
+    assert!(wrong.is_empty(), "pairs that disagree with the closed table: {wrong:?}");
+}
+
+#[test]
+fn joins_without_a_declaration_is_equality() {
+    for a in KINDS {
+        for b in KINDS {
+            assert_eq!(LinkKind::joins(None, a, b), a == b, "{a:?} against {b:?}");
+        }
+    }
+}
+
+#[test]
+fn a_declaration_joins_a_cast_leg_only_to_an_anchor_of_its_own_kind() {
+    use LinkKind::{ExactDecimal, ExactInteger, Text};
+    let admitted: Vec<_> = KINDS
+        .into_iter()
+        .map(|kind| (kind, kind, kind))
+        .chain([
+            (ExactInteger, ExactInteger, Text),
+            (ExactInteger, Text, ExactInteger),
+            (ExactDecimal, ExactDecimal, ExactInteger),
+            (ExactDecimal, ExactInteger, ExactDecimal),
+        ])
+        .collect();
+    let wrong: Vec<_> = KINDS
+        .into_iter()
+        .flat_map(|declared| {
+            KINDS
+                .into_iter()
+                .flat_map(move |a| KINDS.into_iter().map(move |b| (declared, a, b)))
+        })
+        .filter(|&triple| LinkKind::joins(Some(triple.0), triple.1, triple.2) != admitted.contains(&triple))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "(declared, a, b) triples that disagree with the closed table: {wrong:?}"
+    );
+}
+
+#[test]
+fn a_plan_carries_the_comparison_it_is_given_and_none_serialises_as_absent() {
+    let plan = try_distinct_plan(fact_leg_keyed_by(vec![distinct_key(0)], Vec::new())).expect("a one-leaf plan constructs");
+    assert_eq!(plan.link_comparison(), None, "a plan built without one declares nothing");
+    let bare = serde_json::to_value(&plan).expect("a plan serialises");
+    assert!(
+        bare.get("link_comparison").is_none(),
+        "None must not enter the plan dump: {bare}"
+    );
+    let declared = plan.with_link_comparison(Some(LinkKind::ExactDecimal));
+    assert_eq!(declared.link_comparison(), Some(LinkKind::ExactDecimal));
+    let dump = serde_json::to_value(&declared).expect("a plan serialises");
+    assert_eq!(dump.get("link_comparison"), Some(&serde_json::json!("exact_decimal")));
+}
