@@ -34,8 +34,8 @@ pub const DEPLOYMENT_PROPERTY: &str = "deployment_metric_document";
 
 /// One `dataset` page, over the two models the certified fixture metric needs: `orders` (carrying
 /// every column the metric's measure, time column and required filter name) and `customers`
-/// (carrying the dimension's column). Model name and table are the same string, because
-/// `HttpAspectReader::read_datasets`'s own doc names that as a real limit rather than hiding it.
+/// (carrying the dimension's column). Model name and table are the same string because each urn
+/// names a bare table, which `HttpAspectReader::read_datasets` reads as both.
 #[must_use]
 pub fn dataset_page() -> serde_json::Value {
     serde_json::json!({

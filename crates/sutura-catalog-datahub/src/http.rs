@@ -182,6 +182,10 @@ pub enum HttpReaderError {
     /// so `acme.sales.orders` and `acme.archive.orders` both claim `orders`; neither is kept.
     #[error("datasets {first} and {second} both read as model {model}")]
     TwoDatasetsOneModel { model: String, first: String, second: String },
+    /// A relationship endpoint names a dataset urn this read did not return, so it joins no model:
+    /// an endpoint resolves only through the exact urn its model was read from.
+    #[error("the relationship's {field} names dataset {urn}, which this read did not return")]
+    EndpointNotADatasetRead { field: &'static str, urn: String },
     /// The page's own field mapped into this crate's canonical aspect shape and that decode failed -
     /// a defect in this reader's mapping rather than in the page, since every field reaching
     /// `serde_json::from_value` here was already read out of the page by name above.
@@ -423,7 +427,9 @@ impl HttpAspectReader {
     /// segment ([`model_of`]), so `acme.sales.orders` reads as model `orders` over that table and a
     /// bare `orders` as both. `models` records which urn each model was read from: a second urn
     /// for one model is [`HttpReaderError::TwoDatasetsOneModel`], and a relationship endpoint
-    /// resolves through it ([`one_endpoint`]).
+    /// resolves only through that exact urn ([`one_endpoint`]). A model whose name is not its
+    /// table's last segment cannot be represented by this reader (`tests/provisioned/golden.rs`'s
+    /// `NotCarried::Table`).
     fn read_datasets(
         &self,
         budget: Budget,
@@ -639,9 +645,8 @@ fn one_column(value: &Value, field: &'static str) -> Result<String, HttpReaderEr
 }
 
 /// A dataset URN field (`from`/`to`) reduced to the model name this crate's own [`RelationshipAspect`]
-/// names its endpoints by: the model read from exactly this urn, else the urn's whole name, which a
-/// model name refuses when it is qualified - so `acme.archive.orders` never joins model `orders`
-/// read from `acme.sales.orders`.
+/// names its endpoints by: the model read from exactly this urn. Any other urn, bare or qualified,
+/// on any platform or env, is [`HttpReaderError::EndpointNotADatasetRead`].
 fn one_endpoint(value: &Value, field: &'static str, models: &BTreeMap<String, String>) -> Result<String, HttpReaderError> {
     let urn = value
         .get(field)
@@ -655,11 +660,14 @@ fn one_endpoint(value: &Value, field: &'static str, models: &BTreeMap<String, St
         field,
     })?;
     let model = model_of(&name);
-    Ok(if models.get(model).is_some_and(|read| read == urn) {
-        model.to_owned()
+    if models.get(model).is_some_and(|read| read == urn) {
+        Ok(model.to_owned())
     } else {
-        name
-    })
+        Err(HttpReaderError::EndpointNotADatasetRead {
+            field,
+            urn: urn.to_owned(),
+        })
+    }
 }
 
 /// `ERModelRelationshipCardinality`'s screaming-case wire spelling into the lowercase spelling

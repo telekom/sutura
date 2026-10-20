@@ -972,6 +972,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
   this applies to. `field` is a dotted path (`"schemaMetadata.value.fields[].fieldPath"`) so a
   refusal names exactly where the document stopped matching this reader's expectation.
 - `TwoDatasetsOneModel` - Two datasets read as one model. A model is named by the last dot segment of its urn's name, so `acme.sales.orders` and `acme.archive.orders` both claim `orders`; neither is kept.
+- `EndpointNotADatasetRead` - A relationship endpoint names a dataset urn this read did not return, so it joins no model: an endpoint resolves only through the exact urn its model was read from.
 - `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
 - `Paging` - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.
 
@@ -1100,8 +1101,8 @@ pub fn dataset_page() -> serde_json::Value
 
 One `dataset` page, over the two models the certified fixture metric needs: `orders` (carrying
 every column the metric's measure, time column and required filter name) and `customers`
-(carrying the dimension's column). Model name and table are the same string, because
-`HttpAspectReader::read_datasets`'s own doc names that as a real limit rather than hiding it.
+(carrying the dimension's column). Model name and table are the same string because each urn
+names a bare table, which `HttpAspectReader::read_datasets` reads as both.
 
 ### `fn relationship_page`
 

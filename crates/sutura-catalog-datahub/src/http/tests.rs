@@ -47,14 +47,37 @@ fn two_datasets_with_one_last_segment_are_refused_naming_both_urns() {
     );
 }
 
+/// `one_endpoint` on a relationship whose `to` names `to`, after `acme.sales.orders` is read.
+fn endpoint_after_one_read(to: &str) -> Result<String, HttpReaderError> {
+    let mut models = BTreeMap::new();
+    drop(harvest_dataset(&entity("acme.sales.orders"), &mut models)?);
+    one_endpoint(&json!({ "to": to }), "to", &models)
+}
+
+fn assert_not_read(to: &str) {
+    let refusal = endpoint_after_one_read(to).expect_err("an endpoint naming another urn joins no model");
+    assert!(
+        matches!(&refusal, HttpReaderError::EndpointNotADatasetRead { field: "to", urn } if urn == to),
+        "{refusal:?}"
+    );
+}
+
 #[test]
 fn an_endpoint_joins_a_model_only_through_the_urn_it_was_read_from() {
-    let mut models = BTreeMap::new();
-    drop(harvest_dataset(&entity("acme.sales.orders"), &mut models).expect("the dataset is read"));
-    let relationship = json!({ "from": urn("acme.sales.orders"), "to": urn("acme.archive.orders") });
-    assert_eq!(one_endpoint(&relationship, "from", &models).expect("a dataset urn"), "orders");
     assert_eq!(
-        one_endpoint(&relationship, "to", &models).expect("a dataset urn"),
-        "acme.archive.orders"
+        endpoint_after_one_read(&urn("acme.sales.orders")).expect("the read urn"),
+        "orders"
     );
+    assert_not_read(&urn("acme.archive.orders"));
+    assert_not_read(&urn("orders"));
+}
+
+#[test]
+fn an_endpoint_naming_a_bare_urn_on_another_platform_is_refused() {
+    assert_not_read("urn:li:dataset:(urn:li:dataPlatform:postgres,orders,PROD)");
+}
+
+#[test]
+fn an_endpoint_naming_a_bare_urn_on_the_read_platform_is_refused() {
+    assert_not_read(&urn("orders"));
 }
