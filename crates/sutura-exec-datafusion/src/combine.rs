@@ -124,7 +124,7 @@ const EXACT_SUM_PRECISION: u8 = 76;
 
 /// Why a combine could not be assembled.
 ///
-/// Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+/// Split the way the port's two predicates read it: the caller-facing arms are deterministic
 /// refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 /// engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 /// driver's metadata and a label the splitter assigned - and never a cell.
@@ -219,7 +219,7 @@ pub enum CombineError {
     #[error(
         "the relationship declares its keys as {declared}, and a fact leg of {fact} with a lookup leg of {lookup} is not a pair that joins"
     )]
-    LinkKindNotDeclared {
+    LinkKindsNotJoined {
         declared: &'static str,
         fact: &'static str,
         lookup: &'static str,
@@ -468,7 +468,7 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::FloatLinkKey { .. } => Some(FederatedAnswerRefusal::FloatLinkKey),
             CombineError::AmbiguousLink => Some(FederatedAnswerRefusal::AmbiguousLink),
             CombineError::LinkTypeMismatch { .. } => Some(FederatedAnswerRefusal::LinkTypeMismatch),
-            CombineError::LinkKindNotDeclared { .. } => Some(FederatedAnswerRefusal::LinkKindNotDeclared),
+            CombineError::LinkKindsNotJoined { .. } => Some(FederatedAnswerRefusal::LinkKindsNotJoined),
             CombineError::LinkValueNotCast { .. } => Some(FederatedAnswerRefusal::LinkValueNotCast),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is

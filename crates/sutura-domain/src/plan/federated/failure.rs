@@ -65,7 +65,7 @@ pub enum FederatedAnswerRefusal {
     LinkTypeMismatch,
     /// The catalog declares how this relationship's two keys compare, and the legs' link columns are
     /// not a pair that declaration joins: the declaration no longer fits the data.
-    LinkKindNotDeclared,
+    LinkKindsNotJoined,
     /// A link value could not be read as the kind the catalog declares for it - text that is not an
     /// integer, or an integer wider than the decimal it is compared with. The answer is refused
     /// whole: dropping the row, or matching it to nothing, would be a number that looks right.
