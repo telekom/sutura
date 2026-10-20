@@ -312,7 +312,7 @@ mod tests {
 
     /// [`Membership::reverting`]'s own half, over the real git answer `Membership::of` gives:
     /// which changed build inputs exist at base is asked of git (`worktree::base_has` runs
-    /// `git cat-file -e`), not asserted by a test double. The composition the attempt list needs
+    /// `git ls-tree`), not asserted by a test double. The composition the attempt list needs
     /// is then held end to end - the reverted files come first, the withdrawn membership is
     /// appended once each, and a file already reverting is NOT named twice - because the caller
     /// (`causality::run`) hands this list straight to the checkout, and a duplicate path there
@@ -350,7 +350,7 @@ mod tests {
         let _base = Commit::parse(&String::from_utf8_lossy(&out.stdout)).expect("one commit");
 
         // The branch ADDED the oracle crate's manifest, so `Membership::of` reads it as new - the
-        // base commit's tree has no `crates/sutura-exec-oracle/Cargo.toml` to `cat-file -e`. The
+        // base commit's tree has no `crates/sutura-exec-oracle/Cargo.toml` for `ls-tree` to list. The
         // app manifest is the CONTRAST: the base HAS it, so it must not read as added - otherwise
         // its file at HEAD would hold the withdrawal and the crate's absence would not resolve.
         let added_manifest = String::from("crates/sutura-exec-oracle/Cargo.toml");

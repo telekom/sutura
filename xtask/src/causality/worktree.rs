@@ -1,18 +1,22 @@
 //! Putting a git worktree into the base state - the only part of this gate that is plumbing.
 //!
 //! Split out of `causality.rs` for the file-length gate, and the seam is real: everything here is
-//! `git` and the filesystem, and nothing here decides anything about a test. Two things it carries
+//! `git` and the filesystem, and nothing here decides what a test proves. Three things it carries
 //! that a reader would not guess: "revert to base" means two different operations depending on
 //! whether the file existed at base ([`base_has`]), and every subprocess has to have the CALLER's
 //! git environment stripped or it operates on another repository - which is why [`git`] is the only
-//! way this module spawns one.
+//! way this module spawns one - and a git call that could not start or exited non-zero is
+//! [`GitFailed`], never an empty answer.
 //!
-//! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`search`],
-//! [`head_branch`], [`head_commit`], [`branch_metadata`], [`at_base`] and [`naming`] - are here for that
-//! second reason and no other. Each returns raw output - or [`GitFailed`], because a git call that
-//! could not start or exited non-zero is not an empty answer - and decides nothing; `super::provenance`, `super::stack` and
+//! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`deleted`],
+//! [`search`], [`head_branch`], [`head_commit`], [`branch_metadata`], [`base_has`] and [`naming`]
+//! return raw output or [`GitFailed`] and decide nothing; `super::provenance`, `super::stack` and
 //! `super::features` parse them, so every classification they feed is testable without a
-//! repository.
+//! repository. [`at_base`] is the exception: it returns `None` for a failed call as well as an
+//! absent one, because its one caller pairs it with [`base_has`] and reads `None` as unreadable.
+//! Two compositions are glue over those reads and still decide nothing: [`parent`] binds
+//! `super::stack::parent_of` to this repository, and [`already_there`] asks
+//! `super::provenance::Moved` about the base.
 
 use std::path::Path;
 use std::process::Command;
@@ -110,9 +114,9 @@ fn stdout(mut command: Command, no_match: bool) -> Result<String, GitFailed> {
 /// only two of those are against HEAD: the third compares the two candidate BASES, which is the
 /// guard that stops a stale recorded parent from moving the base off this branch's history.
 ///
-/// Raw text out, [`Commit`] parses it: an unrelated history, an unknown ref or an ambiguous answer
-/// all reach `super::provenance::Commit::parse` as text that is not one object name, and the gate
-/// refuses rather than splicing it into `git checkout`.
+/// Raw text out, [`Commit`] parses it. An unrelated history exits 1 and reaches
+/// `super::provenance::Commit::parse` as empty text; an unknown ref exits 128 and is [`GitFailed`].
+/// The gate refuses both rather than splicing either into `git checkout`.
 pub(super) fn merge_base(root: &Path, earlier: &str, later: &str) -> Result<String, GitFailed> {
     let mut command = git(root);
     command.args(["merge-base", earlier, later]);
@@ -123,13 +127,12 @@ pub(super) fn merge_base(root: &Path, earlier: &str, later: &str) -> Result<Stri
 ///
 /// Detached is the ordinary state in two venues that matter - the reconstruction worktree this gate
 /// creates, and a CI checkout of a merge commit - and neither has branch metadata to read, so no
-/// branch is the same answer as no recorded parent.
-pub(super) fn head_branch(root: &Path) -> Option<BranchRef> {
-    let out = git(root).args(["symbolic-ref", "--short", "HEAD"]).output().ok()?;
-    out.status
-        .success()
-        .then(|| BranchRef::parse(String::from_utf8_lossy(&out.stdout).trim()))
-        .flatten()
+/// branch is the same answer as no recorded parent. `symbolic-ref -q` exits 1 for detached and 128
+/// for a call that failed, so only the first is `None`.
+pub(super) fn head_branch(root: &Path) -> Result<Option<BranchRef>, GitFailed> {
+    let mut command = git(root);
+    command.args(["symbolic-ref", "-q", "--short", "HEAD"]);
+    Ok(BranchRef::parse(stdout(command, true)?.trim()))
 }
 
 /// HEAD's own commit, as git printed it.
@@ -174,8 +177,8 @@ fn merges(root: &Path, base: &Commit) -> Result<String, GitFailed> {
     range_log(root, base, &["--merges"])
 }
 
-/// Everything the gate reads of `base..HEAD`, read once: a failed read is one refusal, not a value
-/// that differs per call site.
+/// What `run` reads of `base..HEAD` up front, together: one failed read is one refusal, not a value
+/// that differs per call site. `already_there` asks for the touched paths again on the proof path.
 pub(super) struct Range {
     pub(super) merges: String,
     pub(super) messages: String,
@@ -239,7 +242,7 @@ pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> Result<String,
 /// reads inside `parent_of` fall back on failure, deliberately: a parent branch deleted after
 /// merging is an ordinary state there, and the fallback measures the named ref - the wider base.
 pub(super) fn parent(root: &Path, asked_for: &Commit) -> Result<Option<Parent>, GitFailed> {
-    let branch = head_branch(root);
+    let branch = head_branch(root)?;
     let blob = std::cell::Cell::new(
         branch
             .as_ref()
@@ -488,8 +491,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        BaseState, BranchRef, Commit, apply, base_has, base_state, branch_metadata, deleted, head_commit, merge_base, naming,
-        range, range_messages, search, touched,
+        BaseState, BranchRef, Commit, apply, base_has, base_state, branch_metadata, deleted, head_branch, head_commit,
+        merge_base, merges, naming, range, range_messages, search, touched,
     };
 
     /// A scratch repository holding `src/a.rs` in one commit, and that commit.
@@ -551,6 +554,7 @@ mod tests {
         let answered: Vec<&str> = [
             ("merge_base", merge_base(&dir, "no-such-ref", "HEAD").is_ok()),
             ("range_messages", range_messages(&dir, &unknown).is_ok()),
+            ("merges", merges(&dir, &unknown).is_ok()),
             ("range", range(&dir, &unknown).is_ok()),
             ("touched", touched(&dir, &unknown).is_ok()),
             ("deleted", deleted(&dir, &unknown).is_ok()),
@@ -558,6 +562,7 @@ mod tests {
             ("base_has", base_has(&dir, &unknown, "src/a.rs").is_ok()),
             ("base_state", base_state(&dir, &unknown, &files).is_ok()),
             ("head_commit", head_commit(gone).is_ok()),
+            ("head_branch", head_branch(gone).is_ok()),
             ("naming", naming(gone, "one").is_ok()),
             ("branch_metadata", branch_metadata(gone, &branch).is_ok()),
         ]
@@ -582,7 +587,19 @@ mod tests {
         let unmatched = (naming(&dir, "zzz"), search(&dir, &base, &[String::from("zzz")], &files));
         let named = naming(&dir, "one");
         let untracked = branch_metadata(&dir, &branch);
-        let unrelated = merge_base(&dir, base.as_str(), "HEAD");
+        let forked_at = merge_base(&dir, base.as_str(), "HEAD");
+        let on_a_branch = head_branch(&dir);
+        let mut detach = std::process::Command::new("git");
+        crate::repo::strip_git_env(&mut detach);
+        assert!(
+            detach
+                .current_dir(&dir)
+                .args(["checkout", "-q", "--detach"])
+                .status()
+                .expect("git runs")
+                .success()
+        );
+        let detached = head_branch(&dir);
         drop(std::fs::remove_dir_all(&dir));
         assert!(present.unwrap(), "a file at base is present");
         assert!(!absent.unwrap(), "a path the base lacks is absent, not a failure");
@@ -590,7 +607,9 @@ mod tests {
         assert_eq!(unmatched.1.unwrap(), "");
         assert_eq!(named.unwrap(), vec![String::from("src/a.rs")]);
         assert_eq!(untracked.unwrap(), "", "no metadata blob is no recorded parent");
-        assert_eq!(unrelated.unwrap().trim(), base.as_str());
+        assert_eq!(forked_at.unwrap().trim(), base.as_str());
+        assert_eq!(on_a_branch.unwrap().as_ref().map(BranchRef::as_str), Some("main"));
+        assert_eq!(detached.unwrap(), None, "a detached HEAD is no branch, not a failure");
     }
 
     #[test]

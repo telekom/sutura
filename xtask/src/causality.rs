@@ -399,7 +399,7 @@ const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bo
 ///
 /// The three readers [`features::Trees`] wants, and the pairing that matters is the first: a path
 /// the base does not HAVE is a new package whose base feature table is legitimately empty, while a
-/// path the base has and whose content did not come back is a refusal. `cat-file -e` and `show` are
+/// path the base has and whose content did not come back is a refusal. `ls-tree` and `show` are
 /// separate calls so those two are separate answers.
 ///
 /// The source listing is behind a `OnceCell` because most runs never need it: it is consulted only
