@@ -971,6 +971,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
   **Refused rather than guessed** - see the module header on which of the three entity shapes
   this applies to. `field` is a dotted path (`"schemaMetadata.value.fields[].fieldPath"`) so a
   refusal names exactly where the document stopped matching this reader's expectation.
+- `TwoDatasetsOneModel` - Two datasets read as one model. A model is named by the last dot segment of its urn's name, so `acme.sales.orders` and `acme.archive.orders` both claim `orders`; neither is kept.
 - `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
 - `Paging` - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.
 
