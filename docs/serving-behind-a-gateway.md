@@ -111,3 +111,9 @@ config:
 
 Leave `security.accessToken.secretName` empty. `security.tlsTermination` names the hop that ends TLS between the gateway
 and the pod ([A published container port](serving.md#a-published-container-port) and [TLS](serving.md#tls)).
+
+## An example gateway
+
+[`examples/tardis`](https://github.com/telekom/sutura/tree/main/examples/tardis) is a settings file for the gateway of
+the Open Telekom Integration Platform, with the value for each setting taken from the public repositories of that
+gateway.
