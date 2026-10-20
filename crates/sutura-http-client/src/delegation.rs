@@ -122,6 +122,9 @@ pub enum Grant {
     BrokerToken,
 }
 
+/// An answer's status and its body, read into a [`Secret`].
+type Answer = (u16, Secret);
+
 /// [`DelegationExchange`] over HTTP.
 #[derive(Debug)]
 pub struct OverHttp {
@@ -155,11 +158,39 @@ impl OverHttp {
         self.grant = grant;
         self
     }
+
+    /// Posts `form` and reads the answer, bounded, into a [`Secret`]: an identity provider's answer
+    /// can carry tokens beside the one asked for.
+    fn send(&self, form: &[(&str, &str)]) -> Result<Answer, DelegationFailed> {
+        let unreachable = |cause: ureq::Error| DelegationFailed::Unreachable { cause: Box::new(cause) };
+        let mut response = self
+            .agent
+            .current()
+            .post(self.endpoint.as_str())
+            .config()
+            .timeout_global(Some(Budget::socket(self.bounds.timeout())))
+            .build()
+            .send_form(form.iter().copied())
+            .map_err(unreachable)?;
+        let cap = self.bounds.max_response_bytes();
+        let text = Secret::new(
+            response
+                .body_mut()
+                .with_config()
+                .limit(cap.saturating_add(cap.max(1024)))
+                .read_to_string()
+                .map_err(unreachable)?,
+        );
+        #[expect(clippy::disallowed_methods, reason = "only the length is read")]
+        if text.expose_secret().len() as u64 > cap {
+            return Err(DelegationFailed::TooLarge { cap });
+        }
+        Ok((response.status().as_u16(), text))
+    }
 }
 
 impl DelegationExchange for OverHttp {
     fn exchange(&self, subject: &Secret, audience: &RequestedAudience) -> Result<Delegated, DelegationFailed> {
-        let unreachable = |cause: ureq::Error| DelegationFailed::Unreachable { cause: Box::new(cause) };
         let scope;
         #[expect(
             clippy::disallowed_methods,
@@ -194,29 +225,38 @@ impl DelegationExchange for OverHttp {
                 ]
             }
         };
-        let mut response = self
-            .agent
-            .current()
-            .post(self.endpoint.as_str())
-            .config()
-            .timeout_global(Some(Budget::socket(self.bounds.timeout())))
-            .build()
-            .send_form(form.iter().copied())
-            .map_err(unreachable)?;
-        let cap = self.bounds.max_response_bytes();
-        let text = response
-            .body_mut()
-            .with_config()
-            .limit(cap.saturating_add(cap.max(1024)))
-            .read_to_string()
-            .map_err(unreachable)?;
-        if text.len() as u64 > cap {
-            return Err(DelegationFailed::TooLarge { cap });
-        }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(u64::MAX, |since| since.as_secs());
-        answered(self.grant, response.status().as_u16(), &text, audience, now)
+        let (status, text) = self.send(form)?;
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the answer is read here and nowhere else; no error built from it carries the token"
+        )]
+        answered(self.grant, status, text.expose_secret(), audience, now())
+    }
+}
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(u64::MAX, |since| since.as_secs())
+}
+
+/// Keycloak's description for a caller who linked no account at the brokered provider
+/// (`IdentityBrokerService`). Compared to choose [`DelegationFailed::NotLinked`], never kept.
+const NOT_LINKED: &str = "User not associated to identity provider";
+
+/// The refusal a non-success answer becomes: [`DelegationFailed::NotLinked`] for Keycloak's
+/// not-linked answer, otherwise [`DelegationFailed::Refused`] with the registered `error` code only.
+fn refusal(status: u16, body: Option<&serde_json::Value>) -> DelegationFailed {
+    let field = |name: &str| body?.get(name)?.as_str();
+    let error = field("error");
+    if status == 400 && error == Some("invalid_request") && field("error_description") == Some(NOT_LINKED) {
+        return DelegationFailed::NotLinked;
+    }
+    DelegationFailed::Refused {
+        status,
+        error: error
+            .filter(|code| code.len() <= 64 && code.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_'))
+            .map(String::from),
     }
 }
 
@@ -231,12 +271,7 @@ pub(crate) fn answered(
     let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
     let field = |name: &str| body.as_ref()?.get(name)?.as_str();
     if !(200..300).contains(&status) {
-        return Err(DelegationFailed::Refused {
-            status,
-            error: field("error")
-                .filter(|code| code.len() <= 64 && code.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_'))
-                .map(String::from),
-        });
+        return Err(refusal(status, body.as_ref()));
     }
     if body.is_none() {
         return Err(DelegationFailed::Malformed { what: "not JSON" });
@@ -279,6 +314,9 @@ fn claims_of(token: &str) -> Option<serde_json::Value> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
+
+mod linked;
+pub use linked::BrokeredLogin;
 
 #[cfg(test)]
 mod tests;

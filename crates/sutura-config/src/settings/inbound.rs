@@ -6,8 +6,8 @@
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
 use crate::inbound::{
-    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetUrl, PinnedAlgorithms,
-    ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
+    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetMaxStale, KeySetUrl,
+    PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
 };
 use crate::raw::RawInbound;
 use crate::settings::SettingsError;
@@ -141,17 +141,25 @@ fn grant(written: &[String]) -> Result<GrantedScopes, SettingsError> {
     Ok(grant)
 }
 
-/// Exactly one key set source. A blank value counts as absent, for the reason [`required`] gives.
+/// Exactly one key set source, with its ceiling. A blank value counts as absent, for the reason
+/// [`required`] gives.
 fn key_set(written: &RawInbound, mode: &str) -> Result<KeySetLocation, SettingsError> {
     fn given(value: Option<&str>) -> Option<&str> {
         value.map(str::trim).filter(|value| !value.is_empty())
     }
+    let value = |cause| SettingsError::InboundValue { cause };
     let parsed = match (given(written.key_set_file.as_deref()), given(written.key_set_url.as_deref())) {
         (Some(_), Some(_)) => return Err(SettingsError::InboundKeySetTwice),
         (None, Some(url)) => KeySetUrl::parse(url).map(KeySetLocation::Url),
         (file, None) => KeySetFile::parse(required(file, KeySetFile::KEY, mode)?).map(KeySetLocation::File),
     };
-    parsed.map_err(|cause| SettingsError::InboundValue { cause })
+    let max_stale = written
+        .key_set_max_stale_seconds
+        .map_or(Ok(KeySetMaxStale::default_ceiling()), KeySetMaxStale::parse)
+        .map_err(value)?;
+    let mut location = parsed.map_err(value)?;
+    location.set_max_stale(max_stale);
+    Ok(location)
 }
 
 /// Refuses a key written under a mode that does not read it, naming the mode that does.

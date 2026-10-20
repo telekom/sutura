@@ -3503,6 +3503,12 @@ Why an exchange produced no usable token.
 because an identity provider may echo its input there; the RFC 6749 `error` code survives only when it is the
 registered shape (`[a-z_]`, at most 64 bytes), which no JWT can be.
 
+### `use LinkedLogin`
+
+The port: the token the identity provider stored for the caller's linked external account.
+
+Synchronous for the reason `DelegationExchange` is.
+
 ### `use RequestedAudience`
 
 The audience the exchanged token must carry: the pool provider's client ID.

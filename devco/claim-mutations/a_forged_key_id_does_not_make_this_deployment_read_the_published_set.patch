@@ -1,16 +1,16 @@
 diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
 --- a/crates/sutura-http/src/inbound/keys.rs
 +++ b/crates/sutura-http/src/inbound/keys.rs
-@@ -675,7 +675,7 @@
+@@ -691,7 +691,7 @@
              // Re-read after the refresh: the key may have been REVOKED by it.
              return self.after_look(id, now).await;
          }
--        if since < self.refetch_interval {
-+        if since < self.refetch_interval && false {
+-        if since < self.refetch_interval && confirmed {
++        if since < self.refetch_interval && confirmed && false {
              let limited = KeyUnavailable::RefetchRateLimited {
                  ago_ms: since.as_millis(),
              };
-@@ -721,7 +721,7 @@
+@@ -744,7 +744,7 @@
      async fn reserve(&self, now: Instant) -> Option<InFlight<'_>> {
          let window = self.refetch_interval.min(self.max_age);
          let mut cached = self.state.write().await;

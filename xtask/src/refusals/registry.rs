@@ -71,9 +71,12 @@ const STARTUP: Subject = Subject {
     // that verifies no `direct` caller. 19: `AgentSurfaceWithoutInboundIdentity` and
     // `AgentSurfaceOverAnImpersonatingSource` (#1293), where `/mcp` may not run without leg 1. 21:
     // `QuerySurfaceWithoutInboundIdentity` and `QuerySurfaceOverAnImpersonatingSource` (#1400), where
-    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a `google_login` or
-    // `domain_delegation` block this build parses and does not run.
-    variants: variants(22),
+    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a
+    // `domain_delegation` block this build parses and does not run. 24:
+    // `InboundTokenAtPoolUnacknowledged` and `InboundTokenAtPoolWithoutEffect`, a `direct`
+    // workload-identity source with no delegation hop and its acknowledgement. 25:
+    // `DelegationToTheDeploymentsOwnAudience`, a last hop asking for the deployment's own audience.
+    variants: variants(25),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

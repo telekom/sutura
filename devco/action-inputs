@@ -106,7 +106,7 @@ actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
   github-server-url
   allow-unsafe-pr-checkout
 
-actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
   client-id
   app-id
   private-key
@@ -120,6 +120,7 @@ actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
   permission-artifact-metadata
   permission-attestations
   permission-checks
+  permission-code-quality
   permission-codespaces
   permission-contents
   permission-custom-properties-for-organizations
@@ -139,11 +140,13 @@ actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
   permission-metadata
   permission-organization-administration
   permission-organization-announcement-banners
+  permission-organization-copilot-agent-settings
   permission-organization-copilot-seat-management
   permission-organization-custom-org-roles
   permission-organization-custom-properties
   permission-organization-custom-roles
   permission-organization-events
+  permission-organization-external-properties-for-repos
   permission-organization-hooks
   permission-organization-packages
   permission-organization-personal-access-token-requests
@@ -166,7 +169,6 @@ actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
   permission-single-file
   permission-starring
   permission-statuses
-  permission-team-discussions
   permission-vulnerability-alerts
   permission-workflows
 
@@ -206,7 +208,7 @@ cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866
   cachixBin
   installCommand
 
-cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702
   extra_nix_config
   github_access_token
   install_url

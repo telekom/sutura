@@ -124,7 +124,7 @@ jobs:
         with:
           minimum-gb: "25"
 
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately absent,
           # for the reason `security-audit.yml` gives: with it, a pull request could add a
@@ -186,7 +186,7 @@ jobs:
         with:
           minimum-gb: "25"
 
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
         with:
           # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
           # than only in `ci.yml`: a store this repository fills and never reads is spend with no

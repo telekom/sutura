@@ -60,7 +60,9 @@ The gateway rotates its signing keys. The key set that sutura reads must follow 
 - Do not add a key that is not a signing key of the gateway.
 
 sutura reads `key_set_file` again 60 seconds after its last read, and when an assertion names an unknown `kid`, at most
-once every 30 seconds. It keeps the last key set that loaded when the new file does not load.
+once every 30 seconds. It keeps the last key set that loaded when the new file does not load, for at most
+`key_set_max_stale_seconds` (3600 by default) after the last read of a usable key set. After that, every assertion gets
+`503 identity_unavailable` until a read of the file gives a usable key set.
 
 The key set can also be one PEM public key or certificate, such as the `tls.crt` that cert-manager writes. The key id
 is the RFC 7638 SHA-256 thumbprint of the key, so the gateway puts that thumbprint in the `kid` of each assertion it

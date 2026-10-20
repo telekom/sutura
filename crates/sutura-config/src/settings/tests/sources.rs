@@ -414,6 +414,62 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     );
 }
 
+/// One impersonating `bigquery` source, `warehouse`, declaring the caller-identity `block`.
+fn impersonating_bigquery(block: &str) -> String {
+    format!(
+        "sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+         dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
+    )
+}
+
+const LOGIN_BLOCK: &str = "    google_login:\n      token_endpoint: \"https://idp.example.com/realms/example/broker/google/token\"\n      \
+                           client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
+
+#[test]
+fn a_google_login_source_is_refused_without_a_direct_caller() {
+    // The broker request sends the caller's own inbound token, which only `direct` verifies.
+    let refused = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        impersonating_bigquery(LOGIN_BLOCK)
+    ));
+    let error = Settings::load(&refused).expect_err("a google_login source on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a boot refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            key: "google_login",
+        }]
+    );
+}
+
+#[test]
+fn a_google_login_source_boots_on_a_direct_deployment() {
+    let direct = |block: &str| {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+            impersonating_bigquery(block)
+        ))
+    };
+    let settings = Settings::load(&direct(LOGIN_BLOCK)).expect("a google_login source is served");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+    let delegation =
+        "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
+    let error = Settings::load(&direct(delegation)).expect_err("domain_delegation is not built");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a boot refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::CallerIdentityModeNotBuilt {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            block: "domain_delegation",
+        }]
+    );
+}
+
 #[test]
 fn a_delegation_written_as_one_mapping_is_refused_at_load() {
     // `delegation` is a list of hops, and a single mapping is not read as a one-hop list.
@@ -598,4 +654,137 @@ fn a_cube_source_with_its_endpoint_and_token_file_loads() {
     );
     let settings = Settings::load(&sources).expect("a complete cube source loads");
     assert!(!settings.sources().is_empty());
+}
+
+/// A single-user `direct` deployment over [`source_overlay`]'s impersonating source, with `extra`
+/// under it.
+fn direct_workload_source(extra: &str) -> Sources {
+    Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        source_overlay("impersonation-at-source", extra)
+    ))
+}
+
+const ACCEPTED: &str = "    inbound_token_at_pool: \"accepted\"\n";
+
+#[test]
+fn a_direct_workload_identity_source_without_a_hop_is_refused_naming_every_fix() {
+    let error = Settings::load(&direct_workload_source("")).expect_err("a hopless direct source does not boot");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a boot refusal, got {error:?}");
+    };
+    let rendered: Vec<String> = refusals.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        rendered,
+        vec![String::from(
+            "`sources.local.workload_identity` declares no `delegation` hop and security.inbound.mode is \
+             `direct`, so the caller's inbound token would reach the pool as it is. Fix it one of these \
+             ways: (1) declare `sources.local.workload_identity.delegation`, so the pool receives a token \
+             for its own audience (recommended); (2) write `sources.local.inbound_token_at_pool: accepted`, \
+             accepting a pool provider that accepts this deployment's audience"
+        )]
+    );
+}
+
+#[test]
+fn a_direct_workload_identity_source_without_a_hop_boots_once_acknowledged() {
+    let settings = Settings::load(&direct_workload_source(ACCEPTED)).expect("the acknowledged hopless source boots");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+}
+
+#[test]
+fn an_inbound_token_at_pool_value_other_than_accepted_is_refused_naming_the_key() {
+    for written in ["yes", "Accepted", "accepted ", "true"] {
+        let error = Settings::load(&direct_workload_source(&format!(
+            "    inbound_token_at_pool: \"{written}\"\n"
+        )))
+        .expect_err("only the exact word acknowledges");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("{written:?} must be a source parse refusal, got {error:?}");
+        };
+        assert_eq!(
+            cause.to_string(),
+            "`sources.local.inbound_token_at_pool` is not usable: the only value is `accepted`",
+            "{written:?}"
+        );
+    }
+}
+
+#[test]
+fn an_inbound_token_at_pool_acknowledgement_of_nothing_is_refused() {
+    let refused = |sources: &Sources| {
+        let error = Settings::load(sources).expect_err("an acknowledgement of nothing does not boot");
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+            panic!("expected a boot refusal, got {error:?}");
+        };
+        refusals.iter().map(ToString::to_string).collect::<Vec<_>>()
+    };
+    let without_effect = String::from(
+        "`sources.local.inbound_token_at_pool` is written, and this source does not hand the pool its \
+         caller's inbound token - it declares a delegation hop, it is not a `workload_identity` source, \
+         or security.inbound.mode is not `direct`. Remove the key",
+    );
+    let hop = direct_workload_source(&format!("{DELEGATION}{ACCEPTED}"));
+    assert_eq!(refused(&hop), vec![without_effect.clone()], "a declared hop");
+    let gateway = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{GATEWAY_INBOUND}{}",
+        source_overlay("impersonation-at-source", ACCEPTED)
+    ));
+    assert_eq!(refused(&gateway), vec![without_effect.clone()], "a behind-gateway deployment");
+    let shared = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        source_overlay(
+            "shared-service-user",
+            &format!("    acknowledged_because: \"a test\"\n{ACCEPTED}")
+        )
+    ));
+    assert_eq!(refused(&shared), vec![without_effect], "a source with no workload_identity");
+}
+
+#[test]
+fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_refused() {
+    let hop_to = |audience: &str| DELEGATION.replace("\"pool-client-id\"", &format!("\"{audience}\""));
+    let two_hops =
+        |first: &str, last: &str| format!("{}{}", hop_to(first), hop_to(last).trim_start_matches("      delegation:\n"));
+    let refused = |inbound: &str, hops: &str| {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{inbound}{}",
+            source_overlay("impersonation-at-source", hops)
+        ));
+        let error = Settings::load(&sources).expect_err("a hop to this deployment does not boot");
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+            panic!("expected a boot refusal, got {error:?}");
+        };
+        refusals.iter().map(ToString::to_string).collect::<Vec<_>>()
+    };
+    let own = vec![String::from(
+        "`sources.local.workload_identity.delegation`'s last hop asks for this deployment's own \
+         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
+         receive a token minted for this deployment. Ask the last hop for the pool's own audience",
+    )];
+    assert_eq!(
+        refused(DIRECT_INBOUND, &hop_to("https://sutura.example.com")),
+        own,
+        "the resource"
+    );
+    let minted_as = format!("{DIRECT_INBOUND}    audience: \"sutura-api\"\n");
+    assert_eq!(refused(&minted_as, &hop_to("sutura-api")), own, "the token audience");
+    assert_eq!(
+        refused(&minted_as, &hop_to("https://sutura.example.com")),
+        own,
+        "the resource, beside its own token audience"
+    );
+    assert_eq!(
+        refused(DIRECT_INBOUND, &two_hops("pool-client-id", "https://sutura.example.com")),
+        own,
+        "the last of two hops"
+    );
+    let settings = Settings::load(&direct_workload_source(DELEGATION)).expect("a hop to the pool's audience boots");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+    let earlier = Settings::load(&direct_workload_source(&two_hops(
+        "https://sutura.example.com",
+        "pool-client-id",
+    )))
+    .expect("a chain whose last hop asks for the pool's audience boots");
+    assert!(earlier.refusals().is_empty(), "{:?}", earlier.refusals());
 }

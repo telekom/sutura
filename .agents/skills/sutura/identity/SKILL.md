@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery every verified caller's own assertion is federated to the declared pool, and the federated token IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. Both adapter cells passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery every verified caller's own assertion is federated to the declared pool, and the federated token IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool` and `the_deployments_own_identity_is_neither_subjects_principal` passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`, measured before the delegation-hop fake was added (the changed cells have no recorded run); service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -123,17 +123,15 @@ directions. The non-obvious parts:
   key's `kid` is one the cache holds, so nothing fires. That is why both triggers exist, and why the
   age re-read is armed from the lookup path as well as from a timer - forgetting the timer must not
   leave a serving deployment stale.
-- **That age bound EXCLUDES a failing refresh, and the exclusion is not small.** A read that fails
-  and a document the cache refuses both keep the previous keys verifying, while the reservation
-  stamps the *attempt* - so while refresh is unavailable the bound bounds nothing, and the cached
-  signing keys are retained for as long as it stays that way. It bypasses neither the signature nor
-  the token's own expiry; what it permits is continued trust in keys an earlier refresh established.
-  `KeySetCache::stale_for` is the measurement - last **success**, never last attempt - and there is
-  no ceiling on it: refusing is an availability-breaking policy, and no record has decided a
-  deployment should degrade that way (the issue that was to decide it closed without doing so). The
-  bound, stated whole: **a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while
-  refresh works, and after no bounded time while it does not.** **Do not cite the age bound without
-  the exclusion.**
+- **That age bound EXCLUDES a failing refresh; a declared ceiling bounds that instead.** A read that
+  fails and a document the cache refuses both keep the previous keys verifying, while the reservation
+  stamps the *attempt* - so the age bound bounds nothing then. `key_set_max_stale_seconds` (3600 s
+  default, 300 to 86400, no off switch) is compared against the last **success**, never the last
+  attempt: past it no key verifies and every caller gets `503 identity_unavailable` - the
+  availability cost `docs/adr/0014`'s twelfth amendment accepts. The bound, stated whole: **a
+  removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while refresh works, and within
+  the ceiling while it does not.** It measures the last usable read, not whether the source is
+  current, and is per process. **Do not cite the age bound without the exclusion.**
 - **One write-lock acquisition compares and stamps the window**, so a forged `kid` cannot turn every
   request into an outbound call at any concurrency, and the bound is measured from the last
   *attempt* so a dead source is limited too. **The wording was right and the code was wrong against
@@ -193,7 +191,12 @@ settings surface reads as a cache that is merely off.
 result - each request exchanges again, so two subjects have no store to collide in. A cache added
 later inherits the `PrincipalChain` key rule below. The `sutura_http_client::delegation` implementor decodes the issued JWT's
 `aud`/`exp` without verifying its signature - a misconfiguration check, not a defence against the
-IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
+IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`,
+except Keycloak's not-linked answer (`DelegationFailed::NotLinked`, matched on one fixed English
+description, so a changed message degrades to `503`), which is `403 identity_not_linked`. A
+`google_login` source is one `Delegation::linked` hop over `LinkedLogin`
+(`sutura_http_client::delegation::BrokeredLogin`): an opaque token, expiry from
+`accessTokenExpiration`, no refresh token kept, sent as `bigquery.auth.access_token`.
 `sutura serve` builds it from a `bigquery` source's ordered `workload_identity.delegation` hops or
 an Oracle source's ordered `delegation` hops (each `token_endpoint`, `client_id`,
 `client_secret_file`, `audience`, `grant`), each parsed at boot by the adapter's own type, and
@@ -205,9 +208,12 @@ binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d c
 `e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`), which skips the merge queue, forks and
 Dependabot. They read what the IdP was offered, what the surface answered and which Google token
 host the driver dialled through a refusing proxy - never the token it carried, so a source handed
-the caller's own token instead of the exchanged one is held in-process only. And nothing requires a
-`direct` BigQuery source to declare one: without it the inbound token is presented. Oracle
-requires its delegation declaration.
+the caller's own token instead of the exchanged one is held in-process only. A `direct`
+`workload_identity` source without one does not boot unless it writes
+`inbound_token_at_pool: accepted` (`NotFitToServe::InboundTokenAtPoolUnacknowledged`,
+`docs/adr/0014`'s thirteenth amendment); with that, the inbound token is presented and each boot
+logs one `WARN`. The check reads configuration, never which audiences the pool's provider accepts.
+Oracle requires its delegation declaration.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
@@ -256,9 +262,14 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   deleted with the HTTP transport (`docs/adr/0018`, fifth and eighth amendments) - so it is a run of
   code this tree does not contain and may not be cited for anything the tree does now.
 
-**What leg 2 rests on:** both cells in
-`crates/sutura-exec-bigquery/tests/declared_principal.rs` passed in the observed
-2026-10-11 run `github.com/telekom/sutura/actions/runs/38116387739`, at `321e65661`.
+**What leg 2 rests on:** two cells in
+`crates/sutura-exec-bigquery/tests/declared_principal.rs`,
+`each_subject_executes_as_its_own_principal_at_the_declared_pool` and
+`the_deployments_own_identity_is_neither_subjects_principal`, passed in the observed 2026-10-11 run
+`github.com/telekom/sutura/actions/runs/38116387739`, at `321e65661`. That run measured them before
+the first was rewritten to go through the delegation-hop fake and before
+`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` was added; neither change has a
+recorded run.
 `docs/where-identity-is-proven.md` records the adapter venue as `yes` and its limits: fixture
 assertions minted from service-account keys, no served human caller, and no row read by the
 standing cells. Its supplementary Google API probe observed disjoint row filters and a refusal

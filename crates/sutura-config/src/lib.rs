@@ -134,8 +134,8 @@ pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::governance::SpendBudget;
 pub use crate::inbound::{
     ClientId, ExtraScopeClaims, GrantedScopes, InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily,
-    KeySetFile, KeySetLocation, KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier,
-    SigningAlgorithm, TokenAudience, TokenLocation, TokenRequirement, TokenType, TransitProof,
+    KeySetFile, KeySetLocation, KeySetMaxStale, KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType,
+    ResourceIdentifier, SigningAlgorithm, TokenAudience, TokenLocation, TokenRequirement, TokenType, TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 pub use crate::prompt::{
