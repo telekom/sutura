@@ -176,7 +176,7 @@ impl ClickHouseWarehouse<Http> {
     ///
     /// The rows go into a staging table of this load's own, which then replaces `table` in one
     /// `CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
-    /// ones, never an empty table, and a refused load leaves `table` as it was.
+    /// ones, never an empty table, and a load refused before the swap leaves `table` as it was.
     pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
         self.load_csv_with_types(table, path, Columns::Matrix)
     }
@@ -217,8 +217,10 @@ impl ClickHouseWarehouse<Http> {
         self.transport.command(&create, &[]).map_err(server)?;
         let insert = format!("INSERT INTO \"{staging}\" FORMAT CSVWithNames");
         // Several cells load one table into the tier's shared `default` database at once (#1499).
-        // The swap is atomic on an `Atomic` database, the server's default engine; nothing here
-        // checks the engine.
+        // One statement, so a reader never sees it half done: the server runs it atomically on an
+        // `Atomic` database and refuses it on any other, so a load there fails rather than runs
+        // non-atomically. Nothing but review holds that this stays ONE statement: a CREATE followed
+        // by an `INSERT ... SELECT` keeps `reload.rs` green and brings the empty window back.
         let replace = format!(
             "CREATE OR REPLACE TABLE \"{}\" ENGINE = MergeTree ORDER BY tuple() AS SELECT * FROM \"{staging}\"",
             table.as_str()

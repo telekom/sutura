@@ -162,7 +162,7 @@ SERVER parses against those types.
 
 The rows go into a staging table of this load's own, which then replaces `table` in one
 `CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
-ones, never an empty table, and a refused load leaves `table` as it was.
+ones, never an empty table, and a load refused before the swap leaves `table` as it was.
 
 ```rust
 pub fn load_federated_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
