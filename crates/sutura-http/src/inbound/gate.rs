@@ -28,7 +28,8 @@
 //! that mode offers no Bearer challenge - wherever the assertion arrives.
 //!
 //! An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
-//! challenge: the token may be fine, and the outage is this deployment's. So is a new assertion while
+//! challenge: the token may be fine, and the outage is this deployment's. So is any token once no look
+//! has confirmed the key set for the declared `key_set_max_stale_seconds`, and a new assertion while
 //! the store of seen assertions is full, where single use is declared.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
@@ -169,7 +170,8 @@ impl InboundGate {
                     requirement
                         .max_lifetime()
                         .map(|ceiling| Duration::from_secs(ceiling.seconds()).saturating_add(TokenValidator::leeway())),
-                ),
+                )
+                .with_max_stale(Duration::from_secs(requirement.key_set().max_stale().seconds())),
             ),
             header,
             bearer_prefixed,
@@ -364,7 +366,7 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
     if matches!(
         rejected,
         TokenRejected::NoKey {
-            cause: KeyUnavailable::SourceUnavailable { .. }
+            cause: KeyUnavailable::SourceUnavailable { .. } | KeyUnavailable::Unconfirmed { .. }
         }
     ) {
         return Failure::IdentityUnavailable.into_response();

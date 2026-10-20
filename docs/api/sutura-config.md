@@ -419,6 +419,15 @@ Where the signing keys are read from.
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
 
+## `use KeySetMaxStale`
+
+How long after a look last came back with a usable document the held keys keep verifying.
+
+Past it no held key verifies - known or unknown `kid`, an unreadable source or a refused
+document alike - until a look succeeds. That bounds how long a revoked key verifies while
+refresh fails, at the cost of answering every caller `503` past it. No off switch: a switch for a
+security bound only ever gets set wrong, and `Self::MAX_SECONDS` is the loosest value there is.
+
 ## `use KeySetUrl`
 
 The `https` URL a `KeySetLocation::Url` key set is fetched from.
@@ -3322,6 +3331,15 @@ Where the signing keys are read from.
 second optional field a reader can forget. The gate picks its key source out of this value, and
 the cache it feeds is the same whatever the source is.
 
+### `use KeySetMaxStale`
+
+How long after a look last came back with a usable document the held keys keep verifying.
+
+Past it no held key verifies - known or unknown `kid`, an unreadable source or a refused
+document alike - until a look succeeds. That bounds how long a revoked key verifies while
+refresh fails, at the cost of answering every caller `503` past it. No off switch: a switch for a
+security bound only ever gets set wrong, and `Self::MAX_SECONDS` is the loosest value there is.
+
 ### `use KeySetUrl`
 
 The `https` URL a `KeySetLocation::Url` key set is fetched from.
@@ -5772,6 +5790,13 @@ How this source establishes identity, once the deployment-level refusal has pass
 `None` only for a shared source nobody acknowledged - see the type's own note.
 
 ```rust
+pub const fn inbound_token_at_pool(&self) -> Option<InboundTokenAtPool>
+```
+
+Whether this source acknowledged presenting its caller's inbound token to the pool with no
+delegation hop - see `InboundTokenAtPool`.
+
+```rust
 pub const fn kind(&self) -> SourceKind
 ```
 
@@ -5919,6 +5944,7 @@ convenience, and nothing needs to clone a startup refusal.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
   declaration that does nothing is a configuration nobody can see.
+- `InboundTokenAtPool` - A written `inbound_token_at_pool` is not the one acknowledgement it accepts.
 - `WorkloadIdentity` - The declared workload-identity value is not usable.
 - `Transport` - The declared transport of a source was not usable.
 
@@ -6005,8 +6031,9 @@ Which one of three blocks says how an `impersonation-at-source` source runs its 
   verified address. The deployment vouches for the caller here, not the caller's own credential.
 
 Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-This build runs `workload_identity` only: `Settings::refusals` refuses to serve a source that
-declares either other block, so a block that nothing reads does not load as if it did.
+This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
+source that declares `domain_delegation`, so a block that nothing reads does not load as if it
+did.
 the architecture decision records the decision.
 
 #### `enum CallerIdentity`
@@ -6020,7 +6047,7 @@ How an `impersonation-at-source` source runs its caller - the one block it decla
 ##### Variants
 
 - `WorkloadIdentity` - The caller's own pool principal.
-- `GoogleLogin` - The caller's own Google login, brokered by the identity provider. Not served by this build.
+- `GoogleLogin` - The caller's own Google login, brokered by the identity provider.
 - `DomainDelegation` - A delegating service account acting as the caller's verified address. Not served by this build.
 
 ##### Implements
@@ -7094,6 +7121,56 @@ Which request a `DelegationDeclared` exchange sends its endpoint.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+#### `enum InboundTokenAtPool`
+
+```rust
+pub enum InboundTokenAtPool
+```
+
+The per-source acknowledgement `sources.<alias>.inbound_token_at_pool: accepted`.
+
+**What it accepts.** With no `workload_identity.delegation` hop, a `direct` deployment hands the
+pool its caller's inbound token as it is, so the pool's provider must accept this deployment's own
+audience. A declared hop hands the pool a token minted for the pool's audience only, which is the
+default `Settings::load` requires: the hopless shape is refused at boot
+(`crate::NotFitToServe::InboundTokenAtPoolUnacknowledged`) unless this is written, and every
+boot that serves it logs one warning naming the source.
+
+One value and no boolean, so the key reads as what it accepts and `false` cannot be written.
+
+##### Variants
+
+- `Accepted` - The pool's provider accepts this deployment's own audience, and the operator accepts that.
+
+##### Methods
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, UnknownAcknowledgement>
+```
+
+The exact word `accepted`; anything else is refused, not read as absent.
+
+# Errors
+
+`UnknownAcknowledgement` for any other value.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct UnknownAcknowledgement`
+
+```rust
+pub struct UnknownAcknowledgement
+```
+
+An `InboundTokenAtPool` value other than `accepted`. The value is not carried: it is
+operator-written text, and the one accepted word is the whole remedy.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### `struct HopKey`
 

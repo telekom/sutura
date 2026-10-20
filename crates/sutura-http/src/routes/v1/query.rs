@@ -392,6 +392,10 @@ pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
             tracing::error!(error = %cause, chain = ?chain, "the credential broker did not answer");
             Failure::IdentityUnavailable
         }
+        SurfaceFailure::NotLinked { ref cause } => {
+            tracing::warn!(error = %cause, chain = ?chain, "the caller has no linked account at the identity provider");
+            Failure::IdentityNotLinked
+        }
         // Our own wiring, so it carries nothing outward. An operator finds it in this line.
         SurfaceFailure::Miswired { ref cause } => {
             tracing::error!(error = %cause, chain = ?chain, "the credentials that came back do not fit this request");
@@ -740,5 +744,40 @@ mod tests {
         let mut filters = vec![serde_json::json!({"op": "eq", "dimension": "region", "value": "north"}); 17];
         filters[0]["dimension"] = serde_json::json!("bad name");
         count_is_refused_before_parsing(count_body(), "filters", serde_json::json!(filters), "too_many_filters").await;
+    }
+
+    /// A broker whose one delegation hop finds no account linked for the caller, the error chain
+    /// the declared broker builds.
+    struct LinksNoAccount;
+
+    impl sutura_domain::identity::CredentialBroker for LinksNoAccount {
+        type Error = sutura_config::DeclaredPrincipalsUnusable;
+
+        fn mint(
+            &self,
+            _context: &sutura_domain::identity::RequestContext,
+            _sources: &sutura_domain::identity::SourceSet,
+        ) -> Result<sutura_domain::identity::Minted, Self::Error> {
+            Err(sutura_config::DeclaredPrincipalsUnusable::Delegation {
+                source: crate::testing::source(),
+                cause: sutura_domain::identity::DelegationFailed::AtHop {
+                    hop: 1,
+                    cause: Box::new(sutura_domain::identity::DelegationFailed::NotLinked),
+                },
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_caller_with_no_linked_account_is_a_403_identity_not_linked_on_v1() {
+        let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the test settings load");
+        let app = crate::testing::serving(bundle(), crate::testing::fake_warehouse(), LinksNoAccount, settings, None);
+        let (status, body) = crate::testing::call(
+            &app,
+            crate::testing::request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains(r#""code":"identity_not_linked""#), "{body}");
     }
 }

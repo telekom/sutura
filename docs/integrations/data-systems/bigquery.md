@@ -32,7 +32,8 @@ and these keys:
 | `max_bytes_billed` | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                          |
 
 `impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
-`domain_delegation`. sutura runs only `workload_identity`, with these keys:
+`domain_delegation`. sutura runs `workload_identity` and `google_login`. `workload_identity` has
+these keys:
 
 | Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -46,19 +47,46 @@ and these keys:
 
 With `delegation`, the first hop exchanges the caller's token at its identity provider, and each
 next hop exchanges the token from the hop before it. The token from the last hop is the one that
-the pool accepts. `delegation` needs `security.inbound.mode: direct`. Without `delegation`, sutura
-sends the caller's verified token to the pool as it is. Do not write `expected_issuer` or
-`expected_audience`: sutura refuses to start with them.
+the pool accepts. `delegation` needs `security.inbound.mode: direct`. Do not write
+`expected_issuer` or `expected_audience`: sutura refuses to start with them.
 
-sutura reads and checks the `google_login` and `domain_delegation` blocks, and then refuses to
-start with either of them:
+With `security.inbound.mode: direct`, declare `delegation`. Then the pool gets a token for its own
+audience. Configure the pool provider to accept only that audience. If you do not declare
+`delegation`, sutura does not start. The message names two fixes:
 
-| Key                                    | Type          | Meaning                                                            |
-| -------------------------------------- | ------------- | ------------------------------------------------------------------ |
-| `google_login.token_endpoint`          | URL           | The broker token endpoint of the identity provider. No `@`         |
-| `google_login.client_id`               | string        | The client ID that sutura uses at the identity provider            |
-| `google_login.client_secret_file`      | absolute path | A file that holds the client secret                                |
-| `domain_delegation.delegating_account` | string        | The service account: `<account>@<project>.iam.gserviceaccount.com` |
+1. Declare `delegation`. This is the recommended fix.
+2. Write `inbound_token_at_pool: accepted` on the source, next to `workload_identity`. Then sutura
+   sends the caller's verified token to the pool as it is, so the pool provider must accept the
+   audience of sutura itself. `accepted` is the only value. sutura logs one `WARN` line for the
+   source at each start.
+
+sutura refuses to start when `inbound_token_at_pool` is written on a source that declares
+`delegation`, on a source without `workload_identity`, or on a deployment that is not `direct`. It
+also refuses to start when the last `delegation` hop asks for the audience of sutura itself
+(`security.inbound.resource` or `security.inbound.audience`). This check compares the configured
+text only.
+
+With `google_login`, the query runs as the Google account that the caller linked at the identity
+provider. sutura sends the caller's verified token to the identity provider's broker token
+endpoint (Keycloak's Identity Brokering API v2) and gives BigQuery the Google access token that
+comes back. `google_login` needs `security.inbound.mode: direct`. A caller who has not linked a
+Google account gets `403 identity_not_linked`. These are its keys:
+
+| Key                               | Type          | Meaning                                                                         |
+| --------------------------------- | ------------- | ------------------------------------------------------------------------------- |
+| `google_login.token_endpoint`     | URL           | The broker token endpoint: `https://<host>/realms/<realm>/broker/<alias>/token` |
+| `google_login.client_id`          | string        | The client ID that sutura uses at the identity provider                         |
+| `google_login.client_secret_file` | absolute path | A file that holds the client secret. sutura reads it at startup                 |
+
+The identity provider keeps the Google token and refreshes it. Its Google provider must store the
+token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
+it is and does not refresh it during a query.
+
+sutura reads and checks the `domain_delegation` block, and then refuses to start with it:
+
+| Key                                    | Type   | Meaning                                                            |
+| -------------------------------------- | ------ | ------------------------------------------------------------------ |
+| `domain_delegation.delegating_account` | string | The service account: `<account>@<project>.iam.gserviceaccount.com` |
 
 The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
 build can select the feature:
