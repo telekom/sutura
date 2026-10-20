@@ -1704,11 +1704,11 @@ pub fn required_filters(&self) -> &[RequiredFilter]
 The predicates every question about this metric carries, whether the caller asked or not.
 
 ```rust
-pub const fn shared_calendar(&self) -> Option<&ModelName>
+pub const fn shared_calendars(&self) -> Option<&SharedCalendars>
 ```
 
-The conformed calendar model both fact models of a cross-model ratio reach through a
-`via`, or `None` for a one-model metric that buckets through its own `time_column`.
+The conformed calendar models a cross-model ratio buckets its fact legs through, or `None` for
+a one-model metric that buckets through its own `time_column`.
 
 ```rust
 pub fn supports_grain(&self, grain: Grain) -> bool
@@ -1722,16 +1722,25 @@ pub const fn time_column(&self) -> &ColumnName
 pub fn with_shared_calendar(self, calendar: ModelName) -> Self
 ```
 
-Declares the conformed calendar model both fact models of a cross-model ratio reach
-through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
-so every existing caller of `Metric::new` compiles unchanged - a one-model metric has
-no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+Declares the one calendar model a metric whose facts all sit on a single source buckets
+through: `Self::with_shared_calendars` over a one-model list.
 
-The name is checked at load by `Definitions::assemble`
-(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist,
-and both the metric's own model and every cross-model ratio term's model must reach it
-through a declared relationship. The builder does not check, because the relationships
-are cross-references only the assembled `Definitions` can see.
+```rust
+pub fn with_shared_calendars(self, calendars: SharedCalendars) -> Self
+```
+
+Declares the conformed calendar models a cross-model ratio buckets its fact legs through, one
+per data system a fact model lives on (`telekom/sutura#780`). A builder rather than a
+constructor argument, so every existing caller of `Metric::new` compiles unchanged - a
+one-model metric has no shared calendar, and its on-disk shape and digest do not move.
+
+The list is checked at load by `Definitions::assemble`
+(`InconsistentDefinitions::SharedCalendarNotReachable`,
+`InconsistentDefinitions::SharedCalendarsShareASource`,
+`InconsistentDefinitions::NoSharedCalendarOnSource`,
+`InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType`). The builder does not check,
+because the sources and relationships are cross-references only the assembled
+`Definitions` can see.
 
 #### Implements
 
@@ -1989,6 +1998,21 @@ one note body is. Choosing the two together is the whole point of bounding eithe
 Counted in characters rather than bytes, for the reason
 `crate::knowledge`'s phrase limit gives: a value may be German or Greek text, and a limit in
 bytes would make one value legal in one language and not in another.
+
+### `use InvalidSharedCalendars`
+
+Why a list of shared calendars could not be built.
+
+### `use SharedCalendars`
+
+The calendar models a cross-model ratio buckets its fact legs through: one per data system a
+fact lives on (the architecture decision's sixth amendment).
+
+**Non-empty and repeat-free by construction.** That a listed model exists, sits on a source no
+other listed model sits on, and is reached from each fact model are cross-references, so
+`Definitions::assemble` checks them - the type holds only what it
+can see. Kept as a set, so the order an author lists them in does not move the definition digest.
+There is no `Deserialize`: an adapter owns how a document spells the list and converts.
 
 ### `use Definitions`
 
@@ -10607,12 +10631,13 @@ somebody else's input.
   executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
   catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
   part of the metric's definition, not of the question.
-- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model or shared calendar sits on another data system than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model sits on another data system than the metric's own (`telekom/sutura#780`); `model` names it.
 
   Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-  so both facts and the calendar share the metric's. Not narrowable by the caller: where a
-  model lives is the catalog's, not the question's. A calendar declared once per source is
-  the shape that would lift this, and it is not built.
+  so both facts share the metric's. Each source lists its own calendar (the architecture decision's sixth
+  amendment), so the calendar never decides this. Not narrowable by the caller: where a model
+  lives is the catalog's, not the question's. A second fact leg joining the calendar of its
+  own source is the shape that would lift this, and it is not built.
 - `CrossModelRatioWithoutSharedDimension` - A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
 
   The two facts are aggregated in two statements and joined above on ONE link into a remote

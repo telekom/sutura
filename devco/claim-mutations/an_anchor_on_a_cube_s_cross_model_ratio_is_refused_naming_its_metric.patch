@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-catalog-local/src/document/cube.rs b/crates/sutura-catalog-local/src/document/cube.rs
+index 2b9423b14..e161335dd 100644
+--- a/crates/sutura-catalog-local/src/document/cube.rs
++++ b/crates/sutura-catalog-local/src/document/cube.rs
+@@ -67,7 +67,7 @@ struct MeasureDoc {
+     description: Option<Description>,
+     /// [`MetricDoc`]'s `shared_calendar`, per measure: a cross-model ratio's conformed calendar.
+     #[serde(default)]
+-    shared_calendar: Option<Vec<ModelName>>,
++    shared_calendar: Option<ModelName>,
+ }
+ 
+ /// Why a cube document cannot become metrics.
+@@ -129,7 +129,7 @@ impl CubeDoc {
+                 dimensions: self.dimensions.clone(),
+                 anchor: measure.anchor,
+                 audience: measure.audience,
+-                shared_calendar: measure.shared_calendar,
++                shared_calendar: measure.shared_calendar.map(|calendar| vec![calendar]),
+             };
+             metrics.push(doc.into_domain(description).map_err(InvalidCubeDocument::Metric)?);
+         }

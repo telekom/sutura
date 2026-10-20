@@ -619,14 +619,6 @@ fn a_cross_model_ratio_no_two_statements_can_answer_is_refused_by_name() {
             &["region"][..],
             "visits",
         ),
-        (
-            Placed {
-                calendar_on: "remote",
-                ..ONE_SOURCE
-            },
-            &["region"][..],
-            "calendar",
-        ),
     ] {
         let reason = refusal(ask(&two_facts(&placed), by));
         assert!(

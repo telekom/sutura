@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/calendar.rs b/crates/sutura-domain/src/catalog/calendar.rs
+index a906ff94d..5972f07f4 100644
+--- a/crates/sutura-domain/src/catalog/calendar.rs
++++ b/crates/sutura-domain/src/catalog/calendar.rs
+@@ -116,7 +116,7 @@ pub(super) fn check(
+             });
+         };
+         match (typed, column.data_type()) {
+-            (Some((first, seen)), Some(declared)) if seen != declared => {
++            (Some((first, _)), _) => {
+                 return Err(InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType {
+                     metric: metric.name.clone(),
+                     column: metric.time_column.clone(),

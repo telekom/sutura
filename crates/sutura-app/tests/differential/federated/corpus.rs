@@ -252,7 +252,7 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     (
         "metrics/tickets_per_subscription.md",
         Edit::Added(
-            "---\nkind: metric\nname: tickets_per_subscription\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: tickets, model: tickets }\n    denominator: { aggregate: count, column: subscription_key }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\nshared_calendar: calendar\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nSupport tickets opened per subscription-month.\n\nA cross-model ratio: the tickets are summed over their own fact, the subscription-months\ncounted over theirs, each in its own statement, and the two are joined above on the customer and\nthe calendar month before the one division. Both terms are additive, so a group only one fact\ncarries reads the other as zero.\n",
+            "---\nkind: metric\nname: tickets_per_subscription\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: tickets, model: tickets }\n    denominator: { aggregate: count, column: subscription_key }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\nshared_calendar: [calendar]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nSupport tickets opened per subscription-month.\n\nA cross-model ratio: the tickets are summed over their own fact, the subscription-months\ncounted over theirs, each in its own statement, and the two are joined above on the customer and\nthe calendar month before the one division. Both terms are additive, so a group only one fact\ncarries reads the other as zero.\n",
         ),
     ),
 ];
@@ -512,7 +512,7 @@ fn a_cube_measure_answers_the_two_fact_ratio_its_metric_does() {
     }
 }
 
-const TWO_FACT_CUBE: &str = "---\nkind: cube\nname: tickets\nmodel: subscriptions\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\nmeasures:\n  - name: per_subscription\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: tickets, model: tickets }\n        denominator: { aggregate: count, column: subscription_key }\n        zero_denominator: yields_null\n    shared_calendar: calendar\n    audience: open\n---\nSupport tickets opened per subscription-month, declared as a cube's measure.\n";
+const TWO_FACT_CUBE: &str = "---\nkind: cube\nname: tickets\nmodel: subscriptions\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\nmeasures:\n  - name: per_subscription\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: tickets, model: tickets }\n        denominator: { aggregate: count, column: subscription_key }\n        zero_denominator: yields_null\n    shared_calendar: [calendar]\n    audience: open\n---\nSupport tickets opened per subscription-month, declared as a cube's measure.\n";
 
 /// One data directory and two catalogs over it, derived under `stem`.
 ///

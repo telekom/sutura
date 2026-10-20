@@ -529,13 +529,14 @@ pub enum RefusalReason {
     /// catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
     /// part of the metric's definition, not of the question.
     CrossModelRatioWithoutSharedCalendar { metric: MetricName, model: ModelName },
-    /// A cross-model ratio whose second fact model or shared calendar sits on another data system
-    /// than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+    /// A cross-model ratio whose second fact model sits on another data system than the metric's
+    /// own (`telekom/sutura#780`); `model` names it.
     ///
     /// Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-    /// so both facts and the calendar share the metric's. Not narrowable by the caller: where a
-    /// model lives is the catalog's, not the question's. A calendar declared once per source is
-    /// the shape that would lift this, and it is not built.
+    /// so both facts share the metric's. Each source lists its own calendar (`docs/adr/0002`'s sixth
+    /// amendment), so the calendar never decides this. Not narrowable by the caller: where a model
+    /// lives is the catalog's, not the question's. A second fact leg joining the calendar of its
+    /// own source is the shape that would lift this, and it is not built.
     CrossModelRatioSpansSources { metric: MetricName, model: ModelName },
     /// A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
     ///

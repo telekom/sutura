@@ -8,7 +8,8 @@ use super::{
     ModelDoc, RelationshipDoc,
 };
 use sutura_domain::catalog::{
-    Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain,
+    Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidJoinKeys,
+    InvalidSharedCalendars, InvalidViaChain,
 };
 use sutura_domain::expression::InvalidComputation;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -86,14 +87,49 @@ fn a_metric_document_declaring_its_audience_loads_and_carries_it() {
 }
 
 /// `telekom/sutura#780`: `shared_calendar:` was an unknown field, so no catalog file could declare
-/// the calendar a cross-model ratio needs. It parses now and reaches the domain metric.
+/// the calendar a cross-model ratio needs. It is a list now, one calendar per data system a fact lives on.
 #[test]
-fn a_metric_document_may_declare_a_shared_calendar() {
-    let metric = metric_doc(&format!("{MINIMAL_METRIC}shared_calendar: calendar\n"))
+fn a_metric_document_may_declare_a_list_of_shared_calendars() {
+    let metric = metric_doc(&format!("{MINIMAL_METRIC}shared_calendar: [calendar, other_calendar]\n"))
         .expect("`shared_calendar` is a metric field")
         .into_domain(Description::default())
         .expect("no dimensions to duplicate");
-    assert_eq!(metric.shared_calendar().map(ModelName::as_str), Some("calendar"));
+    let listed: Vec<&str> = metric
+        .shared_calendars()
+        .into_iter()
+        .flat_map(|calendars| calendars.iter().map(ModelName::as_str))
+        .collect();
+    assert_eq!(listed, ["calendar", "other_calendar"]);
+}
+
+#[test]
+fn a_shared_calendar_list_that_is_empty_or_repeats_a_model_is_refused_naming_the_metric() {
+    for (list, cause) in [
+        ("[]", InvalidSharedCalendars::Empty),
+        (
+            "[calendar, calendar]",
+            InvalidSharedCalendars::Repeated(ModelName::parse("calendar").expect("a test model is a model")),
+        ),
+    ] {
+        let refused = metric_doc(&format!("{MINIMAL_METRIC}shared_calendar: {list}\n"))
+            .expect("a list parses as a document")
+            .into_domain(Description::default())
+            .expect_err("the list is not a usable one");
+        assert_eq!(
+            refused,
+            InvalidMetricDocument::SharedCalendars {
+                metric: MetricName::parse("revenue").expect("a test metric is a metric"),
+                cause,
+            },
+            "{list}"
+        );
+    }
+}
+
+#[test]
+fn a_bare_shared_calendar_name_is_no_longer_a_document() {
+    let refused = metric_doc(&format!("{MINIMAL_METRIC}shared_calendar: calendar\n")).expect_err("the field is a list");
+    assert!(refused.to_string().contains("shared_calendar"), "{refused}");
 }
 
 /// The `restricted:` spelling needs `singleton_map` on the field, unlike the bare-scalar
