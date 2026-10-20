@@ -123,7 +123,7 @@ pub enum BundleInconsistent {
     RelationshipAbsent { dimension: DimensionName },
     #[error("a relationship names model {model}, which the pinned bundle does not hold")]
     JoinTargetMissing { model: ModelName },
-    #[error("metric {metric}'s model {model} declares no relationship to the metric's shared calendar")]
+    #[error("metric {metric}'s model {model} has no shared calendar on its source, or declares no relationship to it")]
     SharedCalendarNotJoined { metric: MetricName, model: ModelName },
 }
 

@@ -115,8 +115,8 @@ pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 ///
 /// **`data_type` is descriptive text.** It is a quote of what the source called the column -
 /// `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
-/// branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
-/// kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+/// branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join or a pair of
+/// shared calendars across kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
 /// [`ColumnType`]'s own doc names review as what holds "never a cast", not the type system, because
 /// nothing here stops another reader of [`Self::data_type`] from treating it as one.
 ///

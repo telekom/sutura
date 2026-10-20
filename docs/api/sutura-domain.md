@@ -999,8 +999,8 @@ derived from anything else here.
 
 **`data_type` is descriptive text.** It is a quote of what the source called the column -
 `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
-branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
-kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join or a pair of
+shared calendars across kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
 `ColumnType`'s own doc names review as what holds "never a cast", not the type system, because
 nothing here stops another reader of `Self::data_type` from treating it as one.
 
@@ -1806,7 +1806,7 @@ A `super::Column`'s data type, as a source's own dictionary spells it: `"STRING"
 `"character varying"`, `"NUMERIC(38,9)"`.
 
 **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** The one branch on it is
-`LinkKind::declared`, which reads it to REFUSE a federated join across kinds and nothing else,
+`LinkKind::declared`, which reads it to REFUSE a federated join or a pair of shared calendars across kinds and nothing else,
 and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that is an
 absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
 treating it as one, and review is what holds this claim, not a type-level guarantee. Stated

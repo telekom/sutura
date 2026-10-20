@@ -79,14 +79,16 @@ impl TwoSources {
     }
 }
 
-/// Where each part of [`two_facts`]'s catalog lives, and whether the second fact links to the
-/// lookup - the three things the cross-model cells vary.
+/// Where each part of [`two_facts`]'s catalog lives, whether the second fact links to the lookup,
+/// and whether one more calendar is listed on another source - what the cross-model cells vary.
 pub(super) struct Placed {
     pub(super) visits_on: &'static str,
     pub(super) calendar_on: &'static str,
     /// The calendar model's physical table.
     pub(super) calendar_table: &'static str,
     pub(super) visits_link: bool,
+    /// The source of one more listed calendar, named to sort before `calendar`, that both facts reach.
+    pub(super) unused_calendar_on: Option<&'static str>,
 }
 
 /// The two-fact catalog, ASSEMBLED rather than hand-built, so the load check, `resolve` and `plan`
@@ -131,6 +133,27 @@ pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
             ("visits_side_calendar", "day_key"),
         ));
         calendars.push("visits_side_calendar");
+    }
+    if let Some(source) = placed.unused_calendar_on {
+        models.push(Model::new(
+            ModelName::parse("a_calendar_nothing_joins").expect("a test model is a model"),
+            SourceName::parse(source).expect("a test source is a source"),
+            TableName::parse("dim_nothing_joins").expect("a test table is a table"),
+            ["day_key", "day"].iter().map(|c| column(c)),
+            Description::default(),
+        ));
+        // Reachable, so only the source - not the missing hop - keeps a fact from joining it.
+        relationships.push(relationship(
+            "facts_other_calendar",
+            ("facts", "day_key"),
+            ("a_calendar_nothing_joins", "day_key"),
+        ));
+        relationships.push(relationship(
+            "visits_other_calendar",
+            ("visits", "day_key"),
+            ("a_calendar_nothing_joins", "day_key"),
+        ));
+        calendars.push("a_calendar_nothing_joins");
     }
     if placed.visits_link {
         relationships.push(relationship(
@@ -245,6 +268,7 @@ pub(super) const ONE_SOURCE: Placed = Placed {
     calendar_on: "local",
     calendar_table: "dim_calendar",
     visits_link: true,
+    unused_calendar_on: None,
 };
 
 pub(super) fn federated(answer: Result<Compiled, CompileFailure>) -> Box<sutura_domain::plan::FederatedPlan> {

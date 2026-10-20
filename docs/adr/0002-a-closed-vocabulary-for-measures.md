@@ -296,7 +296,8 @@ shape and no differential executed it. Both now exist, and each carries its own 
   is 0/x.
 
 **What is still not claimed.** Every leg runs under one operating-system identity. Both facts sit
-on one source, because a calendar per source is not built. The one-source catalog refuses the
+on one source, because the plan stage still refuses a second fact on another source
+(`CrossModelRatioSpansSources`). The one-source catalog refuses the
 question (`CrossModelRatioWithoutSharedDimension`), so there is no whole-answer side to compare a
 two-fact answer against, and the cell measures that refusal rather than stating it.
 
@@ -354,7 +355,7 @@ source**, and this amendment builds the declaration and its load checks only.
   (`SharedCalendarsShareASource`); a fact model, the metric's own or a cross-model term's, whose source
   lists none (`NoSharedCalendarOnSource`); a listed calendar without the metric's time column
   (`UnknownTimeColumn`); two listed calendars typing that column differently
-  (`SharedCalendarsDisagreeOnTimeType`).
+  (`SharedCalendarsDisagreeOnTimeType`: kinds as `LinkKind::declared` reads them, case-folded).
 - **What the plan does.** `resolve` takes the calendar listed on each fact model's own source. The
   second fact on another source is still refused at plan time as `CrossModelRatioSpansSources`, now
   only for the fact: the calendar can no longer be what spans. Lifting that refusal, and counting
@@ -362,9 +363,11 @@ source**, and this amendment builds the declaration and its load checks only.
 
 **The limits next to the claims.** sutura cannot check that two calendar tables hold the same rows;
 the declaration is trusted, and two calendars that disagree give two legs that bucket differently
-without any refusal. The type check compares only types a catalog declared: a column with no
-declared type on one side is not compared, so an undeclared mismatch loads. A calendar listed on a
-source no fact of the metric lives on is not refused: it decides no answer. Only the local catalog
+without any refusal. The type check compares the kinds `LinkKind::declared` reads off the declared
+types, case-folded, and nothing else: a column with no declared type on one side is not compared,
+a type of a kind it does not know (a timestamp, a float) is not compared, so a date calendar beside a
+timestamp calendar loads, and one spelling that two systems mean differently passes. A calendar listed
+on a source no fact of the metric lives on is not refused: it decides no answer. Only the local catalog
 reads `shared_calendar:`; every other catalog keeps the no-calendar refusal. Nothing here executes a
 two-source ratio: no cell in this change runs one, and the plan stage still refuses it.
 

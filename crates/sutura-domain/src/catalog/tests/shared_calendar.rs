@@ -434,6 +434,16 @@ fn a_fact_source_with_no_listed_calendar_is_refused() {
             data_system: SourceName::parse("customers_side").expect("a test source is a source"),
         }
     );
+    // The metric's own model is a fact too: `orders` lives on `local`, where only `calendar` sits.
+    let (models, relationships) = two_source_catalog(("local", "customers_side"));
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![ratio_listing_calendars(&["customers_calendar"])]).unwrap_err(),
+        InconsistentDefinitions::NoSharedCalendarOnSource {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("orders"),
+            data_system: SourceName::parse("local").expect("a test source is a source"),
+        }
+    );
 }
 
 #[test]
@@ -495,7 +505,7 @@ fn assembled_with_time_types(first: Option<&str>, second: Option<&str>) -> Resul
 #[test]
 fn calendars_typing_the_time_column_differently_are_refused() {
     assert_eq!(
-        assembled_with_time_types(Some("DATE"), Some("TIMESTAMP")).unwrap_err(),
+        assembled_with_time_types(Some("DATE"), Some("VARCHAR(10)")).unwrap_err(),
         InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType {
             metric: metric_name("revenue_per_customer"),
             column: column("order_date"),
@@ -508,9 +518,16 @@ fn calendars_typing_the_time_column_differently_are_refused() {
 
 #[test]
 fn calendars_typing_the_time_column_alike_or_not_at_all_assemble() {
-    // The twins of the refusal: one type on both, and a type on one side only, which cannot be compared.
-    for (first, second) in [(Some("DATE"), Some("DATE")), (Some("DATE"), None), (None, Some("DATE"))] {
-        assembled_with_time_types(first, second).expect("types that agree or are not both declared are not compared");
+    // The twins of the refusal: one kind on both however it is spelled, a type on one side only, and
+    // a kind `LinkKind::declared` does not know (a timestamp), none of which can be compared.
+    for (first, second) in [
+        (Some("DATE"), Some("DATE")),
+        (Some("date"), Some("DATE")),
+        (Some("DATE"), None),
+        (None, Some("DATE")),
+        (Some("DATE"), Some("TIMESTAMP")),
+    ] {
+        assembled_with_time_types(first, second).expect("kinds that agree or are not both known are not compared");
     }
 }
 

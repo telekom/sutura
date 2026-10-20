@@ -1,11 +1,11 @@
 diff --git a/crates/sutura-domain/src/catalog/calendar.rs b/crates/sutura-domain/src/catalog/calendar.rs
-index a906ff94d..5972f07f4 100644
+index db0c502d5..d61edbec3 100644
 --- a/crates/sutura-domain/src/catalog/calendar.rs
 +++ b/crates/sutura-domain/src/catalog/calendar.rs
-@@ -116,7 +116,7 @@ pub(super) fn check(
+@@ -119,7 +119,7 @@ pub(super) fn check(
              });
          };
-         match (typed, column.data_type()) {
+         match (typed, column.data_type().and_then(LinkKind::declared)) {
 -            (Some((first, seen)), Some(declared)) if seen != declared => {
 +            (Some((first, _)), _) => {
                  return Err(InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType {

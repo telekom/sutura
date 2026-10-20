@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{ColumnType, InconsistentDefinitions, Metric, Model, Relationship};
+use super::{InconsistentDefinitions, Metric, Model, Relationship};
 use crate::model::{ModelName, RelationshipName, SourceName};
+use crate::plan::federated::LinkKind;
 
 /// The calendar models a cross-model ratio buckets its fact legs through: one per data system a
 /// fact lives on (`docs/adr/0002`'s sixth amendment).
@@ -53,10 +54,12 @@ impl SharedCalendars {
 /// Every fact model - the metric's own and each cross-model term's - must have exactly one listed
 /// calendar on its own source, reached by a relationship from the model, because each fact leg joins
 /// the calendar inside its own statement and a statement reads one source. Every listed calendar
-/// must declare the metric's time column, and two that declare a type for it must declare one.
+/// must declare the metric's time column, and two whose declared types name different kinds
+/// (`LinkKind::declared`, case-folded: `date` and `DATE` agree) are refused.
 ///
-/// **Limit:** sutura cannot check that two calendar tables hold the same rows, nor a type a source
-/// never declared; the declaration is trusted.
+/// **Limit:** sutura cannot check that two calendar tables hold the same rows. A type that is
+/// undeclared, or of a kind `LinkKind::declared` does not know (a timestamp), is not compared; the
+/// declaration is trusted.
 pub(super) fn check(
     models: &BTreeMap<ModelName, Model>,
     relationships: &BTreeMap<RelationshipName, Relationship>,
@@ -106,7 +109,7 @@ pub(super) fn check(
             });
         }
     }
-    let mut typed: Option<(&Model, &ColumnType)> = None;
+    let mut typed: Option<(&Model, LinkKind)> = None;
     for calendar in on_source.values() {
         let Some(column) = calendar.column(&metric.time_column) else {
             return Err(InconsistentDefinitions::UnknownTimeColumn {
@@ -115,7 +118,7 @@ pub(super) fn check(
                 column: metric.time_column.clone(),
             });
         };
-        match (typed, column.data_type()) {
+        match (typed, column.data_type().and_then(LinkKind::declared)) {
             (Some((first, seen)), Some(declared)) if seen != declared => {
                 return Err(InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType {
                     metric: metric.name.clone(),

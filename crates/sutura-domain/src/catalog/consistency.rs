@@ -297,10 +297,11 @@ pub enum InconsistentDefinitions {
         model: ModelName,
         data_system: SourceName,
     },
-    /// Two listed calendars declare the metric's time column with different types. Each leg buckets
-    /// on its own source's calendar and the combiner joins the buckets above, so two types is a join
-    /// that can silently match nothing. A calendar that declares no type is not compared.
-    #[error("metric {metric}'s time column {column} is typed differently on shared calendars {first} and {other}")]
+    /// Two listed calendars declare the metric's time column as different kinds of type (a date and
+    /// text, say). Each leg buckets on its own source's calendar and the combiner joins the buckets
+    /// above, so two kinds is a join that can silently match nothing. A type that is undeclared or
+    /// of a kind `LinkKind::declared` does not know is not compared.
+    #[error("metric {metric}'s time column {column} is of different kinds on shared calendars {first} and {other}")]
     SharedCalendarsDisagreeOnTimeType {
         metric: MetricName,
         column: ColumnName,
