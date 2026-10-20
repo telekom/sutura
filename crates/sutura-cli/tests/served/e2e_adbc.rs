@@ -190,7 +190,7 @@ mod tests {
     #[ignore = "requires the hosted DataHub and Keycloak tiers, a BigQuery dataset, and the ADBC driver"]
     fn served_datahub_metric_executes_through_adbc_bigquery() {
         let bq = BigQueryFixture::required();
-        let names = FixtureNames::unique();
+        let names = FixtureNames::unique(format!("{}.{}", bq.project, bq.dataset));
         let data = DataDir::prepared();
         let issuer = keycloak_settings(CASE);
         let _loaded = LoadedFixture::loaded(&bq, &data, &names);

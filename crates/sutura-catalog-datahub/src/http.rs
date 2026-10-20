@@ -114,6 +114,9 @@
 //! compiled-in roots with its own CA via `security.outbound.transport_anchors` (`#125`), folded in
 //! `sutura_http_client::tls` - anchors only, no client identity.
 
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
+
 use serde_json::Value;
 use sutura_domain::identity::Secret;
 pub use sutura_http_client::{
@@ -175,6 +178,10 @@ pub enum HttpReaderError {
     /// refusal names exactly where the document stopped matching this reader's expectation.
     #[error("the {entity} entity's {field} was not present, or not the shape this reader expects")]
     UnexpectedShape { entity: &'static str, field: &'static str },
+    /// Two datasets read as one model. A model is named by the last dot segment of its urn's name,
+    /// so `acme.sales.orders` and `acme.archive.orders` both claim `orders`; neither is kept.
+    #[error("datasets {first} and {second} both read as model {model}")]
+    TwoDatasetsOneModel { model: String, first: String, second: String },
     /// The page's own field mapped into this crate's canonical aspect shape and that decode failed -
     /// a defect in this reader's mapping rather than in the page, since every field reaching
     /// `serde_json::from_value` here was already read out of the page by name above.
@@ -411,17 +418,22 @@ impl HttpAspectReader {
 
     /// The `dataset` entity type: `schemaMetadata` for columns, `datasetProperties` for prose.
     ///
-    /// **Unmeasured against a live instance** - see the module header. `Model.name` and
-    /// `Model.table` are both filled from the entity's own URN name segment
-    /// ([`split_dataset_urn`]), because this reader has no other source for a *second*, adapter-only
-    /// identifier - a deployment needing the two to differ is not representable by this reader
-    /// today, which is a real limit and not a placeholder.
-    fn read_datasets(&self, budget: Budget) -> Result<Vec<DatasetAspect>, HttpReaderError> {
+    /// **Unmeasured against a live instance** - see the module header. `Model.table` is the
+    /// entity's whole URN name segment ([`split_dataset_urn`]) and `Model.name` its last dot
+    /// segment ([`model_of`]), so `acme.sales.orders` reads as model `orders` over that table and a
+    /// bare `orders` as both. `models` records which urn each model was read from: a second urn
+    /// for one model is [`HttpReaderError::TwoDatasetsOneModel`], and a relationship endpoint
+    /// resolves through it ([`one_endpoint`]).
+    fn read_datasets(
+        &self,
+        budget: Budget,
+        models: &mut BTreeMap<String, String>,
+    ) -> Result<Vec<DatasetAspect>, HttpReaderError> {
         const ENTITY: &str = "dataset";
         let mut datasets = Vec::new();
         self.read_pages(budget, ENTITY, &["schemaMetadata", "datasetProperties"], |entities| {
             for entity in entities {
-                datasets.push(harvest_dataset(entity)?);
+                datasets.push(harvest_dataset(entity, models)?);
             }
             Ok(())
         })?;
@@ -440,7 +452,11 @@ impl HttpAspectReader {
     /// "Field by field" table already names this as a place `DataHub` is WIDER than this adapter.
     /// A `semanticModel` entity with `semanticModelInfo` but no `relationships` contributes none,
     /// the same way a dataset with no annotation contributes an empty description.
-    fn read_relationships(&self, budget: Budget) -> Result<Vec<RelationshipAspect>, HttpReaderError> {
+    fn read_relationships(
+        &self,
+        budget: Budget,
+        models: &BTreeMap<String, String>,
+    ) -> Result<Vec<RelationshipAspect>, HttpReaderError> {
         const ENTITY: &str = "semanticModel";
         let mut relationships = Vec::new();
         self.read_pages(budget, ENTITY, &["semanticModelInfo"], |entities| {
@@ -456,7 +472,7 @@ impl HttpAspectReader {
                     .and_then(Value::as_array)
                     .map_or_default(Vec::as_slice);
                 for relationship in list {
-                    relationships.push(harvest_relationship(relationship)?);
+                    relationships.push(harvest_relationship(relationship, models)?);
                 }
             }
             Ok(())
@@ -486,8 +502,9 @@ impl AspectReader for HttpAspectReader {
     fn read(&self) -> Result<Snapshot, DataHubError> {
         let budget = Budget::opened(self.bounds.timeout());
         let snapshot = (|| -> Result<Snapshot, HttpReaderError> {
-            let datasets = self.read_datasets(budget)?;
-            let relationships = self.read_relationships(budget)?;
+            let mut models = BTreeMap::new();
+            let datasets = self.read_datasets(budget, &mut models)?;
+            let relationships = self.read_relationships(budget, &models)?;
             let metrics = self.read_metrics(budget)?;
             Ok(Snapshot::new(datasets, relationships, metrics))
         })();
@@ -506,9 +523,14 @@ fn split_dataset_urn(urn: &str) -> Option<(String, String)> {
     Some((platform.to_owned(), name.to_owned()))
 }
 
+/// A dataset name's model: its last dot segment, the whole name when it has none.
+fn model_of(name: &str) -> &str {
+    name.rsplit_once('.').map_or(name, |(_, last)| last)
+}
+
 /// One `dataset` entity into this crate's own [`DatasetAspect`] shape, refusing an unexpected field
 /// by name. See [`HttpAspectReader::read_datasets`] for what is and is not measured here.
-fn harvest_dataset(entity: &Value) -> Result<DatasetAspect, HttpReaderError> {
+fn harvest_dataset(entity: &Value, models: &mut BTreeMap<String, String>) -> Result<DatasetAspect, HttpReaderError> {
     const ENTITY: &str = "dataset";
     let urn = entity
         .get("urn")
@@ -517,10 +539,21 @@ fn harvest_dataset(entity: &Value) -> Result<DatasetAspect, HttpReaderError> {
             entity: ENTITY,
             field: "urn",
         })?;
-    let (platform, name) = split_dataset_urn(urn).ok_or(HttpReaderError::UnexpectedShape {
+    let (platform, table) = split_dataset_urn(urn).ok_or(HttpReaderError::UnexpectedShape {
         entity: ENTITY,
         field: "urn",
     })?;
+    let name = model_of(&table).to_owned();
+    match models.entry(name.clone()) {
+        Entry::Occupied(first) => {
+            return Err(HttpReaderError::TwoDatasetsOneModel {
+                model: name,
+                first: first.get().clone(),
+                second: urn.to_owned(),
+            });
+        }
+        Entry::Vacant(slot) => drop(slot.insert(urn.to_owned())),
+    }
     let fields = entity
         .get("schemaMetadata")
         .and_then(|aspect| aspect.get("value"))
@@ -578,8 +611,8 @@ fn harvest_dataset(entity: &Value) -> Result<DatasetAspect, HttpReaderError> {
         .unwrap_or_default()
         .to_owned();
     let mut document = serde_json::Map::new();
-    drop(document.insert(String::from("name"), Value::String(name.clone())));
-    drop(document.insert(String::from("table"), Value::String(name)));
+    drop(document.insert(String::from("name"), Value::String(name)));
+    drop(document.insert(String::from("table"), Value::String(table)));
     drop(document.insert(String::from("platform"), Value::String(platform)));
     drop(document.insert(String::from("columns"), Value::from(columns)));
     drop(document.insert(String::from("description"), Value::String(description)));
@@ -606,8 +639,10 @@ fn one_column(value: &Value, field: &'static str) -> Result<String, HttpReaderEr
 }
 
 /// A dataset URN field (`from`/`to`) reduced to the model name this crate's own [`RelationshipAspect`]
-/// names its endpoints by.
-fn one_endpoint(value: &Value, field: &'static str) -> Result<String, HttpReaderError> {
+/// names its endpoints by: the model read from exactly this urn, else the urn's whole name, which a
+/// model name refuses when it is qualified - so `acme.archive.orders` never joins model `orders`
+/// read from `acme.sales.orders`.
+fn one_endpoint(value: &Value, field: &'static str, models: &BTreeMap<String, String>) -> Result<String, HttpReaderError> {
     let urn = value
         .get(field)
         .and_then(Value::as_str)
@@ -615,12 +650,16 @@ fn one_endpoint(value: &Value, field: &'static str) -> Result<String, HttpReader
             entity: "semanticModel",
             field,
         })?;
-    split_dataset_urn(urn)
-        .map(|(_, name)| name)
-        .ok_or(HttpReaderError::UnexpectedShape {
-            entity: "semanticModel",
-            field,
-        })
+    let (_, name) = split_dataset_urn(urn).ok_or(HttpReaderError::UnexpectedShape {
+        entity: "semanticModel",
+        field,
+    })?;
+    let model = model_of(&name);
+    Ok(if models.get(model).is_some_and(|read| read == urn) {
+        model.to_owned()
+    } else {
+        name
+    })
 }
 
 /// `ERModelRelationshipCardinality`'s screaming-case wire spelling into the lowercase spelling
@@ -639,7 +678,7 @@ fn map_cardinality(raw: &str) -> Option<&'static str> {
 /// One relationship element out of a `semanticModel` entity's
 /// `semanticModelInfo.value.relationships[]` array, into this crate's own [`RelationshipAspect`]
 /// shape. See [`HttpAspectReader::read_relationships`] for what is and is not measured here.
-fn harvest_relationship(relationship: &Value) -> Result<RelationshipAspect, HttpReaderError> {
+fn harvest_relationship(relationship: &Value, models: &BTreeMap<String, String>) -> Result<RelationshipAspect, HttpReaderError> {
     const ENTITY: &str = "semanticModel";
     let name = relationship
         .get("name")
@@ -648,9 +687,9 @@ fn harvest_relationship(relationship: &Value) -> Result<RelationshipAspect, Http
             entity: ENTITY,
             field: "semanticModelInfo.value.relationships[].name",
         })?;
-    let from_model = one_endpoint(relationship, "from")?;
+    let from_model = one_endpoint(relationship, "from", models)?;
     let from_column = one_column(relationship, "fromColumns")?;
-    let to_model = one_endpoint(relationship, "to")?;
+    let to_model = one_endpoint(relationship, "to", models)?;
     let to_column = one_column(relationship, "toColumns")?;
     let cardinality = match relationship.get("cardinality").and_then(Value::as_str) {
         None => None,
@@ -744,3 +783,6 @@ fn harvest_metric(entity: &Value, property: &str) -> Result<MetricAspect, HttpRe
     serde_json::from_value(Value::Object(document))
         .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity: ENTITY, cause })
 }
+
+#[cfg(test)]
+mod tests;
