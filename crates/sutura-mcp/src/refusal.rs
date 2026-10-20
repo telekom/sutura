@@ -161,8 +161,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         // retrying it will not change the answer.
         RefusalReason::FederatedAnswerNotWellFormed { .. } => String::from(
             "answering this across two data systems hit a division by zero, a join key that \
-             matched more than one row, or a join key that can never match because the two data \
-             systems store it as two different types. Retrying it unchanged will be refused again: \
+             matched more than one row, a join key that can never match because the two data \
+             systems store it as two different types, or a join key value that cannot be read as \
+             the kind the catalog declares for it. Retrying it unchanged will be refused again: \
              ask the same metric without the dimension on the second data system, or say so to the \
              person you are acting for.",
         ),
