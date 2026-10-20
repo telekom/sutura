@@ -530,7 +530,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
-        refusals.extend(delegation::refusals(self));
+        refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
@@ -943,6 +943,9 @@ mod catalogs;
 /// Reading the outbound trust declaration. Carved out for the same reason.
 mod outbound;
 
+/// The delegation-hop combination checks. Carved out for the same reason.
+mod delegation;
+
 mod layers;
 
 /// The refusal vocabulary. Carved out for the same reason, along the seam this module's own
@@ -953,10 +956,6 @@ mod posture;
 /// because this file hit the line limit again, on the seam the two above use: nothing there parses
 /// or refuses anything, it reads an environment and filters names.
 mod overlay;
-
-/// Which sources send the caller's own inbound token to an identity provider, and the refusal of
-/// each on a deployment that verifies no `direct` caller.
-mod delegation;
 
 pub use overlay::configuration_variables_from_process;
 

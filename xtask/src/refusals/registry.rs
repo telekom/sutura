@@ -73,8 +73,11 @@ const STARTUP: Subject = Subject {
     // that verifies no `direct` caller. 19: `AgentSurfaceWithoutInboundIdentity` and
     // `AgentSurfaceOverAnImpersonatingSource` (#1293), where `/mcp` may not run without leg 1. 21:
     // `QuerySurfaceWithoutInboundIdentity` and `QuerySurfaceOverAnImpersonatingSource` (#1400), where
-    // `/v1` may not run without leg 1.
-    variants: variants(21),
+    // `/v1` may not run without leg 1. 23: `InboundTokenAtPoolUnacknowledged` and
+    // `InboundTokenAtPoolWithoutEffect`, a `direct` workload-identity source with no delegation hop
+    // and its acknowledgement. 24: `DelegationToTheDeploymentsOwnAudience`, a last hop asking for
+    // the deployment's own audience.
+    variants: variants(24),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

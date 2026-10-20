@@ -695,3 +695,23 @@ fails for an hour answered every caller before and answers none now. The limits:
 measures the last usable read, not whether the source is current, so a file that stops being updated
 but stays readable never trips it. It is per process, and on the monotonic clock, which a suspended
 host does not advance. A restart with a dead source still does not start.
+
+## Thirteenth amendment, 2026-10-15: `direct` requires a delegation hop by default
+
+**Status of the amendment: accepted.** The fifth amendment said that "an impersonating source is not
+required to declare a delegation, and one without it presents the inbound token itself". That shape
+needs a pool provider that accepts this deployment's own audience, which is what Decision 3 and the
+fourth amendment's table rule out. It now does not boot by default: in `direct`, a
+`workload_identity` source with no `workload_identity.delegation` hop is refused at startup with
+`NotFitToServe::InboundTokenAtPoolUnacknowledged`, and the refusal lists each fix.
+
+1. Declare the hop, so the pool receives a token for its own audience. This is the recommended fix.
+2. Write `sources.<alias>.inbound_token_at_pool: accepted` on that source. That accepts a pool
+   provider that accepts this deployment's audience. `accepted` is the only value; any other value
+   is refused at parse. Each startup that serves it logs one `WARN` line that names the source.
+
+The acknowledgement is refused where it acknowledges nothing (`InboundTokenAtPoolWithoutEffect`):
+on a source that declares a hop, on a source without `workload_identity`, and on a deployment that
+is not `direct`. `behind-gateway` is unchanged: the pool receives the gateway's assertion, as the
+fourth amendment's table says. The check reads the configuration only. Which audiences a pool
+provider accepts is that provider's configuration, and sutura does not read it.

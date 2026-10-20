@@ -130,6 +130,14 @@ fn federating(
              and remove both keys here"
         ));
     }
+    if source.inbound_token_at_pool().is_some() {
+        tracing::warn!(
+            source = %alias,
+            "sources.{alias}.inbound_token_at_pool is accepted: no delegation hop is declared, so each \
+             caller's inbound token reaches the pool as it is and the pool's provider accepts this \
+             deployment's own audience"
+        );
+    }
     let delegation = workload
         .delegation()
         .split_first()

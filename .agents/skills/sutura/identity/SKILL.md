@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery every verified caller's own assertion is federated to the declared pool, and the federated token IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. Both adapter cells passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery every verified caller's own assertion is federated to the declared pool, and the federated token IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool` and `the_deployments_own_identity_is_neither_subjects_principal` passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`, measured before the delegation-hop fake was added (the changed cells have no recorded run); service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -208,9 +208,12 @@ binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d c
 `e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`), which skips the merge queue, forks and
 Dependabot. They read what the IdP was offered, what the surface answered and which Google token
 host the driver dialled through a refusing proxy - never the token it carried, so a source handed
-the caller's own token instead of the exchanged one is held in-process only. And nothing requires a
-`direct` BigQuery source to declare one: without it the inbound token is presented. Oracle
-requires its delegation declaration.
+the caller's own token instead of the exchanged one is held in-process only. A `direct`
+`workload_identity` source without one does not boot unless it writes
+`inbound_token_at_pool: accepted` (`NotFitToServe::InboundTokenAtPoolUnacknowledged`,
+`docs/adr/0014`'s thirteenth amendment); with that, the inbound token is presented and each boot
+logs one `WARN`. The check reads configuration, never which audiences the pool's provider accepts.
+Oracle requires its delegation declaration.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
@@ -259,9 +262,14 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   deleted with the HTTP transport (`docs/adr/0018`, fifth and eighth amendments) - so it is a run of
   code this tree does not contain and may not be cited for anything the tree does now.
 
-**What leg 2 rests on:** both cells in
-`crates/sutura-exec-bigquery/tests/declared_principal.rs` passed in the observed
-2026-10-11 run `github.com/telekom/sutura/actions/runs/38116387739`, at `321e65661`.
+**What leg 2 rests on:** two cells in
+`crates/sutura-exec-bigquery/tests/declared_principal.rs`,
+`each_subject_executes_as_its_own_principal_at_the_declared_pool` and
+`the_deployments_own_identity_is_neither_subjects_principal`, passed in the observed 2026-10-11 run
+`github.com/telekom/sutura/actions/runs/38116387739`, at `321e65661`. That run measured them before
+the first was rewritten to go through the delegation-hop fake and before
+`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` was added; neither change has a
+recorded run.
 `docs/where-identity-is-proven.md` records the adapter venue as `yes` and its limits: fixture
 assertions minted from service-account keys, no served human caller, and no row read by the
 standing cells. Its supplementary Google API probe observed disjoint row filters and a refusal

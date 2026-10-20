@@ -144,8 +144,16 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
         .iter()
         .filter_map(|(written, source)| source.billing.as_ref().map(|billing| (written.as_str(), billing)))
         .collect();
-    SourceRegistry::parse_billed(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), &billing, mode)
-        .map_err(|cause| SettingsError::Sources { cause })
+    let mut registry = SourceRegistry::parse_billed(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), &billing, mode)
+        .map_err(|cause| SettingsError::Sources { cause })?;
+    for (written, source) in &raw.sources {
+        if let Some(value) = source.inbound_token_at_pool.as_deref() {
+            registry
+                .acknowledge_inbound_token_at_pool(written, value)
+                .map_err(|cause| SettingsError::Sources { cause })?;
+        }
+    }
+    Ok(registry)
 }
 
 pub(super) fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {

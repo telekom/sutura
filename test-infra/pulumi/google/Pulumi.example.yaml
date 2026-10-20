@@ -36,11 +36,6 @@ config:
   # the caller presents. `accounts.google.com` means the JWTs are Google id_tokens; a
   # self-hosted IdP names its own issuer.
   sutura-google-test-infra:workload_issuer_uri: "https://accounts.google.com"
-  # Optional - defaults to the pool's own STS audience (project NUMBER, not id):
-  # //iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/sutura/providers/oidc
-  # Set this only to accept EXTRA audiences on top of that default; the default is appended
-  # automatically if a configured list omits it.
-  # sutura-google-test-infra:workload_allowed_audiences: '["//iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/sutura/providers/oidc"]'
   # Optional - mode b (`google_login`): the Google account a test user links at the identity
   # provider. The stack grants it jobUser, readSessionUser and dataViewer on `ci_dataset`. From the
   # environment: SUTURA_GOOGLE_GOOGLE_LOGIN_USER. The OAuth client and the identity provider's

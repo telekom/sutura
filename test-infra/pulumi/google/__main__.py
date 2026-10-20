@@ -421,18 +421,17 @@ ci_key = gcp.serviceaccount.Key(
 # requires a `clientId` plus `webSsoConfig` - issue #87 draws that line). The exported
 # audience is what sutura declares as sources.<alias>.workload_identity.audience.
 #
-# The issuer is config, and so is the allowed audience: the JWTs the caller presents
-# must be signed by `issuer_uri` and carry an `aud` in `allowed_audiences`. Google as
-# the issuer means the audience is a Google OAuth client id the id_token was minted for -
-# `allowed_audiences` defaults below to the pool's own STS audience, which is what
-# sutura's broker mints its assertions' `aud` as.
+# The issuer is config; the allowed audience is not. The JWTs the caller presents must be
+# signed by `issuer_uri` and carry the pool's own STS audience as `aud` - nothing else, so a
+# token minted for a deployment's own audience is refused here and a `direct` deployment
+# reaches the pool only through its delegation hop.
 #
 # `audience` is STS's own `audience` request parameter for this provider, and Google
 # requires the project NUMBER there (`invalid_target` otherwise) - never the id used
 # everywhere else in this file. It is built from `project_number` plus the CONFIG ids
 # (`workload_pool_id`/`workload_provider_id`), not from the `workload_pool`/
 # `workload_provider` resource outputs, so it has no dependency on the provider it also
-# seeds the default `allowed_audiences` for.
+# is the provider's one allowed audience.
 project_number = gcp.organizations.get_project(project_id=project).number
 
 audience = (
@@ -441,14 +440,13 @@ audience = (
     f"/providers/{cfg.require('workload_provider_id')}"
 )
 
-# Defaults to `[audience]` - the pool's own audience, matching the `aud` sutura's broker
-# mints - so a deployment that never sets `workload_allowed_audiences` still accepts the
-# tokens sutura exchanges. A configured list adds audiences on top of that default; if it
-# is set but omits `audience`, it is appended rather than leaving the provider unable to
-# verify sutura's own tokens.
-allowed_audiences = cfg.get_object("workload_allowed_audiences") or [audience]
-if audience not in allowed_audiences:
-    allowed_audiences = [*allowed_audiences, audience]
+# A stack that still sets the removed `workload_allowed_audiences` is refused rather than
+# silently narrowed, so an operator learns which audience stopped being accepted.
+if cfg.get_object("workload_allowed_audiences") is not None:
+    raise ValueError(
+        "workload_allowed_audiences is removed: the provider accepts only the pool's own audience - "
+        "remove the key from the stack config"
+    )
 
 workload_pool = gcp.iam.WorkloadIdentityPool(
     "workload-pool",
@@ -468,7 +466,7 @@ workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     },
     oidc=gcp.iam.WorkloadIdentityPoolProviderOidcArgs(
         issuer_uri=cfg.require("workload_issuer_uri"),
-        allowed_audiences=allowed_audiences,
+        allowed_audiences=[audience],
         # Disabled: the test mints its own JWTs for the two subjects (different `sub`s)
         # rather than holding a signing key Google could verify for issuing.
     ),
