@@ -58,8 +58,9 @@ assertion the ceiling admits.
 | `direct`         | `MAX_KEY_SET_AGE` (60 s) plus one read - unchanged                                                                    |
 | `behind-gateway` | 60 s plus one read plus `transit_max_lifetime_seconds` plus 30 s; 210 s plus one read at the default ceiling of 120 s |
 
-Both rows hold while refresh works, as `docs/adr/0014`'s second amendment states: a source that stays
-unreadable keeps the keys in use for as long as it stays that way.
+Both rows hold while refresh works. A source that stays unreadable keeps the keys in use up to
+`security.inbound.key_set_max_stale_seconds` and no longer, as `docs/adr/0014`'s twelfth amendment
+states.
 
 ## What this does not cover
 

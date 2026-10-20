@@ -599,3 +599,133 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
         "{refused:?}"
     );
 }
+
+/// [`direct_registry`]'s settings, with the load's own answer kept so a refusal reaches the cell.
+#[cfg(feature = "bigquery")]
+fn direct_sources_or_refusal(entries: &str) -> Result<sutura_config::SourceRegistry, String> {
+    let overlay = format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
+             files\"\n  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+             authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/nonexistent/keys.json\"\n    \
+             algorithms: [\"RS256\"]\nsources:\n{entries}"
+    );
+    sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .map(|settings| settings.sources().clone())
+    .map_err(|error| format!("{error:?}"))
+}
+
+/// What `build_broker` logged over `registry`, at `warn` and above.
+#[cfg(feature = "bigquery")]
+fn broker_warnings(registry: &sutura_config::SourceRegistry) -> String {
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("warn").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let built = tracing::subscriber::with_default(subscriber, || super::super::broker::build_broker(registry, None));
+    drop(built.expect("the registry composes"));
+    sink.contents()
+}
+
+/// The acknowledgement's boot warning, as it names `warehouse`.
+#[cfg(feature = "bigquery")]
+const WARNED: &str = "sources.warehouse.inbound_token_at_pool is accepted";
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn an_acknowledged_hopless_source_warns_once_and_no_other_source_does() {
+    let acknowledged = direct_sources_or_refusal(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &format!("{}    inbound_token_at_pool: \"accepted\"\n", wif_with("")),
+    ))
+    .expect("an acknowledged hopless source boots");
+    let log = broker_warnings(&acknowledged);
+    let warned: Vec<&str> = log.lines().filter(|line| line.contains(WARNED)).collect();
+    assert_eq!(warned.len(), 1, "{log}");
+    let line = warned.first().copied().unwrap_or_default();
+    assert!(
+        line.contains("\"level\":40") && line.contains("inbound token reaches the pool as it is"),
+        "{line}"
+    );
+
+    let secret = SecretFileGuard::create("an_acknowledged_hopless_source_warns_once_and_no_other_source_does");
+    let delegating = direct_sources_or_refusal(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &wif_with(&delegation_block("https://idp.example.com/token", secret.path())),
+    ))
+    .expect("a direct deployment admits a declared delegation");
+    let log = broker_warnings(&delegating);
+    assert!(!log.contains(WARNED), "{log}");
+
+    let undirected = registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with("")));
+    let log = broker_warnings(&undirected);
+    assert!(!log.contains(WARNED), "{log}");
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_google_login_source_presents_the_token_the_identity_provider_stored() {
+    // One broker request with the caller's own inbound token, and the opaque token that came back
+    // is what the source presents.
+    let secret = SecretFileGuard::create("a_google_login_source_presents_the_token_the_identity_provider_stored");
+    let fake = FakeServer::start(vec![Scripted::ok(&serde_json::json!({
+        "access_token": "ya29.stored-google-token",
+        "token_type": "Bearer",
+        "expires_in": 3599,
+        "refresh_token": "1//never-presented",
+        "accessTokenExpiration": 4_102_444_800_u64 - 1,
+    }))]);
+    let login = format!(
+        "    google_login:\n      token_endpoint: \"{}/realms/r/broker/google/token\"\n      client_id: \"sutura\"\n      \
+         client_secret_file: \"{}\"\n",
+        fake.endpoint(),
+        secret.path().display()
+    );
+    let broker = super::super::broker::build_broker(
+        &direct_registry(&bigquery_entry("warehouse", "impersonation-at-source", &login)),
+        None,
+    )
+    .expect("a direct deployment admits a google_login source");
+    let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
+    let asked = SourceSet::of(warehouse.clone());
+    let subject = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    let minted = broker
+        .mint(
+            &RequestContext::with_assertion(
+                PrincipalChain::of(subject.clone()),
+                Secret::new("assertion.for.analyst-a"),
+                4_102_444_800,
+            ),
+            &asked,
+        )
+        .expect("a verified caller at a google_login source is mintable");
+    let Agreed::Granted { credentials } = minted
+        .agreeing_with(&subject, &asked, 4_000_000_000)
+        .expect("the grant agrees with the request")
+    else {
+        panic!("a verified caller is granted");
+    };
+    let Presented::SubjectToken { material } = credentials.presented_for(&warehouse).expect("the source was asked for") else {
+        panic!("a google_login source presents a subject token");
+    };
+    #[expect(clippy::disallowed_methods, reason = "the cell asserts the presented material")]
+    let material = String::from(material.expose_secret());
+    assert_eq!(material, "ya29.stored-google-token");
+    let requests = fake.finish();
+    let [request] = requests.as_slice() else {
+        panic!("expected exactly one broker request, got {requests:?}");
+    };
+    let body = request.body();
+    assert!(
+        body.contains("token=assertion.for.analyst-a") && !body.contains("grant_type"),
+        "{body}"
+    );
+}

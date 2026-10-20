@@ -236,6 +236,23 @@ pub trait Surface: Send + Sync + 'static {
 /// boundary on the way back.
 pub type ErasedCause = Box<dyn core::error::Error + Send + Sync + 'static>;
 
+/// A broker failure, as [`SurfaceFailure::NotLinked`] when a cause in its chain is
+/// [`sutura_domain::identity::DelegationFailed::NotLinked`] at any hop, and
+/// [`SurfaceFailure::Broker`] otherwise.
+fn broker_failure(cause: ErasedCause) -> SurfaceFailure {
+    let not_linked =
+        core::iter::successors(Some(&*cause as &(dyn core::error::Error + 'static)), |error| error.source()).any(|error| {
+            error
+                .downcast_ref::<sutura_domain::identity::DelegationFailed>()
+                .is_some_and(sutura_domain::identity::DelegationFailed::is_not_linked)
+        });
+    if not_linked {
+        SurfaceFailure::NotLinked { cause }
+    } else {
+        SurfaceFailure::Broker { cause }
+    }
+}
+
 /// Something went wrong that is not a refusal.
 ///
 /// Neither variant is something a caller can fix by asking differently, which is why neither is a
@@ -291,6 +308,15 @@ pub enum SurfaceFailure {
     /// way and learn nothing. A transport chooses a different code for it.
     #[error("the credential broker did not answer")]
     Broker {
+        #[source]
+        cause: ErasedCause,
+    },
+    /// The broker answered that the caller has no account linked at the identity provider a
+    /// source runs them through ([`sutura_domain::identity::DelegationFailed::NotLinked`]).
+    ///
+    /// Apart from [`Self::Broker`] because retrying does not help and the caller can act on it.
+    #[error("the caller has no linked account at the identity provider")]
+    NotLinked {
         #[source]
         cause: ErasedCause,
     },
@@ -644,7 +670,7 @@ where
             // Two brokers' worth of failure, kept apart on the way out for the reason the variants
             // give: an authorization server that is down and a broker that answered about the wrong
             // sources are not retried the same way.
-            ServiceError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
+            ServiceError::Broker { cause } => broker_failure(Box::new(cause)),
             ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
             // The same arm, and deliberately: to a transport, "the broker's answer does not fit
             // the request" and "the leg does not fit the posture the adapter was opened with" are
@@ -699,7 +725,7 @@ where
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         let answered =
             crate::run_sql(context, statement, &self.broker, &self.warehouses, deadline).map_err(|error| match error {
-                crate::RunSqlError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
+                crate::RunSqlError::Broker { cause } => broker_failure(Box::new(cause)),
                 crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
                 crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
                 // Only an adapter that declares `Warehouse::ACCEPTS_RAW_STATEMENTS` and then answers no
@@ -930,5 +956,24 @@ mod tests {
         assert!(lines[0].contains("select 1"), "{lines:?}");
         assert!(lines[1].starts_with("raw_refused"), "{lines:?}");
         assert!(lines[1].contains("refuse me"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_caller_with_no_linked_account_is_not_an_identity_provider_outage() {
+        use sutura_domain::identity::DelegationFailed;
+        let at_hop = |cause| DelegationFailed::AtHop {
+            hop: 1,
+            cause: Box::new(cause),
+        };
+        let not_linked = super::broker_failure(Box::new(at_hop(DelegationFailed::NotLinked)));
+        assert!(
+            matches!(not_linked, super::SurfaceFailure::NotLinked { .. }),
+            "{not_linked:?}"
+        );
+        let refused = super::broker_failure(Box::new(at_hop(DelegationFailed::Refused {
+            status: 400,
+            error: Some(String::from("invalid_request")),
+        })));
+        assert!(matches!(refused, super::SurfaceFailure::Broker { .. }), "{refused:?}");
     }
 }

@@ -70,7 +70,7 @@ mod primitive;
 mod scope;
 
 pub use crate::inbound::audience::{ClientId, TokenAudience};
-pub use crate::inbound::key_set::{KeySetLocation, KeySetUrl};
+pub use crate::inbound::key_set::{KeySetLocation, KeySetMaxStale, KeySetUrl};
 pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
     ResourceIdentifier, SigningAlgorithm, TokenType,

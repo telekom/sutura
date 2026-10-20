@@ -46,7 +46,9 @@ use crate::sources::placement::{
     SourcePlacement,
 };
 use crate::sources::transport::InvalidTransport;
-use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
+use crate::sources::workload_identity::{
+    InboundTokenAtPool, InvalidWorkloadIdentity, UnknownAcknowledgement, WorkloadIdentityConfig,
+};
 use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::source::{
     AcknowledgementReason, ConflictingSourceIdentity, InvalidOperatorText, SharedIdentityDeclared, SourceIdentity, SourcePosture,
@@ -212,9 +214,18 @@ pub struct ConfiguredSource {
     placement: SourcePlacement,
     identity: Option<SourceIdentity>,
     caller_identity: Option<CallerIdentity>,
+    inbound_token_at_pool: Option<InboundTokenAtPool>,
 }
 
 impl ConfiguredSource {
+    /// Whether this source acknowledged presenting its caller's inbound token to the pool with no
+    /// delegation hop - see [`InboundTokenAtPool`].
+    #[inline]
+    #[must_use]
+    pub const fn inbound_token_at_pool(&self) -> Option<InboundTokenAtPool> {
+        self.inbound_token_at_pool
+    }
+
     /// What kind of data system this is, which is what decides which adapter opens it.
     ///
     /// Read off the placement rather than stored beside it - see [`SourcePlacement::kind`].
@@ -544,6 +555,13 @@ pub enum InvalidSourceRegistry {
          runs as its caller - remove the block, or write the posture you meant"
     )]
     IdentityModeNotImpersonating { alias: SourceName, block: &'static str },
+    /// A written `inbound_token_at_pool` is not the one acknowledgement it accepts.
+    #[error("`sources.{alias}.inbound_token_at_pool` is not usable: {cause}")]
+    InboundTokenAtPool {
+        alias: SourceName,
+        #[source]
+        cause: UnknownAcknowledgement,
+    },
     /// The declared workload-identity value is not usable.
     #[error("`sources.{alias}.workload_identity` is not usable")]
     WorkloadIdentity {
@@ -668,6 +686,23 @@ pub(crate) struct RawSourceEntry<'raw> {
 }
 
 impl SourceRegistry {
+    /// Records the `inbound_token_at_pool` written on the entry `written`, after the entry itself
+    /// parsed; whether it applies is `Settings::refusals`' combination check.
+    pub(crate) fn acknowledge_inbound_token_at_pool(&mut self, written: &str, value: &str) -> Result<(), InvalidSourceRegistry> {
+        let alias = SourceName::parse(written).map_err(|cause| InvalidSourceRegistry::Alias {
+            written: String::from(written),
+            cause,
+        })?;
+        let acknowledged = InboundTokenAtPool::parse(value).map_err(|cause| InvalidSourceRegistry::InboundTokenAtPool {
+            alias: alias.clone(),
+            cause,
+        })?;
+        if let Some(source) = self.by_alias.get_mut(&alias) {
+            source.inbound_token_at_pool = Some(acknowledged);
+        }
+        Ok(())
+    }
+
     /// Reads the whole `sources:` tree.
     ///
     /// **`mode` is an input rather than something derived from the entries**, and that direction is
@@ -830,6 +865,7 @@ fn parse_entry(
         placement,
         identity,
         caller_identity,
+        inbound_token_at_pool: None,
     })
 }
 

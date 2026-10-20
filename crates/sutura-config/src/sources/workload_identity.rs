@@ -95,6 +95,45 @@ pub enum DelegationGrant {
     BrokerToken,
 }
 
+/// The per-source acknowledgement `sources.<alias>.inbound_token_at_pool: accepted`.
+///
+/// **What it accepts.** With no `workload_identity.delegation` hop, a `direct` deployment hands the
+/// pool its caller's inbound token as it is, so the pool's provider must accept this deployment's own
+/// audience. A declared hop hands the pool a token minted for the pool's audience only, which is the
+/// default `Settings::load` requires: the hopless shape is refused at boot
+/// ([`crate::NotFitToServe::InboundTokenAtPoolUnacknowledged`]) unless this is written, and every
+/// boot that serves it logs one warning naming the source.
+///
+/// One value and no boolean, so the key reads as what it accepts and `false` cannot be written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboundTokenAtPool {
+    /// The pool's provider accepts this deployment's own audience, and the operator accepts that.
+    Accepted,
+}
+
+impl InboundTokenAtPool {
+    /// The key under `sources.<alias>`.
+    pub const KEY: &'static str = "inbound_token_at_pool";
+
+    /// The exact word `accepted`; anything else is refused, not read as absent.
+    ///
+    /// # Errors
+    ///
+    /// [`UnknownAcknowledgement`] for any other value.
+    pub fn parse(raw: &str) -> Result<Self, UnknownAcknowledgement> {
+        match raw {
+            "accepted" => Ok(Self::Accepted),
+            _ => Err(UnknownAcknowledgement),
+        }
+    }
+}
+
+/// An [`InboundTokenAtPool`] value other than `accepted`. The value is not carried: it is
+/// operator-written text, and the one accepted word is the whole remedy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the only value is `accepted`")]
+pub struct UnknownAcknowledgement;
+
 /// Where one value of a `delegation` list is written: the list's key under the source, the hop's
 /// position in it, and the field.
 ///
