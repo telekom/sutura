@@ -114,6 +114,5 @@ and the pod ([A published container port](serving.md#a-published-container-port)
 
 ## An example gateway
 
-[`examples/tardis`](https://github.com/telekom/sutura/tree/main/examples/tardis) is a settings file for the gateway of
-the Open Telekom Integration Platform, with the value for each setting taken from the public repositories of that
-gateway.
+[`examples/tardis`](https://github.com/telekom/sutura/tree/main/examples/tardis) has a settings file for the API gateway
+of the Open Telekom Integration Platform, and a README that says what each setting takes from the gateway.

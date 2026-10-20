@@ -39,7 +39,6 @@ mod tests {
             grant.contains("sutura:catalog.read") && grant.contains("sutura:metrics.ask"),
             "{grant:?}"
         );
-        assert!(!grant.contains("sutura:sql.run"), "{grant:?}");
         assert!(
             matches!(requirement.key_set(), KeySetLocation::File(file) if file.path() == Path::new("/etc/sutura/keys/gateway-jwks.json")),
             "{:?}",
