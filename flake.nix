@@ -1093,7 +1093,7 @@
         # credential (the control leg reads it) and one assertion per subject, and no service account
         # is impersonated.
         #
-        # `--run-ignored only`, because both cells are `#[ignore]`d: `just validate` has no network,
+        # `--run-ignored only`, because every live cell is `#[ignore]`d: `just validate` has no network,
         # and a leg that skipped on an absent environment would report green over nothing. They
         # panic naming the variable instead.
         apps.bigquery-declared-principal = {

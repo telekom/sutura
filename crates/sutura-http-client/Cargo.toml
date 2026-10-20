@@ -33,6 +33,8 @@ base64 = { workspace = true }
 # `test_support::Scripted` bodies only - the same already-resolved dependency every reader crate
 # carries unconditionally.
 serde_json = { workspace = true }
+# The broker's stored token response, decoded into only the fields it is checked by.
+serde = { workspace = true }
 rcgen = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 

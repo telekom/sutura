@@ -211,20 +211,53 @@ pub enum NotFitToServe {
     )]
     DelegationWithoutDirectInbound {
         alias: SourceName,
-        /// `workload_identity.delegation` on `bigquery`, `delegation` on `oracle`.
+        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`.
         key: &'static str,
     },
+    /// A `direct` deployment's `workload_identity` source declares no delegation hop, and does not
+    /// acknowledge what that means.
+    ///
+    /// With no hop the caller's inbound token reaches the pool as it is, so the pool's provider has
+    /// to accept this deployment's own audience; a hop hands the pool a token minted for the pool's
+    /// audience only. The secure shape is the hop, so it is the one that boots by default - see
+    /// [`crate::sources::workload_identity::InboundTokenAtPool`].
+    #[error(
+        "`sources.{alias}.workload_identity` declares no `delegation` hop and security.inbound.mode is \
+         `direct`, so the caller's inbound token would reach the pool as it is. Fix it one of these \
+         ways: {}",
+        hopless_fixes(alias)
+    )]
+    InboundTokenAtPoolUnacknowledged { alias: SourceName },
+    /// `inbound_token_at_pool` is written on a source that does not hand the pool its caller's
+    /// inbound token: it declares a delegation hop, it is not a `workload_identity` source, or the
+    /// deployment is not `direct`. An acknowledgement of nothing reads as a decision taken.
+    #[error(
+        "`sources.{alias}.inbound_token_at_pool` is written, and this source does not hand the pool \
+         its caller's inbound token - it declares a delegation hop, it is not a `workload_identity` \
+         source, or security.inbound.mode is not `direct`. Remove the key"
+    )]
+    InboundTokenAtPoolWithoutEffect { alias: SourceName },
+    /// A `direct` deployment's last `workload_identity.delegation` hop asks for this deployment's
+    /// own audience, so the pool would receive a token minted for this deployment - what
+    /// `inbound_token_at_pool: accepted` acknowledges, here unacknowledged. The comparison is of the
+    /// configured strings only; an identity provider that maps audiences is not seen.
+    #[error(
+        "`sources.{alias}.workload_identity.delegation`'s last hop asks for this deployment's own \
+         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
+         receive a token minted for this deployment. Ask the last hop for the pool's own audience"
+    )]
+    DelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// A source declares a caller-identity mode this build does not run.
     ///
     /// The block parses, so a configuration written for the mode is checked at load; serving it
     /// would load keys that nothing reads.
     #[error(
         "`sources.{alias}.{block}` is a caller-identity mode this build does not run yet - declare \
-         `workload_identity` instead, or remove the source"
+         `workload_identity` or `google_login` instead, or remove the source"
     )]
     CallerIdentityModeNotBuilt {
         alias: SourceName,
-        /// `google_login` or `domain_delegation`.
+        /// `domain_delegation`.
         block: &'static str,
     },
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
@@ -402,4 +435,24 @@ pub enum NotFitToServe {
          system every ability a holder of the deployment token has. Use a different value for each"
     )]
     MetricsTokenSharesTheApiToken,
+}
+
+/// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
+/// a new fix is one more entry.
+fn hopless_fixes(alias: &SourceName) -> String {
+    [
+        format!(
+            "declare `sources.{alias}.workload_identity.delegation`, so the pool receives a token for \
+             its own audience (recommended)"
+        ),
+        format!(
+            "write `sources.{alias}.inbound_token_at_pool: accepted`, accepting a pool provider that \
+             accepts this deployment's audience"
+        ),
+    ]
+    .iter()
+    .enumerate()
+    .map(|(at, fix)| format!("({}) {fix}", at.saturating_add(1)))
+    .collect::<Vec<_>>()
+    .join("; ")
 }

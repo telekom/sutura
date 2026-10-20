@@ -168,6 +168,12 @@ pub enum DelegationFailed {
     /// The issued token's `exp` is not after the instant it was checked at.
     #[error("the identity provider issued a token that has already expired")]
     AlreadyExpired,
+    /// The caller has no account linked at the identity provider whose token was asked for.
+    ///
+    /// Its own variant because the caller can act on it, and it is about the caller's own linking
+    /// state only.
+    #[error("the caller has no account linked at the identity provider's brokered provider")]
+    NotLinked,
     /// One hop of a [`Delegation`] chain failed, so no later hop ran and nothing is presented.
     #[error("delegation hop {hop} failed")]
     AtHop {
@@ -176,6 +182,24 @@ pub enum DelegationFailed {
         #[source]
         cause: Box<Self>,
     },
+}
+
+impl DelegationFailed {
+    /// Whether this is [`Self::NotLinked`], at any hop of a chain.
+    #[must_use]
+    pub fn is_not_linked(&self) -> bool {
+        match *self {
+            Self::NotLinked => true,
+            Self::AtHop { ref cause, .. } => cause.is_not_linked(),
+            Self::Unreachable { .. }
+            | Self::Refused { .. }
+            | Self::TooLarge { .. }
+            | Self::Malformed { .. }
+            | Self::WrongTokenType
+            | Self::WrongAudience
+            | Self::AlreadyExpired => false,
+        }
+    }
 }
 
 /// The port: one RFC 8693 exchange at the caller's own identity provider.
@@ -189,6 +213,18 @@ pub trait DelegationExchange: core::fmt::Debug + Send + Sync {
     ///
     /// [`DelegationFailed`]: nothing usable came back, and the broker refuses to present anything.
     fn exchange(&self, subject: &Secret, audience: &RequestedAudience) -> Result<Delegated, DelegationFailed>;
+}
+
+/// The port: the token the identity provider stored for the caller's linked external account.
+///
+/// Synchronous for the reason [`DelegationExchange`] is.
+pub trait LinkedLogin: core::fmt::Debug + Send + Sync {
+    /// Retrieves the stored token for the caller `subject` - the caller's own inbound token - names.
+    ///
+    /// # Errors
+    ///
+    /// [`DelegationFailed`], [`DelegationFailed::NotLinked`] for a caller who linked no account.
+    fn retrieve(&self, subject: &Secret) -> Result<Delegated, DelegationFailed>;
 }
 
 /// What one impersonating source exchanges through: an ordered chain of hops.
@@ -206,19 +242,27 @@ pub struct Delegation {
 }
 
 #[derive(Debug, Clone)]
-struct Hop {
-    exchange: Arc<dyn DelegationExchange>,
-    audience: RequestedAudience,
+enum Hop {
+    Exchange {
+        exchange: Arc<dyn DelegationExchange>,
+        audience: RequestedAudience,
+    },
+    Linked(Arc<dyn LinkedLogin>),
 }
 
 impl Hop {
     fn run(&self, subject: &Secret, hop: usize) -> Result<Delegated, DelegationFailed> {
-        self.exchange
-            .exchange(subject, &self.audience)
-            .map_err(|cause| DelegationFailed::AtHop {
-                hop,
-                cause: Box::new(cause),
-            })
+        match *self {
+            Self::Exchange {
+                ref exchange,
+                ref audience,
+            } => exchange.exchange(subject, audience),
+            Self::Linked(ref login) => login.retrieve(subject),
+        }
+        .map_err(|cause| DelegationFailed::AtHop {
+            hop,
+            cause: Box::new(cause),
+        })
     }
 }
 
@@ -227,7 +271,16 @@ impl Delegation {
     #[must_use]
     pub fn through(exchange: Arc<dyn DelegationExchange>, audience: RequestedAudience) -> Self {
         Self {
-            first: Hop { exchange, audience },
+            first: Hop::Exchange { exchange, audience },
+            then: Vec::new(),
+        }
+    }
+
+    /// A chain of one hop that retrieves the caller's linked account's stored token.
+    #[must_use]
+    pub fn linked(login: Arc<dyn LinkedLogin>) -> Self {
+        Self {
+            first: Hop::Linked(login),
             then: Vec::new(),
         }
     }
@@ -235,7 +288,7 @@ impl Delegation {
     /// This chain, with one more hop that exchanges its last token.
     #[must_use]
     pub fn then(mut self, exchange: Arc<dyn DelegationExchange>, audience: RequestedAudience) -> Self {
-        self.then.push(Hop { exchange, audience });
+        self.then.push(Hop::Exchange { exchange, audience });
         self
     }
 

@@ -63,33 +63,26 @@
 //! | how many looks start | one per window by `Cached::last_attempt`, and none while an [`InFlight`] exists - both decided in the acquisition that reserves | a read whose awaiter left keeps its pool thread until the source answers; nothing installs what it returns |
 //! | how long a caller waits for one | the deployment's own request timeout | nothing here: a second deadline beside a documented one is the defect, not the fix |
 //!
-//! # The revocation bound EXCLUDES a failing refresh, and there is no freshness ceiling
+//! # A failing refresh keeps verifying up to a declared ceiling, and not past it
 //!
 //! [`MAX_KEY_SET_AGE`] bounds revocation *while the source answers with a document this deployment
-//! can use*. It does not bound it while refresh is failing: an unreadable source and a rejected
-//! document both leave the previous keys verifying, and [`KeySetCache::reserve`] stamps the
-//! **attempt** - which is what the rate limit needs and says nothing about freshness. So a source
-//! that stays unreadable, or that holds a document this deployment will not adopt, retains the
-//! cached signing keys for as long as it stays that way.
+//! can use*. An unreadable source and a refused document both leave the previous keys verifying, and
+//! [`KeySetCache::reserve`] stamps the **attempt**, which says nothing about freshness. So the
+//! declared `security.inbound.key_set_max_stale_seconds` is compared against `Cached::last_success`,
+//! when a look last came back with a usable document and never the last attempt: past it no held
+//! key verifies, known `kid` or unknown, until a look succeeds, and the answer is
+//! [`KeyUnavailable::Unconfirmed`] - `503 identity_unavailable` at the gate. A look that returns to its
+//! caller without confirming the keys logs `stale_for_ms` beside `max_stale_ms`, so an operator can
+//! alert before it: a `WARN` when its read fails, an `ERROR` when it reads a refused document, the
+//! same refused bytes read again included. A look whose caller left, or whose read has not returned,
+//! logs nothing.
 //!
-//! **What that permits, and what it does not.** It permits continued trust in signing keys an
-//! earlier refresh established. It bypasses nothing else: a token still has to carry a signature one
-//! of those keys verifies, and still has to be inside its own expiry.
-//!
-//! **The measurement is here and there is no ceiling on it.** `Cached::last_success` and
-//! [`KeySetCache::stale_for`] are the instant a look last came back with a usable document, which is
-//! the number a freshness ceiling would have to be compared against - deliberately not the last
-//! attempt. Nothing refuses on it, because refusing is an availability-breaking policy - a sidecar
-//! part-way through rewriting a mounted file would take a deployment's whole authentication down
-//! with it - and no record in this repository has decided that a deployment should degrade that way
-//! rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
-//! verifying within [`MAX_KEY_SET_AGE`] plus one read while refresh works - plus the rotated-out
-//! grace behind a gateway, the lifetime ceiling and the clock-skew leeway - and after no bounded time
-//! while it does not** - the staleness is reported as `stale_for_ms` on a `WARN` for every look whose
-//! read fails and returns to its caller and on an `ERROR` for a look that reads a refused document
-//! differing from the last one read (a look that reads the same bytes again is `Unchanged` and logs
-//! nothing, as does a look whose caller left or whose read has not returned), and refused on by
-//! nothing.
+//! The bound, whole: **a removed key stops verifying within [`MAX_KEY_SET_AGE`] plus one read while
+//! refresh works - plus the rotated-out grace behind a gateway, the lifetime ceiling and the
+//! clock-skew leeway - and within the declared ceiling while it does not.** Its limits: it measures
+//! the last usable read and not whether the source is current, so a file a sidecar stopped updating
+//! never trips it; it is per process and on the monotonic clock, which a suspend does not advance; and
+//! past it every caller of this process is refused until the source answers.
 //!
 //! # What a key set is read from
 //!
@@ -111,7 +104,7 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use jsonwebtoken::DecodingKey;
-use sutura_config::KeyFamily;
+use sutura_config::{KeyFamily, KeySetMaxStale};
 use sutura_runtime::Shutdown;
 
 /// Where a key set comes from, and the bound on the document it hands back.
@@ -131,6 +124,9 @@ mod document;
 /// The key set a rotation replaced, and its grace behind a gateway.
 mod retired;
 use crate::inbound::keys::retired::Retired;
+/// What one look's document does to the cache, and the line it logs.
+mod look;
+use crate::inbound::keys::look::{adopt, announce};
 
 /// The longest key id accepted.
 ///
@@ -160,9 +156,8 @@ pub const MIN_REFETCH_INTERVAL: Duration = Duration::from_secs(30);
 ///
 /// **What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
 /// it is that one.** A read that fails and a document that is rejected both keep the previous keys
-/// verifying, so while refresh is unavailable this number bounds nothing.
-/// [`KeySetCache::stale_for`] is the measurement of that case; the module documentation is the
-/// argument for why nothing here refuses on it.
+/// verifying, so while refresh is unavailable this number bounds nothing and the declared
+/// `key_set_max_stale_seconds` is what bounds it - see the module documentation.
 pub const MAX_KEY_SET_AGE: Duration = Duration::from_secs(60);
 
 /// A key identifier, out of a token header or out of a key set.
@@ -420,13 +415,20 @@ pub enum KeyUnavailable {
         #[source]
         cause: Arc<dyn core::error::Error + Send + Sync>,
     },
+    /// No look has confirmed the key set for the declared ceiling, so no held key verifies - an
+    /// outage to retry, like [`Self::SourceUnavailable`], and not a bad token.
+    #[error(
+        "no look has confirmed the key set for {stale_for_ms}ms, past the declared {ceiling_ms}ms; no held key \
+         verifies until a look succeeds"
+    )]
+    Unconfirmed { stale_for_ms: u128, ceiling_ms: u128 },
 }
 
 /// What one look at the source did.
 ///
 /// Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
-/// examined and rejected is recorded as examined, so identical bytes on the next tick are silent
-/// rather than logging a rejection once per interval forever.
+/// examined and rejected is recorded as examined, so identical bytes on the next look are
+/// [`Self::Unchanged`] rather than a second rejection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refreshed {
     /// The document is byte-for-byte the one the last look examined.
@@ -494,8 +496,7 @@ struct Cached {
     /// **Distinct from [`Self::last_attempt`], and the distinction is the finding.** A reservation
     /// stamps the attempt *before* the read, so a source failing every time keeps `last_attempt` one
     /// window old for as long as the process lives while nothing has confirmed the keys since this
-    /// instant. Read through [`KeySetCache::stale_for`], which is the measurement a freshness
-    /// ceiling would need and which `last_attempt` cannot be.
+    /// instant. The declared ceiling is compared against this, which `last_attempt` cannot be.
     last_success: Instant,
     /// The set the last rotation replaced, while it has a grace. Always `None` in `direct`.
     retired: Option<Retired>,
@@ -564,6 +565,8 @@ pub struct KeySetCache {
     max_age: Duration,
     /// How long a rotated-out set keeps verifying. `None` in `direct` - see `retired`.
     grace: Option<Duration>,
+    /// How long after `Cached::last_success` any key verifies.
+    max_stale: Duration,
     /// The family the pinned algorithms need, so a swap cannot adopt a key set that verifies nothing.
     family: KeyFamily,
     /// What the pinned algorithms are, for the refusal's message alone.
@@ -618,6 +621,7 @@ impl KeySetCache {
             refetch_interval,
             max_age,
             grace: None,
+            max_stale: Duration::from_secs(KeySetMaxStale::DEFAULT_SECONDS),
             family,
             pinned,
             state: tokio::sync::RwLock::new(Cached {
@@ -643,6 +647,14 @@ impl KeySetCache {
         self
     }
 
+    /// The same cache, refusing every key once no look has confirmed the set for `max_stale`. Set by
+    /// the gate from the declaration, like the grace.
+    #[must_use]
+    pub(crate) const fn with_max_stale(mut self, max_stale: Duration) -> Self {
+        self.max_stale = max_stale;
+        self
+    }
+
     /// The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
     ///
     /// The order is: read, then age or window, then [`Self::poll_once`]. **The two comparisons here are
@@ -656,29 +668,33 @@ impl KeySetCache {
     /// [`KeyUnavailable::UnknownKeyId`] for a key the winner is about to install, or - on the age path -
     /// one more use of a key the winner is about to remove. So revocation is bounded by
     /// [`MAX_KEY_SET_AGE`] plus the duration of one source read **while the source keeps answering
-    /// with a usable document, and by nothing while refresh is failing** - see the module
-    /// documentation for what that permits and for why there is no ceiling. A rotation can
+    /// with a usable document, and by the declared ceiling while refresh is failing** - past it both
+    /// fast paths fall through and [`Self::after_look`] refuses. A rotation can
     /// cost a concurrent caller one `401` it can retry. Making it wait instead would put N request
     /// tasks behind one file read, which is the primitive this whole file is arranged against.
     pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
         // One read guard, dropped inside this statement: `clippy` flags a guard outliving its last use.
-        let (found, since) = {
+        let (found, since, confirmed) = {
             let cached = self.state.read().await;
-            (cached.get(id, now), now.saturating_duration_since(cached.last_attempt))
+            (
+                cached.get(id, now),
+                now.saturating_duration_since(cached.last_attempt),
+                now.saturating_duration_since(cached.last_success) < self.max_stale,
+            )
         };
         if let Some(key) = found {
             // A HIT is still subject to the age bound, and that is the revocation fix: the caller
             // presenting a revoked key presents an id this deployment holds, so nothing else here
             // would ever trigger a re-read. The read is skipped while the set is fresh, so the
             // ordinary request pays a lock and a map lookup.
-            if since < self.max_age {
+            if since < self.max_age && confirmed {
                 return Ok(key);
             }
             let _refreshed = self.poll_once(now).await;
             // Re-read after the refresh: the key may have been REVOKED by it.
             return self.after_look(id, now).await;
         }
-        if since < self.refetch_interval {
+        if since < self.refetch_interval && confirmed {
             let limited = KeyUnavailable::RefetchRateLimited {
                 ago_ms: since.as_millis(),
             };
@@ -688,9 +704,16 @@ impl KeySetCache {
         self.after_look(id, now).await
     }
 
-    /// The key after a look, or why there is none.
+    /// The key after a look, or why there is none - first among them a set past the ceiling.
     async fn after_look(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
         let cached = self.state.read().await;
+        let unconfirmed = now.saturating_duration_since(cached.last_success);
+        if unconfirmed >= self.max_stale {
+            return Err(KeyUnavailable::Unconfirmed {
+                stale_for_ms: unconfirmed.as_millis(),
+                ceiling_ms: self.max_stale.as_millis(),
+            });
+        }
         cached
             .get(id, now)
             .ok_or_else(|| cached.outage_or(KeyUnavailable::UnknownKeyId))
@@ -811,11 +834,9 @@ impl KeySetCache {
 
     /// How long since a look at the source last came back with a document this deployment could use.
     ///
-    /// **A measurement and not a policy**: nothing here refuses on it, and the module documentation
-    /// states the bound and its limit together. It is the number a freshness ceiling
-    /// would be compared against, and it is deliberately not the last *attempt* - a reservation
-    /// stamps the attempt before the read, so a source that has failed every time for an hour
-    /// reports an attempt one window old and a success an hour old.
+    /// The number the declared ceiling is compared against, and deliberately not the last *attempt* -
+    /// a reservation stamps the attempt before the read, so a source that has failed every time for an
+    /// hour reports an attempt one window old and a success an hour old.
     pub async fn stale_for(&self, now: Instant) -> Duration {
         let cached = self.state.read().await;
         now.saturating_duration_since(cached.last_success)
@@ -851,8 +872,9 @@ impl KeySetCache {
         // The cause's text before the value is consumed, and only on the path that has one: an error
         // type is not a log line, and `announce` is the one place the two meet.
         let unavailable = looked.as_ref().err().map(ToString::to_string);
+        let confirmed = matches!(looked, Ok((_, Ok(_))));
         let (outcome, stale_for) = self.record(now, looked, in_flight).await;
-        announce(outcome, stale_for, unavailable.as_deref());
+        announce(outcome, confirmed, (stale_for, self.max_stale), unavailable.as_deref());
         outcome
     }
 
@@ -878,72 +900,6 @@ impl KeySetCache {
             cached.keys.count(),
             cached.keys.ids().into_iter().map(KeyId::to_string).collect(),
         )
-    }
-}
-
-/// Decides what a freshly read document does to the cache, under the write lock.
-///
-/// Split out of [`KeySetCache::poll_once`] because the three outcomes plus two log sites were over the
-/// cognitive-complexity threshold in `clippy.toml` - and the split is where the reasoning is anyway:
-/// this function is *what a candidate does to the state*, and nothing in it awaits or reads a source.
-///
-/// **The document is recorded whichever way it went**, including when it was rejected. That is the
-/// distinction `crate::tls::Renewal::seen` already carries: a candidate that was examined and refused
-/// is still examined, so identical bytes on the next tick are silent rather than logging a rejection
-/// once per interval forever. The first look at it said everything, loudly.
-fn adopt(
-    cached: &mut Cached,
-    read: String,
-    candidate: Result<KeySet, InvalidKeySet>,
-    grace: Option<Duration>,
-    now: Instant,
-) -> Refreshed {
-    if read == cached.document {
-        return Refreshed::Unchanged;
-    }
-    let examined = core::mem::replace(&mut cached.document, read);
-    match candidate {
-        Ok(keys) => {
-            if cached.adopted.take().unwrap_or(examined) != cached.document {
-                let outgoing = core::mem::replace(&mut cached.keys, keys);
-                cached.retired = Retired::after(outgoing, grace, now);
-            }
-            Refreshed::Rotated
-        }
-        Err(_refused) => {
-            cached.adopted.get_or_insert(examined);
-            Refreshed::Rejected
-        }
-    }
-}
-
-/// Says what one look did, at the level the outcome deserves.
-///
-/// A function of its own so [`KeySetCache::poll_once`] holds no lock while a `tracing` macro expands,
-/// and so the levels are decided in one place: a rotation is `info`, a refused candidate is `error`
-/// because the deployment is now serving keys that disagree with what is on disk, and no change says
-/// nothing at all - a quiet deployment must not emit a line a minute saying so.
-/// The two loud outcomes carry `stale_for` - how long since a look last came back with a usable
-/// document - because that is the number an operator can alert on and the one the module
-/// documentation refuses to turn into a refusal here. **No bound is claimed on either line**, since
-/// under a source that stays this way there is none.
-fn announce(outcome: Refreshed, stale_for: Duration, unavailable: Option<&str>) {
-    match outcome {
-        // Both silent, and for one reason: a quiet deployment must not emit a line a minute saying
-        // that nothing happened. `NotDue` is reached on every request past the age horizon that loses
-        // the reservation, so it is the noisiest of the five and says the least.
-        Refreshed::Unchanged | Refreshed::NotDue => {}
-        Refreshed::Rotated => tracing::info!("the key set was re-read and replaced"),
-        Refreshed::Unavailable => tracing::warn!(
-            error = unavailable.unwrap_or("the look did not finish"),
-            stale_for_ms = stale_for.as_millis(),
-            "could not re-read the key set; keeping the keys in use, which nothing has confirmed for that long"
-        ),
-        Refreshed::Rejected => tracing::error!(
-            stale_for_ms = stale_for.as_millis(),
-            "the key set at the configured path changed and is NOT usable; still verifying with the \
-             previous keys. Nothing will rotate until it parses and holds a key of the pinned family"
-        ),
     }
 }
 

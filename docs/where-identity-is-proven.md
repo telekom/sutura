@@ -540,6 +540,13 @@ insert and was removed afterwards. The probe adds no automated row-isolation cov
 shared control credential. No service account is impersonated by the federated query; this run
 proves direct WIF resource access, not a human provider's sign-in or delegation exchange.
 
+**After that run, the cells changed.** Each subject now starts from an inbound token minted for
+another audience, and a fake at the delegation port answers it with that subject's pool-audience
+assertion, as a `direct` deployment requires by default. A third cell,
+`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool`, expects the pool to refuse
+the inbound token with no hop. No run of the changed cells is recorded here. The fake is not an
+identity provider, so no venue observes a real exchange at the pool.
+
 **What only this venue can answer.** Whether two distinct verified subjects resolve to two distinct
 `BigQuery` principals at the data system - **and whether Google accepts the assertion at all**,
 which is the half nothing reachable from this repository can show. Each subject's own assertion is
@@ -629,14 +636,15 @@ The oracle is unchanged - `SELECT SESSION_USER()`, read through
 `sutura_exec_bigquery::SessionUser`. The cells assert that the two answers differ from each other
 and from the deployment's own: the pool decides which principal each subject becomes, so no address
 this venue holds predicts the answer. The settings shape is the declared `workload_identity` block -
-`audience` (the pool) and an optional `delegation`. There is no subject map: every verified caller
+`audience` (the pool) and a `delegation` hop, which a `direct` deployment must declare unless the
+source writes `inbound_token_at_pool: accepted`. There is no subject map: every verified caller
 is federated, and the pool's attribute conditions and BigQuery's grants decide who reaches data.
 There is no `scope` key: the credential document has no `scopes` member, and the library sends
 the API client's own scopes to the STS leg.
 
 **The run, and the first half of it is now built rather than described.**
 `.github/workflows/bigquery-declared-principal.yml` is the job: it places one credential - the
-deployment's own - builds the driver for the runner's triple, and runs the two cells named in *A
+deployment's own - builds the driver for the runner's triple, and runs the cells named in *A
 declared principal at a real dataset* above. What a dispatcher has to supply is the environment:
 two keys that mint each subject's id_token, the pool's audience, `SUTURA_BQ_DATASET`, and a stack
 whose grants name each subject's pool principal. The observed run above passed both adapter cells;

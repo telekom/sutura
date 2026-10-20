@@ -170,7 +170,10 @@ fn pin_routing_and_redirects(
 /// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
 /// current - named because the spelled-out pair is over this workspace's `type_complexity`
 /// threshold.
-pub type OutboundAgent = (sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>);
+pub type OutboundAgent = (RotatingAgent, Option<sutura_tls::Rotator<ureq::Agent>>);
+
+/// The rotating agent handle a request is sent over.
+pub type RotatingAgent = sutura_tls::Rotating<ureq::Agent>;
 
 /// A fixed agent over an already-loaded anchor bundle, presenting no client identity.
 ///

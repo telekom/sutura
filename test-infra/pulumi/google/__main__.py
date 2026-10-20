@@ -421,18 +421,17 @@ ci_key = gcp.serviceaccount.Key(
 # requires a `clientId` plus `webSsoConfig` - issue #87 draws that line). The exported
 # audience is what sutura declares as sources.<alias>.workload_identity.audience.
 #
-# The issuer is config, and so is the allowed audience: the JWTs the caller presents
-# must be signed by `issuer_uri` and carry an `aud` in `allowed_audiences`. Google as
-# the issuer means the audience is a Google OAuth client id the id_token was minted for -
-# `allowed_audiences` defaults below to the pool's own STS audience, which is what
-# sutura's broker mints its assertions' `aud` as.
+# The issuer is config; the allowed audience is not. The JWTs the caller presents must be
+# signed by `issuer_uri` and carry the pool's own STS audience as `aud` - nothing else, so a
+# token minted for a deployment's own audience is refused here and a `direct` deployment
+# reaches the pool only through its delegation hop.
 #
 # `audience` is STS's own `audience` request parameter for this provider, and Google
 # requires the project NUMBER there (`invalid_target` otherwise) - never the id used
 # everywhere else in this file. It is built from `project_number` plus the CONFIG ids
 # (`workload_pool_id`/`workload_provider_id`), not from the `workload_pool`/
 # `workload_provider` resource outputs, so it has no dependency on the provider it also
-# seeds the default `allowed_audiences` for.
+# is the provider's one allowed audience.
 project_number = gcp.organizations.get_project(project_id=project).number
 
 audience = (
@@ -441,14 +440,13 @@ audience = (
     f"/providers/{cfg.require('workload_provider_id')}"
 )
 
-# Defaults to `[audience]` - the pool's own audience, matching the `aud` sutura's broker
-# mints - so a deployment that never sets `workload_allowed_audiences` still accepts the
-# tokens sutura exchanges. A configured list adds audiences on top of that default; if it
-# is set but omits `audience`, it is appended rather than leaving the provider unable to
-# verify sutura's own tokens.
-allowed_audiences = cfg.get_object("workload_allowed_audiences") or [audience]
-if audience not in allowed_audiences:
-    allowed_audiences = [*allowed_audiences, audience]
+# A stack that still sets the removed `workload_allowed_audiences` is refused rather than
+# silently narrowed, so an operator learns which audience stopped being accepted.
+if cfg.get_object("workload_allowed_audiences") is not None:
+    raise ValueError(
+        "workload_allowed_audiences is removed: the provider accepts only the pool's own audience - "
+        "remove the key from the stack config"
+    )
 
 workload_pool = gcp.iam.WorkloadIdentityPool(
     "workload-pool",
@@ -468,7 +466,7 @@ workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     },
     oidc=gcp.iam.WorkloadIdentityPoolProviderOidcArgs(
         issuer_uri=cfg.require("workload_issuer_uri"),
-        allowed_audiences=allowed_audiences,
+        allowed_audiences=[audience],
         # Disabled: the test mints its own JWTs for the two subjects (different `sub`s)
         # rather than holding a signing key Google could verify for issuing.
     ),
@@ -552,6 +550,37 @@ for tag, member in (("principal-a", principal_a), ("principal-b", principal_b)):
         opts=pulumi.ResourceOptions(
             provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]
         ),
+    )
+
+
+# Mode b (`google_login`): a query runs as the Google ACCOUNT a test user linked at the identity
+# provider, so that account needs the three grants a principal gets above, on the acceptance dataset.
+# Optional - unset, nothing is created, and no CI job runs mode b (its sign-in is a human's).
+#
+# **What this stack cannot create**, and why it is manual (see the README): the Google OAuth web
+# client and its consent screen. pulumi_gcp's only OAuth client resource is `iap.Client`, an
+# IAP-owned client whose pinned docstring says the IAP OAuth Admin APIs were deprecated on
+# 2025-01-22 and are shut down after 2026-03-19, and `iap.Brand` with it. The identity provider's
+# Google provider is the identity provider's own configuration, not a Google resource.
+google_login_user = cfg.get("google_login_user")
+if google_login_user:
+    google_login_member = f"user:{google_login_user}"
+    for role in ("jobUser", "readSessionUser"):
+        gcp.projects.IAMMember(
+            f"google-login-{role.lower()}",
+            project=project,
+            role=f"roles/bigquery.{role}",
+            member=google_login_member,
+            opts=pulumi.ResourceOptions(
+                provider=gcp_provider, depends_on=API_BOOTSTRAP
+            ),
+        )
+    gcp.bigquery.DatasetIamMember(
+        "google-login-dataviewer",
+        dataset_id=ci_dataset,
+        role="roles/bigquery.dataViewer",
+        member=google_login_member,
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
     )
 
 

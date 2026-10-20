@@ -156,7 +156,9 @@ fn a_key_set_url_is_read_as_the_url_location() {
     });
     assert_eq!(
         key_set,
-        Ok(String::from(r#"Some(Url(KeySetUrl("https://issuer.example.com/keys")))"#))
+        Ok(String::from(
+            r#"Some(Url(KeySetUrl { url: "https://issuer.example.com/keys", max_stale: KeySetMaxStale { seconds: 3600 } }))"#
+        ))
     );
 }
 
@@ -676,4 +678,33 @@ fn extra_scope_claims_name_only_scp_and_roles() {
         .reason()
         .to_string();
     assert!(rendered.contains("`security.inbound.extra_scope_claims`"), "{rendered}");
+}
+
+#[test]
+fn a_key_set_max_stale_outside_its_range_does_not_start() {
+    // The message and not the variant, so the cell builds against a tree without the key: there it
+    // is refused as an unknown field, which names no range.
+    let overlay = |declared: &str, seconds: u64| format!("security:\n{declared}    key_set_max_stale_seconds: {seconds}\n");
+    for (declared, seconds) in [
+        (DIRECT_INBOUND, 0),
+        (DIRECT_INBOUND, 299),
+        (GATEWAY_INBOUND, 299),
+        (GATEWAY_INBOUND, 86_401),
+    ] {
+        let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay(declared, seconds)))
+            .expect_err("a ceiling outside its range does not start");
+        let SettingsError::InboundValue { cause } = error.reason() else {
+            panic!("expected a typed inbound-value refusal for {seconds}, got {error:?}");
+        };
+        assert_eq!(
+            cause.to_string(),
+            format!(
+                "security.inbound.key_set_max_stale_seconds is {seconds} seconds, and the ceiling is between 300 and 86400. \
+                 Below 300 a few failed reads refuse every caller; above 86400 it is not a ceiling"
+            ),
+        );
+    }
+    for (declared, seconds) in [(DIRECT_INBOUND, 300), (GATEWAY_INBOUND, 86_400)] {
+        drop(loads(overlay(declared, seconds)));
+    }
 }
