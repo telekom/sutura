@@ -145,9 +145,10 @@ and no `dataset`; both keys are refused at load with a message naming the key th
   2. else the one project of every table the query reads;
   3. else the project the caller names in the `Sutura-Bill-To` header or the MCP `bill_to`
      argument, read only when the source sets `billing.caller_may_name: true`. A value that is not
-     a billing account name is refused with a 400 that names the header or the argument. A value
-     that is one but is not a project id is refused with `bill_to_not_allowed` (403) when this step
-     is reached;
+     a billing account name is refused before the question runs: on `/v1` with a 400
+     `unusable_bill_to` that names the header, on MCP with an invalid-params error that names
+     `bill_to`. A value that is one but is not a project id is refused with `bill_to_not_allowed`
+     when this step is reached: a 403 on `/v1`, a refused tool result with that code on MCP;
   4. else the query is refused with `no_billing_project`, and nothing runs.
 
   A payer named on a source without `billing.caller_may_name: true` is refused with
