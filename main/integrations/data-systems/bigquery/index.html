@@ -3769,9 +3769,23 @@ these keys:</p>
 </table>
 <p>With <code>delegation</code>, the first hop exchanges the caller's token at its identity provider, and each
 next hop exchanges the token from the hop before it. The token from the last hop is the one that
-the pool accepts. <code>delegation</code> needs <code>security.inbound.mode: direct</code>. Without <code>delegation</code>, sutura
-sends the caller's verified token to the pool as it is. Do not write <code>expected_issuer</code> or
-<code>expected_audience</code>: sutura refuses to start with them.</p>
+the pool accepts. <code>delegation</code> needs <code>security.inbound.mode: direct</code>. Do not write
+<code>expected_issuer</code> or <code>expected_audience</code>: sutura refuses to start with them.</p>
+<p>With <code>security.inbound.mode: direct</code>, declare <code>delegation</code>. Then the pool gets a token for its own
+audience. Configure the pool provider to accept only that audience. If you do not declare
+<code>delegation</code>, sutura does not start. The message names two fixes:</p>
+<ol>
+<li>Declare <code>delegation</code>. This is the recommended fix.</li>
+<li>Write <code>inbound_token_at_pool: accepted</code> on the source, next to <code>workload_identity</code>. Then sutura
+   sends the caller's verified token to the pool as it is, so the pool provider must accept the
+   audience of sutura itself. <code>accepted</code> is the only value. sutura logs one <code>WARN</code> line for the
+   source at each start.</li>
+</ol>
+<p>sutura refuses to start when <code>inbound_token_at_pool</code> is written on a source that declares
+<code>delegation</code>, on a source without <code>workload_identity</code>, or on a deployment that is not <code>direct</code>. It
+also refuses to start when the last <code>delegation</code> hop asks for the audience of sutura itself
+(<code>security.inbound.resource</code> or <code>security.inbound.audience</code>). This check compares the configured
+text only.</p>
 <p>With <code>google_login</code>, the query runs as the Google account that the caller linked at the identity
 provider. sutura sends the caller's verified token to the identity provider's broker token
 endpoint (Keycloak's Identity Brokering API v2) and gives BigQuery the Google access token that
