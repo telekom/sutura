@@ -92,7 +92,7 @@ pub use link::{LinkKind, QuotedColumnType};
 /// metric's own name.
 ///
 /// **The [`serde::Serialize`] derive exists for the CLI's plan dump and nothing else.** A plan is
-/// serialized to be printed; nothing in the workspace gains [`serde::Deserialize`], so a plan cannot
+/// serialized to be printed; `FederatedPlan` does not derive [`serde::Deserialize`], so a plan cannot
 /// be reconstructed from its serialized form and no field here is a request a caller writes.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct FederatedPlan {
@@ -127,6 +127,9 @@ pub struct FederatedPlan {
     /// truncates the combined answer after the combiner returns it. `None` when the
     /// question carries no `top`.
     top: Option<Top>,
+    /// How the link's two keys compare when the relationship declares it. `None` is equality of kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_comparison: Option<LinkKind>,
 }
 
 /// Which leg's result an answer key is read from.
@@ -382,6 +385,7 @@ impl FederatedPlan {
             federation,
             keys,
             top: None,
+            link_comparison: None,
         })
     }
 
@@ -404,6 +408,22 @@ impl FederatedPlan {
     #[inline]
     pub const fn top(&self) -> Option<Top> {
         self.top
+    }
+
+    /// Records the comparison the link's relationship declares, for the combiner to read.
+    ///
+    /// A builder rather than a constructor argument, so [`Self::new`] keeps its argument list.
+    #[inline]
+    #[must_use]
+    pub const fn with_link_comparison(mut self, comparison: Option<LinkKind>) -> Self {
+        self.link_comparison = comparison;
+        self
+    }
+
+    /// The comparison the link declares, or `None` for equality of kind.
+    #[inline]
+    pub const fn link_comparison(&self) -> Option<LinkKind> {
+        self.link_comparison
     }
 
     /// Every leg, in execution order: the fact leg, the second fact leg if present, then the
