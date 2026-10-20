@@ -273,9 +273,11 @@ struct Recording {
     /// **Recorded rather than refused, unlike every other `Optionable` method here**, because the
     /// money bound is sent this way and a fake that errored on it would make
     /// `every_statement_this_transport_submits_carries_the_configured_bytes_billed_ceiling`
-    /// unwritable. A non-integer option is still `not_asked`: this transport sets exactly one
-    /// statement option and it is an integer.
+    /// unwritable.
     integer_options: Vec<(String, i64)>,
+    /// Every string option set on this statement, as `(key, value)` in order. Any other option
+    /// type is still `not_asked`.
+    string_options: Vec<(String, String)>,
 }
 
 impl Recording {
@@ -284,6 +286,7 @@ impl Recording {
             queries: Vec::new(),
             bound: Vec::new(),
             integer_options: Vec::new(),
+            string_options: Vec::new(),
         }
     }
 }
@@ -306,7 +309,11 @@ impl adbc_core::Optionable for Recording {
                 self.integer_options.push((key.as_ref().to_owned(), value));
                 Ok(())
             }
-            _ => Err(not_asked("set a non-integer option")),
+            adbc_core::options::OptionValue::String(value) => {
+                self.string_options.push((key.as_ref().to_owned(), value));
+                Ok(())
+            }
+            _ => Err(not_asked("set an option that is neither an integer nor a string")),
         }
     }
 
@@ -450,6 +457,23 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
     assert_eq!(
         other.integer_options,
         vec![(String::from("bigquery.query.max_bytes_billed"), 4096_i64)]
+    );
+}
+
+#[test]
+fn every_statement_this_transport_submits_clears_the_drivers_default_project() {
+    // The driver seeds a statement's default project from `bigquery.project_id`, and with no
+    // dataset beside it the service refuses every inserted job: *Required parameter is missing:
+    // dataset_id*. Drop the `set_option` call in `prepared` and this cell reddens.
+    let project = project();
+    let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
+    let mut statement = Recording::new();
+    super::prepared(&mut statement, &request, None, a_gibibyte(), Instant::now())
+        .expect("the recording statement accepts the option");
+    assert_eq!(
+        statement.string_options,
+        vec![(String::from("bigquery.query.default_project_id"), String::new())],
+        "the statement kept a default project, so the job carries a default dataset with no dataset"
     );
 }
 

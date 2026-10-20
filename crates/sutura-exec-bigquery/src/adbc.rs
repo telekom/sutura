@@ -235,7 +235,8 @@ pub enum AdbcError {
 /// `AdbcBigQuery`'s `run` is the only caller of its [`connect`](AdbcBigQuery::connect), so a leg, a verified
 /// anchor, an identity read and a fixture load all arrive here and none of them can opt out. Sent
 /// rather than checked: see [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for
-/// what the service does with it, and what it does not bound.
+/// what the service does with it, and what it does not bound. It also clears the driver's default
+/// project, for the reason [`DEFAULT_PROJECT_OPTION`] gives.
 ///
 /// **And the TIME bound: a request-time call's own [`Deadline`] becomes the job's `jobTimeoutMs`.**
 /// `now` is an argument for the reason [`Deadline::remaining_at`] takes one. A deadline already
@@ -252,6 +253,11 @@ fn prepared<S>(
 where
     S: Statement,
 {
+    stmt.set_option(
+        OptionStatement::Other(DEFAULT_PROJECT_OPTION.to_owned()),
+        OptionValue::String(String::new()),
+    )
+    .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
     stmt.set_option(
         OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
         OptionValue::Int(max_bytes_billed.as_int()),
@@ -308,6 +314,15 @@ type Connected = (ManagedDriver, ManagedStatement, Option<subject::SubjectSource
 /// probe opens no connection, so this is never sent anywhere. `.invalid` is RFC 2606's reserved
 /// never-resolvable name.
 const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
+
+/// The pinned driver's own name for the project half of a job's `defaultDataset`, sent EMPTY.
+///
+/// **Read off the pinned source, not run here.** `go/connection.go`'s `NewStatement` seeds it from
+/// `bigquery.project_id`, and the client library sends a `defaultDataset` whenever either half is
+/// set - so with no dataset beside it the service refuses every inserted job for a missing
+/// `dataset_id`. Empty, no default is sent at all, which is what a source with no default dataset
+/// means: every table this adapter renders is named `project.dataset.table`.
+const DEFAULT_PROJECT_OPTION: &str = "bigquery.query.default_project_id";
 
 /// The pinned driver's own name for `BigQuery`'s `maximumBytesBilled` job configuration.
 ///

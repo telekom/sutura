@@ -181,6 +181,7 @@ mod tests {
         let data = example.join("data");
         let catalog = derived_catalog(case, &example.join("catalog"), MOVED_MODEL, BQ_SOURCE);
         without_the_product_family_dimension(&catalog);
+        named_in_full(&catalog);
         let security = format!(
             "  identity: \"multi-user\"\n  \
              inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
@@ -204,6 +205,19 @@ mod tests {
             _published: published,
             _secret: secret,
         }
+    }
+
+    /// Names the moved model's table `project.dataset.table`: a `bigquery` source resolves no
+    /// shorter path, so the boot would refuse a bare one as a table the dataset does not hold.
+    fn named_in_full(catalog: &std::path::Path) {
+        let model = catalog.join("models").join(MOVED_MODEL);
+        let text = std::fs::read_to_string(&model).expect("the derived catalog carries the moved model");
+        let named = text.replace(
+            "table: fct_usage_daily\n",
+            "table: acme-analytics.warehouse.fct_usage_daily\n",
+        );
+        assert_ne!(named, text, "{} no longer names `table: fct_usage_daily`", model.display());
+        std::fs::write(&model, named).expect("the derived model document is writable");
     }
 
     fn ask(deployed: &Deployed, subject: &str) -> (String, Reply) {

@@ -59,8 +59,7 @@ pub enum JobDeadline {
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
     /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
     /// under its own configured bounds instead*, and this process configures no TIME bound at all:
-    /// the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the
-    /// three an impersonating leg chains for the credential document (`adbc::identity`'s
+    /// the database options it sets are `bigquery.project_id`, plus the three an impersonating leg chains for the credential document (`adbc::identity`'s
     /// `credential_options`), and none of them is a window - so whatever window exists is the
     /// driver's own default and is not ours to state. **It is not the only bound, and the earlier
     /// *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every
