@@ -13,8 +13,7 @@
 # WHAT IT PROVES, AND NOT: the example runs from a Linux amd64 runner against the RELEASED image
 # (`SUTURA_VERSION`, unset is `latest`), not against the commit. A catalog or setting the release
 # does not read yet fails here though the commit is right. Docker Desktop and arm64 are not covered.
-# `multi-player` needs Google credentials, and `metrics-layer` and `cube` do not run to an answer
-# on `main` yet: none of the three is in the matrix.
+# `multi-player` needs Google credentials, so it is not in the matrix.
 #
 # Not a required context. It may become one, on the owner's word, once it is green on `main`; the
 # way is listed in `devco/required-contexts`.
@@ -50,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [single-player, federated]
+        example: [single-player, federated, cube, metrics-layer]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
