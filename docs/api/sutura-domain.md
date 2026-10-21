@@ -8792,8 +8792,14 @@ joins onto to project its own.
 **A lookup leg's link parts are the run it projects, and nothing else says how many.** Parts
 `0..n` of its position are the key parts of the relationship that crosses to it, so the leg it
 joins onto (and, for the first leg, the second fact) must project the same run. A part the
-run does not include, on either leg, is refused rather than ignored: the leg would group by a
-column nothing joins on and change the answer's grain.
+run does not include, on either of those two legs, is refused rather than ignored: the leg
+would group by a column nothing joins on and change the answer's grain.
+
+**The limit, next to the claim:** only the two legs a lookup position joins are read for that
+position's parts. A link label of a position with no lookup leg, or on a leg that position does
+not join (a fact leg projecting `1_link_5` while lookup 1 is chained onto lookup 0), is not
+refused. A second fact is held by the shared-key check instead: a part beside the run is
+`FederatedPlanError::FactKeyNotShared`, not `FederatedPlanError::LinkPartNotOnLookup`.
 
 ```rust
 pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet>
@@ -8946,7 +8952,7 @@ Why a federated plan could not be built.
   Reached only by direct construction: `plan()` refuses a question grouped by a dimension
   only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
   shape as a type.
-- `LinkPartNotOnLookup` - A leg projects a link part that the lookup leg it is joined to does not.
+- `LinkPartNotOnLookup` - A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.
 
   The leg would group by a column nothing joins on, which splits one link value's rows and
   changes the answer's grain. **Reached only by direct construction:** the one production
@@ -9694,19 +9700,14 @@ scheme could produce exactly that. Nothing here reads a metric's name, and the w
 ###### Methods
 
 ```rust
-pub fn is_link_of(leg: usize, text: &str) -> bool
-```
-
-Whether `text` spells a link label of the lookup leg at `leg`, of any part.
-
-```rust
 pub fn label(self) -> String
 ```
 
 The text this label carries in a leg's result.
 
 The one place the reserved namespace is spelled. A caller that needs it as a column name
-takes it from here, so no call site holds a second copy of the spelling.
+takes it from here, so no call site holds a second copy of the spelling. `is_link_of`
+reads the link spelling back, and is held only by the stray-part cells.
 
 ```rust
 pub const fn link(leg: usize) -> Self

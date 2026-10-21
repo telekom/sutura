@@ -457,7 +457,9 @@ async fn arm_plan(
         .zip(LOOKUP_TABLES)
         .map(|(&(leg, batches), table)| Ok((leg, table, batches, LegSchema::of(table, batches.schema())?)))
         .collect::<Result<Vec<_>, CombineError>>()?;
-    // Each lookup leg's link kinds agree with the leg it joins onto, part by part.
+    // Each lookup leg's link kinds agree with the leg it joins onto, part by part. A part past the
+    // first is pinned by a cell only for a lookup onto the fact leg, not for one chained onto an
+    // earlier lookup.
     for (position, &(leg, _, _, ref schema)) in lookups.iter().enumerate() {
         for link in plan.link_labels(position) {
             let onto = match leg.onto() {
@@ -475,7 +477,7 @@ async fn arm_plan(
         (Some(_), None) => {
             return Err(CombineError::MissingColumn {
                 side: SECOND_FACT,
-                label: links.first().cloned().unwrap_or_default(),
+                label: links.first().cloned().unwrap_or_else(|| InternalLabel::link(0).label()),
             });
         }
         (None, _) => None,

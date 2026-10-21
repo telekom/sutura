@@ -197,8 +197,14 @@ impl FederatedPlan {
     /// **A lookup leg's link parts are the run it projects, and nothing else says how many.** Parts
     /// `0..n` of its position are the key parts of the relationship that crosses to it, so the leg it
     /// joins onto (and, for the first leg, the second fact) must project the same run. A part the
-    /// run does not include, on either leg, is refused rather than ignored: the leg would group by a
-    /// column nothing joins on and change the answer's grain.
+    /// run does not include, on either of those two legs, is refused rather than ignored: the leg
+    /// would group by a column nothing joins on and change the answer's grain.
+    ///
+    /// **The limit, next to the claim:** only the two legs a lookup position joins are read for that
+    /// position's parts. A link label of a position with no lookup leg, or on a leg that position does
+    /// not join (a fact leg projecting `1_link_5` while lookup 1 is chained onto lookup 0), is not
+    /// refused. A second fact is held by the shared-key check instead: a part beside the run is
+    /// [`FederatedPlanError::FactKeyNotShared`], not [`FederatedPlanError::LinkPartNotOnLookup`].
     // The constructor takes the shape of the question as the splitter decided it; a bundle of named
     // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
     // instantiations it exists to forbid.
@@ -239,6 +245,7 @@ impl FederatedPlan {
                     source_name: leg.source().clone(),
                 });
             }
+            // `.max(1)`: a lookup leg with no part 0 is a missing part 0 (`KeyNotOnLeg`), not a stray part.
             let parts = link_parts(leg, position).max(1);
             for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
                 if let Some(label) = (0..parts)
@@ -576,12 +583,13 @@ pub enum FederatedPlanError {
     /// shape as a type.
     #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
     FactKeyNotShared { label: String },
-    /// A leg projects a link part that the lookup leg it is joined to does not.
+    /// A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the
+    /// lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.
     ///
     /// The leg would group by a column nothing joins on, which splits one link value's rows and
     /// changes the answer's grain. **Reached only by direct construction:** the one production
     /// splitter projects a part on both legs or on neither.
-    #[error("the {side:?} leg projects the link part `{label}`, which the lookup leg it joins does not")]
+    #[error("the {side:?} leg projects the link part `{label}`, which is outside the run of parts the lookup leg projects")]
     LinkPartNotOnLookup { side: LegAt, label: String },
 }
 

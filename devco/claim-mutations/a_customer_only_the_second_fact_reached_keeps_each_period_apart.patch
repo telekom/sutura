@@ -6,7 +6,7 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-ex
              .map(String::as_str)
              .chain([bucket])
 -            .map(|label| coalesce(vec![qualified(FACT_TABLE, label), qualified(table, label)]).alias(label))
-+            .map(|label| coalesce(vec![qualified(FACT_TABLE, label), qualified(FACT_TABLE, label)]).alias(label))
++            .map(|label| coalesce(vec![qualified(FACT_TABLE, label), qualified(if label == bucket { FACT_TABLE } else { table }, label)]).alias(label))
              .collect();
          for (qualifier, field) in joined.schema().iter() {
              if field.name() == bucket || links.contains(field.name()) {

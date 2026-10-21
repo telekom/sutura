@@ -48,7 +48,7 @@ a_lookup_leg_on_the_source_of_the_leg_it_joins_onto_is_refused_and_a_return_is_n
 a_lookup_leg_whose_parent_does_not_project_its_link_is_refused # in plan/federated/tests/fan_in.rs, which names `LookupLeg::onto_lookup` and `LegAt`, new in this change; killed when the lookup leg's `KeyNotOnLeg` refusal is `&& false`
 a_count_of_results_that_differs_from_the_plans_legs_is_miswired # in plan/federated/tests/fan_in.rs, which names `Legs::assign`, new in this change; killed when `assign`'s count refusal is `&& false`
 each_lookup_leg_that_does_not_answer_ends_the_answer_with_no_rows # in plan/federated/tests/fan_in.rs, which names `LookupLegs::legs`, new in this change; killed when `execute` drops a lookup leg that did not answer
-three_lookup_legs_dry_run_once_each # in federated/tests/dry_run_count_test.rs, which names `InternalLabel::Link(usize)` and `LookupLegs`, new in this change; killed when the cut's legs are taken three at most
+three_lookup_legs_dry_run_once_each # in federated/tests/dry_run_count_test.rs, which names `InternalLabel::Link` and `LookupLegs`, new in this change; killed when the cut's legs are taken three at most
 three_lookup_legs_and_a_chain_combine_on_their_own_links # in combine/tests/fan_in.rs, a module new in this change; killed when every lookup leg is joined onto the fact
 a_second_lookup_leg_with_two_rows_for_one_link_value_is_ambiguous # in combine/tests/fan_in.rs, a module new in this change; killed when only the first lookup leg is checked for an ambiguous link
 a_plan_names_one_link_label_per_key_part_of_its_lookup_leg # in plan/federated/tests/link_parts.rs, a module new in this change, which names `InternalLabel::Link { leg, part }` and `FederatedPlan::link_labels`; killed when a lookup leg's parts count only part 0
@@ -61,4 +61,5 @@ a_lookup_tuple_repeated_on_one_part_only_is_answered # in combine/tests/link_par
 a_lookup_tuple_repeated_on_every_part_is_refused # in combine/tests/link_parts.rs, a module new in this change; killed when the ambiguous-link check on a lookup leg is dropped
 a_null_link_part_matches_no_lookup_row # in combine/tests/link_parts.rs, a module new in this change; killed when a lookup leg is joined on its first link part only
 a_link_part_whose_kind_disagrees_is_refused # in combine/tests/link_parts.rs, a module new in this change; killed when the link-kind check covers a leg's first part only
-a_second_fact_joins_on_every_link_part_and_the_bucket # in combine/tests/link_parts.rs, a module new in this change; killed when the second fact is joined on its first link part and the bucket only
+a_second_fact_joins_on_every_link_part_and_the_bucket # in combine/tests/link_parts.rs, a module new in this change; killed when the second fact's `on` list in `combine_plan` (arm.rs) is built from the first link part and the bucket only
+a_second_fact_link_part_whose_kind_disagrees_is_refused # in combine/tests/link_parts.rs, a module new in this change; killed when the second fact's link-kind check in `arm_plan` (combine.rs) covers the first part only

@@ -162,6 +162,19 @@ fn a_second_fact_must_project_every_link_part_and_nothing_beside_them() {
         })
     );
 
+    let stray_part = plan(
+        fact_keyed(both()),
+        Some(second_fact_keyed(vec![part(0, 0), part(0, 1), part(0, 2)])),
+        lookup.clone(),
+    );
+    assert_eq!(
+        stray_part,
+        Err(FederatedPlanError::FactKeyNotShared {
+            label: InternalLabel::Link { leg: 0, part: 2 }.label()
+        }),
+        "a second fact's part beside the run is the shared-key refusal, not LinkPartNotOnLookup"
+    );
+
     let extra = plan(
         fact_keyed(both()),
         Some(second_fact_keyed(vec![

@@ -85,21 +85,31 @@ fn a_lookup_tuple_repeated_on_every_part_is_refused() {
 }
 
 /// A null part matches no lookup row, as `NULL = x` does on one source: LEFT keeps the fact row with
-/// no region, INNER drops it.
+/// no region, INNER drops it. The second fact row gives the part column its text kind; a join on the
+/// first part alone would pair the null-part row with the lookup row too and answer `north` 30.
 #[test]
 fn a_null_link_part_matches_no_lookup_row() {
     let legs = [
         batches_of(
             vec![part(0), part(1), period(), leaf(0)],
-            vec![vec![text("c1"), Value::Null, text("2026-06"), Value::Integer(10)]],
+            vec![
+                vec![text("c1"), Value::Null, text("2026-06"), Value::Integer(10)],
+                vec![text("c1"), text("m1"), text("2026-06"), Value::Integer(20)],
+            ],
         ),
         regions(&[("c1", "m1", "north")]),
     ];
     assert_eq!(
         answered(&legs, true),
-        vec![vec![Value::Null, text("2026-06"), Value::Integer(10)]]
+        vec![
+            vec![text("north"), text("2026-06"), Value::Integer(20)],
+            vec![Value::Null, text("2026-06"), Value::Integer(10)],
+        ]
     );
-    assert_eq!(answered(&legs, false), Vec::<Vec<Value>>::new());
+    assert_eq!(
+        answered(&legs, false),
+        vec![vec![text("north"), text("2026-06"), Value::Integer(20)]]
+    );
 }
 
 /// Each part is typed on its own: an integer second part against a text one is refused.
@@ -119,19 +129,36 @@ fn a_link_part_whose_kind_disagrees_is_refused() {
     );
 }
 
-/// Both facts join on every part and the bucket: `150 / 1` north and `50 / 1` south, where a join on
-/// the first part alone pairs each revenue with both visit rows.
+/// The second fact's part is typed against the first fact's, part by part: an integer second part
+/// beside a text one is refused.
+#[test]
+fn a_second_fact_link_part_whose_kind_disagrees_is_refused() {
+    let second = batches_of(
+        vec![part(0), part(1), period(), leaf(1)],
+        vec![vec![text("c1"), Value::Integer(1), text("2026-06"), Value::Integer(1)]],
+    );
+    let legs = [fact(&[("c1", "m1", 150)]), second, regions(&[("c1", "m1", "north")])];
+    let refused = try_combine_every(&compound_two_fact_plan(), &legs, UNBOUNDED).expect_err("a kind mismatch refuses");
+    assert_eq!(
+        combiner().answer_not_well_formed(&refused),
+        Some(FederatedAnswerRefusal::LinkTypeMismatch)
+    );
+}
+
+/// Both facts join on every part and the bucket: `150 / 1` north and `100 / 2` south. The visit
+/// counts differ so a fan-out cannot cancel: a join on the first part and the bucket alone pairs each
+/// revenue with both visit rows and answers `(150 + 150) / (1 + 2)` and `(100 + 100) / (1 + 2)`.
 #[test]
 fn a_second_fact_joins_on_every_link_part_and_the_bucket() {
     let second = batches_of(
         vec![part(0), part(1), period(), leaf(1)],
         vec![
             vec![text("c1"), text("m1"), text("2026-06"), Value::Integer(1)],
-            vec![text("c1"), text("m2"), text("2026-06"), Value::Integer(1)],
+            vec![text("c1"), text("m2"), text("2026-06"), Value::Integer(2)],
         ],
     );
     let legs = [
-        fact(&[("c1", "m1", 150), ("c1", "m2", 50)]),
+        fact(&[("c1", "m1", 150), ("c1", "m2", 100)]),
         second,
         regions(&[("c1", "m1", "north"), ("c1", "m2", "south")]),
     ];
