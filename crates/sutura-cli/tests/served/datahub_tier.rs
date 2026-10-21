@@ -19,7 +19,7 @@ pub(super) struct FixtureNames {
 
 impl FixtureNames {
     /// Per-run names whose datasets live under `qualifier` (`project.dataset`), so each dataset urn
-    /// names its table in full and the catalog reads the model by its last segment.
+    /// names its table in full and the catalog reads the model by its platform and that whole path.
     pub(super) fn unique(qualifier: String) -> Self {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -37,6 +37,21 @@ impl FixtureNames {
 
     fn table(&self, model: &str) -> String {
         format!("{}.{model}", self.qualifier)
+    }
+
+    /// The model the catalog reads `table`'s dataset as: `bigquery`, then each part of its path,
+    /// `__` between them and `_` for every other character.
+    fn model(&self, table: &str) -> String {
+        core::iter::once("bigquery")
+            .chain(self.qualifier.split('.'))
+            .chain(core::iter::once(table))
+            .map(|part| {
+                part.chars()
+                    .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("__")
     }
 
     pub(super) fn metric(&self) -> &str {
@@ -338,7 +353,7 @@ impl DatahubTier {
         let id = names.metric();
         let mut document: serde_json::Value =
             serde_json::from_str(property.string_value()).expect("the recorded metric property is JSON");
-        document["model"] = serde_json::json!(names.orders);
+        document["model"] = serde_json::json!(names.model(&names.orders));
         document["dimensions"][0]["via"] = serde_json::json!(names.relationship);
         let scalar = serde_json::json!([{ "string": document.to_string() }]);
         let entity = serde_json::json!([{

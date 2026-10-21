@@ -49,7 +49,7 @@
 //! join the data system pushes down, and routing it through a splitter and a client-side combiner
 //! would replace that with something slower which discards the pushdown.
 
-use crate::model::{Hyphens, InvalidIdentifier, TableName, identifier_newtype, parse_name};
+use crate::model::{Hyphens, InvalidIdentifier, MAX_IDENTIFIER_LEN, TableName, identifier_newtype, parse_name};
 
 identifier_newtype! {
     /// The name of a dataset, or of a schema - the qualifier immediately above a table.
@@ -90,7 +90,7 @@ impl ProjectName {
     ///
     /// The canonical constructor. [`TryFrom<String>`] and the `Deserialize` derive both route here.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier> {
-        parse_name(raw.as_ref(), Hyphens::Allowed).map(Self)
+        parse_name(raw.as_ref(), Hyphens::Allowed, MAX_IDENTIFIER_LEN).map(Self)
     }
 
     #[inline]

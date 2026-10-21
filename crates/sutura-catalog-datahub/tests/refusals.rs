@@ -27,10 +27,9 @@ mod tests {
         }
     }
 
-    fn dataset(name: &str, platform: &str, description: &str) -> DatasetAspect {
+    fn dataset(table: &str, platform: &str, description: &str) -> DatasetAspect {
         DatasetAspect::new(
-            name.to_owned(),
-            String::from("fct_order"),
+            table.to_owned(),
             platform.to_owned(),
             vec![String::from("order_id")],
             description.to_owned(),
@@ -58,9 +57,10 @@ mod tests {
 
     #[test]
     fn a_dataset_with_an_unparseable_name_is_refused() {
-        let outcome = refused(dataset("123bad", "bigquery", "Orders."));
+        let table = "t".repeat(250);
+        let outcome = refused(dataset(&table, "bigquery", "Orders."));
         assert!(
-            matches!(outcome, Some(DataHubError::Identifier { kind: "model", ref value, .. }) if value == "123bad"),
+            matches!(outcome, Some(DataHubError::Identifier { kind: "model", ref value, .. }) if *value == format!("bigquery__{table}")),
             "{outcome:?}"
         );
     }
@@ -69,7 +69,7 @@ mod tests {
     fn a_dataset_with_an_unusable_description_is_refused() {
         let outcome = refused(dataset("orders", "bigquery", "Bad\rdescription"));
         assert!(
-            matches!(outcome, Some(DataHubError::Description { ref on, .. }) if on == "orders"),
+            matches!(outcome, Some(DataHubError::Description { ref on, .. }) if on == "bigquery__orders"),
             "{outcome:?}"
         );
     }

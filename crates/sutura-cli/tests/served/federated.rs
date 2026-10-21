@@ -117,7 +117,7 @@ mod tests {
     /// The one-source golden for [`QUESTION`] on Postgres: the answer this deployment must equal.
     const ORACLE: &str = "../sutura-app/tests/snapshots/recurring-revenue-by-segment__rows@postgres.snap";
 
-    /// A `dataset` entity: model and table are both `table`, on `platform`.
+    /// A `dataset` entity over `table` on `platform`, read as model `<platform>__<table>`.
     fn dataset(platform: &str, table: &str, columns: &[(&str, &str)]) -> serde_json::Value {
         serde_json::json!({
             "urn": format!("urn:li:dataset:(urn:li:dataPlatform:{platform},{table},PROD)"),
@@ -167,7 +167,7 @@ mod tests {
             } },
         }] });
         let document = serde_json::json!({
-            "model": "fct_subscription_monthly",
+            "model": "postgres__fct_subscription_monthly",
             "measure": { "simple": { "aggregate": "sum", "column": "mrr_cents" } },
             "time_column": "month",
             "grains": ["month"],

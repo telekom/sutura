@@ -31,10 +31,10 @@ use sutura_catalog_datahub::http::{
 use sutura_catalog_datahub::{AspectReader, DataHubCatalog, DataHubError};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::catalog::{
-    AnchorValue, Column, Definitions, Description, InconsistentDefinitions, JoinKey, Metric, Model, ViaChain,
+    AnchorValue, Column, Definitions, Description, InconsistentDefinitions, JoinKey, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::identity::Secret;
-use sutura_domain::model::{JoinType, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{JoinType, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 
 use super::tests::{INDEX_LAG_BUDGET, agent, endpoint, pat, send};
@@ -61,8 +61,12 @@ fn golden_root() -> PathBuf {
 /// What the golden states that this adapter does not carry back, one row each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NotCarried {
-    /// `HttpAspectReader` fills `Model.table` from the dataset urn's name segment, so table == name.
+    /// `HttpAspectReader` fills `Model.table` from the dataset urn's name segment, which this cell
+    /// writes as the golden model's name, so table == the golden name.
     Table,
+    /// The catalog names a model by its platform and urn name ([`read_as`]), so a golden model
+    /// `customers` reads back as `postgres__customers` - and a metric document names it so.
+    Name,
     /// `schemaMetadata` nullability is not read, so every column comes back with none.
     Nullable,
     /// A compound-key relationship: the golden's `usage_subscription` has two keys, the second
@@ -82,8 +86,9 @@ enum NotCarried {
 /// about a restricted or shared-calendar metric sourced from `DataHub` - such a metric is not
 /// carried, and a `NOT_CARRIED` row cannot name it (its `bites` would fail, the golden states
 /// none).
-const NOT_CARRIED: [NotCarried; 5] = [
+const NOT_CARRIED: [NotCarried; 6] = [
     NotCarried::Table,
+    NotCarried::Name,
     NotCarried::Nullable,
     NotCarried::Relationship("usage_subscription"),
     NotCarried::Metric("voice_minutes"),
@@ -100,6 +105,7 @@ impl NotCarried {
                 .models()
                 .values()
                 .any(|model| model.table_name().as_str() != model.name().as_str()),
+            Self::Name => !golden.definitions().models().is_empty(),
             Self::Nullable => golden
                 .definitions()
                 .models()
@@ -124,6 +130,12 @@ fn golden() -> PinnedDefinitions {
     .expect("the golden catalog loads")
 }
 
+/// The model a golden model reads back as: this cell's platform, then the name its dataset urn
+/// carries - the golden name, which holds no dot.
+fn read_as(model: &ModelName) -> ModelName {
+    ModelName::parse(format!("{PLATFORM}__{model}")).expect("a platform and a model name are a model name")
+}
+
 /// Whether `name` is a carried relationship or metric this golden states.
 fn not_carried(rows: &[NotCarried], name: &str) -> bool {
     rows.iter()
@@ -133,6 +145,13 @@ fn not_carried(rows: &[NotCarried], name: &str) -> bool {
 /// The golden with `rows` applied - what the read-back must equal; an `Err` means the golden
 /// does not hold together without them.
 fn carried(golden: &Definitions, rows: &[NotCarried]) -> Result<Definitions, InconsistentDefinitions> {
+    let renamed = |model: &ModelName| {
+        if rows.contains(&NotCarried::Name) {
+            read_as(model)
+        } else {
+            model.clone()
+        }
+    };
     let models = golden
         .models()
         .values()
@@ -159,7 +178,7 @@ fn carried(golden: &Definitions, rows: &[NotCarried]) -> Result<Definitions, Inc
                 model.table().clone()
             };
             Model::new(
-                model.name().clone(),
+                renamed(model.name()),
                 model.source().clone(),
                 table,
                 columns,
@@ -172,14 +191,35 @@ fn carried(golden: &Definitions, rows: &[NotCarried]) -> Result<Definitions, Inc
         .relationships()
         .values()
         .filter(|relationship| !not_carried(rows, relationship.name().as_str()))
-        .cloned()
+        .map(|relationship| {
+            Relationship::new(
+                relationship.name().clone(),
+                renamed(relationship.origin_model()),
+                renamed(relationship.target_model()),
+                relationship.join_type(),
+                relationship.keys().clone(),
+            )
+        })
         .collect();
     let metrics = golden
         .metrics()
         .values()
         .filter(|metric| !not_carried(rows, metric.name().as_str()))
-        .cloned()
-        .collect();
+        .map(|metric| {
+            Metric::new(
+                metric.name().clone(),
+                renamed(metric.model()),
+                metric.computation().clone(),
+                metric.required_filters().to_vec(),
+                metric.time_column().clone(),
+                metric.grains().clone(),
+                metric.dimensions().values().cloned().collect(),
+                metric.anchor().cloned(),
+                Description::parse(metric.description()).expect("the golden metric prose parses"),
+                metric.audience().clone(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Definitions::assemble(models, relationships, metrics)
 }
 
@@ -188,7 +228,8 @@ fn dataset_urn(name: &str) -> String {
     format!("urn:li:dataset:(urn:li:dataPlatform:{PLATFORM},{name},PROD)")
 }
 
-/// The golden artifact of one metric, spelled back into the deployment-defined document.
+/// The golden artifact of one metric, spelled back into the deployment-defined document, naming
+/// its model as the catalog reads it back.
 fn sutura_content(metric: &Metric) -> SuturaContent {
     let dimensions = metric
         .dimensions()
@@ -206,7 +247,7 @@ fn sutura_content(metric: &Metric) -> SuturaContent {
         })
         .collect();
     SuturaContent::full(
-        metric.model().as_str().to_owned(),
+        read_as(metric.model()).as_str().to_owned(),
         metric.measure().expect("the golden is closed-vocabulary").clone(),
         metric.time_column().as_str().to_owned(),
         metric.grains().iter().copied().collect(),
@@ -465,7 +506,7 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
     // until it matches: a lagged view missing a stray row's subject would match, and pass.
     let holds_all_written = |pinned: &PinnedDefinitions| {
         let read = pinned.definitions();
-        written.models().keys().all(|name| read.models().contains_key(name))
+        written.models().keys().all(|name| read.models().contains_key(&read_as(name)))
             && written
                 .relationships()
                 .keys()

@@ -1,8 +1,8 @@
 //! What a table path is, and the four things about it that are load-bearing elsewhere.
 
 use crate::model::{
-    DatasetName, Hyphens, InvalidIdentifier, InvalidQualifiedTable, ProjectName, Qualification, QualifiedTable, TableName,
-    TableQualifier, parse_name,
+    DatasetName, Hyphens, InvalidIdentifier, InvalidQualifiedTable, MAX_IDENTIFIER_LEN, ProjectName, Qualification,
+    QualifiedTable, TableName, TableQualifier, parse_name,
 };
 
 fn table(name: &str) -> TableName {
@@ -178,7 +178,7 @@ fn a_trailing_hyphen_is_refused_and_only_the_hyphen_admitting_parser_can_say_so(
         InvalidIdentifier::TrailingHyphen
     );
     assert_eq!(
-        parse_name("analytics-", Hyphens::Rejected).expect_err("a hyphen is illegal here, not trailing"),
+        parse_name("analytics-", Hyphens::Rejected, MAX_IDENTIFIER_LEN).expect_err("a hyphen is illegal here, not trailing"),
         InvalidIdentifier::IllegalCharacter { offending: '-' },
         "under Hyphens::Rejected a trailing hyphen is refused one guard earlier, so TrailingHyphen is \
          unreachable for an ordinary identifier"

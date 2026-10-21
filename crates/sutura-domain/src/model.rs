@@ -110,7 +110,15 @@ impl core::fmt::Display for IdentifierCase {
 /// 63 is the tightest limit among the data systems we target, and it is a *silent* limit there:
 /// a longer name is truncated rather than rejected, which turns "the column does not exist" into
 /// "the query read a different column". Rejecting here is the only place that failure is visible.
-const MAX_IDENTIFIER_LEN: usize = 63;
+pub(crate) const MAX_IDENTIFIER_LEN: usize = 63;
+
+/// The longest [`ModelName`] we accept.
+///
+/// Not [`MAX_IDENTIFIER_LEN`], because no model name reaches a statement: the plan carries each
+/// model's table and columns, and no plan type holds a [`ModelName`] that is rendered - the one a
+/// federated leaf carries is read only as present or absent. A catalog that names a model by its
+/// whole table path (`sutura-catalog-datahub`) needs the room.
+const MAX_MODEL_NAME_LEN: usize = 255;
 
 /// Why a name was rejected.
 ///
@@ -146,7 +154,8 @@ pub enum InvalidIdentifier {
     #[error("a name may contain only letters, digits and underscore, and this one contains {offending:?}")]
     IllegalCharacter { offending: char },
     /// Longer than a target data system will keep. The limit is 63 characters, the tightest among
-    /// the data systems targeted here.
+    /// the data systems targeted here - except for a [`ModelName`], which reaches no statement and
+    /// may be 255.
     #[error("a name may be at most {limit} characters, and this one has {len}")]
     TooLong { len: usize, limit: usize },
     /// Ends in a hyphen.
@@ -208,15 +217,15 @@ impl Hyphens {
 /// [`crate::knowledge`] as well as from here, and a macro's body resolves its names where it is
 /// expanded. The alternative was a second copy of this parser in the other module, which is the one
 /// thing the macro exists to prevent.
-pub(crate) fn parse_identifier(raw: &str) -> Result<String, InvalidIdentifier> {
-    parse_name(raw, Hyphens::Rejected)
+pub(crate) fn parse_identifier(raw: &str, limit: usize) -> Result<String, InvalidIdentifier> {
+    parse_name(raw, Hyphens::Rejected, limit)
 }
 
 /// Parses one name under a hyphen policy.
 ///
 /// The body [`parse_identifier`] delegates to, and the only other caller is [`ProjectName`]. See
 /// [`Hyphens`] for what the flag is licensed to widen and what it is not.
-pub(crate) fn parse_name(raw: &str, hyphens: Hyphens) -> Result<String, InvalidIdentifier> {
+pub(crate) fn parse_name(raw: &str, hyphens: Hyphens, limit: usize) -> Result<String, InvalidIdentifier> {
     let trimmed = raw.trim();
     let Some(first) = trimmed.chars().next() else {
         return Err(InvalidIdentifier::Empty);
@@ -234,10 +243,10 @@ pub(crate) fn parse_name(raw: &str, hyphens: Hyphens) -> Result<String, InvalidI
         return Err(InvalidIdentifier::TrailingHyphen);
     }
     // Every character is ASCII by now, so byte length is character length.
-    if trimmed.len() > MAX_IDENTIFIER_LEN {
+    if trimmed.len() > limit {
         return Err(InvalidIdentifier::TooLong {
             len: trimmed.len(),
-            limit: MAX_IDENTIFIER_LEN,
+            limit,
         });
     }
     Ok(String::from(trimmed))
@@ -256,6 +265,9 @@ pub(crate) fn parse_name(raw: &str, hyphens: Hyphens) -> Result<String, InvalidI
 /// macro exists to make impossible.
 macro_rules! identifier_newtype {
     ($(#[$meta:meta])* $name:ident) => {
+        $crate::model::identifier_newtype! { $(#[$meta])* $name within $crate::model::MAX_IDENTIFIER_LEN }
+    };
+    ($(#[$meta:meta])* $name:ident within $limit:expr) => {
         $(#[$meta])*
         ///
         /// Construct it with `parse`. There is no other way in: the field is private and
@@ -270,7 +282,7 @@ macro_rules! identifier_newtype {
         impl $name {
             /// Parses a name, rejecting anything that is not one.
             pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier> {
-                $crate::model::parse_identifier(raw.as_ref()).map(Self)
+                $crate::model::parse_identifier(raw.as_ref(), $limit).map(Self)
             }
 
             #[inline]
@@ -302,8 +314,9 @@ macro_rules! identifier_newtype {
 pub(crate) use identifier_newtype;
 
 identifier_newtype! {
-    /// The name of a model: one physical table plus what we know about it.
-    ModelName
+    /// The name of a model: one physical table plus what we know about it. At most
+    /// [`MAX_MODEL_NAME_LEN`] characters.
+    ModelName within MAX_MODEL_NAME_LEN
 }
 
 identifier_newtype! {
@@ -457,8 +470,8 @@ impl JoinType {
 #[cfg(test)]
 mod tests {
     use super::{
-        Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, JoinType, MAX_IDENTIFIER_LEN, MetricName, ModelName,
-        RelationshipName, SourceName, TableName,
+        Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, JoinType, MAX_IDENTIFIER_LEN, MAX_MODEL_NAME_LEN,
+        MetricName, ModelName, RelationshipName, SourceName, TableName,
     };
 
     #[test]
@@ -509,6 +522,28 @@ mod tests {
         assert_eq!(
             ModelName::parse("1st_orders").unwrap_err(),
             InvalidIdentifier::BadFirstCharacter { first: '1' }
+        );
+    }
+
+    #[test]
+    fn a_model_name_may_be_longer_than_a_column_name() {
+        let past_a_column = "a".repeat(MAX_IDENTIFIER_LEN + 1);
+        assert_eq!(
+            ColumnName::parse(&past_a_column).unwrap_err(),
+            InvalidIdentifier::TooLong {
+                len: past_a_column.len(),
+                limit: MAX_IDENTIFIER_LEN
+            }
+        );
+        drop(ModelName::parse(&past_a_column).expect("a model name reaches no statement"));
+        drop(ModelName::parse("a".repeat(MAX_MODEL_NAME_LEN)).expect("exactly the model limit is fine"));
+        let past_a_model = "a".repeat(MAX_MODEL_NAME_LEN + 1);
+        assert_eq!(
+            ModelName::parse(&past_a_model).unwrap_err(),
+            InvalidIdentifier::TooLong {
+                len: past_a_model.len(),
+                limit: MAX_MODEL_NAME_LEN
+            }
         );
     }
 

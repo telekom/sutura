@@ -326,23 +326,24 @@ impl<R: AspectReader> DataHubCatalog<R> {
 
     /// One `dataset` aspect into a [`Model`].
     fn convert_model(&self, dataset: &document::DatasetAspect) -> Result<Model, DataHubError> {
+        let model = model_name(dataset.platform(), dataset.table());
         let source = self
             .sources
             .get(dataset.platform())
             .cloned()
             .ok_or_else(|| DataHubError::UnknownPlatform {
-                model: dataset.name().to_owned(),
+                model: model.clone(),
                 platform: dataset.platform().to_owned(),
             })?;
-        let name = Self::identifier(dataset.name(), |raw| ModelName::parse(raw), "model", "a dataset")?;
+        let name = Self::identifier(&model, |raw| ModelName::parse(raw), "model", "a dataset")?;
         let table = QualifiedTable::parse(dataset.table()).map_err(|cause| DataHubError::Table {
             value: dataset.table().to_owned(),
-            on: dataset.name().to_owned(),
+            on: model.clone(),
             cause,
         })?;
         let mut columns = Vec::with_capacity(dataset.columns().len());
         for column in dataset.columns() {
-            let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;
+            let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", &model)?;
             let metadata = dataset.column_metadata(column);
             let column = Column::from_metadata(
                 column_name,
@@ -353,7 +354,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
             .map_err(|refusal| {
                 let (column, cause) = refusal.into_parts();
                 DataHubError::ColumnDescription {
-                    on: dataset.name().to_owned(),
+                    on: model.clone(),
                     column,
                     cause,
                 }
@@ -361,13 +362,13 @@ impl<R: AspectReader> DataHubCatalog<R> {
             columns.push(column);
         }
         let description = Description::parse(dataset.description()).map_err(|cause| DataHubError::Description {
-            on: dataset.name().to_owned(),
+            on: model.clone(),
             cause,
         })?;
         let primary_key = dataset
             .primary_key()
             .iter()
-            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name()))
+            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", &model))
             .collect::<Result<Vec<_>, _>>()?;
         Model::new(name, source, table, columns, description)
             .with_primary_key(primary_key)
@@ -513,6 +514,26 @@ impl<R: AspectReader> DataHubCatalog<R> {
             cause,
         })
     }
+}
+
+/// The model a dataset is read as: its platform, then each part of its table path, `__` between
+/// them and `_` for every character a model name refuses - `bigquery` and `acme-prod.sales.orders`
+/// read as `bigquery__acme_prod__sales__orders`.
+///
+/// A function of the dataset alone, so reading another dataset never renames one. Two datasets it
+/// maps to one name - two urns that differ only in their environment, or only where a character
+/// became `_` - are refused as one model declared twice by `Definitions::assemble`.
+pub(crate) fn model_name(platform: &str, table: &str) -> String {
+    let safe = |part: &str| -> String {
+        part.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+            .collect()
+    };
+    core::iter::once(platform)
+        .chain(table.split('.'))
+        .map(safe)
+        .collect::<Vec<_>>()
+        .join("__")
 }
 
 impl<R> SemanticCatalog for DataHubCatalog<R>

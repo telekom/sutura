@@ -280,7 +280,7 @@ mod tests {
         let orders = bundle
             .definitions()
             .models()
-            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .get(&sutura_domain::model::ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a fixture column is a column");
         let column = orders.column(&order_id).expect("order_id is declared");
@@ -324,7 +324,7 @@ mod tests {
         let orders = bundle
             .definitions()
             .models()
-            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .get(&sutura_domain::model::ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
         assert_eq!(
@@ -364,7 +364,7 @@ mod tests {
         let orders = bundle
             .definitions()
             .models()
-            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .get(&sutura_domain::model::ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
         assert_eq!(
@@ -527,7 +527,7 @@ mod tests {
         ]);
         let snapshot = reader_of(&server, two_per_page()).read().expect("every page loads");
         let seen = server.finish();
-        let datasets: Vec<_> = snapshot.datasets().iter().map(|dataset| dataset.name().to_owned()).collect();
+        let datasets: Vec<_> = snapshot.datasets().iter().map(|dataset| dataset.table().to_owned()).collect();
         assert_eq!(datasets, ["d1", "d2", "d3", "d4", "d5"]);
         let metrics: Vec<_> = snapshot.metrics().iter().map(|metric| metric.name().to_owned()).collect();
         assert_eq!(metrics, ["m1", "m2", "m3"]);

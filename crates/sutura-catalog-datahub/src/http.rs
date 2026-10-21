@@ -29,8 +29,8 @@
 //! the field, rather than reading past a missing or mistyped key with a default - a guess that
 //! happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
 //! The `dataset` half is read live through this reader only by `tests/provisioned/golden.rs`
-//! (evidence only of a run of it, over the golden catalog's models, with `table == name` and no
-//! nullability); `tests/provisioned/wire_pages.rs`'s dataset-page cell asserts what the platform
+//! (evidence only of a run of it, over the golden catalog's models, with the table their urn names and
+//! no nullability); `tests/provisioned/wire_pages.rs`'s dataset-page cell asserts what the platform
 //! serves through the test's own copy of this mapping, not through this reader, and it is evidence
 //! only of a run of it.
 //!
@@ -114,8 +114,7 @@
 //! compiled-in roots with its own CA via `security.outbound.transport_anchors` (`#125`), folded in
 //! `sutura_http_client::tls` - anchors only, no client identity.
 
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry;
+use std::collections::BTreeSet;
 
 use serde_json::Value;
 use sutura_domain::identity::Secret;
@@ -178,10 +177,6 @@ pub enum HttpReaderError {
     /// refusal names exactly where the document stopped matching this reader's expectation.
     #[error("the {entity} entity's {field} was not present, or not the shape this reader expects")]
     UnexpectedShape { entity: &'static str, field: &'static str },
-    /// Two datasets read as one model. A model is named by the last dot segment of its urn's name,
-    /// so `acme.sales.orders` and `acme.archive.orders` both claim `orders`; neither is kept.
-    #[error("datasets {first} and {second} both read as model {model}")]
-    TwoDatasetsOneModel { model: String, first: String, second: String },
     /// A relationship endpoint names a dataset urn this read did not return, so it joins no model:
     /// an endpoint resolves only through the exact urn its model was read from.
     #[error("the relationship's {field} names dataset {urn}, which this read did not return")]
@@ -423,23 +418,15 @@ impl HttpAspectReader {
     /// The `dataset` entity type: `schemaMetadata` for columns, `datasetProperties` for prose.
     ///
     /// **Unmeasured against a live instance** - see the module header. `Model.table` is the
-    /// entity's whole URN name segment ([`split_dataset_urn`]) and `Model.name` its last dot
-    /// segment ([`model_of`]), so `acme.sales.orders` reads as model `orders` over that table and a
-    /// bare `orders` as both. `models` records which urn each model was read from: a second urn
-    /// for one model is [`HttpReaderError::TwoDatasetsOneModel`], and a relationship endpoint
-    /// resolves only through that exact urn ([`one_endpoint`]). A model whose name is not its
-    /// table's last segment cannot be represented by this reader (`tests/provisioned/golden.rs`'s
-    /// `NotCarried::Table`).
-    fn read_datasets(
-        &self,
-        budget: Budget,
-        models: &mut BTreeMap<String, String>,
-    ) -> Result<Vec<DatasetAspect>, HttpReaderError> {
+    /// entity's whole URN name segment ([`split_dataset_urn`]), and the catalog names the model from
+    /// it and the platform. `read` records every urn read, and a relationship endpoint resolves only
+    /// through one of those exact urns ([`one_endpoint`]).
+    fn read_datasets(&self, budget: Budget, read: &mut BTreeSet<String>) -> Result<Vec<DatasetAspect>, HttpReaderError> {
         const ENTITY: &str = "dataset";
         let mut datasets = Vec::new();
         self.read_pages(budget, ENTITY, &["schemaMetadata", "datasetProperties"], |entities| {
             for entity in entities {
-                datasets.push(harvest_dataset(entity, models)?);
+                datasets.push(harvest_dataset(entity, read)?);
             }
             Ok(())
         })?;
@@ -458,11 +445,7 @@ impl HttpAspectReader {
     /// "Field by field" table already names this as a place `DataHub` is WIDER than this adapter.
     /// A `semanticModel` entity with `semanticModelInfo` but no `relationships` contributes none,
     /// the same way a dataset with no annotation contributes an empty description.
-    fn read_relationships(
-        &self,
-        budget: Budget,
-        models: &BTreeMap<String, String>,
-    ) -> Result<Vec<RelationshipAspect>, HttpReaderError> {
+    fn read_relationships(&self, budget: Budget, read: &BTreeSet<String>) -> Result<Vec<RelationshipAspect>, HttpReaderError> {
         const ENTITY: &str = "semanticModel";
         let mut relationships = Vec::new();
         self.read_pages(budget, ENTITY, &["semanticModelInfo"], |entities| {
@@ -478,7 +461,7 @@ impl HttpAspectReader {
                     .and_then(Value::as_array)
                     .map_or_default(Vec::as_slice);
                 for relationship in list {
-                    relationships.push(harvest_relationship(relationship, models)?);
+                    relationships.push(harvest_relationship(relationship, read)?);
                 }
             }
             Ok(())
@@ -508,9 +491,9 @@ impl AspectReader for HttpAspectReader {
     fn read(&self) -> Result<Snapshot, DataHubError> {
         let budget = Budget::opened(self.bounds.timeout());
         let snapshot = (|| -> Result<Snapshot, HttpReaderError> {
-            let mut models = BTreeMap::new();
-            let datasets = self.read_datasets(budget, &mut models)?;
-            let relationships = self.read_relationships(budget, &models)?;
+            let mut read = BTreeSet::new();
+            let datasets = self.read_datasets(budget, &mut read)?;
+            let relationships = self.read_relationships(budget, &read)?;
             let metrics = self.read_metrics(budget)?;
             Ok(Snapshot::new(datasets, relationships, metrics))
         })();
@@ -529,14 +512,9 @@ fn split_dataset_urn(urn: &str) -> Option<(String, String)> {
     Some((platform.to_owned(), name.to_owned()))
 }
 
-/// A dataset name's model: its last dot segment, the whole name when it has none.
-fn model_of(name: &str) -> &str {
-    name.rsplit_once('.').map_or(name, |(_, last)| last)
-}
-
 /// One `dataset` entity into this crate's own [`DatasetAspect`] shape, refusing an unexpected field
 /// by name. See [`HttpAspectReader::read_datasets`] for what is and is not measured here.
-fn harvest_dataset(entity: &Value, models: &mut BTreeMap<String, String>) -> Result<DatasetAspect, HttpReaderError> {
+fn harvest_dataset(entity: &Value, read: &mut BTreeSet<String>) -> Result<DatasetAspect, HttpReaderError> {
     const ENTITY: &str = "dataset";
     let urn = entity
         .get("urn")
@@ -549,17 +527,7 @@ fn harvest_dataset(entity: &Value, models: &mut BTreeMap<String, String>) -> Res
         entity: ENTITY,
         field: "urn",
     })?;
-    let name = model_of(&table).to_owned();
-    match models.entry(name.clone()) {
-        Entry::Occupied(first) => {
-            return Err(HttpReaderError::TwoDatasetsOneModel {
-                model: name,
-                first: first.get().clone(),
-                second: urn.to_owned(),
-            });
-        }
-        Entry::Vacant(slot) => drop(slot.insert(urn.to_owned())),
-    }
+    read.insert(urn.to_owned());
     let fields = entity
         .get("schemaMetadata")
         .and_then(|aspect| aspect.get("value"))
@@ -617,7 +585,6 @@ fn harvest_dataset(entity: &Value, models: &mut BTreeMap<String, String>) -> Res
         .unwrap_or_default()
         .to_owned();
     let mut document = serde_json::Map::new();
-    drop(document.insert(String::from("name"), Value::String(name)));
     drop(document.insert(String::from("table"), Value::String(table)));
     drop(document.insert(String::from("platform"), Value::String(platform)));
     drop(document.insert(String::from("columns"), Value::from(columns)));
@@ -645,9 +612,9 @@ fn one_column(value: &Value, field: &'static str) -> Result<String, HttpReaderEr
 }
 
 /// A dataset URN field (`from`/`to`) reduced to the model name this crate's own [`RelationshipAspect`]
-/// names its endpoints by: the model read from exactly this urn. Any other urn, bare or qualified,
-/// on any platform or env, is [`HttpReaderError::EndpointNotADatasetRead`].
-fn one_endpoint(value: &Value, field: &'static str, models: &BTreeMap<String, String>) -> Result<String, HttpReaderError> {
+/// names its endpoints by: the model the catalog reads from exactly this urn. Any urn this read did
+/// not return, on any platform or env, is [`HttpReaderError::EndpointNotADatasetRead`].
+fn one_endpoint(value: &Value, field: &'static str, read: &BTreeSet<String>) -> Result<String, HttpReaderError> {
     let urn = value
         .get(field)
         .and_then(Value::as_str)
@@ -655,13 +622,12 @@ fn one_endpoint(value: &Value, field: &'static str, models: &BTreeMap<String, St
             entity: "semanticModel",
             field,
         })?;
-    let (_, name) = split_dataset_urn(urn).ok_or(HttpReaderError::UnexpectedShape {
+    let (platform, name) = split_dataset_urn(urn).ok_or(HttpReaderError::UnexpectedShape {
         entity: "semanticModel",
         field,
     })?;
-    let model = model_of(&name);
-    if models.get(model).is_some_and(|read| read == urn) {
-        Ok(model.to_owned())
+    if read.contains(urn) {
+        Ok(crate::model_name(&platform, &name))
     } else {
         Err(HttpReaderError::EndpointNotADatasetRead {
             field,
@@ -686,7 +652,7 @@ fn map_cardinality(raw: &str) -> Option<&'static str> {
 /// One relationship element out of a `semanticModel` entity's
 /// `semanticModelInfo.value.relationships[]` array, into this crate's own [`RelationshipAspect`]
 /// shape. See [`HttpAspectReader::read_relationships`] for what is and is not measured here.
-fn harvest_relationship(relationship: &Value, models: &BTreeMap<String, String>) -> Result<RelationshipAspect, HttpReaderError> {
+fn harvest_relationship(relationship: &Value, read: &BTreeSet<String>) -> Result<RelationshipAspect, HttpReaderError> {
     const ENTITY: &str = "semanticModel";
     let name = relationship
         .get("name")
@@ -695,9 +661,9 @@ fn harvest_relationship(relationship: &Value, models: &BTreeMap<String, String>)
             entity: ENTITY,
             field: "semanticModelInfo.value.relationships[].name",
         })?;
-    let from_model = one_endpoint(relationship, "from", models)?;
+    let from_model = one_endpoint(relationship, "from", read)?;
     let from_column = one_column(relationship, "fromColumns")?;
-    let to_model = one_endpoint(relationship, "to", models)?;
+    let to_model = one_endpoint(relationship, "to", read)?;
     let to_column = one_column(relationship, "toColumns")?;
     let cardinality = match relationship.get("cardinality").and_then(Value::as_str) {
         None => None,
