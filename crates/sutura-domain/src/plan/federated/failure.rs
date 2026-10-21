@@ -63,6 +63,13 @@ pub enum FederatedAnswerRefusal {
     /// misses by construction - `telekom/sutura#138`. Silently, before this refusal existed: an
     /// empty inner answer, or a left answer whose every fact row survived with a null remote side.
     LinkTypeMismatch,
+    /// The catalog declares how this relationship's two keys compare, and the legs' link columns are
+    /// not a pair that declaration joins: the declaration no longer fits the data.
+    LinkKindsNotJoined,
+    /// A link value could not be read as the kind the catalog declares for it - text that is not an
+    /// integer, or an integer wider than the decimal it is compared with. The answer is refused
+    /// whole: dropping the row, or matching it to nothing, would be a number that looks right.
+    LinkValueNotCast,
     /// A carried leaf's column is not a numeric type, so no total or comparison over it is exact.
     ///
     /// A row-speaking adapter returns an exact `DECIMAL` money column as text to keep it exact, and

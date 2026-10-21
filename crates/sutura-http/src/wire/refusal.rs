@@ -460,8 +460,9 @@ fn link_type_mismatch(
 fn federated_answer_not_well_formed() -> String {
     String::from(
         "answering this across two data systems hit a division by zero, a join key that matched \
-         more than one row, or a join key that can never match because the two data systems \
-         store it as two different types; asking again unchanged returns this same refusal. Ask \
+         more than one row, a join key that can never match because the two data systems \
+         store it as two different types, or a join key value that cannot be read as the kind \
+         the catalog declares for it; asking again unchanged returns this same refusal. Ask \
          the same metric without the dimension on the second data system, or report it to a \
          person",
     )
