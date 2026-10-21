@@ -4238,7 +4238,7 @@ reach. This crate does not depend on that one and must not: an adapter does not 
 adapter, so the composition root converts.</p>
 <h2 id="use-combineerror"><code>use CombineError</code><a class="headerlink" href="#use-combineerror" title="Permanent link">&para;</a></h2>
 <p>Why a combine could not be assembled.</p>
-<p>Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+<p>Split the way the port's two predicates read it: the caller-facing arms are deterministic
 refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 driver's metadata and a label the splitter assigned - and never a cell.</p>

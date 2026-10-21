@@ -3613,8 +3613,11 @@ shape, over a database because that is <code>ClickHouse</code>'s namespace for a
 </span></code></pre></div>
 <p>Exposes a fixture CSV as a table.</p>
 <p>Columns are typed by <code>csv::infer</code> (see the module header for the one deliberate
-departure), the table is recreated, then the file is sent as the body of an
-<code>INSERT ... FORMAT CSVWithNames</code> the SERVER parses against those types.</p>
+departure), and the file is sent as the body of an <code>INSERT ... FORMAT CSVWithNames</code> the
+SERVER parses against those types.</p>
+<p>The rows go into a staging table of this load's own, which then replaces <code>table</code> in one
+<code>CREATE OR REPLACE ... AS SELECT</code>: a reader of <code>table</code> sees its previous rows or the new
+ones, never an empty table, and a load refused before the swap leaves <code>table</code> as it was.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_federated_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">FixtureError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p><code>Self::load_csv</code>, except a column holding an empty cell is <code>Nullable</code>, so the cell is NULL.</p>
