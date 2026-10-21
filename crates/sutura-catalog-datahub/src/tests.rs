@@ -890,3 +890,28 @@ fn two_paths_that_read_as_one_model_name_are_refused_as_a_duplicate_model() {
         "{twice:?}"
     );
 }
+
+#[test]
+fn a_path_too_long_for_a_model_name_keeps_its_head_and_a_hash_of_the_whole() {
+    let long = "my-company-analytics-prod.marketing.fct_campaign_touchpoints";
+    let named = crate::model_name("bigquery", long);
+    assert_eq!(named, "bigquery__my_company_analytics_prod__marketing__fct_ca_2388219d");
+    assert_eq!(named.len(), crate::MODEL_NAME_LIMIT);
+    assert_eq!(
+        crate::model_name("bigquery", &format!("{long}_v2")),
+        "bigquery__my_company_analytics_prod__marketing__fct_ca_f5f32226",
+        "two long paths with one head are two models"
+    );
+    let pinned = over(Snapshot::new(
+        vec![dataset(long, &["amount_cents"], "")],
+        Vec::new(),
+        Vec::new(),
+    ))
+    .load()
+    .expect("a long path loads");
+    let model = pinned.definitions().models().values().next().expect("the dataset is a model");
+    assert_eq!(
+        (model.name().as_str(), model.table().to_string()),
+        (named.as_str(), String::from(long))
+    );
+}

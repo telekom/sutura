@@ -57,10 +57,13 @@ mod tests {
 
     #[test]
     fn a_dataset_with_an_unparseable_name_is_refused() {
-        let table = "t".repeat(250);
-        let outcome = refused(dataset(&table, "bigquery", "Orders."));
+        let source = SourceName::parse("local").expect("a test name is a name");
+        let sources = BTreeMap::from([(String::from("9lake"), source.clone())]);
+        let version = DefinitionVersion::parse("test").expect("a test version is a version");
+        let snapshot = Snapshot::new(vec![dataset("orders", "9lake", "Orders.")], Vec::new(), Vec::new());
+        let outcome = DataHubCatalog::new(source, version, sources, Stub(snapshot)).load().err();
         assert!(
-            matches!(outcome, Some(DataHubError::Identifier { kind: "model", ref value, .. }) if *value == format!("bigquery__{table}")),
+            matches!(outcome, Some(DataHubError::Identifier { kind: "model", ref value, .. }) if value == "9lake__orders"),
             "{outcome:?}"
         );
     }

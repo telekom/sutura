@@ -210,6 +210,32 @@ data system the deployment's decision rather than this adapter's.
 
 `Clone`, `Debug`, `SemanticCatalog`
 
+## `fn model_name`
+
+```rust
+pub fn model_name(platform: &str, table: &str) -> String
+```
+
+The model a dataset on `platform` over `table` is read as.
+
+Its platform, then each part of its table path, `__` between them and `_` for every character a
+model name refuses - `bigquery` and `acme-prod.sales.orders` read as
+`bigquery__acme_prod__sales__orders`.
+
+A name past `MODEL_NAME_LIMIT` keeps its first 54 characters, then `_` and eight hex digits
+of the FNV-1a hash of `<platform>,<table>`, so a long path still names a model a data system
+keeps whole. A metric document names its model by this function's answer.
+
+A function of the dataset alone, so reading another dataset never renames one. Two datasets it
+maps to one name - two urns that differ only in their environment, only where a character
+became `_`, or in a long tail whose hashes collide - are refused as one model declared twice by
+`Definitions::assemble`.
+
+## `constant MODEL_NAME_LIMIT`
+
+The longest name `model_name` gives: the domain's identifier limit, which a data system
+truncates past rather than refuses.
+
 ## Module `document`
 
 The ingestion shape a `super::AspectReader` returns: what this adapter needs from `DataHub`.

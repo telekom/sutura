@@ -39,19 +39,10 @@ impl FixtureNames {
         format!("{}.{model}", self.qualifier)
     }
 
-    /// The model the catalog reads `table`'s dataset as: `bigquery`, then each part of its path,
-    /// `__` between them and `_` for every other character.
+    /// The model the catalog reads `table`'s dataset as - the per-run name is long enough to take the
+    /// hashed form.
     fn model(&self, table: &str) -> String {
-        core::iter::once("bigquery")
-            .chain(self.qualifier.split('.'))
-            .chain(core::iter::once(table))
-            .map(|part| {
-                part.chars()
-                    .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("__")
+        sutura_catalog_datahub::model_name("bigquery", &self.table(table))
     }
 
     pub(super) fn metric(&self) -> &str {

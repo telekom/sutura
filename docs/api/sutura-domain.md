@@ -4932,7 +4932,7 @@ reads one already has the file: `PostgresError::InvalidColumnName`'s CSV fixture
 - `Empty` - Empty or whitespace-only. An unnamed column is a modelling mistake, not a wildcard.
 - `BadFirstCharacter` - Starts with something other than a letter or underscore. A leading digit is legal in some dialects and not others, so accepting it would make a model portable by luck.
 - `IllegalCharacter` - Contains a character that is not `[A-Za-z0-9_]`. `offending` is the first one, which is the one worth reporting: a message naming all of them tells the reader less.
-- `TooLong` - Longer than a target data system will keep. The limit is 63 characters, the tightest among the data systems targeted here - except for a `ModelName`, which reaches no statement and may be 255.
+- `TooLong` - Longer than a target data system will keep. The limit is 63 characters, the tightest among the data systems targeted here.
 - `TrailingHyphen` - Ends in a hyphen.
 
   **Only `Hyphens::Allowed` can produce this**, and there is exactly one name shape in this
@@ -4982,8 +4982,7 @@ rather than fail a test.
 pub struct ModelName
 ```
 
-The name of a model: one physical table plus what we know about it. At most
- `MAX_MODEL_NAME_LEN` characters.
+The name of a model: one physical table plus what we know about it.
 
 Construct it with `parse`. There is no other way in: the field is private and
 `Deserialize` is routed through the same constructor, so a value that is not a legal

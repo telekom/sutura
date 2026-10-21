@@ -516,25 +516,47 @@ impl<R: AspectReader> DataHubCatalog<R> {
     }
 }
 
-/// The model a dataset is read as: its platform, then each part of its table path, `__` between
-/// them and `_` for every character a model name refuses - `bigquery` and `acme-prod.sales.orders`
-/// read as `bigquery__acme_prod__sales__orders`.
+/// The model a dataset on `platform` over `table` is read as.
+///
+/// Its platform, then each part of its table path, `__` between them and `_` for every character a
+/// model name refuses - `bigquery` and `acme-prod.sales.orders` read as
+/// `bigquery__acme_prod__sales__orders`.
+///
+/// A name past [`MODEL_NAME_LIMIT`] keeps its first 54 characters, then `_` and eight hex digits
+/// of the FNV-1a hash of `<platform>,<table>`, so a long path still names a model a data system
+/// keeps whole. A metric document names its model by this function's answer.
 ///
 /// A function of the dataset alone, so reading another dataset never renames one. Two datasets it
-/// maps to one name - two urns that differ only in their environment, or only where a character
-/// became `_` - are refused as one model declared twice by `Definitions::assemble`.
-pub(crate) fn model_name(platform: &str, table: &str) -> String {
+/// maps to one name - two urns that differ only in their environment, only where a character
+/// became `_`, or in a long tail whose hashes collide - are refused as one model declared twice by
+/// `Definitions::assemble`.
+#[must_use]
+pub fn model_name(platform: &str, table: &str) -> String {
     let safe = |part: &str| -> String {
         part.chars()
             .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
             .collect()
     };
-    core::iter::once(platform)
+    let whole = core::iter::once(platform)
         .chain(table.split('.'))
         .map(safe)
         .collect::<Vec<_>>()
-        .join("__")
+        .join("__");
+    if whole.len() <= MODEL_NAME_LIMIT {
+        return whole;
+    }
+    // ponytail: a 32-bit hash, so two long paths sharing a prefix collide about once in 2^32; a
+    // collision is refused as a duplicate model rather than merged.
+    let hash = format!("{platform},{table}").bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    });
+    let kept: String = whole.chars().take(MODEL_NAME_LIMIT - 9).collect();
+    format!("{kept}_{hash:08x}")
 }
+
+/// The longest name [`model_name`] gives: the domain's identifier limit, which a data system
+/// truncates past rather than refuses.
+pub const MODEL_NAME_LIMIT: usize = 63;
 
 impl<R> SemanticCatalog for DataHubCatalog<R>
 where
