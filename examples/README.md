@@ -12,6 +12,7 @@ in [`docs/examples/`](../docs/examples/index.md). A test runs every directory he
 | `cube/`               | The markdown catalog of `single-player/` over a Cube source, with the Cube model and its data           |
 | `metrics-layer/`      | A DataHub catalog over Cube as the only source, asked with each caller's own Keycloak token             |
 | `federated/`          | A DataHub catalog over Postgres and ClickHouse, asked one question that reads both                      |
+| `tardis/`             | Settings behind the gateway of the Open Telekom Integration Platform                                    |
 | `okf/`                | Catalog files for the OKF reader                                                                        |
 | `datacontract/`       | Catalog files for the Open Data Contract Standard reader                                                |
 | `demo-chatinterface/` | The container behind `just demo`. [The local chat demo](../docs/demo.md)                                |

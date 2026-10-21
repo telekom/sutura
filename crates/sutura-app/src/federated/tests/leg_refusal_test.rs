@@ -59,8 +59,11 @@ fn oversized_lookup_rows() -> RowSet {
     let ceiling = usize::try_from(sutura_domain::query::ResponseByteLimit::DEFAULT.bytes()).expect("fits a usize");
     let oversized = "x".repeat(ceiling + 1);
     let row = |link: &str| vec![Value::Text(link.into()), Value::Text(oversized.clone())];
-    RowSet::new(vec![InternalLabel::Link.label(), "region".into()], vec![row("c1"), row("c2")])
-        .expect("a well-formed test lookup result")
+    RowSet::new(
+        vec![InternalLabel::Link(0).label(), "region".into()],
+        vec![row("c1"), row("c2")],
+    )
+    .expect("a well-formed test lookup result")
 }
 
 /// The federated half of the mono-source golden cell: a JOINED dimension's own value is not
@@ -162,7 +165,7 @@ fn mismatched_fact_rows() -> RowSet {
     RowSet::new(
         vec![
             String::from("product_family"),
-            InternalLabel::Link.label(),
+            InternalLabel::Link(0).label(),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
             InternalLabel::Leaf(0).label(),
         ],
@@ -197,7 +200,7 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
     let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
     let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
     let key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), tablecol(n));
-    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link), tablecol("customer_key"));
+    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), tablecol("customer_key"));
     let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
 
     let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
@@ -235,12 +238,11 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
         bucket("month"),
         fact,
         None,
-        lookup,
-        false,
+        sutura_domain::plan::LookupLegs::one(lookup, false),
         federation,
         vec![
             AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
-            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+            AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region"))),
         ],
     )
     .expect("a valid two-leg plan")

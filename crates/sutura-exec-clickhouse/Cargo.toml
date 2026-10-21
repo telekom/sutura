@@ -62,6 +62,10 @@ required-features = ["fixtures"]
 name = "execute_as"
 required-features = ["fixtures"]
 
+[[test]]
+name = "reload"
+required-features = ["fixtures"]
+
 [dev-dependencies]
 sutura-dev = { workspace = true }
 # `sutura_conformance::corpus` supplies this crate's own unit tests a real plan, posture and

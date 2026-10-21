@@ -7469,15 +7469,16 @@ width, not a guard, and a combiner that narrowed the accumulator would silently 
 
 ### `use FederatedPlan`
 
-The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
-another, linked by a single column.
+The one federated shape this workspace combines: a fact leg on one source and one to
+`MAX_LOOKUP_LEGS` lookup legs, each on another source than the
+leg it joins onto and linked to it by a single column.
 
-**Two legs, as two named fields.** A match over `LegPlan` is exhaustive, so the fact leg *is*
-the `Fact` variant and the lookup leg the `Lookup` one, and
-a plan that had anything other than exactly these two is a type that does not exist rather than a
-count a caller checks. The shape is deliberately the one `crate::plan::leg` pins in its goldens:
-the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
-second data system forms the lookup leg. The final answer groups by the answer's keys - each
+**One fact leg as a named field, the lookup legs as `LookupLegs`.** A match over `LegPlan`
+is exhaustive, so the fact leg *is* the `Fact` variant and each lookup leg the
+`Lookup` one, and a plan with no lookup leg or more than the cap is a type that
+does not exist rather than a count a caller checks. The shape is deliberately the one
+`crate::plan::leg` pins in its goldens: the metric's own rows (and any same-source dimension)
+form the fact leg, and a dimension on another data system forms a lookup leg. The final answer groups by the answer's keys - each
 named by which leg's result it is read from, in question order - bucketed and measured under the
 metric's own name.
 
@@ -7630,6 +7631,11 @@ columns become one. `metric__{n}` over a 63-character metric name is 66 characte
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
 `usize` can index is 27 characters.
 
+### `use LegAt`
+
+One leg of a federated plan, named by its place: the fact leg, or a lookup leg by its position
+in `LookupLegs`.
+
 ### `use LegResult`
 
 One leg's result, tagged with the side the `LegPlan` it was executed from named.
@@ -7652,23 +7658,24 @@ Which leg's result an answer key is read from.
 
 ### `use Legs`
 
-Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+Every leg's result, assigned to the plan's legs, which cannot be built without every result.
 
-A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
-from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
+second fact model, joined above on the link and the time bucket. The combiner reads it through
+`Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. Each lookup
+result arrives beside its `LookupLeg`, which names the leg it joins onto.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
-so an owned pair would say *moved* about something that is shared either way.
+so an owned set would say *moved* about something that is shared either way.
 
-### `use LegsAreNotOneOfEach`
+### `use LegsMiswired`
 
-Two leg results that name the same side, so there is no pair to combine.
+Leg results that do not stand for the plan's legs, so there is nothing to combine.
 
-Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
-`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
+Unreachable through `FederationCombiner::execute`, which builds one `LegResult` per
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: a silent choice would
+combine a leg with the wrong rows, or read a missing leg as a leg with no match.
 
 ### `use LinkKind`
 
@@ -7687,6 +7694,21 @@ side.
 
 **It is also the word a relationship declares its comparison in** (`compare_as`), so it is
 serialised in `snake_case` and an unknown word is a deserialisation error at the document edge.
+
+### `use LookupLeg`
+
+A lookup leg, the leg it joins onto, and whether a row it does not match survives.
+
+### `use LookupLegs`
+
+One to `MAX_LOOKUP_LEGS` lookup legs, each joined onto the fact leg or an earlier lookup leg.
+
+A leg can name only an earlier one, so the legs form a tree rooted at the fact leg and a cycle
+cannot be written. A plan with no lookup leg or with more than the cap does not exist.
+
+### `use LookupLegsError`
+
+Why a list of lookup legs is not one a plan can carry.
 
 ### `use QuotedColumnType`
 
@@ -8582,7 +8604,7 @@ back into one answer's rows.
 `DataFusion` plan in an adapter, under the owner instruction *no hand row handling*. What that
 leaves here is the plan TYPE, its refusals, the label scheme both halves read, and the port; the
 four accessors `FederatedPlan::bucket_label`, `FederatedPlan::measure_label`,
-`FederatedPlan::federation` and `FederatedPlan::include_unmatched` exist because an
+`FederatedPlan::federation` and `FederatedPlan::lookups` exist because an
 implementor above this crate cannot read a private field. What is deliberately not published is
 anything a combiner could use to invent a column.
 
@@ -8616,15 +8638,16 @@ that the fact leg projects each such key under the leaf's own label.
 pub struct FederatedPlan
 ```
 
-The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
-another, linked by a single column.
+The one federated shape this workspace combines: a fact leg on one source and one to
+`MAX_LOOKUP_LEGS` lookup legs, each on another source than the
+leg it joins onto and linked to it by a single column.
 
-**Two legs, as two named fields.** A match over `LegPlan` is exhaustive, so the fact leg *is*
-the `Fact` variant and the lookup leg the `Lookup` one, and
-a plan that had anything other than exactly these two is a type that does not exist rather than a
-count a caller checks. The shape is deliberately the one `crate::plan::leg` pins in its goldens:
-the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
-second data system forms the lookup leg. The final answer groups by the answer's keys - each
+**One fact leg as a named field, the lookup legs as `LookupLegs`.** A match over `LegPlan`
+is exhaustive, so the fact leg *is* the `Fact` variant and each lookup leg the
+`Lookup` one, and a plan with no lookup leg or more than the cap is a type that
+does not exist rather than a count a caller checks. The shape is deliberately the one
+`crate::plan::leg` pins in its goldens: the metric's own rows (and any same-source dimension)
+form the fact leg, and a dimension on another data system forms a lookup leg. The final answer groups by the answer's keys - each
 named by which leg's result it is read from, in question order - bucketed and measured under the
 metric's own name.
 
@@ -8669,15 +8692,6 @@ whose leaf did not - so an implementor's own unsupported-aggregate arm is unreac
 through this constructor rather than absent.
 
 ```rust
-pub const fn include_unmatched(&self) -> bool
-```
-
-Whether a fact row with no lookup row survives with null remote keys.
-
-LEFT for a lookup leg carrying no filter, INNER for one that does - the splitter's decision,
-published here so a combiner does not have to guess. The architecture decision decides the direction.
-
-```rust
 pub fn keys(&self) -> &[AnswerKey]
 ```
 
@@ -8687,11 +8701,11 @@ The answer's group-by keys, in question order.
 pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg, in execution order: the fact leg, the second fact leg if present, then the
-lookup leg.
+Every leg, each once: the fact leg, the second fact leg if present, then each lookup leg in
+plan order.
 
-A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
-link and the time bucket above the port.
+The one list of a plan's legs. The cut, the credential request, the posture record and the
+legs a combiner runs all read it, so no lookup leg can be left out of one of them.
 
 ```rust
 pub const fn link_comparison(&self) -> Option<LinkKind>
@@ -8700,10 +8714,10 @@ pub const fn link_comparison(&self) -> Option<LinkKind>
 The comparison the link declares, or `None` for equality of kind.
 
 ```rust
-pub const fn lookup(&self) -> &LegPlan
+pub const fn lookups(&self) -> &LookupLegs
 ```
 
-The lookup leg.
+The lookup legs, each with the leg it joins onto and its own join direction.
 
 ```rust
 pub fn measure_label(&self) -> &str
@@ -8718,21 +8732,22 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, second_fact: Option<LegPlan>, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, second_fact: Option<LegPlan>, lookups: LookupLegs, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
-Constructs a federated plan from its two legs and the answer's key order.
+Constructs a federated plan from its legs and the answer's key order.
 
 A `Result` constructor is this workspace's convention for a value with an invariant: a plan
-that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
-a plan and cannot be built.
+that is not a fact leg beside lookup legs, or that names one data system on a leg and the leg
+it joins onto, is not a plan and cannot be built.
 
 **There is no link-label parameter, and that is the F2 fix's structural half.** The label the
 legs are joined under used to be two `String` arguments, and the splitter filled both with the
 physical remote join column's text - which is a legal dimension name, so a legal question
 produced two fact columns under one label. It is now `InternalLabel::Link`, a constant of
 the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
-for the two legs to disagree about, and the constructor requires both legs to project it.
+for two legs to disagree about, and the constructor requires each lookup leg and the leg it
+joins onto to project its own.
 
 ```rust
 pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet>
@@ -8837,13 +8852,13 @@ pub fn label(&self) -> &str
 The text this key carries in its leg's result.
 
 ```rust
-pub const fn lookup(label: ResultLabel) -> Self
+pub const fn lookup(leg: usize, label: ResultLabel) -> Self
 ```
 
-A key read from the lookup leg's result, under `label`.
+A key read from the result of the lookup leg at `leg`, under `label`.
 
 ```rust
-pub const fn side(&self) -> LegSide
+pub const fn side(&self) -> LegAt
 ```
 
 Which leg this key is read from.
@@ -8864,7 +8879,7 @@ Why a federated plan could not be built.
 
 - `NotFact` - The leg meant to be the fact leg is not a `LegPlan::Fact`.
 - `NotLookup` - The leg meant to be the lookup leg is not a `LegPlan::Lookup`.
-- `SameSource` - Both legs name the same data system, which is a single-source question, not a federated one.
+- `SameSource` - A lookup leg and the leg it joins onto name the same data system, which is one statement and not two legs.
 - `KeyNotOnLeg` - An answer key names a column the leg it belongs to does not project.
 - `BucketMismatch` - The bucket handed to this constructor is not the fact leg's own.
 
@@ -8966,23 +8981,24 @@ application, and an adapter still never calls another adapter. `sutura_app` impl
 
 #### `use Legs`
 
-Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+Every leg's result, assigned to the plan's legs, which cannot be built without every result.
 
-A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
-from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
+second fact model, joined above on the link and the time bucket. The combiner reads it through
+`Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. Each lookup
+result arrives beside its `LookupLeg`, which names the leg it joins onto.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
-so an owned pair would say *moved* about something that is shared either way.
+so an owned set would say *moved* about something that is shared either way.
 
-#### `use LegsAreNotOneOfEach`
+#### `use LegsMiswired`
 
-Two leg results that name the same side, so there is no pair to combine.
+Leg results that do not stand for the plan's legs, so there is nothing to combine.
 
-Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
-`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
+Unreachable through `FederationCombiner::execute`, which builds one `LegResult` per
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: a silent choice would
+combine a leg with the wrong rows, or read a missing leg as a leg with no match.
 
 #### `use NothingCombined`
 
@@ -9188,6 +9204,26 @@ so it stays one delimited span inside a sentence. It does not make the words ins
 type may still read like an instruction to a model, and is at most
 `MAX_COLUMN_TYPE_CHARS` characters before escaping.
 
+#### `use LegAt`
+
+One leg of a federated plan, named by its place: the fact leg, or a lookup leg by its position
+in `LookupLegs`.
+
+#### `use LookupLeg`
+
+A lookup leg, the leg it joins onto, and whether a row it does not match survives.
+
+#### `use LookupLegs`
+
+One to `MAX_LOOKUP_LEGS` lookup legs, each joined onto the fact leg or an earlier lookup leg.
+
+A leg can name only an earlier one, so the legs form a tree rooted at the fact leg and a cycle
+cannot be written. A plan with no lookup leg or with more than the cap does not exist.
+
+#### `use LookupLegsError`
+
+Why a list of lookup legs is not one a plan can carry.
+
 #### Module `combiner`
 
 The second driven port, and the pair of leg results it takes.
@@ -9217,15 +9253,19 @@ why `ResultBatches` may be the currency on both sides of this
 signature - the argument is
 `crate::warehouse::arrow`'s and it was paid there.
 
-# What the shape buys, which is that the two legs cannot be swapped
+# What the shape buys, which is that a fact and a lookup result cannot be swapped
 
 A combiner taking `(&ResultBatches, &ResultBatches)` has two arguments of one type whose swap
 compiles and answers a wrong number under a certified metric name - the fact leg's measure
-grouped by the lookup leg's keys. `Legs` makes the swap unrepresentable rather than reviewed:
+grouped by the lookup leg's keys. `Legs` refuses the swap rather than leaving it to review:
 each leg's result is tagged with the side by `LegResult::of`, which reads it off the
-`LegPlan` the leg was executed from and takes no side from its caller, and `Legs::of`
-assigns by that tag rather than by argument position. So the two can be handed over in either
-order and a pair that is not one of each does not build a value.
+`LegPlan` the leg was executed from and takes no side from its caller, and `Legs::assign`
+checks every tag against the side of the plan's leg at its position and the count of results
+against the plan's count of legs. **The limit:** two lookup results swapped with each other
+carry one tag, and so do the fact and the second fact (`LegSide::Fact`), so `Legs::assign`
+sees neither swap. The order of results within one side is held by
+`FederationCombiner::execute`, which orders its results as `FederatedPlan::legs` does, and by
+nothing for a caller that builds `Legs` itself.
 
 ##### `struct LegResult`
 
@@ -9269,84 +9309,69 @@ Which leg this result came from.
 pub struct Legs<'a>
 ```
 
-Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+Every leg's result, assigned to the plan's legs, which cannot be built without every result.
 
-A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
-from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
+second fact model, joined above on the link and the time bucket. The combiner reads it through
+`Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. Each lookup
+result arrives beside its `LookupLeg`, which names the leg it joins onto.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
-so an owned pair would say *moved* about something that is shared either way.
+so an owned set would say *moved* about something that is shared either way.
 
 ###### Methods
 
 ```rust
-pub const fn fact(self) -> &'a ResultBatches
+pub fn assign(plan: &'a FederatedPlan, results: &'a [LegResult]) -> Result<Self, LegsMiswired>
+```
+
+The results, one per `FederatedPlan::legs` entry and in that order, each checked against
+the side of the leg it stands for.
+
+# Errors
+
+`LegsMiswired` for a count of results that is not the plan's count of legs, and for a
+result whose side is not its leg's.
+
+```rust
+pub const fn fact(&self) -> &'a ResultBatches
 ```
 
 The metric's own leg: its keys, its time bucket and its carried leaves.
 
 ```rust
-pub const fn lookup(self) -> &'a ResultBatches
+pub fn lookups(&self) -> &[(&'a LookupLeg, &'a ResultBatches)]
 ```
 
-The second data system's leg: the remote keys the answer groups by.
+Each lookup leg beside its result, in plan order.
 
 ```rust
-pub const fn of(one: &'a LegResult, other: &'a LegResult) -> Result<Self, LegsAreNotOneOfEach>
-```
-
-The pair, assigned by each result's own tag rather than by the order they arrive in.
-
-# Errors
-
-`LegsAreNotOneOfEach` when both results name the same side.
-
-```rust
-pub const fn second_fact(self) -> Option<&'a ResultBatches>
+pub const fn second_fact(&self) -> Option<&'a ResultBatches>
 ```
 
 The second fact leg, when the plan carries two fact models.
 
-```rust
-pub const fn with_second_fact(self, second: Option<&'a LegResult>) -> Result<Self, LegsAreNotOneOfEach>
-```
-
-The third leg: the second fact's batches, when the plan carries two fact models.
-
-# Errors
-
-`LegsAreNotOneOfEach` naming `LegSide::Lookup` when `second` is a lookup's result, so a
-second lookup cannot be combined as if it were a fact.
-
 ###### Implements
 
-`Clone`, `Copy`, `Debug`
+`Clone`, `Debug`
 
-##### `struct LegsAreNotOneOfEach`
-
-```rust
-pub struct LegsAreNotOneOfEach
-```
-
-Two leg results that name the same side, so there is no pair to combine.
-
-Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
-`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
-
-###### Methods
+##### `enum LegsMiswired`
 
 ```rust
-pub const fn both(self) -> LegSide
+pub enum LegsMiswired
 ```
 
-The side both results claimed.
+Leg results that do not stand for the plan's legs, so there is nothing to combine.
 
-An accessor rather than a `pub` field, which `xtask check-boundaries`'s API-shape rule holds
-for every library type here: a public field lets a struct literal build the value the
-constructor would have rejected, and this one is only ever minted by `Legs::of`.
+Unreachable through `FederationCombiner::execute`, which builds one `LegResult` per
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: a silent choice would
+combine a leg with the wrong rows, or read a missing leg as a leg with no match.
+
+###### Variants
+
+- `Count` - The plan runs `legs` legs and `results` results arrived.
+- `WrongSide` - A result stands where the plan runs a leg of the other side.
 
 ###### Implements
 
@@ -9369,8 +9394,7 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 pub fn legs(&self) -> impl Iterator<Item> + use<..>
 ```
 
-Every leg of the cut, each once: the fact, the lookup, then the second fact if the plan has
-one.
+Every leg of the cut, each once, in `FederatedPlan::legs` order.
 
 ###### Implements
 
@@ -9401,7 +9425,7 @@ The combine runs only after every leg answered, so a leg's error wins over the c
 ###### Variants
 
 - `Leg` - A leg did not answer. The runner's own error, unchanged.
-- `Miswired` - The leg results were not one of each side: this workspace's own defect.
+- `Miswired` - The leg results did not stand for the plan's legs: this workspace's own defect.
 - `Combine` - The combine failed, which `FederationCombiner`'s two predicates classify.
 
 ###### Implements
@@ -9611,7 +9635,7 @@ scheme could produce exactly that. Nothing here reads a metric's name, and the w
 
 ###### Variants
 
-- `Link` - The column the two legs are joined on, in either leg's result.
+- `Link` - The column the lookup leg at this position is joined on, in its result and in the result of the leg it joins onto.
 - `Leaf` - One carried leaf of the measure, by its position in carried order.
 
 ###### Methods
@@ -11166,6 +11190,14 @@ The most dimensions one question may group by.
 A bound for the same reason the time range is bounded: a group-by over every column is a table
 scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 a person asks and refuses the ones a loop generates.
+
+### `constant MAX_LOOKUP_LEGS`
+
+The most lookup legs one federated answer may read: one per crossing relationship.
+
+A constant and not a setting, and changing it amends the architecture decision. Each lookup leg reads its
+whole table that survives the question's own filters, so the cap bounds how many such reads one
+question starts; the working-set ceiling bounds their bytes.
 
 ### `constant MAX_METRICS`
 

@@ -38,6 +38,12 @@ pub type MetricNames = NonEmpty<MetricName>;
 /// scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 /// a person asks and refuses the ones a loop generates.
 pub const MAX_DIMENSIONS: usize = 4;
+/// The most lookup legs one federated answer may read: one per crossing relationship.
+///
+/// A constant and not a setting, and changing it amends `docs/adr/0007`. Each lookup leg reads its
+/// whole table that survives the question's own filters, so the cap bounds how many such reads one
+/// question starts; the working-set ceiling bounds their bytes.
+pub const MAX_LOOKUP_LEGS: usize = 3;
 /// The most metrics one question may name together.
 ///
 /// A bound for the same reason the time range and the dimension count are bounded: each

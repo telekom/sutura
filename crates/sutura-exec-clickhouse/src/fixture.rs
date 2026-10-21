@@ -32,6 +32,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sutura_domain::identity::Secret;
 use sutura_domain::model::{SourceName, TableName};
@@ -170,8 +171,12 @@ impl ClickHouseWarehouse<Http> {
     /// Exposes a fixture CSV as a table.
     ///
     /// Columns are typed by [`csv::infer`] (see the module header for the one deliberate
-    /// departure), the table is recreated, then the file is sent as the body of an
-    /// `INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
+    /// departure), and the file is sent as the body of an `INSERT ... FORMAT CSVWithNames` the
+    /// SERVER parses against those types.
+    ///
+    /// The rows go into a staging table of this load's own, which then replaces `table` in one
+    /// `CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
+    /// ones, never an empty table, and a load refused before the swap leaves `table` as it was.
     pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
         self.load_csv_with_types(table, path, Columns::Matrix)
     }
@@ -199,16 +204,38 @@ impl ClickHouseWarehouse<Http> {
             subject: format!("table {table}"),
             cause,
         };
-        let create = format!(
-            "CREATE OR REPLACE TABLE \"{}\" ({}) ENGINE = MergeTree ORDER BY tuple()",
+        let staging = format!(
+            "{}_loading_{}_{}",
             table.as_str(),
+            std::process::id(),
+            LOADS.fetch_add(1, Ordering::Relaxed)
+        );
+        let create = format!(
+            "CREATE OR REPLACE TABLE \"{staging}\" ({}) ENGINE = MergeTree ORDER BY tuple()",
             declared.join(", ")
         );
         self.transport.command(&create, &[]).map_err(server)?;
-        let insert = format!("INSERT INTO \"{}\" FORMAT CSVWithNames", table.as_str());
-        self.transport.command(&insert, text.as_bytes()).map_err(server)
+        let insert = format!("INSERT INTO \"{staging}\" FORMAT CSVWithNames");
+        // Several cells load one table into the tier's shared `default` database at once (#1499).
+        // One statement, so a reader never sees it half done: the server runs it atomically on an
+        // `Atomic` database and refuses it on any other, so a load there fails rather than runs
+        // non-atomically. Nothing but review holds that this stays ONE statement: a CREATE followed
+        // by an `INSERT ... SELECT` keeps `reload.rs` green and brings the empty window back.
+        let replace = format!(
+            "CREATE OR REPLACE TABLE \"{}\" ENGINE = MergeTree ORDER BY tuple() AS SELECT * FROM \"{staging}\"",
+            table.as_str()
+        );
+        let loaded = self
+            .transport
+            .command(&insert, text.as_bytes())
+            .and_then(|()| self.transport.command(&replace, &[]));
+        let dropped = self.transport.command(&format!("DROP TABLE IF EXISTS \"{staging}\""), &[]);
+        loaded.and(dropped).map_err(server)
     }
 }
+
+/// Loads this process has started, so two concurrent loads of one table stage under two names.
+static LOADS: AtomicUsize = AtomicUsize::new(0);
 
 /// How `load_csv_with_types` declares a fixture's columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

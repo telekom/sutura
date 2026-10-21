@@ -63,7 +63,7 @@ pub(super) fn key(name: &str, table_name: &str) -> PlanKey {
 /// The link key of a leg: the internal label over the physical join column `customer_key`.
 pub(super) fn link_key(table_name: &str) -> PlanKey {
     PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link),
+        ResultLabel::internal(InternalLabel::Link(0)),
         PlanColumn::new(table(table_name), column("customer_key")),
     )
 }
@@ -154,12 +154,11 @@ pub(super) fn try_distinct_plan(fact: LegPlan) -> Result<FederatedPlan, Federate
         bucket(),
         fact,
         None,
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         distinct_federation(),
         vec![
             AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
-            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+            AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region"))),
         ],
     )
 }
@@ -229,8 +228,7 @@ pub(super) fn two_fact_plan(federation: Federation, second: LegPlan) -> Result<F
         bucket(),
         linked_fact_leg(terms_for(&federation)),
         Some(second),
-        lookup_leg(),
-        true,
+        crate::plan::LookupLegs::one(lookup_leg(), true),
         federation,
         Vec::new(),
     )
@@ -263,12 +261,11 @@ pub(super) fn try_plan_for(
         bucket(),
         fact_leg(terms_for(&federation)),
         None,
-        lookup_leg(),
-        include_unmatched,
+        crate::plan::LookupLegs::one(lookup_leg(), include_unmatched),
         federation,
         vec![
             AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
-            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+            AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region"))),
         ],
     )
 }

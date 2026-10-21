@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -53,7 +53,7 @@
-     pub const fn of(plan: &LegPlan, batches: ResultBatches) -> Self {
-         let side = match *plan {
+@@ -62,7 +62,7 @@
+     const fn side_of(plan: &LegPlan) -> LegSide {
+         match *plan {
              LegPlan::Fact { .. } => LegSide::Fact,
 -            LegPlan::Lookup { .. } => LegSide::Lookup,
 +            LegPlan::Lookup { .. } => LegSide::Fact,
-         };
-         Self { side, batches }
+         }
      }
+ 

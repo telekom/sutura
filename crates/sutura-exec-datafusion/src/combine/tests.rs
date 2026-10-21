@@ -22,6 +22,10 @@ use fixtures::*;
 /// The refusals, split out for this file's own `max-lines` reason.
 mod refusals;
 
+/// Three lookup legs, one joined onto another.
+#[cfg(test)]
+mod fan_in;
+
 /// `2^53`: every integer below it is exactly representable as an `f64`.
 const TWO_POW_53: i64 = 1 << 53;
 

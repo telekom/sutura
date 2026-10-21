@@ -116,14 +116,15 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// `usize` can index is 27 characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InternalLabel {
-    /// The column the two legs are joined on, in either leg's result.
-    Link,
+    /// The column the lookup leg at this position is joined on, in its result and in the result of
+    /// the leg it joins onto.
+    Link(usize),
     /// One carried leaf of the measure, by its position in carried order.
     Leaf(usize),
 }
 
-/// The label the link column carries in both legs' results.
-const LINK: &str = "0_link";
+/// What a link label carries after its lookup leg's position.
+const LINK: &str = "_link";
 
 /// What one carried leaf's label carries before its position.
 const LEAF: &str = "0_leaf_";
@@ -136,7 +137,7 @@ impl InternalLabel {
     #[inline]
     pub fn label(self) -> String {
         match self {
-            Self::Link => String::from(LINK),
+            Self::Link(leg) => format!("{leg}{LINK}"),
             Self::Leaf(position) => format!("{LEAF}{position}"),
         }
     }

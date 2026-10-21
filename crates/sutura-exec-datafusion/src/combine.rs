@@ -74,7 +74,8 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
 use futures_util::StreamExt as _;
 use sutura_domain::model::Aggregate;
-use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegSide, Legs};
+use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegAt, Legs};
+use sutura_domain::query::MAX_LOOKUP_LEGS;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 
 use crate::pool::{self, WorkingSet};
@@ -88,7 +89,7 @@ mod schema;
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
-use schema::{FACT, LOOKUP, LegSchema, agreeing_link};
+use schema::{FACT, LegSchema, agreeing_link};
 
 /// The name the fact leg is registered under, so a column reference is QUALIFIED.
 ///
@@ -98,8 +99,27 @@ use schema::{FACT, LOOKUP, LegSchema, agreeing_link};
 /// is also what lets a fact key and a lookup key share a label without colliding.
 const FACT_TABLE: &str = "fact";
 
-/// The name the lookup leg is registered under. See [`FACT_TABLE`].
-const LOOKUP_TABLE: &str = "lookup";
+/// The names the lookup legs are registered under, by position, and the side word each one's
+/// refusals carry. See [`FACT_TABLE`]. One per leg [`MAX_LOOKUP_LEGS`] allows, so a plan cannot
+/// carry a lookup leg with no table to register it under.
+const LOOKUP_TABLES: [&str; MAX_LOOKUP_LEGS] = ["lookup", "lookup_1", "lookup_2"];
+
+/// The table the leg at `at` is registered under, or `label` missing from a lookup leg the plan
+/// does not carry - which `FederatedPlan::new` does not build.
+fn table_at(at: LegAt, label: &str) -> Result<&'static str, CombineError> {
+    match at {
+        LegAt::Fact => Ok(FACT_TABLE),
+        LegAt::Lookup(position) => LOOKUP_TABLES.get(position).copied().ok_or_else(|| missing_lookup(label)),
+    }
+}
+
+/// `label` read from a lookup leg the plan does not carry.
+fn missing_lookup(label: &str) -> CombineError {
+    CombineError::MissingColumn {
+        side: "lookup",
+        label: String::from(label),
+    }
+}
 
 /// The second fact leg's side word, for the refusals it carries.
 ///
@@ -124,7 +144,7 @@ const EXACT_SUM_PRECISION: u8 = 76;
 
 /// Why a combine could not be assembled.
 ///
-/// Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+/// Split the way the port's two predicates read it: the caller-facing arms are deterministic
 /// refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 /// engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 /// driver's metadata and a label the splitter assigned - and never a cell.
@@ -211,6 +231,30 @@ pub enum CombineError {
     /// The two legs' link columns carry kinds that can never match.
     #[error("the fact leg's link column is {fact} and the lookup leg's is {lookup}, so no row can match")]
     LinkTypeMismatch { fact: &'static str, lookup: &'static str },
+    /// The relationship declares how its keys compare, and these two legs' link columns are not a
+    /// pair that declaration joins.
+    ///
+    /// Not [`Self::LinkTypeMismatch`], which says no row can match: two text legs under a declared
+    /// integer can, so it is the declaration that no longer fits the data.
+    #[error(
+        "the relationship declares its keys as {declared}, and a fact leg of {fact} with a lookup leg of {lookup} is not a pair that joins"
+    )]
+    LinkKindsNotJoined {
+        declared: &'static str,
+        fact: &'static str,
+        lookup: &'static str,
+    },
+    /// A link value could not be read as the kind the relationship declares for it.
+    ///
+    /// Carries the two kinds and never the value: Arrow's own message names it, and a join key is
+    /// exactly the caller data this workspace keeps out of a message. The whole answer is refused
+    /// rather than the row dropped, because a dropped row is a number that looks right.
+    #[error("a {side} leg's link value could not be read as {to}, which the relationship declares; the column holds {from}")]
+    LinkValueNotCast {
+        side: &'static str,
+        from: &'static str,
+        to: &'static str,
+    },
     /// A link value maps to more than one lookup row, or to more than one second-fact row in one
     /// bucket, which would double every measure under it.
     ///
@@ -342,9 +386,22 @@ impl DataFusionCombiner {
         ceiling_bytes: u64,
     ) -> Result<ResultBatches, CombineError> {
         let fact = LegSchema::of(FACT, legs.fact().schema())?;
-        let lookup = LegSchema::of(LOOKUP, legs.lookup().schema())?;
-        let link = InternalLabel::Link.label();
-        agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
+        let lookups = legs
+            .lookups()
+            .iter()
+            .zip(LOOKUP_TABLES)
+            .map(|(&(leg, batches), table)| Ok((leg, table, batches, LegSchema::of(table, batches.schema())?)))
+            .collect::<Result<Vec<_>, CombineError>>()?;
+        // Each lookup leg's link kind agrees with the leg it joins onto, on its own link label.
+        for (position, &(leg, _, _, ref schema)) in lookups.iter().enumerate() {
+            let link = InternalLabel::Link(position).label();
+            let onto = match leg.onto() {
+                LegAt::Fact => &fact,
+                LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
+            };
+            agreeing_link(onto.link_kind(&link)?, schema.link_kind(&link)?)?;
+        }
+        let link = InternalLabel::Link(0).label();
         // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
         // joined above on the link and the bucket, so its link kind must agree with the first.
         let second_fact = match (plan.second_fact(), legs.second_fact()) {
@@ -367,20 +424,30 @@ impl DataFusionCombiner {
         }
         for key in plan.keys() {
             match key.side() {
-                LegSide::Fact => fact.projects(key.label())?,
-                LegSide::Lookup => lookup.projects(key.label())?,
+                LegAt::Fact => fact.projects(key.label())?,
+                LegAt::Lookup(position) => lookups
+                    .get(position)
+                    .ok_or_else(|| missing_lookup(key.label()))?
+                    .3
+                    .projects(key.label())?,
             }
         }
 
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
         let context = SessionContext::new_with_config_rt(SessionConfig::new(), environment.into_runtime());
         register(&context, FACT_TABLE, FACT, legs.fact())?;
-        register(&context, LOOKUP_TABLE, LOOKUP, legs.lookup())?;
+        for &(_, table, batches, _) in &lookups {
+            register(&context, table, table, batches)?;
+        }
         if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
             register(&context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
         }
 
-        refuse_ambiguous_link(&context, LOOKUP_TABLE, &[&link], ceiling_bytes, working_set).await?;
+        // Each lookup leg on its own link, a leg that joins onto an earlier lookup leg among them.
+        for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
+            let own = InternalLabel::Link(position).label();
+            refuse_ambiguous_link(&context, table, &[&own], ceiling_bytes, working_set).await?;
+        }
         // The second fact is joined on the link AND the bucket, so a second row for one pair fans
         // every first-fact row under it out exactly as a second lookup row would.
         if second_fact.is_some() {
@@ -444,6 +511,8 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::FloatLinkKey { .. } => Some(FederatedAnswerRefusal::FloatLinkKey),
             CombineError::AmbiguousLink => Some(FederatedAnswerRefusal::AmbiguousLink),
             CombineError::LinkTypeMismatch { .. } => Some(FederatedAnswerRefusal::LinkTypeMismatch),
+            CombineError::LinkKindsNotJoined { .. } => Some(FederatedAnswerRefusal::LinkKindsNotJoined),
+            CombineError::LinkValueNotCast { .. } => Some(FederatedAnswerRefusal::LinkValueNotCast),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
