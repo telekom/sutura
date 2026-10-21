@@ -79,6 +79,17 @@ for gh_name, out in SECRETS.items():
     open(f, "w", encoding="utf-8").write(doc)
     paths[gh_name] = f
 
+# Mode c's outputs exist only where the stack declares `domain_delegation_user`; pushed when present.
+OPTIONAL_SECRETS = {
+    "SUTURA_BQ_DWD_ACCOUNT": "dwd_email",
+    "SUTURA_BQ_DWD_USER": "dwd_user",
+}
+for gh_name, out in OPTIONAL_SECRETS.items():
+    if out in d:
+        f = f"{tmp}/gh-{gh_name}"
+        open(f, "w", encoding="utf-8").write(str(d[out]))
+        paths[gh_name] = f
+
 for gh_name, f in paths.items():
     with open(f, "rb") as fh, open(os.devnull, "wb") as null:
         subprocess.run(["gh", "secret", "set", gh_name, "-e", env],

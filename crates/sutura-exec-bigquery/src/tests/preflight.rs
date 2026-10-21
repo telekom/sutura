@@ -21,12 +21,32 @@ use super::{
     Warehouse as _, leg_of, open, plan, shared_posture, test_deadline,
 };
 
-/// The tables a bundle would ask about, as the port takes them.
+/// The project a path written without one is placed in here, since the adapter resolves no bare name.
+const PROJECT: &str = "acme-analytics";
+
+/// The tables a bundle would ask about, as the port takes them: a bare name in `PROJECT.warehouse`,
+/// a `dataset.table` in `PROJECT`.
 fn asked(paths: &[&str]) -> BTreeSet<QualifiedTable> {
     paths
         .iter()
-        .map(|raw| QualifiedTable::parse(raw).expect("a test table path parses"))
+        .map(|raw| {
+            let full = match raw.matches('.').count() {
+                0 => format!("{PROJECT}.warehouse.{raw}"),
+                1 => format!("{PROJECT}.{raw}"),
+                _ => String::from(*raw),
+            };
+            QualifiedTable::parse(&full).expect("a test table path parses")
+        })
         .collect()
+}
+
+/// A path as [`asked`] was handed it, so an assertion reads in the same spelling.
+fn as_written(table: &QualifiedTable) -> String {
+    let full = table.to_string();
+    let home = format!("{PROJECT}.warehouse.");
+    full.strip_prefix(&home)
+        .or_else(|| full.strip_prefix(&format!("{PROJECT}.")))
+        .map_or_else(|| full.clone(), String::from)
 }
 
 /// A listing that reported more tables than it named, as the transport would have parsed one.
@@ -38,7 +58,7 @@ fn short(reported: u64, identified: u64) -> ListingTotal {
 fn absent_names(answered: &TablesPresent) -> Vec<String> {
     answered
         .absent()
-        .map_or_default(|tables| tables.named().iter().map(ToString::to_string).collect())
+        .map_or_default(|tables| tables.named().iter().map(as_written).collect())
 }
 
 #[test]
@@ -97,7 +117,7 @@ fn a_listing_short_of_its_own_total_does_not_report_the_table_it_never_named_as_
     };
     assert_eq!(
         tables.to_string(),
-        "dim_customer",
+        "acme-analytics.warehouse.dim_customer",
         "the outcome names the table nothing was said about"
     );
     assert_eq!(
@@ -283,7 +303,7 @@ fn successful_listing_diagnostics_keep_their_precedence_and_their_own_tables() {
             let counted_table = format!("{counted}.dim_counted");
             let mut requested = asked(&[&unknown_table, &counted_table]);
             if definite_absence {
-                requested.insert(QualifiedTable::parse("middle.dim_absent").expect("a table path"));
+                requested.insert(QualifiedTable::parse("acme-analytics.middle.dim_absent").expect("a table path"));
             }
             let answer = open(transport, shared_posture())
                 .preflight(&requested)
@@ -298,7 +318,7 @@ fn successful_listing_diagnostics_keep_their_precedence_and_their_own_tables() {
                 };
                 assert_eq!(
                     tables.to_string(),
-                    unknown_table,
+                    format!("acme-analytics.{unknown_table}"),
                     "the counted dataset's tables must not be relabeled"
                 );
             }
@@ -307,22 +327,19 @@ fn successful_listing_diagnostics_keep_their_precedence_and_their_own_tables() {
 }
 
 #[test]
-fn an_unqualified_model_is_looked_for_in_the_dataset_the_source_was_opened_against() {
-    // The same decision the request body's `defaultDataset` carries, in the one other place this
-    // adapter has to resolve a bare name. Getting it wrong would look for every unqualified model in
-    // a dataset nobody named and report a correct bundle as entirely absent.
+fn an_unqualified_model_is_reported_absent_and_no_dataset_is_listed() {
+    // No source dataset fills in a bare name any more, so a model without a project names no table
+    // a job could address: an absence the operator is told about at boot, not a guess at a dataset.
     let warehouse = open(
         Recording::empty().holding("acme-analytics/warehouse", &["dim_customer"]),
         shared_posture(),
     );
-    assert_eq!(
-        warehouse.preflight(&asked(&["dim_customer"])).expect("the dataset answered"),
-        TablesPresent::All
-    );
-    assert_eq!(
-        *warehouse.transport.listed.borrow(),
-        vec![String::from("acme-analytics:acme-analytics/warehouse")]
-    );
+    let bare = BTreeSet::from([QualifiedTable::parse("dim_customer").expect("a bare path parses")]);
+    let answered = warehouse
+        .preflight(&bare)
+        .expect("an unaddressable path is an answer, not a failure");
+    assert_eq!(absent_names(&answered), vec![String::from("dim_customer")]);
+    assert!(warehouse.transport.listed.borrow().is_empty(), "no dataset is guessed at");
 }
 
 #[test]
@@ -381,14 +398,14 @@ fn a_table_path_this_adapter_cannot_address_is_reported_absent_and_stops_nothing
             "fct_orders",
         ]))
         .expect("an unaddressable path is an answer about that table, not a failure of the call");
-    // Ordered as `QualifiedTable`'s derived `Ord` orders them - the qualifier first, so a bare name
-    // sorts before a qualified one. That is the ordering that type documents wanting: grouped by
-    // where a table lives rather than by its own name.
+    // Ordered as `QualifiedTable`'s derived `Ord` orders them - the qualifier first, and an
+    // uppercase project sorts before a lowercase one. That is the ordering that type documents
+    // wanting: grouped by where a table lives rather than by its own name.
     assert_eq!(
         absent_names(&answered),
         vec![
-            String::from("fct_orders"),
-            String::from("Acme-Analytics.warehouse.dim_customer")
+            String::from("Acme-Analytics.warehouse.dim_customer"),
+            String::from("fct_orders")
         ],
         "the unaddressable path AND the genuinely missing table are both named"
     );

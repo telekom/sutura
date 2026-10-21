@@ -117,6 +117,9 @@ impl ColumnMetadata {
 /// What a `dataset` entity supplies a model: a table, its columns, the platform it lives on, and a
 /// description.
 ///
+/// It names no model: [`crate::DataHubCatalog`] reads the model name off the platform and the
+/// table, so no reader chooses one.
+///
 /// `column_metadata` and `primary_key` are both additive - see [`Self::with_column_metadata`] and
 /// [`Self::with_primary_key`] - rather than [`Self::new`] parameters, so every existing fixture and
 /// test in this crate keeps compiling. Both are `#[serde(default)]`, so a recorded document that
@@ -124,7 +127,6 @@ impl ColumnMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatasetAspect {
-    name: String,
     table: String,
     platform: String,
     columns: Vec<String>,
@@ -137,9 +139,8 @@ pub struct DatasetAspect {
 
 impl DatasetAspect {
     /// A dataset aspect.
-    pub const fn new(name: String, table: String, platform: String, columns: Vec<String>, description: String) -> Self {
+    pub const fn new(table: String, platform: String, columns: Vec<String>, description: String) -> Self {
         Self {
-            name,
             table,
             platform,
             columns,
@@ -163,11 +164,6 @@ impl DatasetAspect {
     pub fn with_primary_key(mut self, primary_key: Vec<String>) -> Self {
         self.primary_key = primary_key;
         self
-    }
-
-    #[inline]
-    pub fn name(&self) -> &str {
-        &self.name
     }
 
     #[inline]

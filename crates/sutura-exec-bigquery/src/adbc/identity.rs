@@ -23,7 +23,10 @@
 //! `service_account_impersonation_url` impersonated a declared account from the pool principal, and
 //! grants on the principal itself replaced it (`docs/adr/0032`). A fallback a misconfiguration could
 //! select is the defect, not a convenience. The chain starts at a credential the CALLER possesses:
-//! no assertion, no token.
+//! no assertion, no token. The one exception is opted in to per source and reached by no other mode:
+//! [`Impersonation::DomainDelegation`] sets `target_principal` again, with the verified address as
+//! the subject, and the deployment vouches for the caller there
+//! (`docs/adr/20261014100540-bigquery-caller-identity-modes.md`).
 //!
 //! # Why the pool's values are parsed HERE, when configuration already parsed them
 //!
@@ -32,7 +35,7 @@
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::Secret;
+use sutura_domain::identity::{PrincipalName, Secret};
 
 use crate::transport::JobIdentity;
 
@@ -69,6 +72,19 @@ const AUTH_TYPE_ACCESS_TOKEN: &str = "access_token";
 /// The driver option carrying that access token: the patch's `OptionAuthAccessToken`.
 const AUTH_ACCESS_TOKEN: &str = "bigquery.auth.access_token";
 
+/// The account the deployment's own credential impersonates: pinned `go/v1.13.0`'s
+/// `OptionImpersonateTargetPrincipal`.
+const IMPERSONATE_TARGET: &str = "bigquery.impersonate.target_principal";
+
+/// The scopes the impersonated token carries: `OptionImpersonateScopes`.
+const IMPERSONATE_SCOPES: &str = "bigquery.impersonate.scopes";
+
+/// The user the delegating account acts as: the vendored driver patch's `OptionImpersonateSubject`.
+const IMPERSONATE_SUBJECT: &str = "bigquery.impersonate.subject";
+
+/// The one scope that runs a query: `jobs.insert` refuses `bigquery.readonly`.
+const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
+
 /// The options one job's identity becomes, as the driver's database option pairs.
 ///
 /// Named because `Result<Vec<(OptionDatabase, OptionValue)>, AdbcError>` is over this workspace's
@@ -90,6 +106,47 @@ pub enum Impersonation {
     /// This source impersonates with the access token the identity provider stored for the asking
     /// subject's own Google login: the subject's credential is that token itself.
     GoogleLogin,
+    /// This source runs the asking subject's verified address through domain-wide delegation: the
+    /// deployment's own credential signs as this account, which acts as the address. The
+    /// deployment vouches for the subject here.
+    DomainDelegation(DelegatingAccount),
+}
+
+/// A user-managed service account's address, `<account>@<project>.iam.gserviceaccount.com`.
+///
+/// Parsed here, where it is sent, as well as where it is declared - for [`WorkloadPool::parse`]'s
+/// reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DelegatingAccount(String);
+
+/// Why a value is not a service-account address. The value is never quoted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum UnusableDelegatingAccount {
+    /// Not `<account>@<project>.iam.gserviceaccount.com`.
+    #[error("not a service-account address `<account>@<project>.iam.gserviceaccount.com`")]
+    Shape,
+}
+
+impl DelegatingAccount {
+    /// Parses an address: two non-empty labels of lowercase letters, digits and `-` around the `@`,
+    /// the second followed by `.iam.gserviceaccount.com`.
+    ///
+    /// # Errors
+    ///
+    /// [`UnusableDelegatingAccount`] for anything else.
+    pub fn parse(written: &str) -> Result<Self, UnusableDelegatingAccount> {
+        let label = |half: &str| {
+            !half.is_empty()
+                && half
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        };
+        let (account, project) = written.split_once('@').ok_or(UnusableDelegatingAccount::Shape)?;
+        match project.strip_suffix(".iam.gserviceaccount.com") {
+            Some(project) if label(account) && label(project) => Ok(Self(String::from(written))),
+            _ => Err(UnusableDelegatingAccount::Shape),
+        }
+    }
 }
 
 /// Everything a job's identity puts on the database, and the loopback source it has to outlive.
@@ -132,6 +189,18 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
             options: access_token_options(assertion),
             source: None,
         }),
+        (JobIdentity::AsAddress { address }, Impersonation::DomainDelegation(account)) => Ok(JobAuthentication {
+            options: delegation_options(account, address),
+            source: None,
+        }),
+        // A subject's own credential at a delegating source, or an address anywhere else: in-crate
+        // misuse insurance, for the reason the arm below gives.
+        (JobIdentity::AsSubject { .. }, Impersonation::DomainDelegation(_))
+        | (JobIdentity::AsAddress { .. }, Impersonation::Disabled | Impersonation::ThroughPool(_) | Impersonation::GoogleLogin) => {
+            Err(AdbcError::Uncovered(
+                "run a subject by a mechanism this source does not declare",
+            ))
+        }
         (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) => {
             let source = SubjectSource::bind(assertion)?;
             Ok(JobAuthentication {
@@ -203,6 +272,21 @@ fn access_token_options(token: &Secret) -> DatabaseOptions {
     ]
 }
 
+/// The three options that run one job as `address` through domain-wide delegation, only ever
+/// together: the delegating account, the one scope a query needs, and the address. No auth type is
+/// set, so the base credential is the deployment's own application default credentials, which sign
+/// as the account.
+fn delegation_options(account: &DelegatingAccount, address: &PrincipalName) -> DatabaseOptions {
+    [
+        (IMPERSONATE_TARGET, account.0.as_str()),
+        (IMPERSONATE_SCOPES, BIGQUERY_SCOPE),
+        (IMPERSONATE_SUBJECT, address.as_str()),
+    ]
+    .into_iter()
+    .map(|(key, value)| (OptionDatabase::Other(key.into()), OptionValue::String(String::from(value))))
+    .collect()
+}
+
 /// A compile-time guard that `JobAuthentication` does not implement `Debug`.
 ///
 /// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
@@ -238,11 +322,11 @@ mod no_debug {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::identity::Secret;
+    use sutura_domain::identity::{PrincipalName, Secret};
 
     use super::{
-        AUTH_ACCESS_TOKEN, AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN, Impersonation,
-        authenticate,
+        AUTH_ACCESS_TOKEN, AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN, DelegatingAccount,
+        IMPERSONATE_SCOPES, IMPERSONATE_SUBJECT, IMPERSONATE_TARGET, Impersonation, UnusableDelegatingAccount, authenticate,
     };
     use crate::adbc::AdbcError;
     use crate::adbc::subject::WorkloadPool;
@@ -365,9 +449,9 @@ mod tests {
     #[test]
     fn the_two_modes_are_the_only_two_and_neither_degrades_into_the_other() {
         // **The XOR as a cell rather than as a sentence.** For `Disabled` and `ThroughPool` and
-        // the two arms of `JobIdentity` that can reach this function, the pairs are four and every
-        // one is decided above: shared runs as the deployment, a subject federates, a subject with
-        // no pool refuses, and the boot path runs as the deployment whatever the source declared.
+        // the three arms of `JobIdentity`, the pairs are six and every one is decided above: shared
+        // and the boot path run as the deployment whatever the source declared, a subject federates,
+        // a subject with no pool refuses, and an address refuses at both.
         // What no pair produces is *a subject's question answered as the deployment* - there is no
         // option list that is both non-empty and free of the credential document, and no arm that
         // returns an empty list for a subject.
@@ -378,10 +462,73 @@ mod tests {
             authenticate(JobIdentity::AsSubject { assertion: &assertion }, &Impersonation::Disabled).is_err(),
             "a subject's leg fell back to the deployment's identity"
         );
-        // And a principal switch has no spelling at all any more: `JobIdentity` declares two arms
-        // and neither carries a `PrincipalName`, so the weaker mechanism is unrepresentable rather
-        // than refused. **That half is held by the enum and by this function's exhaustive match, not
-        // by this cell** - a `PrincipalName::parse` round trip used to sit here commented as "the
-        // compile-time half", and it asserted nothing about `JobIdentity` at all.
+        // A principal switch is `JobIdentity::AsAddress`, and only a `DomainDelegation` source runs
+        // one: `an_address_runs_only_at_a_delegating_source_and_only_an_address_runs_there`.
+    }
+
+    fn delegating() -> Impersonation {
+        Impersonation::DomainDelegation(
+            DelegatingAccount::parse("dwd-bigquery@acme-analytics.iam.gserviceaccount.com").expect("a service-account address"),
+        )
+    }
+
+    #[test]
+    fn a_domain_delegation_job_names_the_account_the_scope_and_the_address() {
+        let address = PrincipalName::parse("Analyst.A@example.com").expect("a test name is a name");
+        let sent: Vec<(String, String)> = authenticate(JobIdentity::AsAddress { address: &address }, &delegating())
+            .expect("an address at a delegating source is authenticated")
+            .options
+            .into_iter()
+            .map(|(key, value)| (format!("{key:?}"), format!("{value:?}")))
+            .collect();
+        for (key, value) in [
+            (IMPERSONATE_TARGET, "dwd-bigquery@acme-analytics.iam.gserviceaccount.com"),
+            (IMPERSONATE_SCOPES, "https://www.googleapis.com/auth/bigquery"),
+            (IMPERSONATE_SUBJECT, "Analyst.A@example.com"),
+        ] {
+            assert!(
+                sent.iter()
+                    .any(|(k, v)| k.contains(&format!("\"{key}\"")) && v.contains(&format!("\"{value}\""))),
+                "{key} = {value} is not sent: {sent:?}"
+            );
+        }
+        // No auth type: the base credential is the deployment's own, never a caller's token.
+        assert_eq!(sent.len(), 3, "{sent:?}");
+    }
+
+    #[test]
+    fn an_address_runs_only_at_a_delegating_source_and_only_an_address_runs_there() {
+        let address = PrincipalName::parse("analyst@example.com").expect("a test name is a name");
+        for impersonation in [Impersonation::Disabled, impersonating(), Impersonation::GoogleLogin] {
+            let refused = authenticate(JobIdentity::AsAddress { address: &address }, &impersonation)
+                .map(|_| ())
+                .expect_err("an address runs only through domain-wide delegation");
+            assert!(matches!(refused, AdbcError::Uncovered(_)), "{impersonation:?}: {refused:?}");
+        }
+        let assertion = Secret::new("a.caller.assertion");
+        let refused = authenticate(JobIdentity::AsSubject { assertion: &assertion }, &delegating())
+            .map(|_| ())
+            .expect_err("a delegating source runs no caller credential");
+        assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
+    }
+
+    #[test]
+    fn a_delegating_account_that_is_not_a_service_account_is_refused_where_it_is_sent() {
+        for written in [
+            "",
+            "user@example.com",
+            "dwd@iam.gserviceaccount.com",
+            "dwd@acme-analytics",
+            "@acme-analytics.iam.gserviceaccount.com",
+            "a@b@acme-analytics.iam.gserviceaccount.com",
+            "DWD@acme-analytics.iam.gserviceaccount.com",
+            "dwd@acme.analytics.iam.gserviceaccount.com",
+        ] {
+            assert_eq!(
+                DelegatingAccount::parse(written),
+                Err(UnusableDelegatingAccount::Shape),
+                "{written:?}"
+            );
+        }
     }
 }

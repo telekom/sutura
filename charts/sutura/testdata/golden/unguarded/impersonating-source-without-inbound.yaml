@@ -17,8 +17,6 @@ data:
       single_user_because: a test deployment one operator runs with their own credentials
     sources:
       warehouse:
-        billing_project: example-project
-        dataset: metrics
         kind: bigquery
         max_bytes_billed: 1073741824
         posture: impersonation-at-source

@@ -1,19 +1,20 @@
+diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
 --- a/crates/sutura-app/src/lib.rs
 +++ b/crates/sutura-app/src/lib.rs
-@@ -558,30 +558,7 @@
-             },
-         ));
+@@ -581,30 +581,7 @@
+         return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
      }
--    let preflight = match warehouse.dry_run(Executable::Query(&plan), presented, deadline) {
+     let (asked_plan, bill_to) = (Executable::Query(&plan), credentials.bill_to_for(plan.source()));
+-    let preflight = match warehouse
+-        .dry_run_billed(asked_plan, presented, bill_to, deadline)
+-        .map_err(Billed::into_source)
+-    {
 -        Ok(preflight) => preflight,
--        Err(cause) => {
+-        Err(Err(reason)) => return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason })),
+-        Err(Ok(cause)) => {
 -            if warehouse.deadline_exceeded(&cause) {
--                return Ok(Answered::under(
--                    &credentials,
--                    ToolOutcome::Refusal {
--                        reason: deadline_exceeded(deadline),
--                    },
--                ));
+-                let reason = deadline_exceeded(deadline);
+-                return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
 -            }
 -            if warehouse.source_refused(&cause) {
 -                return Ok(Answered::under(

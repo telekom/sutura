@@ -28,13 +28,13 @@ All data is synthetic.
 
 ## The parts
 
-`just dev-up-cube` starts the `cube` profile of `compose.services.yaml`. Three services belong to
-this example:
-
-- `cube-keycloak` imports `keycloak/realm.json`.
-- `cube-clickhouse` loads `clickhouse/init.sql`.
-- `cube-metrics` serves `cube/model.yml` over `cube-clickhouse`. It verifies each token with the
-  keys of the realm, and accepts only the issuer of the realm and the audience `cube`.
+`compose.cube.yaml` runs the three services of this example by hand (see
+[Run the services](#run-the-services)): `keycloak` imports `keycloak/realm.json`, `clickhouse` loads
+`clickhouse/init.sql`, and `cube` serves `cube/model.yml` over `clickhouse`, verifies each token
+with the keys of the realm, and accepts only the issuer of the realm and the audience `cube`
+(`cube-tls` is the TLS proxy in front of it). `just dev-up-cube` starts the same three as
+`cube-keycloak`, `cube-clickhouse` and `cube-metrics` in the `cube` profile of
+`compose.services.yaml`, for the tests of this repository.
 
 The DataHub catalog holds the `orders` and `customers` datasets and the certified metric `revenue`.
 Each dataset is a cube with the same name, and `revenue` is a measure of `orders`.
@@ -103,13 +103,15 @@ docker compose run --rm loader
 ```
 
 `setup.sh` writes the secrets to `.env`, with `COMPOSE_FILE` so that `docker compose` reads both
-files, and the CA and certificate of the proxy. The loader writes the `orders` and `customers`
-datasets, the relationship `orders_to_customer` and the metric `revenue` into DataHub. It also
+files, and the CA and certificate of the proxy. The certificates are valid for 30 days: delete
+`.tls`, run `./setup.sh` again, run `docker compose restart cube-tls`, and start sutura again. The
+loader writes the `orders` and `customers` datasets, the relationship `orders_to_customer` and the
+metric `revenue` into DataHub. It also
 writes the files that sutura reads from `/run/sutura` to `.local`: the DataHub token `datahub-token`
 (the catalog `token_file` in both settings files), `jwks.json` with the keys of the realm,
 `exchange-secret`, and `cube-token`, a token of the `sutura-deployment` client. The realm issues
-tokens for an hour, so run the loader again when `cube-token` has expired. Every port binds to
-`127.0.0.1` only.
+tokens for an hour, so run the loader again when `cube-token` has expired. Then start sutura again:
+it reads the token at startup. Every port binds to `127.0.0.1` only.
 
 ## Run sutura
 
@@ -126,6 +128,9 @@ docker run --rm --network host --add-host cube.example.com:127.0.0.1 --user "$(i
   -v "$PWD/.local:/run/sutura:ro" -e SUTURA_CONFIG_DIR=/run/sutura/conf \
   ghcr.io/telekom/sutura:$SUTURA_VERSION serve
 ```
+
+On Docker Desktop, turn on **Settings > Resources > Network > Enable host networking** first; with
+it off, `127.0.0.1:8080` does not answer. See [Single player](single-player.md).
 
 Ask the example question as `alice`. `$TOKEN` is her access token from the `sutura` client of the
 realm (password grant, user and password `alice`), and the answer is `262345`. As `bob` it is

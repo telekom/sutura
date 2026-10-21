@@ -326,23 +326,24 @@ impl<R: AspectReader> DataHubCatalog<R> {
 
     /// One `dataset` aspect into a [`Model`].
     fn convert_model(&self, dataset: &document::DatasetAspect) -> Result<Model, DataHubError> {
+        let model = model_name(dataset.platform(), dataset.table());
         let source = self
             .sources
             .get(dataset.platform())
             .cloned()
             .ok_or_else(|| DataHubError::UnknownPlatform {
-                model: dataset.name().to_owned(),
+                model: model.clone(),
                 platform: dataset.platform().to_owned(),
             })?;
-        let name = Self::identifier(dataset.name(), |raw| ModelName::parse(raw), "model", "a dataset")?;
+        let name = Self::identifier(&model, |raw| ModelName::parse(raw), "model", "a dataset")?;
         let table = QualifiedTable::parse(dataset.table()).map_err(|cause| DataHubError::Table {
             value: dataset.table().to_owned(),
-            on: dataset.name().to_owned(),
+            on: model.clone(),
             cause,
         })?;
         let mut columns = Vec::with_capacity(dataset.columns().len());
         for column in dataset.columns() {
-            let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;
+            let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", &model)?;
             let metadata = dataset.column_metadata(column);
             let column = Column::from_metadata(
                 column_name,
@@ -353,7 +354,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
             .map_err(|refusal| {
                 let (column, cause) = refusal.into_parts();
                 DataHubError::ColumnDescription {
-                    on: dataset.name().to_owned(),
+                    on: model.clone(),
                     column,
                     cause,
                 }
@@ -361,13 +362,13 @@ impl<R: AspectReader> DataHubCatalog<R> {
             columns.push(column);
         }
         let description = Description::parse(dataset.description()).map_err(|cause| DataHubError::Description {
-            on: dataset.name().to_owned(),
+            on: model.clone(),
             cause,
         })?;
         let primary_key = dataset
             .primary_key()
             .iter()
-            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name()))
+            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", &model))
             .collect::<Result<Vec<_>, _>>()?;
         Model::new(name, source, table, columns, description)
             .with_primary_key(primary_key)
@@ -514,6 +515,48 @@ impl<R: AspectReader> DataHubCatalog<R> {
         })
     }
 }
+
+/// The model a dataset on `platform` over `table` is read as.
+///
+/// Its platform, then each part of its table path, `__` between them and `_` for every character a
+/// model name refuses - `bigquery` and `acme-prod.sales.orders` read as
+/// `bigquery__acme_prod__sales__orders`.
+///
+/// A name past [`MODEL_NAME_LIMIT`] keeps its first 54 characters, then `_` and eight hex digits
+/// of the FNV-1a hash of the whole mapped name, so a long path still names a model a data system
+/// keeps whole. A metric document names its model by this function's answer.
+///
+/// A function of the dataset alone, so reading another dataset never renames one. Two datasets it
+/// maps to one name - two urns that differ only in their environment, only where a character
+/// became `_`, or in a long tail whose hashes collide - are refused as one model declared twice by
+/// `Definitions::assemble`.
+#[must_use]
+pub fn model_name(platform: &str, table: &str) -> String {
+    let safe = |part: &str| -> String {
+        part.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+            .collect()
+    };
+    let whole = core::iter::once(platform)
+        .chain(table.split('.'))
+        .map(safe)
+        .collect::<Vec<_>>()
+        .join("__");
+    if whole.len() <= MODEL_NAME_LIMIT {
+        return whole;
+    }
+    // ponytail: a 32-bit hash, so two long paths sharing a prefix collide about once in 2^32; a
+    // collision is refused as a duplicate model rather than merged.
+    let hash = whole.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    });
+    let kept: String = whole.chars().take(MODEL_NAME_LIMIT - 9).collect();
+    format!("{kept}_{hash:08x}")
+}
+
+/// The longest name [`model_name`] gives: the domain's identifier limit, which a data system
+/// truncates past rather than refuses.
+pub const MODEL_NAME_LIMIT: usize = 63;
 
 impl<R> SemanticCatalog for DataHubCatalog<R>
 where

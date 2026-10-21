@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
 --- a/crates/sutura-catalog-datahub/src/lib.rs
 +++ b/crates/sutura-catalog-datahub/src/lib.rs
-@@ -334,7 +334,7 @@
-                 model: dataset.name().to_owned(),
+@@ -335,7 +335,7 @@
+                 model: model.clone(),
                  platform: dataset.platform().to_owned(),
              })?;
--        let name = Self::identifier(dataset.name(), |raw| ModelName::parse(raw), "model", "a dataset")?;
+-        let name = Self::identifier(&model, |raw| ModelName::parse(raw), "model", "a dataset")?;
 +        let name = Self::identifier(dataset.table(), |raw| ModelName::parse(raw), "model", "a dataset")?;
          let table = QualifiedTable::parse(dataset.table()).map_err(|cause| DataHubError::Table {
              value: dataset.table().to_owned(),
-             on: dataset.name().to_owned(),
+             on: model.clone(),

@@ -376,7 +376,7 @@ mod tests {
              database: \"marts\"\n    user: \"sutura\"\n    password_file: \"/etc/sutura/pg-password\"\n    \
              transport_mode: \"verified\"\n    transport_anchors: \"/etc/sutura/ca.pem\"\n    \
              posture: \"shared-service-user\"\n    acknowledged_because: \"one service role for everybody\"\n  \
-             analytics:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+             analytics:\n    kind: \"bigquery\"\n    billing:\n      service_account_project: \"acme-analytics\"\n    \
              max_bytes_billed: 1073741824\n    \
              posture: \"shared-service-user\"\n    acknowledged_because: \"one service account for everybody\"\n",
         );

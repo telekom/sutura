@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-exec-bigquery/src/lib.rs b/crates/sutura-exec-bigquery/src/lib.rs
-index 36bdc1b24..0f6fb5a5e 100644
 --- a/crates/sutura-exec-bigquery/src/lib.rs
 +++ b/crates/sutura-exec-bigquery/src/lib.rs
-@@ -357,7 +357,7 @@ where
-             .clone()
-             .resolve_tables(|table| resolve::resolve(table, &self.billing_project))
-             .map_err(|cause| BigQueryError::UnresolvableConnection { cause })?;
--        generate(&resolved, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })
-+        generate(&resolved, Dialect::BigQuery).map_err(|_cause| BigQueryError::NoIdentityInTheAnswer { rows: 0, columns: 0 })
+@@ -324,7 +324,7 @@
+             Executable::Query(plan) => generate(plan, Dialect::BigQuery),
+             Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery),
+         }
+-        .map_err(|cause| BigQueryError::Render { cause })
++        .map_err(|_cause| BigQueryError::NoIdentityInTheAnswer { rows: 0, columns: 0 })
      }
  
-     /// The plan, rendered as one `GoogleSQL` statement.
+     /// The project a job over `projects` bills when nobody stated a payer: the boot path and the

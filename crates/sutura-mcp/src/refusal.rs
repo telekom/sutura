@@ -43,9 +43,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     // cannot drift from the HTTP surface. The match below decides the sentence only.
     let code = reason.code();
     let detail = match *reason {
-        RefusalReason::MetricUnknown { ref metric } => {
-            format!("this catalog defines no metric called `{metric}`")
-        }
+        RefusalReason::MetricUnknown { ref metric } => format!("this catalog defines no metric called `{metric}`"),
         RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => {
             format!("`{first}` and `{other}` do not share a model and a time column")
         }
@@ -200,6 +198,8 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              outage and not something asking again will change. Say so, and say that access to \
              `{source}` is what would be needed."
         ),
+        RefusalReason::BillToNotAllowed { ref source } => not_billed(source),
+        RefusalReason::NoBillingProject { ref source } => undecided_payer(source),
         // Written for an agent: stop, and say why, rather than retry. This deployment decided the
         // bound and the data system enforced it - something WAS judged - so retrying unchanged
         // spends the whole budget again. A narrower question is what changes the outcome, which is
@@ -308,6 +308,20 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
          else; if none of the metric's dimensions does, report it to a person."
     )
 }
+/// A source that does not bill the payer the request names.
+fn not_billed(source: &sutura_domain::model::SourceName) -> String {
+    format!("the source `{source}` does not bill the payer named in `bill_to`, so nothing ran. Ask again without `bill_to`.")
+}
+
+/// A source that could not decide who pays for the question.
+fn undecided_payer(source: &sutura_domain::model::SourceName) -> String {
+    format!(
+        "the source `{source}` could not decide who pays for this question: no group of the caller's is mapped to a \
+         billing project, it reads more than one project, and no payer was named. Nothing ran. Say so; a question \
+         over one project, or a payer in `bill_to` where the source allows one, is what would run."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
@@ -401,6 +415,12 @@ mod tests {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),
             },
             RefusalReason::SourceRefused {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::BillToNotAllowed {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::NoBillingProject {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::CredentialUnavailable {

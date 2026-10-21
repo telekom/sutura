@@ -59,9 +59,12 @@ fn corpus_carrying(content: &str) -> Snapshot {
     Snapshot::new(corpus.datasets().to_vec(), corpus.relationships().to_vec(), vec![aspect])
 }
 
-fn dataset(name: &str, table: &str, columns: &[&str], description: &str) -> DatasetAspect {
+/// The models the corpus's two datasets are read as: `bigquery` plus each table.
+const ORDERS: &str = "bigquery__fct_order";
+const CUSTOMERS: &str = "bigquery__dim_customer";
+
+fn dataset(table: &str, columns: &[&str], description: &str) -> DatasetAspect {
     DatasetAspect::new(
-        name.to_owned(),
         table.to_owned(),
         String::from("bigquery"),
         columns.iter().map(|c| String::from(*c)).collect(),
@@ -73,28 +76,22 @@ fn dataset(name: &str, table: &str, columns: &[&str], description: &str) -> Data
 ///
 /// Since issue #202 the corpus carries a metric with the deployment-defined `sutura` property,
 /// because the adapter now DECLARES it provides metrics and a declaration measured against a
-/// bundle that carried none would be aspirational. The metric is `revenue` over `orders`.
+/// bundle that carried none would be aspirational. The metric is `revenue` over [`ORDERS`].
 fn corpus() -> Snapshot {
     Snapshot::new(
         vec![
             dataset(
-                "orders",
                 "fct_order",
                 &["order_id", "customer_id", "amount_cents", "order_date", "status"],
                 "Net revenue orders, in minor units.",
             ),
-            dataset(
-                "customers",
-                "dim_customer",
-                &["customer_id", "segment"],
-                "The customer dimension.",
-            ),
+            dataset("dim_customer", &["customer_id", "segment"], "The customer dimension."),
         ],
         vec![RelationshipAspect::new(
             String::from("orders_to_customer"),
-            String::from("orders"),
+            String::from(ORDERS),
             String::from("customer_id"),
-            String::from("customers"),
+            String::from(CUSTOMERS),
             String::from("customer_id"),
             Some(Cardinality::NOne),
         )],
@@ -102,14 +99,14 @@ fn corpus() -> Snapshot {
     )
 }
 
-/// The certified metric the corpus carries: `SUM(amount_cents)` on `orders`, monthly.
+/// The certified metric the corpus carries: `SUM(amount_cents)` on [`ORDERS`], monthly.
 fn revenue_metric() -> MetricAspect {
     MetricAspect::with_sutura(
         String::from("revenue"),
         String::from("ANSI_SQL"),
         String::from("SUM(amount_cents)"),
         SuturaContent::new(
-            String::from("orders"),
+            String::from(ORDERS),
             Measure::Simple(Term::Aggregate(AggregatedColumn::new(
                 Aggregate::Sum,
                 ColumnName::parse("amount_cents").expect("a test column is a column"),
@@ -157,7 +154,7 @@ fn a_column_s_type_description_and_primary_key_evidence_arrive() {
     let orders = pinned
         .definitions()
         .models()
-        .get(&ModelName::parse("orders").expect("a fixture model is a model"))
+        .get(&ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
         .expect("orders is a model");
     let amount = ColumnName::parse("amount_cents").expect("a fixture column is a column");
     let column = orders.column(&amount).expect("amount_cents is declared");
@@ -227,7 +224,7 @@ fn a_ratio_and_a_count_if_are_carried_as_closed_measures() {
         String::from("ANSI_SQL"),
         String::from("SUM(amount_cents) / COUNT(DISTINCT customer_id)"),
         SuturaContent::new(
-            String::from("orders"),
+            String::from(ORDERS),
             Measure::Ratio {
                 numerator: Term::Aggregate(AggregatedColumn::new(
                     Aggregate::Sum,
@@ -248,7 +245,7 @@ fn a_ratio_and_a_count_if_are_carried_as_closed_measures() {
         String::from("ANSI_SQL"),
         String::from("COUNT(CASE WHEN churned THEN 1 END)"),
         SuturaContent::new(
-            String::from("orders"),
+            String::from(ORDERS),
             Measure::Simple(Term::CountIf {
                 column: ColumnName::parse("order_id").expect("a test column is a column"),
                 model: None,
@@ -299,7 +296,7 @@ fn a_metric_that_does_not_hold_together_is_refused_by_its_own_defect() {
     let refused = over(Snapshot::new(
         datasets.clone(),
         relationships.clone(),
-        vec![revenue("customers", vec![Grain::Month])],
+        vec![revenue(CUSTOMERS, vec![Grain::Month])],
     ))
     .load()
     .expect_err("a measure on a column its model lacks does not load");
@@ -332,7 +329,7 @@ fn a_metric_that_does_not_hold_together_is_refused_by_its_own_defect() {
     );
 
     // No grains: `Definitions::assemble` refuses a grainless metric as `NoGrains`.
-    let refused = over(Snapshot::new(datasets, relationships, vec![revenue("orders", Vec::new())]))
+    let refused = over(Snapshot::new(datasets, relationships, vec![revenue(ORDERS, Vec::new())]))
         .load()
         .expect_err("a grainless metric does not load");
     assert!(
@@ -361,7 +358,7 @@ fn an_unknown_key_at_the_sutura_level_is_refused_and_named() {
             "name": "revenue",
             "dialect": "ANSI_SQL",
             "expression": "SUM(amount_cents)",
-            "sutura": { "string_value": "{\"model\":\"orders\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"optimized\":true}" }
+            "sutura": { "string_value": "{\"model\":\"bigquery__fct_order\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"optimized\":true}" }
         }"#;
     let decoded: MetricAspect =
         serde_json::from_str(json).expect("the outer aspect decodes: the unknown key is inside the scalar");
@@ -382,7 +379,7 @@ fn an_unsupported_sutura_property_inside_the_closed_shapes_fails_to_read() {
             "name": "revenue",
             "dialect": "ANSI_SQL",
             "expression": "SUM(amount_cents)",
-            "sutura": { "string_value": "{\"model\":\"orders\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\",\"optimized\":true}},\"time_column\":\"order_date\",\"grains\":[\"month\"]}" }
+            "sutura": { "string_value": "{\"model\":\"bigquery__fct_order\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\",\"optimized\":true}},\"time_column\":\"order_date\",\"grains\":[\"month\"]}" }
         }"#;
     let decoded: MetricAspect = serde_json::from_str(json).expect("the outer aspect decodes");
     let message = decoded
@@ -410,7 +407,7 @@ fn a_key_inside_an_anchor_range_is_refused_through_the_load_path() {
             "name": "revenue",
             "dialect": "ANSI_SQL",
             "expression": "SUM(amount_cents)",
-            "sutura": { "string_value": "{\"model\":\"orders\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\",\"ends\":\"2026-08-01\"},\"value\":\"412345\"}}" }
+            "sutura": { "string_value": "{\"model\":\"bigquery__fct_order\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\",\"ends\":\"2026-08-01\"},\"value\":\"412345\"}}" }
         }"#;
     let metric: MetricAspect = serde_json::from_str(json).expect("the outer aspect decodes");
     let corpus = corpus();
@@ -438,7 +435,7 @@ fn the_rest_of_a_metric_rides_the_deployment_defined_property() {
             String::from("ANSI_SQL"),
             String::from("SUM(amount_cents)"),
             SuturaContent::full(
-                String::from("orders"),
+                String::from(ORDERS),
                 Measure::Simple(Term::Aggregate(AggregatedColumn::new(
                     Aggregate::Sum,
                     ColumnName::parse("amount_cents").expect("a test column is a column"),
@@ -531,9 +528,9 @@ fn relationship_with(cardinality: Option<Cardinality>) -> Snapshot {
         corpus.datasets().to_vec(),
         vec![RelationshipAspect::new(
             String::from("orders_to_customer"),
-            String::from("orders"),
+            String::from(ORDERS),
             String::from("customer_id"),
-            String::from("customers"),
+            String::from(CUSTOMERS),
             String::from("customer_id"),
             cardinality,
         )],
@@ -664,7 +661,7 @@ fn content_for_a_kind_it_did_not_declare_fails_the_load() {
 #[test]
 fn a_property_declaring_one_dimension_twice_is_refused_rather_than_deduplicated() {
     let content = concat!(
-        r#"{"model":"orders","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"#,
+        r#"{"model":"bigquery__fct_order","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"#,
         r#""time_column":"order_date","grains":["month"],"dimensions":["#,
         r#"{"name":"region","column":"region_code"},"#,
         r#"{"name":"region","column":"other_code"}]}"#
@@ -698,7 +695,7 @@ fn a_property_declaring_one_dimension_twice_is_refused_rather_than_deduplicated(
 #[test]
 fn an_anchor_value_a_reader_could_not_read_is_refused() {
     let content = format!(
-        r#"{{"model":"orders","measure":{{"simple":{{"aggregate":"sum","column":"amount_cents"}}}},"time_column":"order_date","grains":["month"],"anchor":{{"range":{{"start":"2026-06-01","end":"2026-07-01"}},"value":"4123{}45"}}}}"#,
+        r#"{{"model":"bigquery__fct_order","measure":{{"simple":{{"aggregate":"sum","column":"amount_cents"}}}},"time_column":"order_date","grains":["month"],"anchor":{{"range":{{"start":"2026-06-01","end":"2026-07-01"}},"value":"4123{}45"}}}}"#,
         '\u{200F}'
     );
     let refused = over(corpus_carrying(&content))
@@ -724,7 +721,7 @@ fn an_anchor_value_a_reader_could_not_read_is_refused() {
 #[test]
 fn an_empty_via_chain_is_refused_naming_its_dimension() {
     let content = concat!(
-        r#"{"model":"orders","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"#,
+        r#"{"model":"bigquery__fct_order","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"#,
         r#""time_column":"order_date","grains":["month"],"#,
         r#""dimensions":[{"name":"status","column":"status"},"#,
         r#"{"name":"region","column":"region_code","via":[]}]}"#
@@ -758,7 +755,7 @@ fn an_empty_via_chain_is_refused_naming_its_dimension() {
 #[test]
 fn a_dotted_dataset_name_is_the_fully_qualified_table() {
     let snapshot = Snapshot::new(
-        vec![dataset("orders", "proj.sales.orders", &["amount_cents"], "orders")],
+        vec![dataset("proj.sales.orders", &["amount_cents"], "orders")],
         vec![],
         vec![],
     );
@@ -766,4 +763,186 @@ fn a_dotted_dataset_name_is_the_fully_qualified_table() {
     let model = pinned.definitions().models().values().next().expect("the dataset is a model");
     let expected = sutura_domain::model::QualifiedTable::parse("proj.sales.orders").expect("a test path is a path");
     assert_eq!(model.table(), &expected);
+}
+
+/// One `customers` table on each of two platforms, each with the metric `<platform>_revenue`.
+fn two_platforms() -> DataHubCatalog<Stub> {
+    let columns = || {
+        vec![
+            String::from("customer_id"),
+            String::from("amount_cents"),
+            String::from("order_date"),
+        ]
+    };
+    let revenue = |metric: &str, model: &str| {
+        MetricAspect::with_sutura(
+            String::from(metric),
+            String::from("ANSI_SQL"),
+            String::from("SUM(amount_cents)"),
+            SuturaContent::new(
+                String::from(model),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+                    Aggregate::Sum,
+                    ColumnName::parse("amount_cents").expect("a test column is a column"),
+                ))),
+                String::from("order_date"),
+                vec![Grain::Month],
+            ),
+        )
+    };
+    let snapshot = Snapshot::new(
+        vec![
+            DatasetAspect::new(
+                String::from("acme-prod.sales.customers"),
+                String::from("bigquery"),
+                columns(),
+                String::new(),
+            ),
+            DatasetAspect::new(
+                String::from("orders_db.public.customers"),
+                String::from("postgres"),
+                columns(),
+                String::new(),
+            ),
+        ],
+        Vec::new(),
+        vec![
+            revenue("bigquery_revenue", "bigquery__acme_prod__sales__customers"),
+            revenue("postgres_revenue", "postgres__orders_db__public__customers"),
+        ],
+    );
+    let mut sources = BTreeMap::new();
+    drop(sources.insert(String::from("bigquery"), name()));
+    drop(sources.insert(
+        String::from("postgres"),
+        SourceName::parse("pg").expect("a test name is a name"),
+    ));
+    DataHubCatalog::new(name(), version(), sources, Stub(snapshot))
+}
+
+#[test]
+fn one_table_on_two_platforms_loads_as_two_models_named_by_their_whole_path() {
+    let pinned = two_platforms().load().expect("two platforms load");
+    let read: Vec<String> = pinned
+        .definitions()
+        .models()
+        .values()
+        .map(|model| format!("{} on {} over {}", model.name(), model.source(), model.table()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            "bigquery__acme_prod__sales__customers on local over acme-prod.sales.customers",
+            "postgres__orders_db__public__customers on pg over orders_db.public.customers",
+        ]
+    );
+}
+
+#[test]
+fn a_metric_on_each_platform_plans_over_its_own_table() {
+    let pinned = two_platforms().load().expect("two platforms load");
+    for (metric, source, table) in [
+        ("bigquery_revenue", "local", "acme-prod.sales.customers"),
+        ("postgres_revenue", "pg", "orders_db.public.customers"),
+    ] {
+        let question: sutura_domain::query::Query = serde_json::from_value(serde_json::json!({
+            "metrics": [metric],
+            "grain": "month",
+            "range": { "start": "2026-06-01", "end": "2026-07-01" },
+        }))
+        .expect("a question parses");
+        let compiled = sutura_semantic::compile(
+            &question,
+            &sutura_domain::pinned::view::ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .expect("the question compiles");
+        let sutura_semantic::Compiled::Planned { ref plan } = compiled else {
+            panic!("{metric} is answerable from its own model: {compiled:?}");
+        };
+        assert_eq!(
+            (plan.source().as_str(), plan.table().to_string()),
+            (source, String::from(table))
+        );
+    }
+}
+
+/// `orders-db` and `orders_db` both read as `orders_db`, so the two `customers` are one model twice.
+#[test]
+fn two_paths_that_read_as_one_model_name_are_refused_as_a_duplicate_model() {
+    let twice = over(Snapshot::new(
+        vec![
+            dataset("orders-db.public.customers", &["customer_id"], ""),
+            dataset("orders_db.public.customers", &["customer_id"], ""),
+        ],
+        Vec::new(),
+        Vec::new(),
+    ))
+    .load()
+    .expect_err("two datasets read as one model are refused");
+    assert!(
+        matches!(
+            twice,
+            DataHubError::Inconsistent {
+                cause: InconsistentDefinitions::DuplicateModel { ref model }
+            } if model.as_str() == "bigquery__orders_db__public__customers"
+        ),
+        "{twice:?}"
+    );
+}
+
+#[test]
+fn a_path_too_long_for_a_model_name_keeps_its_head_and_a_hash_of_the_whole() {
+    let long = "my-company-analytics-prod.marketing.fct_campaign_touchpoints";
+    let named = crate::model_name("bigquery", long);
+    assert_eq!(named, "bigquery__my_company_analytics_prod__marketing__fct_ca_09e04f63");
+    assert_eq!(named.len(), crate::MODEL_NAME_LIMIT);
+    assert_eq!(
+        crate::model_name("bigquery", &format!("{long}_v2")),
+        "bigquery__my_company_analytics_prod__marketing__fct_ca_74eb8b7c",
+        "two long paths with one head are two models"
+    );
+    let pinned = over(Snapshot::new(
+        vec![dataset(long, &["amount_cents"], "")],
+        Vec::new(),
+        Vec::new(),
+    ))
+    .load()
+    .expect("a long path loads");
+    let model = pinned.definitions().models().values().next().expect("the dataset is a model");
+    assert_eq!(
+        (model.name().as_str(), model.table().to_string()),
+        (named.as_str(), String::from(long))
+    );
+}
+
+#[test]
+fn two_long_paths_that_differ_only_where_a_character_became_an_underscore_are_refused_as_a_duplicate_model() {
+    let twice = over(Snapshot::new(
+        vec![
+            dataset(
+                "my-company-analytics-prod.marketing.fct_campaign_touchpoints",
+                &["amount_cents"],
+                "",
+            ),
+            dataset(
+                "my_company_analytics_prod.marketing.fct_campaign_touchpoints",
+                &["amount_cents"],
+                "",
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    ))
+    .load()
+    .expect_err("two long paths read as one model are refused");
+    assert!(
+        matches!(
+            twice,
+            DataHubError::Inconsistent {
+                cause: InconsistentDefinitions::DuplicateModel { ref model }
+            } if model.as_str() == "bigquery__my_company_analytics_prod__marketing__fct_ca_09e04f63"
+        ),
+        "{twice:?}"
+    );
 }

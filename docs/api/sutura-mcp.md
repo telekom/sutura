@@ -702,7 +702,7 @@ field changes a snapshot and the test fails until somebody re-accepts it. That p
 in the diff, which is the whole mechanism - `deny_unknown_fields` stops an *undeclared* field from
 being answered, and this stops a *declared* one from arriving unreviewed.
 
-Beside it, `tests::the_question_tool_takes_exactly_the_six_fields_a_question_has` asserts the
+Beside it, `tests::the_question_tool_takes_exactly_the_seven_fields_a_question_has` asserts the
 property rather than the bytes: a field named `sql`, `table`, `where`, `predicate` or `rows` is not
 merely a snapshot change but a named failure. A snapshot can be re-accepted without thought; that
 one cannot.
@@ -761,7 +761,8 @@ The tool's arguments and its result, and the conversions to and from the domain.
 
 # Why this crate has its own wire type
 
-`sutura-http` already holds one - `QuestionBody`, with the same six fields. Sharing the STRUCT
+`sutura-http` already holds one - `QuestionBody`, with the same six fields (this one adds `bill_to`, which `/v1` reads from its
+`Sutura-Bill-To` header). Sharing the STRUCT
 would mean this adapter depending on that one, and *an adapter never calls another adapter* is
 the rule the whole layout rests on: a shape owned by one transport is a shape every other
 transport has to reach through it. `CatalogContent` is the same story against
@@ -819,7 +820,7 @@ pub struct AskArgs
 
 One governed question, as a tool call carries it.
 
-The six fields are the whole input surface of this deployment. There is no field for SQL, a
+The seven fields are the whole input surface of this deployment. There is no field for SQL, a
 table, a filter expression or a row-id list, and an argument naming one is a parse error rather
 than a key that gets ignored.
 
@@ -827,68 +828,17 @@ than a key that gets ignored.
 
 `Debug`, `Deserialize<'de>`, `JsonSchema`
 
-### `struct TopArgs`
+### `struct UnusableBillTo`
 
 ```rust
-pub struct TopArgs
+pub struct UnusableBillTo
 ```
 
-A `top` clause: rank by `by`, in `direction`, keep the first `n`.
+`bill_to` is not a billing account name. The cause names the rule broken, never the value.
 
 #### Implements
 
-`Debug`, `Deserialize<'de>`, `JsonSchema`
-
-### `struct RangeArgs`
-
-```rust
-pub struct RangeArgs
-```
-
-A half-open period: `start` is included, `end` is not. Either an absolute period
-(`start`/`end`) or a period relative to today (`last`) - never both, never neither.
-
-Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
-last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
-
-#### Implements
-
-`Debug`, `Deserialize<'de>`, `JsonSchema`
-
-### `struct LastArgs`
-
-```rust
-pub struct LastArgs
-```
-
-A count of calendar periods before today, resolved at request time rather than authored as
-dates - `telekom/sutura#778`.
-
-#### Implements
-
-`Debug`, `Deserialize<'de>`, `JsonSchema`
-
-### `enum FilterArgs`
-
-```rust
-pub enum FilterArgs
-```
-
-One filter: a dimension, and what it must - or must not - equal.
-
-Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
-value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
-the predicate's shape and never the source of a value.
-
-#### Variants
-
-- `Eq` - The dimension equals this one value.
-- `In` - The dimension equals one of these values. At least one.
-- `NotIn` - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
-
-#### Implements
-
-`Debug`, `Deserialize<'de>`, `JsonSchema`
+`Debug`, `Display`, `Error`
 
 ### `enum MalformedQuestion`
 
@@ -1019,6 +969,19 @@ The sentence. A test asserts it is not empty; nothing asserts its wording.
 
 `Debug`, `Serialize`
 
+### `fn payer`
+
+```rust
+pub fn payer(arguments: Option<&serde_json::Map<String, serde_json::Value>>) -> Result<Option<sutura_domain::identity::BillingAccount>, UnusableBillTo>
+```
+
+The payer an `ask_metric` call's `bill_to` names, if it is a string. Any other type is left to
+`AskArgs`'s own parse to refuse.
+
+# Errors
+
+`UnusableBillTo` for a string that is not a billing account name.
+
 ### `use CatalogContent`
 
 What this deployment measures, as the catalog tool's structured content.
@@ -1083,6 +1046,31 @@ One raw statement, as a tool call carries it.
 One field, bounded by `RawStatement::parse` on the way in - `deny_unknown_fields` is what keeps
 this tool from ever growing a second field a caller could smuggle a table name or a row-id list
 through, the same governance boundary `super::AskArgs` holds for the certified tool.
+
+### `use FilterArgs`
+
+One filter: a dimension, and what it must - or must not - equal.
+
+Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
+value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
+the predicate's shape and never the source of a value.
+
+### `use LastArgs`
+
+A count of calendar periods before today, resolved at request time rather than authored as
+dates - `telekom/sutura#778`.
+
+### `use RangeArgs`
+
+A half-open period: `start` is included, `end` is not. Either an absolute period
+(`start`/`end`) or a period relative to today (`last`) - never both, never neither.
+
+Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
+last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
+
+### `use TopArgs`
+
+A `top` clause: rank by `by`, in `direction`, keep the first `n`.
 
 ### Module `catalog`
 
@@ -1295,3 +1283,71 @@ own `outcome: "refusal"` - the one collision the architecture decision forbids.
 ##### Implements
 
 `Debug`, `Serialize`
+
+### Module `clauses`
+
+A question's nested clauses - its period, its filters and its `top` - as a tool call carries
+them, and what each hands the domain's parse.
+
+#### `struct TopArgs`
+
+```rust
+pub struct TopArgs
+```
+
+A `top` clause: rank by `by`, in `direction`, keep the first `n`.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+#### `struct RangeArgs`
+
+```rust
+pub struct RangeArgs
+```
+
+A half-open period: `start` is included, `end` is not. Either an absolute period
+(`start`/`end`) or a period relative to today (`last`) - never both, never neither.
+
+Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
+last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+#### `struct LastArgs`
+
+```rust
+pub struct LastArgs
+```
+
+A count of calendar periods before today, resolved at request time rather than authored as
+dates - `telekom/sutura#778`.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+#### `enum FilterArgs`
+
+```rust
+pub enum FilterArgs
+```
+
+One filter: a dimension, and what it must - or must not - equal.
+
+Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
+value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
+the predicate's shape and never the source of a value.
+
+##### Variants
+
+- `Eq` - The dimension equals this one value.
+- `In` - The dimension equals one of these values. At least one.
+- `NotIn` - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`

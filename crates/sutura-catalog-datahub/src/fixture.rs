@@ -40,7 +40,7 @@ use sutura_domain::pinned::DefinitionVersion;
 /// `cfg(test)` because the corpus is what production reads; the document's only reader is the test
 /// that proves the corpus embeds it verbatim.
 #[cfg(test)]
-const SUTURA_DOCUMENT: &str = r#"{"model":"orders","description":"Net revenue in minor units, from active orders.","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"time_column":"order_date","grains":["month"],"required_filters":[{"equals":{"column":"status","value":"active"}}],"dimensions":[{"name":"segment","column":"segment","via":"orders_to_customer","allowed_values":["retail","wholesale"],"description":"The customer's segment."}],"anchor":{"range":{"start":"2026-06-01","end":"2026-07-01"},"value":"412345"}}"#;
+const SUTURA_DOCUMENT: &str = r#"{"model":"bigquery__orders","description":"Net revenue in minor units, from active orders.","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"time_column":"order_date","grains":["month"],"required_filters":[{"equals":{"column":"status","value":"active"}}],"dimensions":[{"name":"segment","column":"segment","via":"orders_to_customer","allowed_values":["retail","wholesale"],"description":"The customer's segment."}],"anchor":{"range":{"start":"2026-06-01","end":"2026-07-01"},"value":"412345"}}"#;
 
 /// Two models - one fact, one lookup - one relationship whose cardinality this adapter CAN
 /// represent, and one certified metric carrying the `sutura` structured property. The recorded
@@ -48,8 +48,7 @@ const SUTURA_DOCUMENT: &str = r#"{"model":"orders","description":"Net revenue in
 const CORPUS: &str = r#"{
   "datasets": [
     {
-      "name": "orders",
-      "table": "fct_order",
+      "table": "orders",
       "platform": "bigquery",
       "columns": ["order_id", "customer_id", "amount_cents", "order_date", "status"],
       "description": "Net revenue orders, in minor units.",
@@ -59,8 +58,7 @@ const CORPUS: &str = r#"{
       "primary_key": ["order_id"]
     },
     {
-      "name": "customers",
-      "table": "dim_customer",
+      "table": "customers",
       "platform": "bigquery",
       "columns": ["customer_id", "segment"],
       "description": "The customer dimension."
@@ -69,9 +67,9 @@ const CORPUS: &str = r#"{
   "relationships": [
     {
       "name": "orders_to_customer",
-      "from_model": "orders",
+      "from_model": "bigquery__orders",
       "from_column": "customer_id",
-      "to_model": "customers",
+      "to_model": "bigquery__customers",
       "to_column": "customer_id",
       "cardinality": "n_one"
     }
@@ -82,7 +80,7 @@ const CORPUS: &str = r#"{
       "dialect": "ANSI_SQL",
       "expression": "SUM(amount_cents)",
       "sutura": {
-        "string_value": "{\"model\":\"orders\",\"description\":\"Net revenue in minor units, from active orders.\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"required_filters\":[{\"equals\":{\"column\":\"status\",\"value\":\"active\"}}],\"dimensions\":[{\"name\":\"segment\",\"column\":\"segment\",\"via\":\"orders_to_customer\",\"allowed_values\":[\"retail\",\"wholesale\"],\"description\":\"The customer's segment.\"}],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\"},\"value\":\"412345\"}}"
+        "string_value": "{\"model\":\"bigquery__orders\",\"description\":\"Net revenue in minor units, from active orders.\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"required_filters\":[{\"equals\":{\"column\":\"status\",\"value\":\"active\"}}],\"dimensions\":[{\"name\":\"segment\",\"column\":\"segment\",\"via\":\"orders_to_customer\",\"allowed_values\":[\"retail\",\"wholesale\"],\"description\":\"The customer's segment.\"}],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\"},\"value\":\"412345\"}}"
       }
     }
   ]

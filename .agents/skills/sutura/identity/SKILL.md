@@ -275,9 +275,10 @@ assertions minted from service-account keys, no served human caller, and no row 
 standing cells. Its supplementary Google API probe observed disjoint row filters and a refusal
 for an ungranted pool principal; that probe is not automated coverage.
 
-**And what ships is not the principal switch either.** A round of this row said the transport sets
-`bigquery.impersonate.target_principal` per job with the caller's credential nowhere in the chain,
-which was true for two rounds and was rejected; `JobIdentity` has no spelling for it now.
+**The principal switch ships only as `domain_delegation`, opt-in per source.** There the
+transport sets `bigquery.impersonate.target_principal`, the `bigquery` scope and `subject` = the
+verified address per job, with the caller's credential nowhere in the chain: the deployment vouches
+(`JobIdentity::AsAddress`). Every other source refuses a principal switch (`NoPrincipalSwitch`).
 
 **There is no subject allow-list on a federating source.** Every verified caller is presented their
 own assertion; the pool's attribute conditions and BigQuery IAM decide who reaches data. An

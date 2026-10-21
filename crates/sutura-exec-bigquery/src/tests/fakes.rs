@@ -23,7 +23,7 @@ use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::{Field, Schema, SchemaRef};
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::identity::Presented;
+use sutura_domain::identity::{BillTo, BillingAccount, Presented};
 use sutura_domain::model::{
     Aggregate, ColumnName, DatasetName, Grain, MetricName, QualifiedTable, SourceName, TableName, TableQualifier,
 };
@@ -36,10 +36,8 @@ use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{Accumulating, ParamValue, ResultBatches};
 
-use crate::BigQueryWarehouse;
-use crate::transport::{
-    DatasetAddress, DatasetId, HeldTables, JobDeadline, JobIdentity, JobRequest, JobTransport, ListingTotal, ProjectId,
-};
+use crate::transport::{DatasetAddress, HeldTables, JobDeadline, JobIdentity, JobRequest, JobTransport, ListingTotal, ProjectId};
+use crate::{BigQueryWarehouse, JobBilling};
 
 // ------------------------------------------------------------------------------ the fake ----
 
@@ -56,13 +54,11 @@ pub(super) struct Asked {
     pub(super) statement: String,
     pub(super) params: Vec<String>,
     pub(super) project: String,
-    pub(super) dataset: String,
     /// The ASSERTION a job carried, where the leg named a subject. `None` for a shared leg, which
     /// runs as the identity the transport already holds.
     ///
-    /// **One field again, because there is one subject shape again.** It was two for two rounds -
-    /// a bearer and a principal - while the adapter could deliver either; the principal switch was
-    /// deleted, so a second field would record a mechanism nothing can produce.
+    /// **One field for both subject shapes**: the assertion of a `JobIdentity::AsSubject`, or the
+    /// address of a `JobIdentity::AsAddress`.
     pub(super) subject: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
@@ -165,11 +161,11 @@ impl Recording {
                 })
                 .collect(),
             project: String::from(request.billing_project().as_str()),
-            dataset: String::from(request.default_dataset().as_str()),
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
             subject: match request.identity() {
                 JobIdentity::AsSubject { assertion } => Some(String::from(assertion.expose_secret())),
+                JobIdentity::AsAddress { address } => Some(String::from(address.as_str())),
                 JobIdentity::Transport => None,
             },
             deadline: request.deadline(),
@@ -363,13 +359,18 @@ pub(super) fn open<T>(transport: T, posture: SourcePosture) -> BigQueryWarehouse
 where
     T: JobTransport,
 {
-    BigQueryWarehouse::new(
-        source(),
-        posture,
-        ProjectId::parse("acme-analytics").expect("a test project is a project"),
-        DatasetId::parse("warehouse").expect("a test dataset is a dataset"),
-        transport,
-    )
+    let billing = match posture {
+        SourcePosture::SharedServiceUser { .. } => {
+            JobBilling::ServiceAccount(ProjectId::parse("acme-analytics").expect("a test project is a project"))
+        }
+        SourcePosture::ImpersonationAtSource => JobBilling::CallerRun { caller_may_name: false },
+    };
+    BigQueryWarehouse::new(source(), posture, billing, transport)
+}
+
+/// The payer a caller-run identity read states: the project a caller's group maps onto.
+pub(super) fn group_pays() -> BillTo {
+    BillTo::Group(BillingAccount::parse("acme-analytics").expect("a test account is an account"))
 }
 
 /// A plan the way the compiler builds one: the two range bounds as predicates, and their values as
@@ -423,12 +424,11 @@ fn plan_over(table: impl Into<QualifiedTable>) -> QueryPlan {
 }
 
 pub(super) fn plan() -> QueryPlan {
-    plan_over(TableName::parse("fct_subscription_monthly").expect("a test table is a table"))
+    plan_over(QualifiedTable::parse("acme-analytics.sales.fct_subscription_monthly").expect("a test table path parses"))
 }
 
-/// The same plan, over a table naming its own dataset and no project - the shape [`crate::resolve::resolve`]
-/// has to fill a project into before it reaches the wire, rather than leaving `BigQuery`'s own
-/// request-level default to decide it silently.
+/// The same plan, over a table naming its own dataset and no project - a path nothing here
+/// resolves, so it is refused.
 pub(super) fn plan_in_dataset() -> QueryPlan {
     plan_over(QualifiedTable::new(
         Some(TableQualifier::in_dataset(
