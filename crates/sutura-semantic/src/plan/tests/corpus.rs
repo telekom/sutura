@@ -120,7 +120,9 @@ pub(super) fn federated_by(corpus: &Corpus, by: &str) -> Box<sutura_domain::plan
 
 /// Where a key reads from: its table and its column.
 pub(super) fn read_from(key: Option<&sutura_domain::plan::PlanKey>) -> (String, String) {
-    let column = key.expect("the leg carries this key").column();
+    let sutura_domain::plan::KeyValue::Column(column) = key.expect("the leg carries this key").value() else {
+        panic!("a key here reads its column as stored");
+    };
     (column.table().to_string(), column.column().to_string())
 }
 

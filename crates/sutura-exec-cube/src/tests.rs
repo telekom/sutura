@@ -668,3 +668,41 @@ fn a_top_over_a_split_plan_refuses_before_any_request() {
     );
     assert_eq!(*warehouse.transport.sent.borrow(), Sent::new());
 }
+
+#[test]
+fn a_key_truncated_to_a_grain_refuses_before_any_request() {
+    let warehouse = warehouse(Scripted::answering(answer(serde_json::json!([]))));
+    let plan = QueryPlan::new(
+        source(),
+        metric("recurring_revenue"),
+        StatementTables::only(TableName::parse(TABLE).expect("a table")),
+        bucket(),
+        vec![PlanKey::truncated(
+            ResultLabel::dimension(&DimensionName::parse("usage_month").expect("a dimension")),
+            column("usage_date"),
+            sutura_domain::model::Grain::Month,
+        )],
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("mrr_cents"),
+            },
+        },
+        ResultLabel::measure(&metric("recurring_revenue")),
+        bindings(Vec::new(), None),
+        june(),
+    );
+    let refused = warehouse
+        .execute(Executable::Query(&plan), &shared(), deadline())
+        .expect_err("a Cube dimension names no truncation");
+    assert!(
+        matches!(
+            refused,
+            CubeError::NotExpressible {
+                cause: crate::query::NotExpressible::TruncatedKey
+            }
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(*warehouse.transport.sent.borrow(), Sent::new());
+}

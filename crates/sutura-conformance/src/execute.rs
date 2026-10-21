@@ -210,29 +210,31 @@ where
 /// Selected for an adapter that declares `EXECUTES_LEGS`. The leg reads the same table over the same
 /// range as one of the whole-plan cases and must answer that case's rows, which is what makes it a
 /// conformance claim rather than a smoke test: an adapter with a leg-rendering path of its own has
-/// to land on the number the whole-plan path lands on.
+/// to land on the number the whole-plan path lands on. A second leg links on a key truncated to a
+/// month, so the adapter's own truncation runs in a leg; its rows are literals.
 ///
 /// Content only. See this module's header for why a leg gets no order assertion.
 pub fn a_leg_is_executed<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    let case = corpus::leg_case();
-    let answered = warehouse
-        .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
-        .map_err(|cause| Fault::NotAnswered {
+    for case in corpus::leg_cases() {
+        let answered = warehouse
+            .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
+            .map_err(|cause| Fault::NotAnswered {
+                case: case.name().to_owned(),
+                cause,
+            })?
+            .to_rows()
+            .map_err(|cause| Fault::Unreadable {
+                case: case.name().to_owned(),
+                cause,
+            })?;
+        agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
             case: case.name().to_owned(),
-            cause,
-        })?
-        .to_rows()
-        .map_err(|cause| Fault::Unreadable {
-            case: case.name().to_owned(),
-            cause,
+            disagreement: Box::new(disagreement),
         })?;
-    agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
-        case: case.name().to_owned(),
-        disagreement: Box::new(disagreement),
-    })?;
+    }
     Ok(Outcome::Held)
 }
 

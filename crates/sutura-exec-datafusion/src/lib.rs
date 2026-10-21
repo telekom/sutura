@@ -277,7 +277,8 @@ mod warehouse;
 
 use crate::collect::outputs;
 use crate::translate::{
-    bucket_expression, column, guard, guarded_measure_expression, key_counts, measure_expression, predicate, table_reference,
+    bucket_expression, guard, guarded_measure_expression, key_counts, key_expression, measure_expression, predicate,
+    table_reference,
 };
 
 /// An in-process engine, behind the [`Warehouse`](sutura_domain::warehouse::Warehouse) port.
@@ -512,7 +513,7 @@ impl DataFusionWarehouse {
         // aggregate's output fields line up with the labels position for position.
         let mut grouping = Vec::with_capacity(plan.keys().len().saturating_add(1));
         for key in plan.keys() {
-            grouping.push(column(key.column()));
+            grouping.push(key_expression(key));
         }
         grouping.push(bucket_expression(plan.bucket().grain(), plan.bucket().column()));
         let group_count = grouping.len();
@@ -814,6 +815,10 @@ mod drop_tests {
 /// its own file for the same reason.
 #[cfg(test)]
 mod execute_tests;
+
+/// A fact leg whose link is truncated to a grain, in its own file for the same reason.
+#[cfg(test)]
+mod leg_tests;
 
 /// The declared-key probe's own suite - split out of `execute_tests.rs`, again for the same
 /// `max-lines` reason.

@@ -9,21 +9,32 @@
 
 use super::{Claim, MUTATIONS_DIR};
 use crate::Verdict;
+use crate::causality::worktree::GitFailed;
 
 /// The cells whose patch `touched` adds - absent at base - and no declaration in `claim` names.
+///
+/// A base that cannot be asked is [`GitFailed`], not *present at base*: a patch the base lacks would
+/// otherwise go unseen.
 pub(in crate::causality) fn undeclared<'a>(
     touched: &'a [String],
     claim: Option<&Claim>,
-    at_base: impl Fn(&str) -> bool,
-) -> Vec<&'a str> {
-    touched
-        .iter()
-        .filter_map(|path| {
-            let cell = path.strip_prefix(MUTATIONS_DIR)?.strip_prefix('/')?.strip_suffix(".patch")?;
-            let declared = claim.is_some_and(|claim| claim.cells().iter().any(|named| named == cell));
-            (!declared && !at_base(path)).then_some(cell)
-        })
-        .collect()
+    at_base: impl Fn(&str) -> Result<bool, GitFailed>,
+) -> Result<Vec<&'a str>, GitFailed> {
+    let mut cells = Vec::new();
+    for path in touched {
+        let Some(cell) = path
+            .strip_prefix(MUTATIONS_DIR)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .and_then(|rest| rest.strip_suffix(".patch"))
+        else {
+            continue;
+        };
+        let declared = claim.is_some_and(|claim| claim.cells().iter().any(|named| named == cell));
+        if !declared && !at_base(path)? {
+            cells.push(cell);
+        }
+    }
+    Ok(cells)
 }
 
 /// Refuse `cells`, naming each patch and the two ways out.
@@ -41,6 +52,7 @@ pub(in crate::causality) fn report(cells: &[&str]) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::{Claim, undeclared};
+    use crate::causality::worktree::GitFailed;
 
     #[test]
     fn only_an_added_patch_no_trailer_names_is_undeclared() {
@@ -54,9 +66,20 @@ mod tests {
         .map(String::from)
         .to_vec();
         let claim = Claim::synthetic(["added_and_declared"].into_iter());
-        let at_base = |path: &str| path.contains("already_at_base");
+        let at_base = |path: &str| Ok(path.contains("already_at_base"));
 
-        assert_eq!(undeclared(&touched, claim.as_ref(), at_base), vec!["added_alone"]);
-        assert_eq!(undeclared(&touched, None, at_base), vec!["added_alone", "added_and_declared"]);
+        assert_eq!(undeclared(&touched, claim.as_ref(), at_base).unwrap(), vec!["added_alone"]);
+        assert_eq!(
+            undeclared(&touched, None, at_base).unwrap(),
+            vec!["added_alone", "added_and_declared"]
+        );
+    }
+
+    #[test]
+    fn a_base_that_cannot_be_asked_is_refused_and_not_read_as_present() {
+        let touched = [String::from("devco/claim-mutations/added_alone.patch")];
+        let unreadable = |_: &str| Err(GitFailed::unreadable());
+        let refused = undeclared(&touched, None, unreadable).unwrap_err();
+        assert!(refused.to_string().contains("ls-tree"), "{refused}");
     }
 }

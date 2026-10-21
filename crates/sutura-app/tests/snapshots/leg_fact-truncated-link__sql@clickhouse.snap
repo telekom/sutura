@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT CAST(dateTrunc('month', "fct_subscription_monthly"."usage_date") AS DATE) AS "0_link", CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) AS "period", if(toTypeName(sum("fct_subscription_monthly"."voice_min")) IN ('Int64', 'UInt64', 'Nullable(Int64)', 'Nullable(UInt64)'), tuple('Int128', CAST(sum(accurateCastOrNull("fct_subscription_monthly"."voice_min", 'Int128')) AS Dynamic)), tuple(toTypeName(sum("fct_subscription_monthly"."voice_min")), CAST(sum("fct_subscription_monthly"."voice_min") AS Dynamic))) AS "0_leaf_0" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? AND "fct_subscription_monthly"."status" = ? GROUP BY CAST(dateTrunc('month', "fct_subscription_monthly"."usage_date") AS DATE), CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(dateTrunc('month', "fct_subscription_monthly"."usage_date") AS DATE), CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE)

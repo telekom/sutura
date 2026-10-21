@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/translate.rs b/crates/sutura-exec-datafusion/src/translate.rs
+--- a/crates/sutura-exec-datafusion/src/translate.rs
++++ b/crates/sutura-exec-datafusion/src/translate.rs
+@@ -157,7 +157,7 @@
+ pub(crate) fn key_expression(key: &PlanKey) -> Expr {
+     match key.value() {
+         KeyValue::Column(over) => column(over),
+-        KeyValue::Truncated { column: over, grain } => bucket_expression(grain, over).alias(key.label()),
++        KeyValue::Truncated { column: over, grain: _ } => column(over).alias(key.label()),
+     }
+ }
+ 

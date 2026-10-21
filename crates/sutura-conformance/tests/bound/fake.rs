@@ -165,10 +165,10 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
                 .into_iter()
                 .find(|case| case.plan() == plan)
                 .map(|case| case.expected().clone()),
-            Executable::Leg(leg) => {
-                let case = corpus::leg_case();
-                (case.leg() == leg).then(|| case.expected().clone())
-            }
+            Executable::Leg(leg) => corpus::leg_cases()
+                .into_iter()
+                .find(|case| case.leg() == leg)
+                .map(|case| case.expected().clone()),
         }
     }
 
@@ -180,10 +180,10 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
                 .into_iter()
                 .find(|case| case.plan() == plan)
                 .map(|case| case.name().to_owned()),
-            Executable::Leg(leg) => {
-                let case = corpus::leg_case();
-                (case.leg() == leg).then(|| case.name().to_owned())
-            }
+            Executable::Leg(leg) => corpus::leg_cases()
+                .into_iter()
+                .find(|case| case.leg() == leg)
+                .map(|case| case.name().to_owned()),
         }
     }
 
