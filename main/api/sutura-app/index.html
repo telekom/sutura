@@ -3924,9 +3924,8 @@ one - which is the shape this enum replaces.</p>
 <li><code>LegsCollide</code> - The two legs named one data system, so the provenance record could not hold both.</li>
 </ul>
 <p><code>FederatedPlan::new</code> refuses same-source legs, so this is a splitter invariant that changed.
-- <code>LegsAreNotOneOfEach</code> - The two leg results did not resolve to one of each side.</p>
-<p><code>FederatedPlan::legs</code> returns the fact leg and the lookup leg by construction, so a pair
-  built from it is one of each.
+- <code>LegsMiswired</code> - The leg results did not stand for the plan's legs.</p>
+<p><code>FederationCombiner::execute</code> builds one result per <code>FederatedPlan::legs</code> entry, in order.
 - <code>LegNotGivenOut</code> - A leg was run that is not among the cut's own legs: one that already ran, or one the cut never held.</p>
 <p>The cut's legs are <code>Cut::legs</code>, each yielded once, so a leg
   outside that sequence is a wiring defect and names its source in <code>at</code>.
