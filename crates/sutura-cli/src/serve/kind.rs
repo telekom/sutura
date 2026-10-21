@@ -43,11 +43,12 @@
 
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::Presented;
+use sutura_domain::identity::{BillTo, Presented};
 use sutura_domain::model::{QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::billed::{Billed, BilledResult};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::preflight::TablesPresent;
@@ -136,26 +137,49 @@ macro_rules! any {
     };
 }
 
-/// The same delegation for a method returning `Result<_, Self::Error>`, wrapping whichever
-/// adapter's own error in the matching [`AnyWarehouseError`] arm.
-macro_rules! any_fallible {
-    ($self:expr, $method:ident $(, $arg:expr)*) => {
+/// The same delegation for a method returning a `Result`, wrapping whichever adapter's own error
+/// in the matching [`AnyWarehouseError`] arm by `$wrap`.
+macro_rules! any_wrapped {
+    ($wrap:path, $self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
-            AnyWarehouse::Files(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Files),
+            AnyWarehouse::Files(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Files),
             #[cfg(feature = "bigquery")]
-            AnyWarehouse::BigQuery(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::BigQuery),
+            AnyWarehouse::BigQuery(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::BigQuery),
             #[cfg(feature = "postgres")]
-            AnyWarehouse::Postgres(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Postgres),
+            AnyWarehouse::Postgres(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Postgres),
             #[cfg(feature = "clickhouse")]
-            AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::ClickHouse),
+            AnyWarehouse::ClickHouse(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::ClickHouse),
             #[cfg(feature = "oracle")]
-            AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Oracle),
+            AnyWarehouse::Oracle(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Oracle),
             #[cfg(feature = "duckdb")]
-            AnyWarehouse::Duckdb(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Duckdb),
+            AnyWarehouse::Duckdb(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Duckdb),
             #[cfg(feature = "cube")]
-            AnyWarehouse::Cube(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Cube),
+            AnyWarehouse::Cube(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Cube),
         }
     };
+}
+
+/// `any_wrapped` for a method returning `Result<_, Self::Error>`.
+macro_rules! any_fallible {
+    ($self:expr, $method:ident $(, $arg:expr)*) => {
+        any_wrapped!(Result::map_err, $self, $method $(, $arg)*)
+    };
+}
+
+/// `any_wrapped` for a billed call: a payer refusal passes through as it is.
+macro_rules! any_billed {
+    ($self:expr, $method:ident $(, $arg:expr)*) => {
+        any_wrapped!(billed_as, $self, $method $(, $arg)*)
+    };
+}
+
+/// `billed`'s own failure wrapped by `into`.
+fn billed_as<V, E>(billed: BilledResult<V, E>, into: impl FnOnce(E) -> AnyWarehouseError) -> BilledResult<V, AnyWarehouseError> {
+    billed.map_err(|billed| match billed {
+        Billed::NotTaken { at } => Billed::NotTaken { at },
+        Billed::Undecided { at } => Billed::Undecided { at },
+        Billed::Source(cause) => Billed::Source(into(cause)),
+    })
 }
 
 /// One of the port's four failure PREDICATES: `&self` paired with `&Self::Error`, answering
@@ -232,6 +256,26 @@ impl Warehouse for AnyWarehouse {
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         any_fallible!(self, execute, executable, presented, deadline)
+    }
+
+    fn dry_run_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &BillTo,
+        deadline: Deadline,
+    ) -> BilledResult<PreFlight, Self::Error> {
+        any_billed!(self, dry_run_billed, executable, presented, bill_to, deadline)
+    }
+
+    fn execute_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &BillTo,
+        deadline: Deadline,
+    ) -> BilledResult<ResultBatches, Self::Error> {
+        any_billed!(self, execute_billed, executable, presented, bill_to, deadline)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -793,5 +837,116 @@ mod tests {
             attached.is_none(),
             "a `None` `attached` must stay `None`, not become `Some({{}})`"
         );
+    }
+
+    /// A deployment mixing source kinds holds its `BigQuery` source behind [`super::AnyWarehouse`],
+    /// so a billed call must reach that adapter, not the port's default that refuses every stated
+    /// payer. The driver is never loaded: the payer is decided first, so which project a job bills is
+    /// not observed here.
+    #[cfg(feature = "bigquery")]
+    mod billed {
+        use std::time::{Duration, Instant};
+
+        use sutura_domain::identity::{BillTo, BillingAccount, Presented, Secret};
+        use sutura_domain::model::{ColumnName, JoinType, QualifiedTable, RelationshipName, SourceName, TableName};
+        use sutura_domain::plan::{Executable, LegPlan, PlanBindings, PlanColumn, PlanJoin, PlanJoinKey, StatementTables};
+        use sutura_domain::query::RefusalReason;
+        use sutura_domain::source::SourcePosture;
+        use sutura_domain::warehouse::deadline::{Budget, Deadline};
+        use sutura_domain::warehouse::{PreFlight, Warehouse as _};
+        use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation};
+
+        use super::super::AnyWarehouse;
+
+        fn ledger() -> SourceName {
+            SourceName::parse("ledger").expect("a test source is a source")
+        }
+
+        fn mixed(caller_may_name: bool) -> AnyWarehouse {
+            AnyWarehouse::BigQuery(Box::new(sutura_exec_bigquery::BigQueryWarehouse::new(
+                ledger(),
+                SourcePosture::ImpersonationAtSource,
+                sutura_exec_bigquery::JobBilling::CallerRun { caller_may_name },
+                AdbcBigQuery::new(
+                    DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so").expect("an absolute path"),
+                    Impersonation::GoogleLogin,
+                    BytesBilledCeiling::parse(1 << 30).expect("a ceiling"),
+                ),
+            )))
+        }
+
+        /// A lookup over `acme-sales.sales.orders` joined to `acme-crm.crm.customers`: two projects.
+        fn two_projects() -> LegPlan {
+            let column = |table: &str, column: &str| {
+                PlanColumn::new(
+                    TableName::parse(table).expect("a test table is a table"),
+                    ColumnName::parse(column).expect("a test column is a column"),
+                )
+            };
+            let join = PlanJoin::new(
+                RelationshipName::parse("orders_customer").expect("a test relationship is one"),
+                QualifiedTable::parse("acme-crm.crm.customers").expect("a test table path parses"),
+                JoinType::ManyToOne,
+                sutura_domain::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
+                    origin: column("orders", "customer_id"),
+                    target: column("customers", "id"),
+                }])
+                .expect("a test join declares one key"),
+            );
+            LegPlan::Lookup {
+                source: ledger(),
+                table: StatementTables::parse(
+                    QualifiedTable::parse("acme-sales.sales.orders").expect("a test table path parses"),
+                    vec![join],
+                )
+                .expect("two names, two identifiers"),
+                keys: Vec::new(),
+                bindings: PlanBindings::none(),
+            }
+        }
+
+        fn presented() -> Presented {
+            Presented::SubjectToken {
+                material: Secret::new("an-exchanged-token"),
+            }
+        }
+
+        fn deadline() -> Deadline {
+            Deadline::opened_at(
+                Instant::now(),
+                Budget::parse(Duration::from_secs(30)).expect("thirty seconds is a budget"),
+            )
+        }
+
+        #[test]
+        fn a_mixed_deployment_hands_a_named_payer_to_its_bigquery_source() {
+            let leg = two_projects();
+            let named = BillTo::Named(BillingAccount::parse("acme-billing").expect("a test account is an account"));
+            let dry_run = mixed(true).dry_run_billed(Executable::Leg(&leg), &presented(), &named, deadline());
+            assert!(matches!(dry_run, Ok(PreFlight::NotAsked)), "{dry_run:?}");
+        }
+
+        #[test]
+        fn a_mixed_deployment_refuses_a_two_project_question_with_no_payer_as_no_billing_project() {
+            let leg = two_projects();
+            let warehouse = mixed(true);
+            for refused in [
+                warehouse
+                    .dry_run_billed(Executable::Leg(&leg), &presented(), &BillTo::Unstated, deadline())
+                    .map(drop),
+                warehouse
+                    .execute_billed(Executable::Leg(&leg), &presented(), &BillTo::Unstated, deadline())
+                    .map(drop),
+            ] {
+                let reason = refused
+                    .expect_err("no payer was decided")
+                    .into_source()
+                    .expect_err("a payer refusal, not the source's own failure");
+                assert!(
+                    matches!(reason, RefusalReason::NoBillingProject { ref source } if *source == ledger()),
+                    "{reason:?}"
+                );
+            }
+        }
     }
 }

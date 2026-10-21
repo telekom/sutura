@@ -3,10 +3,10 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: pinned.definitions()
 ---
 models:
-  customers:
-    name: customers
+  bigquery__customers:
+    name: bigquery__customers
     source: local
-    table: dim_customer
+    table: customers
     columns:
       customer_id:
         name: customer_id
@@ -20,10 +20,10 @@ models:
         nullable: ~
     primary_key: []
     description: The customer dimension.
-  orders:
-    name: orders
+  bigquery__orders:
+    name: bigquery__orders
     source: local
-    table: fct_order
+    table: orders
     columns:
       amount_cents:
         name: amount_cents
@@ -56,8 +56,8 @@ models:
 relationships:
   orders_to_customer:
     name: orders_to_customer
-    origin_model: orders
-    target_model: customers
+    origin_model: bigquery__orders
+    target_model: bigquery__customers
     join_type: many_to_one
     keys:
       - Equal:
@@ -66,7 +66,7 @@ relationships:
 metrics:
   revenue:
     name: revenue
-    model: orders
+    model: bigquery__orders
     measure:
       simple:
         aggregate: sum

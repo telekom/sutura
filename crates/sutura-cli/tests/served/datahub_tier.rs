@@ -14,10 +14,13 @@ pub(super) struct FixtureNames {
     pub(super) customers: String,
     metric: String,
     relationship: String,
+    qualifier: String,
 }
 
 impl FixtureNames {
-    pub(super) fn unique() -> Self {
+    /// Per-run names whose datasets live under `qualifier` (`project.dataset`), so each dataset urn
+    /// names its table in full and the catalog reads the model by its platform and that whole path.
+    pub(super) fn unique(qualifier: String) -> Self {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the system clock is after the epoch")
@@ -28,7 +31,18 @@ impl FixtureNames {
             customers: format!("customers_{suffix}"),
             metric: format!("revenue_{suffix}"),
             relationship: format!("orders_to_customer_{suffix}"),
+            qualifier,
         }
+    }
+
+    fn table(&self, model: &str) -> String {
+        format!("{}.{model}", self.qualifier)
+    }
+
+    /// The model the catalog reads `table`'s dataset as - the per-run name is long enough to take the
+    /// hashed form.
+    fn model(&self, table: &str) -> String {
+        sutura_catalog_datahub::model_name("bigquery", &self.table(table))
     }
 
     pub(super) fn metric(&self) -> &str {
@@ -218,7 +232,7 @@ impl DatahubTier {
         };
         let dataset = |name: &str, fields: Vec<serde_json::Value>| {
             serde_json::json!({
-                "urn": Self::dataset_urn(name),
+                "urn": Self::dataset_urn(&names.table(name)),
                 "schemaMetadata": { "value": {
                     "schemaName": name,
                     "platform": "urn:li:dataPlatform:bigquery",
@@ -264,9 +278,9 @@ impl DatahubTier {
                 "name": names.relationship,
                 "relationships": [{
                     "name": names.relationship,
-                    "from": Self::dataset_urn(&names.orders),
+                    "from": Self::dataset_urn(&names.table(&names.orders)),
                     "fromColumns": ["customer_id"],
-                    "to": Self::dataset_urn(&names.customers),
+                    "to": Self::dataset_urn(&names.table(&names.customers)),
                     "toColumns": ["customer_id"],
                     "cardinality": "N_ONE",
                 }],
@@ -330,7 +344,7 @@ impl DatahubTier {
         let id = names.metric();
         let mut document: serde_json::Value =
             serde_json::from_str(property.string_value()).expect("the recorded metric property is JSON");
-        document["model"] = serde_json::json!(names.orders);
+        document["model"] = serde_json::json!(names.model(&names.orders));
         document["dimensions"][0]["via"] = serde_json::json!(names.relationship);
         let scalar = serde_json::json!([{ "string": document.to_string() }]);
         let entity = serde_json::json!([{
@@ -357,7 +371,10 @@ impl DatahubTier {
             &pat,
             "dataset",
             &["schemaMetadata", "datasetProperties"],
-            &[Self::dataset_urn(&names.orders), Self::dataset_urn(&names.customers)],
+            &[
+                Self::dataset_urn(&names.table(&names.orders)),
+                Self::dataset_urn(&names.table(&names.customers)),
+            ],
         );
         self.wait_until_indexed(
             &pat,

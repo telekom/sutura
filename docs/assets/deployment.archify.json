@@ -22,14 +22,15 @@
     {"id": "clickhouse", "type": "database", "label": "ClickHouse", "sublabel": "data system", "pos": [1240, 320], "size": [140, 60]},
     {"id": "bigquery", "type": "database", "label": "BigQuery", "sublabel": "data system, via GCP IAM", "pos": [1240, 410], "size": [140, 60]},
     {"id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "data system", "pos": [1240, 500], "size": [140, 60]},
+    {"id": "oracle", "type": "database", "label": "Oracle", "sublabel": "data system", "pos": [1240, 590], "size": [140, 60]},
     {"id": "datahub", "type": "external", "label": "DataHub", "sublabel": "holds the definitions", "pos": [520, 700], "size": [150, 60]},
     {"id": "cube", "type": "backend", "label": "Cube", "sublabel": "serves the metrics", "pos": [820, 700], "size": [150, 60]},
-    {"id": "bi", "type": "external", "label": "BI tools", "sublabel": "dashboards", "pos": [1100, 655], "size": [150, 60]},
-    {"id": "apis", "type": "external", "label": "APIs", "sublabel": "applications", "pos": [1100, 745], "size": [150, 60]}
+    {"id": "bi", "type": "external", "label": "BI tools", "sublabel": "dashboards", "pos": [1100, 685], "size": [150, 60]},
+    {"id": "apis", "type": "external", "label": "APIs", "sublabel": "applications", "pos": [1100, 775], "size": [150, 60]}
   ],
   "boundaries": [
     {"kind": "region", "label": "Identity", "wraps": ["entra", "keycloak", "gcpiam"]},
-    {"kind": "region", "label": "Data systems", "wraps": ["clickhouse", "bigquery", "postgres"]},
+    {"kind": "region", "label": "Data systems", "wraps": ["clickhouse", "bigquery", "postgres", "oracle"]},
     {"kind": "region", "label": "Semantics", "wraps": ["datahub", "cube"]},
     {"kind": "region", "label": "AI", "wraps": ["aigw", "model"]}
   ],
@@ -51,6 +52,7 @@
     {"id": "sutura-clickhouse", "from": "sutura", "to": "clickhouse", "label": "SQL as the caller", "fromSide": "right", "toSide": "left"},
     {"id": "sutura-bigquery", "from": "sutura", "to": "bigquery", "label": "SQL as the caller", "fromSide": "right", "toSide": "left"},
     {"id": "sutura-postgres", "from": "sutura", "to": "postgres", "label": "SQL as a shared service user", "fromSide": "right", "toSide": "left"},
+    {"id": "sutura-oracle", "from": "sutura", "to": "oracle", "label": "SQL as the caller", "fromSide": "right", "toSide": "left", "via": [[1100, 500], [1100, 620]]},
     {"id": "sutura-datahub", "from": "datahub", "to": "sutura", "label": "definitions", "fromSide": "top", "toSide": "bottom"},
     {"id": "datahub-cube", "from": "datahub", "to": "cube", "label": "definitions", "fromSide": "right", "toSide": "left"},
     {"id": "cube-sutura", "from": "cube", "to": "sutura", "label": "metrics", "fromSide": "top", "toSide": "bottom"},

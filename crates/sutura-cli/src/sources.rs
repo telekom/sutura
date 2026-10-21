@@ -679,12 +679,14 @@ fn timeout() -> sutura_config::RequestTimeout {
 /// here, beside the arm that refuses it - share ONE entry builder.
 #[cfg(test)]
 fn declaring_bigquery(posture: &str, extra: &str) -> sutura_config::SourceRegistry {
+    let billing = if posture == "shared-service-user" {
+        "    billing:\n      service_account_project: \"acme-analytics\"\n"
+    } else {
+        ""
+    };
     declaring(
         "warehouse",
-        &format!(
-            "    kind: bigquery\n    billing_project: \"acme-analytics\"\n    dataset: \"marts\"\n    \
-             max_bytes_billed: 1073741824\n{extra}"
-        ),
+        &format!("    kind: bigquery\n    max_bytes_billed: 1073741824\n{billing}{extra}"),
         posture,
     )
 }

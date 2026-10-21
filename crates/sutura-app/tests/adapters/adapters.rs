@@ -49,9 +49,6 @@ use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::Warehouse;
-use sutura_exec_bigquery::BigQueryWarehouse;
-use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation};
-use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
 use sutura_exec_postgres::fixture::FixtureCredential;
 
 /// The version the goldens are pinned under.
@@ -86,7 +83,7 @@ fn example_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
 }
 
-fn catalog_root() -> PathBuf {
+pub(crate) fn catalog_root() -> PathBuf {
     example_root().join("catalog")
 }
 
@@ -389,6 +386,12 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
         Self::open_on(source(), fixture_tables(pinned))
     }
 
+    /// The bundle a cell runs on this system: the markdown catalog at `catalog`, with each table
+    /// named the way this system resolves it - as written, unless the entry overrides it.
+    fn bundle_over(catalog: &Path) -> PinnedDefinitions {
+        local_bundle(catalog)
+    }
+
     /// Whether this adapter can execute HERE at all.
     ///
     /// Defaults to `true`, the truth for the in-process adapters; a network adapter reports whether
@@ -400,6 +403,8 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
     }
 }
 
+#[path = "bigquery.rs"]
+pub(crate) mod bigquery;
 #[path = "exemptions.rs"]
 pub(crate) mod exemptions;
 pub(crate) use exemptions::runs_here;
@@ -562,106 +567,6 @@ pub(crate) const DIM_CALENDAR: &str =
 pub(crate) const FCT_TICKET_MONTHLY: &str = "month,customer_key,tickets\n2026-04-01,5,50\n2026-05-01,2,4\n2026-05-01,5,3\n\
      2026-05-01,42,5\n2026-06-01,1,2\n2026-06-01,2,3\n2026-06-01,11,1\n2026-06-01,20,6\n2026-07-01,2,100\n";
 
-/// One table the `bigquery` dataset holds, and what the provisioning cell loads into it: `None` for an
-/// example-corpus table, which loads its committed CSV, and the rows of a two-fact table the corpus
-/// lacks.
-pub(crate) type DatasetTable = (&'static str, Option<&'static str>);
-
-/// Every table the `bigquery` dataset holds. The derived corpus's APPENDED rows are not here: the
-/// dataset holds one `fct_subscription_monthly`, the committed one every other cell reads.
-pub(crate) const BIGQUERY_TABLES: [DatasetTable; 7] = [
-    ("dim_customer", None),
-    ("dim_product", None),
-    ("dim_region", None),
-    ("fct_subscription_monthly", None),
-    ("fct_usage_daily", None),
-    ("dim_calendar", Some(DIM_CALENDAR)),
-    ("fct_ticket_monthly", Some(FCT_TICKET_MONTHLY)),
-];
-
-/// `BigQuery`: cloud-only, so its venue is the dataset the `bigquery-conformance` CI job loads
-/// [`BIGQUERY_TABLES`] into before this axis runs. Every cell READS those tables and none writes, so
-/// an open over any other table is refused rather than loaded: it would replace a table other cells
-/// are reading, and one dataset has no per-open schema to give it. **Its limit:** a table is matched
-/// by NAME, so a derived corpus's edit to an example table is not what runs here - the two-fact
-/// differential's appended `fct_subscription_monthly` rows fall outside its question's range, which
-/// is what lets that cell compare. It executes as the job's one CI identity under the matrix's
-/// `shared-service-user` posture, so it says nothing about impersonation.
-impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
-    const NAME: &'static str = "bigquery";
-
-    fn available() -> bool {
-        bigquery_venue().is_some()
-    }
-
-    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
-        for (table, _) in &tables {
-            assert!(
-                BIGQUERY_TABLES.iter().any(|&(held, _)| held == table.as_str()),
-                "{table} is not a table the bigquery dataset holds, and loading it would replace a table \
-                 the other cells are reading"
-            );
-        }
-        bigquery_warehouse(name)
-    }
-}
-
-/// The provisioned dataset as a warehouse on source `name` - one address for the provisioning cell
-/// that loads it and every cell that reads it.
-pub(crate) fn bigquery_warehouse(name: SourceName) -> BigQueryWarehouse<AdbcBigQuery> {
-    let venue = bigquery_venue().expect("`available()` guards every bigquery open");
-    BigQueryWarehouse::over_adbc(
-        name,
-        posture(),
-        venue.project.clone(),
-        venue.dataset.clone(),
-        venue.driver.clone(),
-        Impersonation::Disabled,
-        BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
-    )
-}
-
-/// Where a provisioned `BigQuery` dataset is, read once from the job's environment.
-struct BigQueryVenue {
-    project: ProjectId,
-    dataset: DatasetId,
-    driver: DriverLocation,
-}
-
-/// The `BigQuery` venue, or `None` on a host that names none.
-///
-/// **`SUTURA_BQ_DATASET` is the switch, and past it nothing is optional**: a half-configured venue
-/// panics naming the variable, because one that skipped would be a green run over nothing. No value
-/// is printed - a public log should not learn a resource name from a refusal.
-///
-/// **Past the switch the run must also be in CI**, so a live cell never runs from a developer's shell
-/// even when every variable is set. **The limit:** `GITHUB_ACTIONS` is an environment value, so a shell
-/// that exports `true` passes; and a cell that reads its own environment instead of this venue is not
-/// held by it.
-fn bigquery_venue() -> Option<&'static BigQueryVenue> {
-    static CACHED: OnceLock<Option<BigQueryVenue>> = OnceLock::new();
-    CACHED
-        .get_or_init(|| {
-            let dataset = set("SUTURA_BQ_DATASET")?;
-            assert!(
-                set("GITHUB_ACTIONS").is_some_and(|ci| ci == "true"),
-                "a live bigquery cell runs only in CI (GITHUB_ACTIONS=true); this host names a bigquery venue outside CI"
-            );
-            let required = |name: &str| {
-                set(name).unwrap_or_else(|| panic!("SUTURA_BQ_DATASET names a bigquery venue and {name} is unset or empty"))
-            };
-            drop(required("GOOGLE_APPLICATION_CREDENTIALS"));
-            Some(BigQueryVenue {
-                project: ProjectId::parse(required("SUTURA_BQ_PROJECT"))
-                    .unwrap_or_else(|_| panic!("SUTURA_BQ_PROJECT is not a project id")),
-                dataset: DatasetId::parse(dataset).unwrap_or_else(|_| panic!("SUTURA_BQ_DATASET is not a dataset id")),
-                driver: DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER"))
-                    .unwrap_or_else(|_| panic!("SUTURA_BIGQUERY_ADBC_DRIVER is not an absolute path")),
-            })
-        })
-        .as_ref()
-}
-
 /// An environment value, or `None` where it is unset or blank.
 fn set(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.trim().is_empty())
@@ -743,7 +648,7 @@ fn clickhouse_tier() -> Option<&'static Endpoint> {
 
 /// This worktree's provisioned Cube endpoint, where `SUTURA_CUBE_TIER` names the Cube venue.
 ///
-/// Opt-in, like [`bigquery_venue`]: every gate that sets `SUTURA_DEV_REQUIRE_TIER` provisions
+/// Opt-in, like `bigquery::bigquery_venue`: every gate that sets `SUTURA_DEV_REQUIRE_TIER` provisions
 /// Postgres and `ClickHouse` and not Cube, so a discovery read there would fail every cube cell.
 /// Where the variable is set, [`postgres_tier`]'s reasoning holds for the `cube` entry
 /// `just dev-up-cube` publishes.
@@ -794,6 +699,21 @@ where
     C::open()
         .load()
         .unwrap_or_else(|e| panic!("the example catalog does not load through the {} adapter: {e}", C::NAME))
+}
+
+/// The bundle a data-system cell runs on `W`: the example catalog, as `W` names its tables.
+pub(crate) fn load_on<W>() -> PinnedDefinitions
+where
+    W: DataSystemUnderTest,
+{
+    W::bundle_over(&catalog_root())
+}
+
+/// The markdown catalog at `catalog`, loaded as the data system `local` under the pinned version.
+pub(crate) fn local_bundle(catalog: &Path) -> PinnedDefinitions {
+    sutura_catalog_local::LocalCatalog::new(source(), catalog.to_path_buf(), version())
+        .load()
+        .unwrap_or_else(|e| panic!("the catalog at {} does not load: {e}", catalog.display()))
 }
 
 /// A registered data system, opened over the bundle it is about to be asked about.

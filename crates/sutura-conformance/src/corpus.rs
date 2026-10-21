@@ -108,7 +108,9 @@ use std::sync::LazyLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, ColumnName, DimensionName, Grain, MetricName, QualifiedTable, SourceName, TableName, TableQualifier,
+};
 use sutura_domain::plan::{
     FederatedPlan, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate,
     PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
@@ -408,18 +410,42 @@ pub fn cases() -> Vec<Case> {
     case_files::load()
 }
 
+/// [`cases`], every plan reading the corpus table under `at`: for a data system that addresses
+/// no table by its bare name.
+#[must_use]
+pub fn cases_at(at: Option<&TableQualifier>) -> Vec<Case> {
+    case_files::load_at(at)
+}
+
+/// The corpus table, under `at` where a binding places it.
+fn located(at: Option<&TableQualifier>) -> QualifiedTable {
+    QualifiedTable::new(at.cloned(), table())
+}
+
 /// Every leg in the corpus: [`leg_case`] and [`truncated_link_leg_case`].
 #[must_use]
 pub fn leg_cases() -> [LegCase; 2] {
-    [leg_case(), truncated_link_leg_case()]
+    leg_cases_at(None)
+}
+
+/// [`leg_cases`], each leg reading the corpus table under `at`.
+#[must_use]
+pub fn leg_cases_at(at: Option<&TableQualifier>) -> [LegCase; 2] {
+    [leg_case_at(at), truncated_link_leg_case_at(at)]
 }
 
 /// The leg that answers `total-by-region-and-day`'s rows.
 #[must_use]
 pub fn leg_case() -> LegCase {
+    leg_case_at(None)
+}
+
+/// [`leg_case`], its leg reading the corpus table under `at`.
+#[must_use]
+pub fn leg_case_at(at: Option<&TableQualifier>) -> LegCase {
     // The same shape as `total-by-region-and-day`, expressed as one source's share of an answer
     // rather than as a whole one - so the expected rows are that case's, unchanged.
-    let case = cases()
+    let case = cases_at(at)
         .into_iter()
         .find(|c| c.name() == "total-by-region-and-day")
         .expect("the corpus holds the total-by-region-and-day case");
@@ -428,7 +454,7 @@ pub fn leg_case() -> LegCase {
         leg: LegPlan::Fact {
             source: source(),
             metric: metric("amount_total"),
-            tables: StatementTables::only(table()),
+            tables: StatementTables::only(located(at)),
             bucket: bucket(),
             keys: vec![region_key()],
             terms: vec![LegTerm::new(
@@ -454,10 +480,16 @@ pub fn leg_case() -> LegCase {
 /// the raw day would answer two. The rows are literals from the fixture (800 + 1450 cents).
 #[must_use]
 pub fn truncated_link_leg_case() -> LegCase {
+    truncated_link_leg_case_at(None)
+}
+
+/// [`truncated_link_leg_case`], its leg reading the corpus table under `at`.
+#[must_use]
+pub fn truncated_link_leg_case_at(at: Option<&TableQualifier>) -> LegCase {
     let leg = LegPlan::Fact {
         source: source(),
         metric: metric("amount_total"),
-        tables: StatementTables::only(table()),
+        tables: StatementTables::only(located(at)),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("day")),
         keys: vec![PlanKey::truncated(
             ResultLabel::internal(InternalLabel::Link(0)),

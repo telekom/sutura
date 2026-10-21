@@ -66,6 +66,7 @@ use sentences::{
 };
 
 use super::RefusalBody;
+use link::{federation_link_ambiguous, federation_link_compound, link_type_mismatch};
 
 /// The status, the code and the sentence for one refusal.
 ///
@@ -314,6 +315,8 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  is a grant there, not another attempt"
             ),
         ),
+        RefusalReason::BillToNotAllowed { ref source } => (StatusCode::FORBIDDEN, payer::not_billed(source)),
+        RefusalReason::NoBillingProject { ref source } => (StatusCode::FORBIDDEN, payer::undecided(source)),
         // 422, for `ResourcesExhausted`'s exact reason: this used to be a data-system failure and
         // leave as a retryable `503`, and a deadline is a configured bound the deployment decided
         // and the data system enforced - something WAS judged. Retrying spends the whole budget at
@@ -430,28 +433,6 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
     )
 }
 
-fn federation_link_ambiguous(source: &sutura_domain::model::SourceName) -> String {
-    format!("the dimensions on `{source}` join through more than one relationship")
-}
-
-fn federation_link_compound(
-    source: &sutura_domain::model::SourceName,
-    relationship: &sutura_domain::model::RelationshipName,
-) -> String {
-    format!("`{relationship}` crossing into `{source}` declares more than one join key")
-}
-
-fn link_type_mismatch(
-    relationship: &sutura_domain::model::RelationshipName,
-    fact: &sutura_domain::plan::QuotedColumnType,
-    lookup: &sutura_domain::plan::QuotedColumnType,
-) -> String {
-    format!(
-        "`{relationship}` joins a column declared {fact} to one declared {lookup}, two kinds of value \
-         that can never match; report it to a person"
-    )
-}
-
 /// D19 + A4's own reason: a non-finite ratio or an ambiguous join is the SAME plan against the
 /// SAME rows failing again, which is what 409 says and what the `503` this used to leave as -
 /// "worth retrying" - does not. Carries no cell: see `FederatedAnswerRefusal`'s own note on why a
@@ -524,6 +505,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::ResourcesExhausted { .. }
         | RefusalReason::CredentialUnavailable { .. }
         | RefusalReason::SourceRefused { .. }
+        | RefusalReason::BillToNotAllowed { .. }
+        | RefusalReason::NoBillingProject { .. }
         | RefusalReason::DeadlineExceeded { .. }
         | RefusalReason::TopOverUncertifiedRows { .. }
         | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
@@ -571,6 +554,8 @@ fn too_much_data(bound: ResultBound) -> String {
 
 /// The rest of `tests::every_reason`'s fixture list, split into its own file for `cargo xtask
 /// max-lines`'s per-file cap.
+mod link;
+mod payer;
 #[cfg(test)]
 mod second_half;
 

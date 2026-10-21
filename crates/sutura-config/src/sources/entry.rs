@@ -8,17 +8,16 @@ use std::path::PathBuf;
 
 use sutura_domain::model::SourceName;
 
+use super::billing::InvalidBilling;
 use super::placement::{InvalidDelegation, SourcePlacement};
 use super::workload_identity::DelegationDeclared;
-// Through the parent rather than `placement`: the parent's import is also what resolves the
-// `BillingProject` links in its children's `//!` headers, which rustdoc reads in its scope.
-use super::{BillingProject, DatasetId, InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, cube, oracle};
+use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, cube, oracle};
 
 /// Reads the fields that belong to this entry's kind, and refuses the ones that do not.
 ///
 /// **Both directions are refused, and the second one is the reason this is a function rather than two
-/// lines at the call site.** A `bigquery` entry with no `billing_project` cannot be served, so it is
-/// refused - that direction is obvious. A `files` entry that also carries a `billing_project` is
+/// lines at the call site.** A `bigquery` entry with no `max_bytes_billed` cannot be served, so it is
+/// refused - that direction is obvious. A `files` entry that also carries a `max_bytes_billed` is
 /// refused too, because the key would otherwise sit in the file doing nothing: an operator who wrote
 /// it believes it is in effect, and a deployment that reads past it has a configuration nobody can
 /// see. Fail-closed on a key that means nothing is the same argument `deny_unknown_fields` makes one
@@ -27,6 +26,7 @@ pub(super) fn parse_placement(
     alias: &SourceName,
     kind: SourceKind,
     entry: &RawSourceEntry<'_>,
+    billing: Option<&crate::raw::RawBilling>,
 ) -> Result<SourcePlacement, InvalidSourceRegistry> {
     // Read as "was anything meaningful written", so an empty string is the same as an absent key -
     // which is what the rest of this module already does with operator-written text.
@@ -42,6 +42,19 @@ pub(super) fn parse_placement(
     if entry.impersonate {
         return Err(InvalidSourceRegistry::ImpersonateRemoved { alias: alias.clone() });
     }
+    let refuse = |cause| InvalidSourceRegistry::Billing {
+        alias: alias.clone(),
+        cause,
+    };
+    if entry.billing_project.is_some() {
+        return Err(refuse(InvalidBilling::BillingProjectRemoved));
+    }
+    if entry.dataset.is_some() {
+        return Err(refuse(InvalidBilling::DatasetRemoved));
+    }
+    if kind != SourceKind::BigQuery && billing.is_some() {
+        return Err(refuse(InvalidBilling::BillingOnOtherKind));
+    }
     if !matches!(kind, SourceKind::Oracle | SourceKind::ClickHouse | SourceKind::Cube) {
         refuse_foreign_keys(alias, kind, [("delegation", entry.delegation.is_some())])?;
     }
@@ -51,13 +64,8 @@ pub(super) fn parse_placement(
             refuse_foreign_keys(
                 alias,
                 kind,
-                [
-                    ("billing_project", written(entry.billing_project)),
-                    ("dataset", written(entry.dataset)),
-                    ("max_bytes_billed", entry.max_bytes_billed.is_some()),
-                ]
-                .into_iter()
-                .chain(dialled_source_keys(entry, written)),
+                std::iter::once(("max_bytes_billed", entry.max_bytes_billed.is_some()))
+                    .chain(dialled_source_keys(entry, written)),
             )?;
             Ok(SourcePlacement::Files {
                 data_dir: parse_data_dir(alias, entry.data_dir)?,
@@ -73,20 +81,8 @@ pub(super) fn parse_placement(
                 kind,
                 std::iter::once(("data_dir", written(entry.data_dir))).chain(dialled_source_keys(entry, written)),
             )?;
-            let billing_project = BillingProject::parse(required(alias, kind, "billing_project", entry.billing_project)?)
-                .map_err(|cause| InvalidSourceRegistry::ResourceName {
-                    alias: alias.clone(),
-                    key: "billing_project",
-                    cause,
-                })?;
-            let dataset = DatasetId::parse(required(alias, kind, "dataset", entry.dataset)?).map_err(|cause| {
-                InvalidSourceRegistry::ResourceName {
-                    alias: alias.clone(),
-                    key: "dataset",
-                    cause,
-                }
-            })?;
-            // Required, and the refusal is `MissingForKind` like the two keys above it - so an
+            let billing = super::billing::parse(billing, entry.posture.trim() == "shared-service-user").map_err(refuse)?;
+            // Required, and the refusal is `MissingForKind` like every other required key - so an
             // operator who left it out is told the same thing about the same kind rather than being
             // handed a range error about a zero nobody wrote. The RANGE is the adapter's, checked
             // where the source is opened; see `SourcePlacement::BigQuery::max_bytes_billed`.
@@ -96,8 +92,7 @@ pub(super) fn parse_placement(
                 key: "max_bytes_billed",
             })?;
             Ok(SourcePlacement::BigQuery {
-                billing_project,
-                dataset,
+                billing,
                 max_bytes_billed,
             })
         }
@@ -110,8 +105,6 @@ pub(super) fn parse_placement(
                 kind,
                 [
                     ("data_dir", written(entry.data_dir)),
-                    ("billing_project", written(entry.billing_project)),
-                    ("dataset", written(entry.dataset)),
                     ("max_bytes_billed", entry.max_bytes_billed.is_some()),
                     ("service_name", written(entry.service_name)),
                 ],
@@ -204,8 +197,6 @@ pub(super) fn parse_placement(
                 kind,
                 [
                     ("data_dir", written(entry.data_dir)),
-                    ("billing_project", written(entry.billing_project)),
-                    ("dataset", written(entry.dataset)),
                     ("max_bytes_billed", entry.max_bytes_billed.is_some()),
                 ]
                 .into_iter()

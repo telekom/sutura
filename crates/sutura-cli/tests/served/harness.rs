@@ -291,8 +291,6 @@ pub(crate) fn delegating_bigquery_entry(name: &str, token_endpoint: &str, client
     format!(
         "  {name}:\n    \
            kind: \"bigquery\"\n    \
-           billing_project: \"acme-analytics\"\n    \
-           dataset: \"warehouse\"\n    \
            max_bytes_billed: 1073741824\n    \
            posture: \"impersonation-at-source\"\n    \
            workload_identity:\n      \

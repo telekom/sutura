@@ -247,19 +247,6 @@ pub enum NotFitToServe {
          receive a token minted for this deployment. Ask the last hop for the pool's own audience"
     )]
     DelegationToTheDeploymentsOwnAudience { alias: SourceName },
-    /// A source declares a caller-identity mode this build does not run.
-    ///
-    /// The block parses, so a configuration written for the mode is checked at load; serving it
-    /// would load keys that nothing reads.
-    #[error(
-        "`sources.{alias}.{block}` is a caller-identity mode this build does not run yet - declare \
-         `workload_identity` or `google_login` instead, or remove the source"
-    )]
-    CallerIdentityModeNotBuilt {
-        alias: SourceName,
-        /// `domain_delegation`.
-        block: &'static str,
-    },
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
     /// `shared-service-user`.
     ///

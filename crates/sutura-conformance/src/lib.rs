@@ -117,6 +117,7 @@ pub mod compile;
 // breaking change bought for nothing. `clippy::pub_use` is allowed here for exactly this shape.
 pub use venue::{Fixture, Missing, REQUIRE_TIER, a_tier_is_required, absence_is_impossible, declared_here};
 
+use sutura_domain::model::TableQualifier;
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::agreement::{ContentDisagreement, OrderDisagreement};
 
@@ -555,8 +556,22 @@ pub fn conduct<W, E>(
 ) where
     E: core::error::Error + 'static,
 {
+    conduct_at(adapter, behaviour, declared, open, |warehouse, _at| pack(warehouse));
+}
+
+/// [`conduct`], handing the pack the qualifier a [`Fixture::Located`] reads the corpus table under.
+pub fn conduct_at<W, E>(
+    adapter: &str,
+    behaviour: Behaviour,
+    declared: Option<&str>,
+    open: impl FnOnce() -> Fixture<W>,
+    pack: impl FnOnce(&W, Option<&TableQualifier>) -> Conformed<E>,
+) where
+    E: core::error::Error + 'static,
+{
     let (attempted, spent) = Spent::measuring(open, |fixture| match *fixture {
-        Fixture::Standing(ref warehouse) => Attempted::Ran(pack(warehouse)),
+        Fixture::Standing(ref warehouse) => Attempted::Ran(pack(warehouse, None)),
+        Fixture::Located(ref warehouse, ref at) => Attempted::Ran(pack(warehouse, Some(at))),
         Fixture::Absent(ref missing) => Attempted::NotHere(missing.clone()),
     });
     match attempted {
@@ -745,7 +760,7 @@ macro_rules! execute_packs {
 
             $crate::execute_packs!(
                 @bind $warehouse, $open,
-                Leg => a_leg_is_executed_because_the_adapter_declares_it_executes_legs => a_leg_is_executed
+                Leg => a_leg_is_executed_because_the_adapter_declares_it_executes_legs => a_leg_is_executed_at
             );
         }
     };
@@ -768,7 +783,7 @@ macro_rules! execute_packs {
 
             $crate::execute_packs!(
                 @bind $warehouse, $open,
-                Leg => a_leg_is_refused_because_the_adapter_declares_it_does_not_execute_legs => a_leg_is_refused
+                Leg => a_leg_is_refused_because_the_adapter_declares_it_does_not_execute_legs => a_leg_is_refused_at
             );
         }
     };
@@ -784,12 +799,12 @@ macro_rules! execute_packs {
         $leg_variant:ident => $leg_name:ident => $leg_pack:ident
     ) => {
         $crate::execute_packs!(@behaviours $warehouse, $open, [
-            Labels => the_answer_is_labelled_as_the_plan_projects_it => labels_are_the_plans_own,
-            Content => the_rows_are_the_reference_rows => content_agrees_with_the_reference,
-            Order => the_rows_are_in_the_order_the_plan_claims => order_agrees_with_the_reference,
-            Determinism => one_plan_asked_twice_is_answered_the_same_way => one_plan_asked_twice_answers_the_same_way,
+            Labels => the_answer_is_labelled_as_the_plan_projects_it => labels_are_the_plans_own_at,
+            Content => the_rows_are_the_reference_rows => content_agrees_with_the_reference_at,
+            Order => the_rows_are_in_the_order_the_plan_claims => order_agrees_with_the_reference_at,
+            Determinism => one_plan_asked_twice_is_answered_the_same_way => one_plan_asked_twice_answers_the_same_way_at,
             PreFlight => a_pre_flight_that_accepts_is_followed_by_an_answer
-                => a_preflight_that_accepts_is_followed_by_an_answer,
+                => a_preflight_that_accepts_is_followed_by_an_answer_at,
             $leg_variant => $leg_name => $leg_pack,
         ]);
     };
@@ -826,7 +841,7 @@ macro_rules! execute_packs {
                 // seam this crate paid for: with the read down there, `checks.nextest` - which
                 // provisions the tier and sets the variable - refused two of the packs crate's own
                 // fake-venue cells, because a fake absence and a fabricated one are the same value.
-                $crate::conduct(
+                $crate::conduct_at(
                     ADAPTER,
                     $crate::Behaviour::$variant,
                     $crate::declared_here().as_deref(),
