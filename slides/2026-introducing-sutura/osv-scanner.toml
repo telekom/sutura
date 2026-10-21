@@ -1,0 +1,10 @@
+# Advisories with no fixed release. Both are a crash on attacker-controlled input; at build time
+# the only input is this directory's own files, and the built deck ships neither package.
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+reason = "braces 3.0.3, no fix: deeply nested glob patterns; the build globs only its own paths"
+
+[[IgnoredVulns]]
+id = "GHSA-hp3w-g68c-fv3c"
+reason = "sprintf-js 1.0.3, no fix: attacker format strings; reached only via js-yaml on our frontmatter"

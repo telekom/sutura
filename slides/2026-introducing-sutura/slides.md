@@ -1,6 +1,6 @@
 ---
 theme: ./theme
-title: "sutura - answers about data, as the person asking"
+title: "sutura - secure, pluggable, multiplayer AI + semantic data experience"
 info: sutura, a semantic data runtime. Documentation at telekom.github.io/sutura.
 transition: slide-left
 mdc: true
@@ -14,47 +14,65 @@ routerMode: hash
 ---
 
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-12 flex flex-col justify-between">
-  <div class="eyebrow-light"><a href="https://github.com/telekom/sutura" class="hover:text-teal-300">github.com/telekom/sutura</a></div>
-  <div class="grid w-full gap-10" style="grid-template-columns:1.35fr 0.65fr;align-items:center">
+  <div class="eyebrow-light" style="font-size:1rem">Multiplayer semantic layer</div>
+  <div class="grid w-full gap-10" style="grid-template-columns:1.6fr 0.4fr;align-items:center">
     <div class="space-y-5">
-      <h1 class="slide-title text-white" style="text-wrap:balance">
-        Answers about data, <span style="color:#5eead4">as the person asking</span>
-      </h1>
-      <div class="lead-dark space-y-1">
-        <p>sutura is a semantic data runtime written in Rust.</p>
-        <p>Certified metric definitions. HTTP and MCP. Several data sources.</p>
-      </div>
+      <h1 class="slide-title text-white" style="font-size:7rem">sutura</h1>
+      <p class="lead-dark" style="font-size:2.75rem;line-height:1.25">
+        Secure, pluggable, multiplayer <span style="color:#5eead4">AI</span><br>
+        <span style="color:#5eead4">semantic data</span> experience
+      </p>
     </div>
     <div class="flex justify-center">
       <img src="/shared/sutura.svg" alt="sutura" class="h-auto object-contain" style="max-height:15rem" />
     </div>
   </div>
-  <div class="mono-label" style="color:rgba(94,234,212,0.78);line-height:1.6;letter-spacing:0.04em">
+  <div class="mono-label" style="color:rgba(94,234,212,0.78);line-height:1.6;letter-spacing:0.04em;font-size:1rem">
     <a href="https://telekom.github.io/sutura/latest/" class="hover:text-teal-300">telekom.github.io/sutura</a> · Apache-2.0
   </div>
 </div>
+
+<!--
+sutura is a secure, pluggable, multiplayer AI + semantic data experience: answers about data, as the person asking.
+Chat with your data, securely and multiplayer.
+Certified metrics from your semantic layer, no lock-in. HTTP + MCP, many data sources.
+-->
 
 ---
 layout: light
 ---
 
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex items-center">
-  <div class="space-y-6">
-    <div class="eyebrow">The problem</div>
-    <h1 class="slide-heading" style="text-wrap:balance">An agent with a database connection writes its own SQL</h1>
-    <p class="lead max-w-4xl">
-      It runs that SQL with the credential of the service. Two things go wrong.
-    </p>
+  <div class="w-full space-y-8">
+    <div class="eyebrow" style="font-size:1rem">Agent + database = its own SQL</div>
+    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.6rem">Agentic trust and context problem</h1>
     <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
-      <TealCallout label="Nobody certified the number">
-        <p class="text-neutral-700">"Revenue" can mean something different from what finance means.</p>
+      <TealCallout label="Governance misalignment">
+        <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+          <li>Nobody certified the number</li>
+          <li>"Revenue" ≠ finance's revenue</li>
+          <li>Data quality unclear</li>
+        </ul>
       </TealCallout>
-      <TealCallout label="The rows are the service's">
-        <p class="text-neutral-700">The query reads what the service may read, not what the caller may read. Row-level security has no effect.</p>
+      <TealCallout label="Security challenges">
+        <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+          <li>Service credential, not the caller's</li>
+          <li>Row-level security: no effect</li>
+          <li>IAM re-implemented in the service</li>
+        </ul>
       </TealCallout>
     </div>
   </div>
 </div>
+
+<!--
+An agent with a database connection writes its own SQL, and runs it with the credential of the service.
+Two things go wrong, governance misalignment and security challenges:
+- "Revenue" can mean something different from what finance means.
+- Data quality is unclear: governance is missing.
+- The query reads what the service may read, not what the caller may read. Row-level security has no effect.
+- Each service re-implements IAM instead of relying on the grants of the data system.
+-->
 
 ---
 layout: dark
@@ -62,44 +80,38 @@ layout: dark
 
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
-    <div class="eyebrow-light">What sutura is</div>
-    <h1 class="slide-heading text-white" style="text-wrap:balance">It answers with certified definitions. When it cannot answer correctly, it refuses.</h1>
+    <div class="eyebrow-light" style="font-size:1rem">Pluggable, no lock-in semantic data experience</div>
+    <h1 class="slide-heading text-white" style="text-wrap:balance;font-size:3.6rem">Certified answers - or a refusal</h1>
   </div>
   <div class="grid gap-4" style="grid-template-columns:repeat(3,1fr)">
-    <StageCard label="Catalog" name="Definitions arrive as a pinned, hashed snapshot from DataHub, OpenMetadata, files or a database." />
-    <StageCard label="Plan" name="A question is compiled into one statement per data system, with bind parameters." />
-    <StageCard label="Data systems" name="BigQuery, ClickHouse, Oracle, Postgres, DuckDB, files, Cube. A question can combine several." />
+    <StageCard label="Pluggable" name="Catalog + data">
+      <div class="mt-3 text-lg text-slate-300">DataHub · OpenMetadata · Cube · files (OKF, ODCS)</div>
+      <div class="mt-1 text-lg text-slate-300">BigQuery · ClickHouse · Oracle · Postgres · DuckDB</div>
+      <div class="mt-1 text-lg text-slate-300">Data stays in place</div>
+    </StageCard>
+    <StageCard label="Verified metrics" name="No SQL from the model">
+      <div class="mt-3 text-lg text-slate-300">Only certified metrics parse · values are bind parameters</div>
+      <div class="mt-1 text-lg text-slate-300">Less SQL/prompt injection</div>
+    </StageCard>
+    <StageCard label="DataFusion + ADBC" name="Federation">
+      <div class="mt-3 text-lg text-slate-300">One question, several systems · bind parameters</div>
+      <div class="mt-1 text-lg text-slate-300">ADBC: Arrow-native drivers per data system</div>
+    </StageCard>
   </div>
+  <p class="text-base text-slate-400">Apache-2.0 · open standards: DataFusion · Arrow · ADBC · MCP</p>
 </div>
 
----
-layout: white
----
-
-<div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
-  <div class="space-y-2">
-    <div class="eyebrow">The four properties</div>
-    <h1 class="slide-heading" style="font-size:2.4rem">What the design guarantees</h1>
-  </div>
-  <div>
-    <div class="grid gap-4 border-t border-neutral-300 py-3" style="grid-template-columns:240px 1fr">
-      <div class="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">No SQL in the question</div>
-      <div class="text-sm leading-relaxed text-neutral-700">The question type has no field for SQL, a table or a filter. An extra field is refused, and every value becomes a bind parameter.</div>
-    </div>
-    <div class="grid gap-4 border-t border-neutral-300 py-3" style="grid-template-columns:240px 1fr">
-      <div class="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">Definitions from a catalog</div>
-      <div class="text-sm leading-relaxed text-neutral-700">sutura does not edit them. Every anchor, a date range with the value the metric must return, runs again before sutura serves.</div>
-    </div>
-    <div class="grid gap-4 border-t border-neutral-300 py-3" style="grid-template-columns:240px 1fr">
-      <div class="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">A refusal is an answer</div>
-      <div class="text-sm leading-relaxed text-neutral-700">A refusal is a result with a reason, not an error to retry. Every outcome goes to the audit sink before sutura returns it.</div>
-    </div>
-    <div class="grid gap-4 border-t border-b border-neutral-300 py-3" style="grid-template-columns:240px 1fr">
-      <div class="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">Every query runs as the caller</div>
-      <div class="text-sm leading-relaxed text-neutral-700">A leg that cannot run as the caller is refused. Where a data system cannot do this, it runs as one identity that the operator declares.</div>
-    </div>
-  </div>
-</div>
+<!--
+sutura answers with certified definitions. When it cannot answer correctly, it refuses.
+- Pluggable: catalog and data systems. Definitions arrive as a pinned, hashed snapshot from the semantic layer you already have - DataHub, OpenMetadata, Cube, data contracts, files or a database.
+- Verified metrics: the question type has no field for SQL, a table or a filter. Only certified metrics and dimensions parse, an extra field is refused, and every value becomes a bind parameter. That closes the SQL-injection path and shrinks what a prompt injection can make the agent do - it cannot stop the injection itself. Definitions arrive pinned and hashed, and every anchor runs again before sutura serves.
+- DataFusion federation: a question is compiled into one statement per data system, with bind parameters. A question can combine several data systems: BigQuery, ClickHouse, Oracle, Postgres, DuckDB, files, Cube.
+No lock-in: sutura reads definitions from where they already live.
+- Definitions: DataHub, OpenMetadata, Cube, Open Data Contract Standard documents, Frictionless Table Schema descriptors, a database dictionary, or plain markdown files with YAML frontmatter.
+- Swap by config: one setting, catalog.kind, selects the source. A Wren MDL manifest converts with sutura import wren. The question an agent asks does not change.
+- Data stays in place: sutura runs each query in your data system, as the caller. It keeps no copy, and your grants and row policies still apply.
+Everything is Apache-2.0, on open standards.
+-->
 
 ---
 layout: light
@@ -107,66 +119,91 @@ layout: light
 
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
-    <div class="eyebrow">What it borrows</div>
-    <h1 class="slide-heading" style="text-wrap:balance">Two Apache-2.0 projects did parts of this first</h1>
+    <div class="eyebrow" style="font-size:1rem">Inspiration</div>
+    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.2rem">Standing on the shoulders of giants</h1>
   </div>
-  <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
+  <div class="grid gap-6" style="grid-template-columns:repeat(3,1fr)">
     <TealCallout label="Wren">
-      <p class="text-neutral-700">Compiles a modelled question into SQL over DataFusion. sutura takes the idea of a plan compiled from a model.</p>
+      <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+        <li>Semantic model → SQL</li>
+        <li>On DataFusion</li>
+      </ul>
     </TealCallout>
     <TealCallout label="Spice">
-      <p class="text-neutral-700">Federates queries across data systems, also on DataFusion.</p>
+      <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+        <li>Federated SQL on DataFusion</li>
+      </ul>
+    </TealCallout>
+    <TealCallout label="sutura adds">
+      <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+        <li>Polyglot adapters</li>
+        <li>Pluggable connectors</li>
+      </ul>
     </TealCallout>
   </div>
-  <p class="lead max-w-5xl">
-    sutura adds identity: what a question means, who asks it, and whether they may see the answer.
-    It runs on Apache DataFusion, Apache Arrow and ADBC.
-  </p>
+  <p class="lead" style="font-size:1.35rem"><strong>Pushing the ecosystem forward:</strong> upstream contributions (OIDC, fuzzing)</p>
+  <p class="text-base text-neutral-500">Built on DataFusion · Arrow · ADBC</p>
 </div>
+
+<!--
+Inspiration: two Apache-2.0 projects. sutura uses no code from either; the shape is theirs.
+- Wren compiles a question over a semantic model into SQL, on DataFusion. From Wren, sutura takes the idea that the model, not the prompt, makes a number defensible. `sutura import wren` converts a Wren MDL manifest into a sutura catalog.
+- Spice federates one SQL query across many data systems and accelerates it locally, also on DataFusion.
+sutura adds:
+- Polyglot adapters: one plan, rendered in the SQL dialect of each data system.
+- Pluggable connectors: catalogs and data systems are adapters behind ports, chosen by config.
+And identity: what a question means, who asks it, and whether they may see the answer.
+Pushing the ecosystem forward: fixes go upstream as contributions - OIDC, fuzzing - rather than staying as local patches.
+- Definitions come from your catalog as a pinned snapshot, and the question is a type with no field for SQL.
+- Each leg of the plan runs as the caller. When it cannot, sutura refuses and gives the reason. Where a data system cannot run as the caller, the operator declares one identity for it.
+It runs on Apache DataFusion, Apache Arrow and ADBC.
+-->
 
 ---
 layout: white
 ---
 
 <div class="h-full px-10 py-6 flex flex-col gap-2">
-  <div class="eyebrow">Architecture</div>
-  <h1 class="slide-heading" style="font-size:1.9rem">The domain defines the ports. Each adapter implements one.</h1>
-  <iframe src="./shared/architecture.html" title="sutura crates and ports" class="w-full flex-1 rounded-lg border border-neutral-200" />
-  <p class="text-xs text-neutral-500">Diagram rendered with archify (MIT).</p>
+  <div class="eyebrow">Architecture · 1/2</div>
+  <h1 class="slide-heading" style="font-size:1.9rem">Transports and service reach the domain's ports</h1>
+  <iframe src="./shared/architecture.html#top" title="sutura callers, transports and domain ports" class="w-full flex-1 rounded-lg border border-neutral-200" />
 </div>
+
+<!--
+The agent speaks MCP, an app speaks HTTP. Both transports verify the token with the key set of the identity provider, then hand the question to the service. The service compiles it into a plan and calls the ports of the domain.
+-->
 
 ---
 layout: white
 ---
 
 <div class="h-full px-10 py-6 flex flex-col gap-2">
-  <div class="eyebrow">Deployment</div>
-  <h1 class="slide-heading" style="font-size:1.9rem">The agent reaches sutura over MCP</h1>
-  <iframe src="./shared/deployment.html" title="sutura deployment" class="w-full flex-1 rounded-lg border border-neutral-200" />
-  <p class="text-xs text-neutral-500">Diagram rendered with archify (MIT).</p>
+  <div class="eyebrow">Architecture · 2/2</div>
+  <h1 class="slide-heading" style="font-size:1.9rem">Domain defines ports · adapters implement them</h1>
+  <iframe src="./shared/architecture.html#bottom" title="sutura domain ports and adapters" class="w-full flex-1 rounded-lg border border-neutral-200" />
 </div>
 
+<!--
+The domain defines the ports. Each adapter implements one. Nothing depends on an adapter.
+-->
+
 ---
-layout: light
+layout: white
+clicks: 4
 ---
 
-<div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-5">
-  <div class="space-y-2">
-    <div class="eyebrow">Deployment</div>
-    <h1 class="slide-heading" style="font-size:2.4rem">How to read the diagram</h1>
-  </div>
-  <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
-    <div class="space-y-3 text-neutral-700">
-      <p>The MCP gateway is optional. If you use it, it passes the caller's token to sutura. The token must name sutura as its audience.</p>
-      <p>sutura verifies the token with the key set of the identity provider, then runs each query in the data system.</p>
-      <p>sutura keeps no copy of the grants and no result cache.</p>
-    </div>
-    <div class="space-y-3 text-neutral-700">
-      <p>DataHub holds the definitions. Cube, optionally, serves the metrics to BI tools and APIs as well.</p>
-      <p>Each part can change: another catalog, another data system, another OIDC issuer, with or without the gateway, with or without Cube.</p>
-    </div>
-  </div>
+<div class="h-full px-10 py-6 flex flex-col gap-2">
+  <div class="eyebrow">Deployment{{ ['', ' · request path', ' · identity', ' · data systems', ' · semantics'][$clicks] }}</div>
+  <h1 class="slide-heading" style="font-size:1.9rem">Agent → MCP → sutura</h1>
+  <iframe :src="'./shared/deployment.html#fit' + ['', '/path', '/identity', '/data', '/semantics'][$clicks]" title="sutura deployment" class="w-full flex-1 rounded-lg border border-neutral-200" />
 </div>
+
+<!--
+Press → to zoom through request path, identity, data systems and semantics; the audience window follows. Ad hoc: the + / − buttons, scroll or pinch, drag to pan, double-click to reset - these stay in the window you use.
+The agent reaches sutura over MCP, optionally through an MCP gateway that passes the caller's token.
+sutura verifies the caller with the OIDC issuer, then runs each query in the data system; BigQuery through the workload identity pool.
+DataHub holds the definitions. Cube serves the metrics to BI tools and APIs.
+-->
 
 ---
 layout: dark
@@ -175,18 +212,45 @@ layout: dark
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
     <div class="eyebrow-light">Identity</div>
-    <h1 class="slide-heading text-white" style="text-wrap:balance">Two legs: who asks, and who runs the query</h1>
+    <h1 class="slide-heading text-white" style="text-wrap:balance">Two legs: who asks, who runs it</h1>
   </div>
   <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
-    <DarkCallout label="Leg 1">
-      <p class="lead-dark">sutura knows who asks. It verifies the caller's token before it answers, on HTTP and on MCP.</p>
+    <DarkCallout label="Leg 1 - who asks · per deployment">
+      <ul class="lead-dark list-disc pl-5 space-y-1">
+        <li><b>direct</b> - the caller's own token</li>
+        <li><b>behind-gateway</b> - the gateway's signed assertion</li>
+        <li><b>none</b> - single-user only, with a reason</li>
+      </ul>
     </DarkCallout>
-    <DarkCallout label="Leg 2">
-      <p class="lead-dark">The data system runs the query as the caller: BigQuery, ClickHouse and Oracle. Every other data system runs as one identity that the operator declares.</p>
+    <DarkCallout label="Leg 2 - who runs it · per source">
+      <ul class="lead-dark list-disc pl-5 space-y-1">
+        <li><b>as the caller</b>
+          <ul class="list-[circle] pl-5">
+            <li><b>multi-hop</b> exchange → caller signs in</li>
+            <li>federation → caller's own principal</li>
+            <li>session switch → statement runs as caller</li>
+          </ul>
+        </li>
+        <li><b>shared</b> - one declared identity</li>
+      </ul>
     </DarkCallout>
   </div>
-  <p class="lead-dark max-w-5xl">Grants, row policies and masking stay in the data system.</p>
+  <p class="lead-dark max-w-5xl">Any OIDC issuer · grants, row policies, masking stay in the data system</p>
 </div>
+
+<!--
+Leg 1 is set once for the deployment. Leg 2 is set on each source, so one answer can mix postures. executed_as names each one.
+- Leg 1, direct: the caller sends their own access token. sutura verifies signature, issuer, audience and expiry against the key set of the issuer.
+- Leg 1, behind-gateway: a gateway signs the caller in and sends a signed assertion. sutura verifies the assertion.
+- Leg 1, none: only in a single-user deployment, and only with a written reason. A source that runs as the caller needs leg 1, or sutura does not start.
+- Leg 2, as the caller: the adapter carries the caller to the data system. Three ways:
+  - multi-hop token exchange: a declared chain of hops (RFC 8693, on-behalf-of) exchanges the caller's token, hop by hop, until it has the audience the data system expects - for example issuer token, then Keycloak, then the pool. The data system signs in with the result.
+  - federation: a cloud identity pool turns the caller's token into the caller's own principal. No service account.
+  - session switch: sutura signs in as its service user and runs each statement as the caller.
+- Leg 2, shared: one identity that the operator declares. In a multi-user deployment, each shared source needs a written reason, or sutura does not start.
+Which data system supports which posture is in its integration page, and more data systems will follow.
+Grants, row policies and masking stay in the data system.
+-->
 
 ---
 layout: white
@@ -195,23 +259,31 @@ layout: white
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
     <div class="eyebrow">Showcase 1 - Federated</div>
-    <h1 class="slide-heading" style="text-wrap:balance">One question reads two data systems</h1>
+    <h1 class="slide-heading" style="text-wrap:balance">One question, two data systems</h1>
   </div>
   <div class="grid gap-4" style="grid-template-columns:repeat(3,1fr)">
-    <PhaseCard phase="Catalog" title="DataHub" output="the certified metric and its relationship">
-      <li class="text-sm text-neutral-700">Metric <code>recurring_revenue</code></li>
-      <li class="text-sm text-neutral-700">Relationship <code>subscription_customer</code></li>
+    <PhaseCard phase="Catalog" title="DataHub" output="metric + relationship">
+      <li class="text-sm text-neutral-700"><code style="color:#336791">recurring_revenue</code></li>
+      <li class="text-sm text-neutral-700"><code>subscription_customer</code></li>
     </PhaseCard>
-    <PhaseCard phase="Fact" title="Postgres" output="fct_subscription_monthly">
+    <PhaseCard phase="Fact" title="Postgres" output="fct_subscription_monthly" accent="#336791">
       <li class="text-sm text-neutral-700">TLS, one declared identity</li>
-      <li class="text-sm text-neutral-700">The metric is on this table</li>
+      <li class="text-sm text-neutral-700">Holds the metric</li>
     </PhaseCard>
-    <PhaseCard phase="Dimension" title="ClickHouse" output="dim_customer">
-      <li class="text-sm text-neutral-700">The dimension <code>segment</code></li>
-      <li class="text-sm text-neutral-700">Joined to the fact rows by sutura</li>
+    <PhaseCard phase="Dimension" title="ClickHouse" output="dim_customer" accent="#b45309">
+      <li class="text-sm text-neutral-700">Dimension <code style="color:#b45309">segment</code></li>
+      <li class="text-sm text-neutral-700">Joined by sutura</li>
     </PhaseCard>
   </div>
+  <p class="slide-heading text-neutral-700" style="font-size:1.55rem;font-style:italic">“What was our <span style="color:#336791">recurring revenue in June 2026</span>, <span style="color:#b45309">by customer segment</span>?”</p>
 </div>
+
+<!--
+DataHub holds the certified metric recurring_revenue and the relationship subscription_customer.
+The metric is on the Postgres fact table, reached over TLS with one declared identity.
+The dimension segment is on ClickHouse; sutura joins it to the fact rows.
+Example question: what was our recurring revenue in June 2026, by customer segment? That is the request on the next slides.
+-->
 
 ---
 layout: dark
@@ -220,23 +292,32 @@ layout: dark
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-5">
   <div class="space-y-2">
     <div class="eyebrow-light">Federated - run it</div>
-    <h1 class="slide-heading text-white" style="font-size:2.4rem">Three commands, then one container</h1>
+    <h1 class="slide-heading text-white" style="font-size:2.4rem">Three commands, one container</h1>
   </div>
 
 ```sh
-cd examples/federated
-./setup.sh
-docker compose up -d --wait postgres clickhouse datahub
-docker compose run --rm federated-loader
+cd examples/federated  # the federated example
+./setup.sh  # generate local secrets
+docker compose up -d --wait postgres clickhouse datahub  # start the three systems
+docker compose run --rm federated-loader  # load the DataHub catalog
 ```
 
 ```sh
-docker run --rm --network host --user "$(id -u):$(id -g)" \
-  -v "$PWD/conf:/conf:ro" -v "$PWD/.local:/run/sutura:ro" -e SUTURA_CONFIG_DIR=/conf \
-  ghcr.io/telekom/sutura:${SUTURA_VERSION:-latest} serve
+image=ghcr.io/telekom/sutura:${SUTURA_VERSION:-latest}  # the released image
+args=(  # container options
+  --rm --network host --user "$(id -u):$(id -g)"  # throwaway, host network, you
+  -v "$PWD/conf:/conf:ro"  # config, read-only
+  -v "$PWD/.local:/run/sutura:ro"  # secrets, read-only
+  -e SUTURA_CONFIG_DIR=/conf  # where base.yaml lives
+)
+docker run "${args[@]}" "$image" serve  # start sutura
 ```
 
 </div>
+
+<style>
+.slidev-code { font-size: 1rem !important; line-height: 1.5 !important; }
+</style>
 
 ---
 layout: white
@@ -245,7 +326,7 @@ layout: white
 <div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
   <div class="space-y-2">
     <div class="eyebrow">Federated - ask it</div>
-    <h1 class="slide-heading" style="font-size:2.2rem">The question has no SQL in it</h1>
+    <h1 class="slide-heading" style="font-size:2.6rem">No SQL in the question</h1>
   </div>
 
 ```sh
@@ -253,11 +334,30 @@ curl -s -X POST http://127.0.0.1:8080/v1/query \
   -H 'content-type: application/json' \
   -d '{"metrics":["recurring_revenue"],"grain":"month",
        "range":{"start":"2026-06-01","end":"2026-07-01"},
-       "dimensions":["segment"]}'
+       "dimensions":["segment"]}' | jq
 ```
 
-  <p class="lead" style="font-size:1rem">The metric is on Postgres. The dimension <code>segment</code> is on ClickHouse. sutura reads both and joins them.</p>
+```json
+{
+  "outcome": "answer",
+  "executed_as": [{ "source": "billing", "posture": "shared-service-user" },
+                  { "source": "crm", "posture": "shared-service-user" }],
+  "columns": ["segment", "period", "recurring_revenue"],
+  "rows": [["business", "2026-06-01", "66630"], ["consumer", "2026-06-01", "123119"], ...]
+}
+```
+
+  <p class="lead" style="font-size:1.3rem">Metric → <span style="color:#336791">Postgres</span> · <code style="color:#b45309">segment</code> → <span style="color:#b45309">ClickHouse</span> · join → sutura</p>
 </div>
+
+<style>
+.slidev-code { font-size: 0.95rem !important; line-height: 1.45 !important; }
+</style>
+
+<!--
+The metric is on Postgres. The dimension segment is on ClickHouse. sutura reads both and joins them.
+The answer names both sources in executed_as: billing (Postgres) and crm (ClickHouse). Amounts are in cents.
+-->
 
 ---
 layout: white
@@ -266,13 +366,16 @@ layout: white
 <div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
   <div class="space-y-2">
     <div class="eyebrow">Showcase 2 - Single player</div>
-    <h1 class="slide-heading" style="font-size:2.2rem">One command, and the answer says who read the data</h1>
+    <h1 class="slide-heading" style="font-size:2.4rem">One command · the answer says who read the data</h1>
   </div>
 
 ```sh
 docker compose -f examples/single-player/compose.yaml up
-curl -s -X POST http://127.0.0.1:8080/v1/query -H 'content-type: application/json' \
-  -d '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}'
+curl -s -X POST http://127.0.0.1:8080/v1/query \
+  -H 'content-type: application/json' \
+  -d '{"metrics":["recurring_revenue"],"grain":"month",
+       "range":{"start":"2026-06-01","end":"2026-07-01"},
+       "dimensions":["region"]}' | jq
 ```
 
 ```json
@@ -286,14 +389,22 @@ curl -s -X POST http://127.0.0.1:8080/v1/query -H 'content-type: application/jso
 
 </div>
 
+<style>
+.slidev-code { font-size: 1rem !important; line-height: 1.45 !important; }
+</style>
+
+<!--
+Point at executed_as: every answer names the identity each source ran as.
+-->
+
 ---
 layout: light
 ---
 
 <div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
   <div class="space-y-2">
-    <div class="eyebrow">A refusal is an answer</div>
-    <h1 class="slide-heading" style="font-size:2.2rem">A grain nobody certified is refused, with the way forward</h1>
+    <div class="eyebrow" style="font-size:1rem">Uncertified grain → refused, with a remedy</div>
+    <h1 class="slide-heading" style="font-size:3.2rem">A refusal is an answer</h1>
   </div>
 
 ```text
@@ -301,25 +412,94 @@ refused: GrainNotSupported
   the metric exists and does not declare that time resolution
   metric: recurring_revenue
   grain: day
-  remedy: Ask at a grain the metric lists - a finer grain is a number nobody certified.
+  remedy: Ask at a grain the metric lists -
+          a finer grain is a number nobody certified.
 ```
 
-  <p class="lead" style="font-size:1rem">Over HTTP, a refusal has its own status: <code>422</code> with the code <code>grain_not_supported</code>.</p>
+  <p class="lead" style="font-size:1.5rem">HTTP: <code>422</code> · <code>grain_not_supported</code></p>
 </div>
+
+<style>
+.slidev-code { font-size: 1.35rem !important; line-height: 1.5 !important; }
+</style>
+
+<!--
+A grain nobody certified is refused, with the way forward. Over HTTP, a refusal has its own status: 422 with the code grain_not_supported.
+The remedy is one line in the real output; the slide wraps it.
+-->
+
+---
+layout: white
+---
+
+<div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
+  <div class="space-y-2">
+    <div class="eyebrow" style="font-size:1rem">Safety patterns</div>
+    <h1 class="slide-heading" style="font-size:3.2rem">Secure by design, and by verification</h1>
+  </div>
+  <div class="grid gap-5" style="grid-template-columns:1fr 1fr">
+    <TealCallout label="Rust">
+      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+        <li>No <code>unsafe</code> in all crates but one</li>
+        <li>Clippy pedantic + restriction lints</li>
+        <li>No <code>unwrap</code>, <code>panic</code> or indexing</li>
+      </ul>
+    </TealCallout>
+    <TealCallout label="Types">
+      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+        <li>Newtypes that parse · typed errors</li>
+        <li>A question has no field for SQL</li>
+      </ul>
+    </TealCallout>
+    <TealCallout label="Verification">
+      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+        <li>Fuzzing: tokens, keys, catalogs, SQL</li>
+        <li>Golden suite per adapter</li>
+        <li>Every new test red before green</li>
+      </ul>
+    </TealCallout>
+    <TealCallout label="Supply chain">
+      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+        <li>Hermetic nix build · static musl</li>
+        <li>cargo-deny · osv-scanner</li>
+        <li>Signed images · SBOM · SLSA</li>
+      </ul>
+    </TealCallout>
+  </div>
+</div>
+
+<!--
+Security is the product, not a layer, so each rule is held by a type, a lint, a hook or a gate.
+- Rust 2024. unsafe_code is forbidden at every crate root but one. dead_code, unused results and unreachable pub items are errors. Clippy runs the all, nursery, cargo, pedantic and restriction groups with warnings denied, and unwrap, expect, panic and slice indexing are refused outside tests.
+- Types: newtypes parse at the boundary, errors are typed, and dependencies point inward. The question type has no field for SQL, a table or a filter, so an uncertified question cannot be expressed.
+- Verification: five fuzz targets - tokens, key sets, catalog documents, question bodies, SQL expressions. A golden suite holds every adapter to the same answers. A new test must fail on the base and pass with the change.
+- Supply chain: the build is hermetic with nix, and every release ships statically linked musl binaries and images for x86_64 and aarch64 beside the glibc ones. cargo-deny and osv-scanner check dependencies, a secret sweep runs before every push, and zizmor checks the CI workflows. Release images are signed with cosign, with a CycloneDX SBOM and SLSA provenance.
+-->
 
 ---
 layout: dark-closing
 ---
 
-<div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-12 flex flex-col justify-center gap-8">
-  <div class="space-y-4">
-    <div class="eyebrow-light">Try it</div>
-    <h1 class="slide-title text-white" style="font-size:4rem">Start with the examples</h1>
+<div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-12 grid gap-8" style="grid-template-columns:1fr auto">
+  <div class="flex flex-col justify-between">
+    <div class="space-y-5">
+      <div class="eyebrow-light" style="font-size:1rem;letter-spacing:0.16em">Join the sovereign semantic data experience</div>
+      <h1 class="slide-title text-white" style="font-size:4.5rem">Build it with us</h1>
+      <p class="lead-dark" style="font-size:1.6rem">Run an example · open an issue · send a pull request</p>
+      <a href="https://telekom.github.io/sutura/latest/" class="block text-teal-300 hover:text-teal-200" style="font-size:2rem">telekom.github.io/sutura</a>
+      <p class="lead-dark" style="font-size:1.2rem"><span class="text-teal-300 font-semibold">Roadmap:</span> agentic BI - BI tool (persistent object model) + MCP + sutura</p>
+    </div>
+    <div class="mono-label" style="color:rgba(94,234,212,0.78);font-size:1rem">Apache-2.0</div>
   </div>
-  <div class="grid gap-4" style="grid-template-columns:repeat(3,1fr)">
-    <DarkCallout label="Documentation"><a href="https://telekom.github.io/sutura/latest/" class="hover:text-teal-300">telekom.github.io/sutura</a></DarkCallout>
-    <DarkCallout label="Source and issues"><a href="https://github.com/telekom/sutura" class="hover:text-teal-300">github.com/telekom/sutura</a></DarkCallout>
-    <DarkCallout label="Report a vulnerability">Privately, through SECURITY.md in the repository</DarkCallout>
+  <div class="flex flex-col items-end justify-between">
+    <img src="/shared/sutura.svg" alt="sutura" class="object-contain" style="height:9rem" />
+    <a href="https://telekom.github.io/sutura/latest/" class="block bg-white rounded-lg p-3">
+      <img src="/docs-qr.svg" alt="QR code: telekom.github.io/sutura" style="width:10rem;height:10rem;image-rendering:pixelated" />
+    </a>
   </div>
-  <div class="mono-label" style="color:rgba(94,234,212,0.78)">Apache-2.0</div>
 </div>
+
+<!--
+Build it with us: run an example, open an issue, send a pull request. Everything starts at the docs.
+Roadmap thought, not a commitment: agentic BI - a BI tool with an agent over MCP, and sutura underneath, so every chart comes from the certified metrics, read as the person asking. The idea is a persistent object model: charts and dashboards are objects the agent creates and edits over MCP, and they stay. Help shape it: ideas and use cases are welcome.
+-->

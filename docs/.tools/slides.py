@@ -1,7 +1,7 @@
-"""Copy the built meetup deck into the site, so it is published beside the pages.
+"""Copy the built decks into the site, each at `slides/<deck>/` below the index page `slides.md`.
 
 `nix build .#checks.x86_64-linux.slides` makes the deck. The docs workflow names its output in
-`SUTURA_SLIDES_DIST`; without it, as in a local `just docs`, the site has no deck and this hook
+`SUTURA_SLIDES_DIST`; without it, as in a local `just docs`, the site has no decks and this hook
 does nothing.
 """
 
