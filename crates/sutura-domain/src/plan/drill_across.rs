@@ -16,7 +16,8 @@
 //!
 //! **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 //! memory a question can hold grows with its leg count. [`MAX_LEGS`] bounds it at construction. The
-//! refusal a caller sees comes with the planner, which does not read the cap yet.
+//! refusal a caller sees, [`RefusalReason::QuestionNeedsTooManyLegs`](crate::query::RefusalReason),
+//! is declared; the planner that raises it does not read the cap yet.
 //!
 //! `docs/adr/20261018144926-drill-across-for-several-metrics` records the decision and its limits.
 
@@ -174,7 +175,8 @@ impl Arm {
         }
     }
 
-    /// Every leg this arm runs.
+    /// Every leg this arm runs: a joined arm's fact, second fact, then lookup, as
+    /// [`FederatedPlan::legs`] lists them. `execute_across` runs its second fact after the lookup.
     pub fn legs(&self) -> Vec<&LegPlan> {
         match self {
             Self::Joined(plan) => plan.legs(),
@@ -786,7 +788,7 @@ mod tests {
     mod execute_across {
         use std::cell::{Cell, RefCell};
 
-        use super::{DrillAcrossPlan, joined, joined_over_two_facts, local};
+        use super::{Arm, DrillAcrossPlan, joined, joined_over_two_facts, local};
         use crate::plan::federated::{ExecuteError, FederationCombiner, LegRunner, Legs};
         use crate::plan::{ArmLegs, DrillAcrossCombiner, LegPlan, NothingCombined, RefusingCombiner};
         use crate::warehouse::ResultBatches;
@@ -796,17 +798,24 @@ mod tests {
             of_rows(&[String::from("x")], &[]).expect("an empty result of one column is well formed")
         }
 
-        /// Records each leg it runs, and fails the leg at `fail_at` when there is one.
+        /// Records each leg it runs, and fails `fail_on` when there is one, whatever its place in the run.
         struct Runner {
             ran: RefCell<Vec<LegPlan>>,
-            fail_at: Option<usize>,
+            fail_on: Option<LegPlan>,
         }
 
         impl Runner {
             fn answering() -> Self {
                 Self {
                     ran: RefCell::default(),
-                    fail_at: None,
+                    fail_on: None,
+                }
+            }
+
+            fn failing_on(leg: &LegPlan) -> Self {
+                Self {
+                    fail_on: Some(leg.clone()),
+                    ..Self::answering()
                 }
             }
         }
@@ -817,7 +826,7 @@ mod tests {
             fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error> {
                 let mut ran = self.ran.borrow_mut();
                 ran.push(leg.clone());
-                if self.fail_at == Some(ran.len()) {
+                if self.fail_on.as_ref() == Some(leg) {
                     return Err(ran.len());
                 }
                 Ok(batches())
@@ -866,12 +875,41 @@ mod tests {
             }
         }
 
+        /// What the loop runs for `arm`, in order: a joined arm's second fact comes after its lookup,
+        /// where `Arm::legs` lists it before.
+        fn run_order(arm: &Arm) -> Vec<LegPlan> {
+            match arm {
+                Arm::Joined(plan) => [plan.fact(), plan.lookup()]
+                    .into_iter()
+                    .chain(plan.second_fact())
+                    .cloned()
+                    .collect(),
+                Arm::Local(local) => vec![local.fact().clone()],
+            }
+        }
+
+        fn joined_arm(plan: &DrillAcrossPlan, at: usize) -> &super::FederatedPlan {
+            match plan.arms().iter().nth(at).expect("the plan has the arm") {
+                Arm::Joined(joined) => joined,
+                Arm::Local(_) => panic!("arm {at} is joined"),
+            }
+        }
+
+        fn two_facts_twice() -> DrillAcrossPlan {
+            DrillAcrossPlan::new(
+                joined_over_two_facts("revenue", "2026-01-01", "2026-02-01"),
+                joined_over_two_facts("usage", "2026-01-01", "2026-02-01"),
+                Vec::new(),
+            )
+            .expect("two arms over one key set")
+        }
+
         #[test]
         fn every_leg_runs_once_in_the_plans_order_and_the_merge_gets_each_arm_in_its_own_shape() {
             let plan = DrillAcrossPlan::new(joined("revenue"), local("usage"), Vec::new()).expect("two arms over one key set");
             let (runner, combiner) = (Runner::answering(), Recording::default());
             combiner.execute_across(&plan, &runner, 4096).expect("every leg answers");
-            let expected: Vec<LegPlan> = plan.legs().into_iter().cloned().collect();
+            let expected: Vec<LegPlan> = plan.arms().iter().flat_map(run_order).collect();
             assert_eq!(*runner.ran.borrow(), expected);
             assert_eq!(*combiner.shapes.borrow(), ["joined", "local"]);
             assert_eq!((combiner.merges.get(), combiner.ceiling.get()), (1, 4096));
@@ -879,29 +917,48 @@ mod tests {
 
         #[test]
         fn a_second_fact_runs_after_its_arms_lookup_and_reaches_the_merge() {
-            let plan = DrillAcrossPlan::new(
-                joined_over_two_facts("revenue", "2026-01-01", "2026-02-01"),
-                joined_over_two_facts("usage", "2026-01-01", "2026-02-01"),
-                Vec::new(),
-            )
-            .expect("two arms over one key set");
+            let plan = two_facts_twice();
             let (runner, combiner) = (Runner::answering(), Recording::default());
             combiner.execute_across(&plan, &runner, 1).expect("every leg answers");
-            assert_eq!(runner.ran.borrow().len(), 6);
+            let expected: Vec<LegPlan> = plan.arms().iter().flat_map(run_order).collect();
+            assert_eq!(expected.len(), 6);
+            assert_eq!(*runner.ran.borrow(), expected);
             assert_eq!(*combiner.shapes.borrow(), ["joined with a second fact"; 2]);
         }
 
         #[test]
         fn the_first_leg_to_fail_ends_the_run_before_a_later_leg_or_the_merge() {
             let plan = DrillAcrossPlan::new(joined("revenue"), local("usage"), Vec::new()).expect("two arms over one key set");
-            let runner = Runner {
-                fail_at: Some(2),
-                ..Runner::answering()
-            };
+            let runner = Runner::failing_on(joined_arm(&plan, 0).lookup());
             let combiner = Recording::default();
             let failure = combiner.execute_across(&plan, &runner, 1).expect_err("the second leg fails");
             assert!(matches!(failure, ExecuteError::Leg(2)), "{failure:?}");
             assert_eq!(runner.ran.borrow().len(), 2);
+            assert_eq!(combiner.merges.get(), 0);
+        }
+
+        #[test]
+        fn a_failing_second_fact_ends_the_run_before_a_later_arm_or_the_merge() {
+            let plan = two_facts_twice();
+            let second_fact = joined_arm(&plan, 0).second_fact().expect("the first arm has a second fact");
+            let runner = Runner::failing_on(second_fact);
+            let combiner = Recording::default();
+            let failure = combiner.execute_across(&plan, &runner, 1).expect_err("the second fact fails");
+            assert!(matches!(failure, ExecuteError::Leg(3)), "{failure:?}");
+            assert_eq!(runner.ran.borrow().len(), 3);
+            assert_eq!(combiner.merges.get(), 0);
+        }
+
+        #[test]
+        fn a_failing_leg_of_a_later_arm_ends_the_run_before_its_second_fact_or_the_merge() {
+            let plan = two_facts_twice();
+            let runner = Runner::failing_on(joined_arm(&plan, 1).lookup());
+            let combiner = Recording::default();
+            let failure = combiner
+                .execute_across(&plan, &runner, 1)
+                .expect_err("the later arm's lookup fails");
+            assert!(matches!(failure, ExecuteError::Leg(5)), "{failure:?}");
+            assert_eq!(runner.ran.borrow().len(), 5);
             assert_eq!(combiner.merges.get(), 0);
         }
 

@@ -426,8 +426,10 @@ impl FederatedPlan {
         self.link_comparison
     }
 
-    /// Every leg, in execution order: the fact leg, the second fact leg if present, then the
-    /// lookup leg.
+    /// Every leg: the fact leg, the second fact leg if present, then the lookup leg.
+    ///
+    /// A run takes another order: [`FederationCombiner::execute`] and `execute_across` run the second
+    /// fact after the lookup, as [`Cut::legs`] names them.
     ///
     /// A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
     /// link and the time bucket above the port.

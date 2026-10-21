@@ -7402,14 +7402,14 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 
 ### `use ExecuteError`
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
 ### `use Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 ### `use FederatedAnswerRefusal`
 
@@ -8341,7 +8341,8 @@ yet, so no question reaches it.
 
 **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
-refusal a caller sees comes with the planner, which does not read the cap yet.
+refusal a caller sees, `RefusalReason::QuestionNeedsTooManyLegs`,
+is declared; the planner that raises it does not read the cap yet.
 
 The architecture decision records the decision and its limits.
 
@@ -8378,7 +8379,8 @@ The answer's group-by labels in question order.
 pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg this arm runs.
+Every leg this arm runs: a joined arm's fact, second fact, then lookup, as
+`FederatedPlan::legs` lists them. `execute_across` runs its second fact after the lookup.
 
 ```rust
 pub fn measure_label(&self) -> &str
@@ -8676,8 +8678,10 @@ The answer's group-by keys, in question order.
 pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg, in execution order: the fact leg, the second fact leg if present, then the
-lookup leg.
+Every leg: the fact leg, the second fact leg if present, then the lookup leg.
+
+A run takes another order: `FederationCombiner::execute` and `execute_across` run the second
+fact after the lookup, as `Cut::legs` names them.
 
 A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
 link and the time bucket above the port.
@@ -8888,14 +8892,14 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 
 #### `use ExecuteError`
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
 #### `use Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 #### `use FederationCombiner`
 
@@ -9383,7 +9387,7 @@ application, and an adapter still never calls another adapter. `sutura_app` impl
 pub enum ExecuteError<L, C>
 ```
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
@@ -9480,8 +9484,8 @@ What `RefusingCombiner` answers with.
 
 ##### `type_alias Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 #### Module `label`
 
@@ -10662,10 +10666,11 @@ somebody else's input.
 - `TooManyMetrics` - More metrics than `MAX_METRICS` one question may name together.
 - `DimensionNotConformed` - A question named several metrics, and a dimension it groups or filters by does not end on the same model and column for `first` and `other`.
 
-  **A dimension only joins the metrics' answers when every metric means the same thing by
-  it.** Reading the first metric's column for all of them would label another metric's
-  numbers with a grouping it never computed. Refused naming the dimension and the first pair
-  that disagree, never a guess at which of them is wrong.
+  **A dimension only joins the metrics' answers when it ends on the same model and column for
+  every metric.** Reading the first metric's column for all of them would label another
+  metric's numbers with a grouping it never computed. The check is structural: two columns
+  that mean the same thing but are two copies are refused too. Refused naming the dimension
+  and the first pair that disagree, never a guess at which of them is wrong.
 - `QuestionNeedsTooManyLegs` - A question needs more legs than one answer may run, counting every leg of every metric.
 
   Each leg is held whole before the answers are merged, so the leg count bounds held memory

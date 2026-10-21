@@ -155,10 +155,11 @@ pub enum RefusalReason {
     /// A question named several metrics, and a dimension it groups or filters by does not end on
     /// the same model and column for `first` and `other`.
     ///
-    /// **A dimension only joins the metrics' answers when every metric means the same thing by
-    /// it.** Reading the first metric's column for all of them would label another metric's
-    /// numbers with a grouping it never computed. Refused naming the dimension and the first pair
-    /// that disagree, never a guess at which of them is wrong.
+    /// **A dimension only joins the metrics' answers when it ends on the same model and column for
+    /// every metric.** Reading the first metric's column for all of them would label another
+    /// metric's numbers with a grouping it never computed. The check is structural: two columns
+    /// that mean the same thing but are two copies are refused too. Refused naming the dimension
+    /// and the first pair that disagree, never a guess at which of them is wrong.
     DimensionNotConformed {
         dimension: DimensionName,
         first: MetricName,

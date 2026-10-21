@@ -41,10 +41,12 @@ pub trait DrillAcrossCombiner: FederationCombiner {
 
     /// Runs every leg of `plan` through `runner`, then [`Self::merge`]s their results.
     ///
-    /// Arm by arm, each arm's legs in the order [`Arm::legs`] names them, one leg at a time: the
-    /// answer's latency is the sum of its legs', which the question's own deadline still bounds. The
-    /// first leg to fail ends the run and no leg after it starts, and every leg's error wins over the
-    /// merge's. Provided, for the reason [`FederationCombiner::plan`] is.
+    /// Arm by arm, one leg at a time, so the answer's latency is the sum of its legs': the runner holds
+    /// any deadline. A joined arm runs its fact, its lookup, then its second fact when it has one, the
+    /// order [`Cut::legs`](crate::plan::Cut::legs) names and not the one [`Arm::legs`] lists, which puts
+    /// the second fact before the lookup. The first leg to fail ends the run and no leg after it
+    /// starts, and every leg's error wins over the merge's. Provided, for the reason
+    /// [`FederationCombiner::plan`] is.
     ///
     /// # Errors
     ///

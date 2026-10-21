@@ -104,8 +104,8 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("{requested} metrics were asked for and the maximum is {limit}"),
         ),
-        // 422, with its predecessor `MetricsSpanDifferentModels`: every metric exists and the request
-        // is well formed, and a dimension that means something else for one of them cannot group both.
+        // 422, with its predecessor `MetricsSpanDifferentModels`: every metric exists and the request is
+        // well formed, and a dimension that does not end on the same model and column for each cannot serve both.
         RefusalReason::DimensionNotConformed {
             ref dimension,
             ref first,

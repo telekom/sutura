@@ -5,7 +5,7 @@ description: A question that names several metrics runs one arm per metric and j
 
 # Drill across for several metrics
 
-Status: **accepted**. The plan type and the DataFusion merge are built. The planner and the answer path are not.
+Status: **accepted**. The plan type, the DataFusion merge, the leg loop and the two refusals' declarations (`DimensionNotConformed`, `QuestionNeedsTooManyLegs`) are built. The planner that raises them and the answer path are not.
 
 ## The question
 
@@ -76,10 +76,12 @@ arm over in-memory legs are measured; no served question reaches `merge`.
 ## What is not built
 
 - **No planner builds this plan.** Both refusals above still fire, and no question reaches it.
-- **No leg running.** `merge` takes the leg results; running the legs, one mint and one charge for
-  every leg is the answer path's.
-- **No conformance check, and no `QuestionNeedsTooManyLegs` refusal.** The plan type holds the cap;
-  the refusal text a caller sees comes with the planner.
+- **No mint and charge per leg.** `execute_across` runs the legs through a `LegRunner`, one after
+  another, and hands the results to `merge`; one mint and one charge for every leg is the answer
+  path's.
+- **No planner raises either refusal.** `DimensionNotConformed` and `QuestionNeedsTooManyLegs` are
+  declared with their sentences, but the conformance check and the read of the cap come with the
+  planner; the plan type holds the cap.
 - **No `top` for the whole question.** A `top` on one arm is refused. A `top` for the whole question,
   for example by period after the join, is not built here.
 - **No calendar per source.** A cross-model ratio whose calendar is on another source stays refused

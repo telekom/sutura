@@ -57,7 +57,7 @@ const TOO_MANY_METRICS: Guide = Guide {
 
 const DIMENSION_NOT_CONFORMED: Guide = Guide {
     reason: "dimension_not_conformed",
-    meaning: "a dimension means something else for one of the named metrics, so it cannot group both",
+    meaning: "a dimension does not end on the same model and column for two of the named metrics, so it cannot be used for both",
     remedy: "Ask for those metrics separately, or leave that dimension out.",
 };
 
